@@ -1,0 +1,451 @@
+import type {
+  RawShiur,
+  RawTeacher,
+  RawSeries,
+  RawCategory,
+  HomeResponse,
+  SearchResponse,
+} from './api-types';
+export type Shiur = {
+  id: number;
+  title: string;
+  teacher: string;
+  teacherId: number;
+  image: string;
+  audio: string;
+  url: string;
+  duration: number;
+  date: string;
+  topics: string[];
+  category: string;
+  language: string;
+  series: string;
+  seriesId: number;
+  description: string;
+  format: string;
+  materials: { name: string; url: string }[];
+};
+export type Series = {
+  id: number;
+  name: string;
+  description: string;
+  image: string;
+  count: number;
+};
+export type HomeData = {
+  featured: Shiur[];
+  recent: Shiur[];
+  daily: Shiur[];
+  series: Series[];
+  total: number;
+  hebrewDate: string;
+  daf: string;
+  nach: string;
+  mishna: string;
+  fetchedAt: string;
+};
+export const ORIGIN = 'https://yutorah.org';
+export function plain(value: unknown): string {
+  return (
+    typeof value === 'string'
+      ? value
+      : typeof value === 'number'
+        ? String(value)
+        : ''
+  )
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+export function safeUrl(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  try {
+    const u = new URL(value, ORIGIN);
+    return u.protocol === 'https:' || u.protocol === 'http:'
+      ? u.href.replace(/^http:/, 'https:')
+      : '';
+  } catch {
+    return '';
+  }
+}
+export function normalize(raw: RawShiur): Shiur {
+  const teacher = raw.shiurTeachers?.[0];
+  const seconds = String(raw.shiurLength ?? '0:0:0')
+    .split(':')
+    .reduce((s: number, n: string) => s * 60 + Number(n), 0);
+  const photo =
+    teacher?.teacherPhotoURL ||
+    (raw.PHOTO
+      ? 'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/' + raw.PHOTO
+      : '');
+  const id = Number(raw.shiurID ?? raw.shiurid);
+  return {
+    id,
+    title: plain(raw.shiurTitle ?? raw.shiurtitle),
+    teacher: plain(teacher?.teacherName ?? raw.teacherfullname),
+    teacherId: Number(teacher?.teacherID ?? raw.teacherid),
+    image: safeUrl(photo),
+    audio: safeUrl(raw.downloadURL || raw.shiurFileURL || raw.shiurdownloadurl),
+    url: `${ORIGIN}/lectures/details?shiurID=${id}`,
+    duration: raw.duration ? Number(raw.duration) * 60 : Math.round(seconds),
+    date: String(raw.shiurDate ?? raw.shiurdate ?? ''),
+    topics: (
+      raw.shiurSubcategoriesObj?.map((s) => s.name) ??
+      raw.subcategoryname ??
+      []
+    ).map(plain),
+    category: plain(
+      raw.shiurSubcategoriesObj?.[0]?.categoryShortName ??
+        raw.categoryname?.[0],
+    ),
+    language: raw.shiurLanguage ?? raw.language ?? '',
+    series: plain(raw.shiurSeriesName ?? raw.seriesname?.[0]),
+    seriesId: Number(raw.shiurSeries ?? raw.seriesid?.[0] ?? 0),
+    description: plain(raw.shiurDescription ?? raw.shiurdescription),
+    format: String(raw.shiurMediaType ?? raw.mediatypename ?? '').toLowerCase(),
+    materials: [],
+  };
+}
+const cache = new Map<string, { until: number; data: unknown }>();
+export async function upstream<T>(path: string, ttl = 120): Promise<T> {
+  const hit = cache.get(path);
+  if (hit && hit.until > Date.now()) return hit.data as T;
+  const response = await fetch(`${ORIGIN}/api/${path}`, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(18000),
+  });
+  if (!response.ok) throw new Error(`YUTorah returned ${response.status}`);
+  let data: unknown = await response.json();
+  if (path.startsWith('search/')) {
+    const search = data as SearchResponse;
+    const f = search.facet_counts?.facet_fields || {};
+    data = {
+      response: search.response,
+      facet_counts: {
+        facet_fields: {
+          teachers: (f.teachers || []).slice(0, 50),
+          subcategories: (f.subcategories || []).slice(0, 40),
+          series: (f.series || []).slice(0, 40),
+        },
+      },
+    };
+  }
+  if (cache.size > 35) cache.delete(cache.keys().next().value!);
+  cache.set(path, { until: Date.now() + ttl * 1000, data });
+  return data as T;
+}
+export async function getHome(): Promise<HomeData> {
+  const j = await upstream<HomeResponse>('homepage/details');
+  return {
+    featured: j.editorsPicks.map(normalize),
+    recent: j.recentlyUploaded.map(normalize),
+    daily: j.dailyShiurim.map(normalize),
+    series: j.featuredSeries
+      .filter((s) => s.numShiurim > 0)
+      .map((s) => ({
+        id: s.seriesID,
+        name: s.name,
+        description: plain(s.description),
+        image: safeUrl(s.imageURL),
+        count: s.numShiurim,
+      })),
+    total: j.totalShiurCount,
+    hebrewDate: j.hebrewDateString,
+    daf: j.timelyData?.dafStr,
+    nach: j.timelyData?.nachYomiStr,
+    mishna: j.timelyData?.mishnaYomiStr,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+export type Teacher = {
+  id: number;
+  name: string;
+  firstName: string;
+  lastName: string;
+  count: number;
+  image: string;
+};
+export type Topic = { id: number; name: string; count: number; group: string };
+export type Directory = {
+  teachers: Teacher[];
+  series: Series[];
+  topics: Topic[];
+  groups: string[];
+};
+export async function getDirectory(): Promise<Directory> {
+  const [teachers, series, categories] = await Promise.all([
+    upstream<RawTeacher[]>('browse/teachers', 3600),
+    upstream<RawSeries[]>('browse/series', 3600),
+    upstream<RawCategory[]>('browse/categories', 3600),
+  ]);
+  return {
+    teachers: teachers
+      .filter((t) => !t.isHidden && t.shiurCount > 0)
+      .map((t) => ({
+        id: t.ID,
+        name: plain(
+          [t.title, t.firstName, t.lastName].filter(Boolean).join(' '),
+        ),
+        firstName: plain(t.firstName),
+        lastName: plain(t.lastName),
+        count: t.shiurCount,
+        image: safeUrl(t.imageURL),
+      }))
+      .sort((a: Teacher, b: Teacher) => b.count - a.count),
+    series: series
+      .filter((s) => s.shiurCount > 0)
+      .map((s) => ({
+        id: s.ID,
+        name: s.name,
+        description: plain(s.description),
+        image: safeUrl(s.imageURL),
+        count: s.shiurCount,
+      })),
+    topics: categories.flatMap((c) =>
+      c.subCategories
+        .filter((s) => s.shiurCount > 0)
+        .map((s) => ({
+          id: s.ID,
+          name: s.name,
+          count: s.shiurCount,
+          group: c.shortName || c.name,
+        })),
+    ),
+    groups: categories.map((c) => c.shortName || c.name),
+  };
+}
+export type SearchPlan = {
+  term: string;
+  original: string;
+  max: number;
+  language: string;
+  format: string;
+  teacherId: number;
+  teacherName: string;
+  seriesId: number;
+  seriesName: string;
+  topicId: number;
+  labels: string[];
+};
+export function parseSearch(
+  query: string,
+  options: Partial<SearchPlan> = {},
+  directory?: Directory,
+): SearchPlan {
+  let term = query.trim().slice(0, 300);
+  const labels: string[] = [];
+  let max = Number(options.max) || 0;
+  let language = options.language || '';
+  let teacherId = options.teacherId || 0;
+  let teacherName = options.teacherName || '';
+  let seriesId = options.seriesId || 0;
+  let seriesName = options.seriesName || '';
+  term = term.replace(
+    /\b(?:under|less than|up to|within)\s+(\d+)\s*(?:minutes?|mins?)(?:\s+long)?\b/gi,
+    (_, n) => {
+      if (!max) max = Math.min(240, Number(n));
+      return ' ';
+    },
+  );
+  term = term.replace(/\bin (hebrew|english)\b/gi, (_, l) => {
+    if (!language) language = l.toLowerCase() === 'hebrew' ? 'HE' : 'EN';
+    return ' ';
+  });
+  if (directory && !teacherId) {
+    const found = directory.teachers.find(
+      (t) =>
+        t.firstName &&
+        t.lastName &&
+        term
+          .toLowerCase()
+          .includes(`${t.firstName} ${t.lastName}`.toLowerCase()),
+    );
+    if (found) {
+      teacherId = found.id;
+      teacherName = found.name;
+      const re = new RegExp(
+        `(?:by\\s+)?(?:rabbi\\s+|rav\\s+)?${escapeRegex(found.firstName)}\\s+${escapeRegex(found.lastName)}`,
+        'ig',
+      );
+      term = term.replace(re, ' ');
+    }
+  }
+  if (directory && !seriesId) {
+    const found = directory.series.find(
+      (s) => s.name.length > 5 && term.toLowerCase() === s.name.toLowerCase(),
+    );
+    if (found) {
+      seriesId = found.id;
+      seriesName = found.name;
+      term = '';
+    }
+  }
+  term = term
+    .replace(/\b(?:shiurim|shiur|lectures?|classes)\s*(?:on|about)?\b/gi, ' ')
+    .replace(
+      /^\s*(?:teach me about|what does judaism say about|learn about|on|about|by)\s+/i,
+      '',
+    )
+    .trim();
+  const aliases: Record<string, string> = {
+    repentance: 'teshuva',
+    teshuvah: 'teshuva',
+    teshuva: 'teshuva',
+    'rosh hashanah': 'Rosh Hashana',
+    shabbos: 'Shabbat',
+    prayer: 'tefillah',
+    selichos: 'selichot',
+    slichot: 'selichot',
+  };
+  if (/^(how|what|why|can|is|does|when|where)\b/i.test(term)) {
+    const subjects: [RegExp, string][] = [
+      [/\b(pray|prayer|prayers|daven|davening)\b/i, 'tefillah'],
+      [/\b(repent|repentance|forgive|forgiveness)\b/i, 'teshuva'],
+      [/\b(faith|believe|belief)\b/i, 'emunah'],
+      [/\b(character|anger|patience)\b/i, 'middot'],
+      [/\b(marriage|married)\b/i, 'marriage'],
+      [/\b(kosher|kashrut|kashrus)\b/i, 'kashrut'],
+      [/\b(shabbat|shabbos|sabbath)\b/i, 'Shabbat'],
+    ];
+    const subject = subjects.find(([re]) => re.test(term));
+    if (subject) {
+      term = subject[1];
+      labels.push(`Topic: ${term}`);
+    } else {
+      term = term
+        .replace(
+          /\b(how|what|why|can|is|does|when|where|do|i|my|the|a|an|to|me|you|your|we|our|and|of|should|could|would)\b/gi,
+          ' ',
+        )
+        .replace(/[?]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (term) labels.push(`Keywords: ${term}`);
+    }
+  }
+  if (aliases[term.toLowerCase()]) {
+    const translated = aliases[term.toLowerCase()];
+    if (translated.toLowerCase() !== term.toLowerCase())
+      labels.push(`${term} → ${translated}`);
+    term = translated;
+  }
+  if (directory) {
+    teacherName =
+      teacherName ||
+      directory.teachers.find((t) => t.id === teacherId)?.name ||
+      '';
+    seriesName =
+      seriesName || directory.series.find((s) => s.id === seriesId)?.name || '';
+  }
+  if (max) labels.push(`Under ${max} minutes`);
+  if (language) labels.push(language === 'HE' ? 'Hebrew' : 'English');
+  if (teacherName) labels.push(teacherName);
+  if (seriesName) labels.push(seriesName);
+  return {
+    term: term.replace(/\s+/g, ' ').trim(),
+    original: query,
+    max,
+    language,
+    format: options.format || '',
+    teacherId,
+    teacherName,
+    seriesId,
+    seriesName,
+    topicId: options.topicId || 0,
+    labels,
+  };
+}
+function escapeRegex(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+export function matchesPlan(s: Shiur, plan: SearchPlan) {
+  return (
+    (!plan.max || (s.duration > 0 && s.duration <= plan.max * 60)) &&
+    (!plan.language || s.language === plan.language) &&
+    (!plan.format || mediaKind(s) === plan.format)
+  );
+}
+export function mediaKind(s: Shiur) {
+  if (['pdf', 'doc', 'docx', 'text', 'article'].includes(s.format))
+    return 'text';
+  if (
+    ['mp4', 'video', 'youtube', 'wmv', 'avi'].includes(s.format) ||
+    /youtu\.?be/.test(s.audio)
+  )
+    return 'video';
+  return 'audio';
+}
+export type SearchResult = {
+  items: Shiur[];
+  total: number;
+  nextPage: number | null;
+  plan: SearchPlan;
+  filtered: boolean;
+  facets: {
+    teachers: { id: number; name: string; count: number }[];
+    topics: { id: number; name: string; count: number }[];
+    series: { id: number; name: string; count: number }[];
+  };
+};
+export async function searchLibrary(
+  query: string,
+  options: Partial<SearchPlan>,
+  page = 1,
+): Promise<SearchResult> {
+  const directory = await getDirectory();
+  const plan = parseSearch(query, options, directory);
+  const filtered = !!(plan.max || plan.language || plan.format);
+  const count = filtered ? 3 : 1;
+  const pages = await Promise.all(
+    Array.from({ length: count }, (_, i) => {
+      const p = new URLSearchParams({
+        searchTerm: plan.term,
+        getFacets: 'true',
+        start: String(page + i),
+      });
+      if (plan.teacherId) p.set('teacherID', String(plan.teacherId));
+      if (plan.seriesId) p.set('seriesID', String(plan.seriesId));
+      if (plan.topicId) p.set('subcategoryID', String(plan.topicId));
+      return upstream<SearchResponse>('search/get?' + p.toString());
+    }),
+  );
+  if (!pages[0]?.response || !Array.isArray(pages[0].response.docs))
+    throw new Error('YUTorah search is unavailable');
+  const total = pages[0].response.numFound;
+  const facets = pages[0].facet_counts?.facet_fields || {};
+  const records = pages
+    .flatMap((p) => (p.response?.docs || []).map(normalize))
+    .filter((s: Shiur) => matchesPlan(s, plan));
+  return {
+    items: [
+      ...new Map<number, Shiur>(
+        records.map((s: Shiur) => [s.id, s] as [number, Shiur]),
+      ).values(),
+    ],
+    total,
+    plan,
+    filtered,
+    nextPage: (page + count - 1) * 30 < total ? page + count : null,
+    facets: {
+      teachers: (facets.teachers || []).slice(0, 50).map((t) => ({
+        id: t.TeacherId,
+        name:
+          directory.teachers.find((d) => d.id === t.TeacherId)?.name ||
+          t.TeacherName,
+        count: t.Match,
+      })),
+      topics: (facets.subcategories || []).slice(0, 40).map((t) => ({
+        id: t.SubcategoryId,
+        name: t.Subcategoryname,
+        count: t.Match,
+      })),
+      series: (facets.series || [])
+        .slice(0, 40)
+        .map((t) => ({ id: t.SeriesId, name: t.SeriesName, count: t.Match })),
+    },
+  };
+}
