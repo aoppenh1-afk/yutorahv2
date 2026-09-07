@@ -68,7 +68,7 @@ test('shiur details expose playable media, video, and real source materials', as
   assert.match(shiur.audio, /^https:\/\//);
   assert.match(shiur.video, /youtu/);
   assert.ok(shiur.materials.length > 0);
-  assert.ok(shiur.materials.every((m) => m.name && /^https:\/\//.test(m.url)));
+  assert.ok(shiur.materials.every((m) => m.name && m.url.startsWith('https://')));
   const media = await fetch(shiur.audio, {
     headers: { Range: 'bytes=0-1023' },
     signal: AbortSignal.timeout(30000),
