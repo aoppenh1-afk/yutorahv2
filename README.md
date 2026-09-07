@@ -18,6 +18,8 @@ npm run build
 npm run start -- --port 3001
 ```
 
+After rebuilding, restart the production preview process. Wrangler can retain old hashed module references when a build replaces its output in place.
+
 ## What works
 
 - Search the upstream index across titles and indexed metadata, with teacher, topic, series, format, language, and duration filters.

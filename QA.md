@@ -18,7 +18,7 @@ Date: 2026-09-07. Production Worker served locally through Wrangler on port 3001
 - Two actual MP3s play successfully. Seek, queue advancement, and separate per-recording history positions verified after the final playback fixes.
 - Playback speed and persisted listening progress verified. Sleep-timer selection is implemented; real-time expiration has not been waited out in this session.
 - Source details retain available topic and series metadata when the detail endpoint omits those fields.
-- Production browser console showed no warnings or errors during the final detail/playback checks.
+- Production browser console showed no warnings or errors during the final detail/playback checks. A later rebuild exposed stale module references in the already-running Wrangler preview; a server restart made the served chunk match the new build. Fresh-page loading and compound search then passed with no new console errors.
 - WebMCP search tool valid and invalid input handling verified.
 
 ## Release conditions
