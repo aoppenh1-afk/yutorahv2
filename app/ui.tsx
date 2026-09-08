@@ -17,6 +17,9 @@ import {
   VolumeX,
   ListMusic,
   Loader2,
+  ChevronUp,
+  NotebookPen,
+  Video,
 } from 'lucide-react';
 import {
   Select,
@@ -113,9 +116,20 @@ export function FilterSelect({
     </Select>
   );
 }
+export function SeriesCover({ name, id }: { name: string; id: number }) {
+  return (
+    <span className={'series-cover cover-tone-' + (id % 4)} aria-hidden="true">
+      <span className="cover-imprint">YUTORAH / SERIES</span>
+      <span className="cover-title" dir="auto">
+        {name}
+      </span>
+      <span className="cover-rule" />
+      <span className="cover-caption">LEARN. RETURN. GROW.</span>
+    </span>
+  );
+}
 export function ShiurCard({
   shiur: s,
-  index,
   onPlay,
   onDetails,
   onSave,
@@ -133,64 +147,82 @@ export function ShiurCard({
   query?: string;
 }) {
   const kind = mediaKind(s);
+  const open = () => (kind === 'audio' ? onPlay(s) : onDetails(s));
   return (
     <article className={'shiur-card ' + (active ? 'is-playing' : '')}>
-      <div className="card-top">
-        <span className="card-number">
-          {index !== undefined ? String(index + 1).padStart(2, '0') : 'YUTORAH'}
-        </span>
+      <div className={'shiur-art cover-tone-' + (s.teacherId % 4)}>
         <button
+          className="art-open"
+          onClick={open}
+          aria-label={
+            (kind === 'audio' ? (active ? 'Pause ' : 'Play ') : 'Open ') +
+            s.title
+          }
+        >
+          <Avatar src={s.image} name={s.teacher} />
+          <span className="art-teacher">{s.teacher}</span>
+          <span className="art-play">
+            {active ? (
+              <Pause size={19} fill="currentColor" />
+            ) : kind === 'text' ? (
+              <FileText size={19} />
+            ) : (
+              <Play size={19} fill="currentColor" />
+            )}
+          </span>
+        </button>
+        <button
+          className="art-save"
           aria-label={(saved ? 'Unsave ' : 'Save ') + s.title}
           aria-pressed={saved}
           onClick={() => onSave(s)}
         >
-          {saved ? (
-            <Bookmark size={17} fill="currentColor" />
-          ) : (
-            <Bookmark size={17} />
-          )}
+          <Bookmark size={17} fill={saved ? 'currentColor' : 'none'} />
         </button>
       </div>
-      <button className="category-label" onClick={() => onDetails(s)}>
-        {s.topics[0] || s.category || s.format.toUpperCase()}
-      </button>
-      <h3 dir="auto">
-        <button onClick={() => onDetails(s)}>
-          {highlightParts(s.title, query).map((part, i) =>
-            part.match ? <mark key={i}>{part.text}</mark> : part.text,
-          )}
+      <div className="shiur-card-copy">
+        <button className="category-label" onClick={() => onDetails(s)}>
+          {s.topics[0] || s.category || s.format}
         </button>
-      </h3>
-      <div className="card-teacher">
-        <Avatar src={s.image} name={s.teacher} />
-        <span>{s.teacher}</span>
-      </div>
-      <div className="card-bottom">
-        <span>
-          {kind === 'text' ? <FileText size={14} /> : <Headphones size={14} />}{' '}
-          {s.duration
-            ? `${Math.round(s.duration / 60)} min`
-            : kind === 'text'
-              ? 'Article'
-              : 'Recording'}
-        </span>
-        <button
-          className="card-play"
-          aria-label={(kind === 'audio' ? 'Play ' : 'Open ') + s.title}
-          onClick={() => (kind === 'audio' ? onPlay(s) : onDetails(s))}
-        >
-          {kind === 'text' ? (
-            <FileText size={15} />
-          ) : active ? (
-            <span className="equalizer">
-              <i />
-              <i />
-              <i />
-            </span>
-          ) : (
-            <Play size={14} fill="currentColor" />
-          )}
-        </button>
+        <h3 dir="auto">
+          <button onClick={() => onDetails(s)}>
+            {highlightParts(s.title, query).map((part, i) =>
+              part.match ? <mark key={i}>{part.text}</mark> : part.text,
+            )}
+          </button>
+        </h3>
+        <div className="card-bottom">
+          <span>
+            {kind === 'text' ? (
+              <FileText size={14} />
+            ) : kind === 'video' ? (
+              <Video size={14} />
+            ) : (
+              <Headphones size={14} />
+            )}
+            {s.duration
+              ? `${Math.round(s.duration / 60)} min`
+              : kind === 'text'
+                ? 'Article'
+                : 'Recording'}
+          </span>
+          <button
+            className="card-play"
+            aria-label={
+              (kind === 'audio' ? (active ? 'Pause ' : 'Play ') : 'Open ') +
+              s.title
+            }
+            onClick={open}
+          >
+            {kind === 'text' ? (
+              <FileText size={15} />
+            ) : active ? (
+              <Pause size={14} fill="currentColor" />
+            ) : (
+              <Play size={14} fill="currentColor" />
+            )}
+          </button>
+        </div>
       </div>
     </article>
   );
@@ -348,6 +380,7 @@ export function Player({
   onQueue: () => void;
   onSave: (s: Shiur) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   return (
     <>
       <audio
@@ -357,7 +390,20 @@ export function Player({
         {...p.handlers}
       />
       {p.active && (
-        <section className="player" aria-label="Audio player">
+        <section
+          className={'player ' + (expanded ? 'player-expanded' : '')}
+          aria-label="Audio player"
+        >
+          <button
+            className="player-expand icon-button"
+            aria-label={
+              expanded ? 'Collapse player controls' : 'Expand player controls'
+            }
+            aria-expanded={expanded}
+            onClick={() => setExpanded(!expanded)}
+          >
+            <ChevronUp size={18} />
+          </button>
           <div className="player-track">
             <button
               className="player-art"
@@ -446,6 +492,13 @@ export function Player({
             </div>
           </div>
           <div className="player-options">
+            <button
+              className="icon-button player-notes"
+              onClick={() => onDetails(p.active!)}
+              aria-label="Open shiur details and notes"
+            >
+              <NotebookPen size={18} />
+            </button>
             <FilterSelect
               label="Playback speed"
               value={String(library.speed)}

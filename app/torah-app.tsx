@@ -73,6 +73,7 @@ import {
   FilterSelect,
   Player,
   ShiurCard,
+  SeriesCover,
   ShiurRow,
   StatePanel,
 } from './ui';
@@ -503,7 +504,8 @@ export default function TorahApp({
       void showDetail(s);
       return;
     }
-    player.start(s);
+    if (player.active?.id === s.id) player.play();
+    else player.start(s);
   };
   const addToPlaylist = (s: Shiur) => {
     setEditingPlaylist('');
@@ -768,6 +770,25 @@ export default function TorahApp({
           </a>
         </SidebarFooter>
       </Sidebar>
+      <nav className="mobile-nav" aria-label="Main navigation">
+        {(
+          [
+            { icon: Compass, view: 'discover' },
+            { icon: Search, view: 'search' },
+            { icon: Users, view: 'teachers' },
+            { icon: Bookmark, view: 'saved' },
+          ] as const
+        ).map((item) => (
+          <button
+            key={item.view}
+            aria-current={view === item.view ? 'page' : undefined}
+            onClick={() => navigate(item.view)}
+          >
+            <item.icon size={20} />
+            <span>{item.view === 'saved' ? 'Saved' : labels[item.view]}</span>
+          </button>
+        ))}
+      </nav>
       <div className={'app-body ' + (player.active ? 'has-player' : '')}>
         <header className="topbar">
           <div className="breadcrumb">
@@ -784,13 +805,10 @@ export default function TorahApp({
             <ChevronRight size={14} />
             <b>{labels[view]}</b>
           </div>
+          {view !== 'search' && (
+            <div className="header-search">{searchBar}</div>
+          )}
           <div className="header-right">
-            {home && (
-              <>
-                <span className="live-dot" />
-                Connected to YUTorah <span className="header-divider" />
-              </>
-            )}
             <button className="device-label" onClick={() => setHelp(true)}>
               <HardDrive size={14} /> On this device
             </button>
@@ -804,12 +822,9 @@ export default function TorahApp({
           {view === 'discover' && (
             <>
               <section className="welcome">
-                <div className="eyebrow">THE MARCOS AND ADINA KATZ YUTORAH</div>
-                <h1>What will you learn today?</h1>
-                <p>Search the library. Find a teacher. Keep learning.</p>
-                {searchBar}
+                <h1>Discover</h1>
                 <div className="suggestions">
-                  <span>Start with</span>
+                  <span>Explore</span>
                   {[
                     'Teshuva',
                     'Rosh Hashana',
@@ -838,24 +853,6 @@ export default function TorahApp({
                 </StatePanel>
               ) : (
                 <>
-                  <section className="today-strip">
-                    <span className="today-label">
-                      <CalendarDays size={18} /> Today’s learning
-                    </span>
-                    {[
-                      ['DAF YOMI', home.daf],
-                      ['MISHNA YOMI', home.mishna],
-                      ['NACH YOMI', home.nach],
-                    ]
-                      .filter((v) => v[1])
-                      .map(([label, value]) => (
-                        <button key={label} onClick={() => searchTopic(value)}>
-                          <span>{label}</span>
-                          <b>{value}</b>
-                          <ArrowUpRight size={14} />
-                        </button>
-                      ))}
-                  </section>
                   {continueItems.length > 0 && (
                     <section className="continue-section">
                       <div className="section-heading">
@@ -898,20 +895,37 @@ export default function TorahApp({
                       </div>
                     </section>
                   )}
+                  <section className="today-strip">
+                    <span className="today-label">
+                      <CalendarDays size={18} /> Today’s learning
+                    </span>
+                    {[
+                      ['DAF YOMI', home.daf],
+                      ['MISHNA YOMI', home.mishna],
+                      ['NACH YOMI', home.nach],
+                    ]
+                      .filter((v) => v[1])
+                      .map(([label, value]) => (
+                        <button key={label} onClick={() => searchTopic(value)}>
+                          <span>{label}</span>
+                          <b>{value}</b>
+                          <ArrowUpRight size={14} />
+                        </button>
+                      ))}
+                  </section>
                   <section className="feature-grid">
                     <div className="season-feature">
                       <div className="season-copy">
                         <span className="feature-kicker">
-                          IN SEASON · ELUL & THE HIGH HOLIDAYS
+                          THE YUTORAH COLLECTION · TESHUVA
                         </span>
                         <h2>
-                          The work of
+                          A deeper look
                           <br />
-                          beginning again.
+                          at teshuva.
                         </h2>
                         <p>
-                          Make room for reflection with shiurim on teshuva,
-                          tefillah, and the year ahead.
+                          Shiurim on reflection, renewal, and the year ahead.
                         </p>
                         <button
                           className="light-button"
@@ -972,6 +986,72 @@ export default function TorahApp({
                       </div>
                     )}
                   </section>
+                  <section className="series-section">
+                    <div className="section-heading">
+                      <div>
+                        <h2>Find your next series</h2>
+                        <p>Find a series to come back to.</p>
+                      </div>
+                      <button
+                        className="text-button"
+                        onClick={() => navigate('series')}
+                      >
+                        All series <ArrowRight size={16} />
+                      </button>
+                    </div>
+                    <div className="series-preview-grid">
+                      {home.series.slice(0, 4).map((s) => (
+                        <button
+                          className="series-preview"
+                          key={s.id}
+                          onClick={() =>
+                            void runSearch('', {
+                              ...noFilters,
+                              series: String(s.id),
+                            })
+                          }
+                        >
+                          <SeriesCover name={s.name} id={s.id} />
+                          <div>
+                            <h3>{s.name}</h3>
+                            <p>{s.count.toLocaleString()} shiurim</p>
+                          </div>
+                          <ArrowUpRight size={16} />
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  {directory && directory.teachers.length > 0 && (
+                    <section className="home-teachers">
+                      <div className="section-heading">
+                        <h2>Learn from our teachers</h2>
+                        <button
+                          className="text-button"
+                          onClick={() => navigate('teachers')}
+                        >
+                          All teachers <ArrowRight size={16} />
+                        </button>
+                      </div>
+                      <div className="teacher-rail">
+                        {directory.teachers.slice(0, 6).map((t) => (
+                          <button
+                            className="teacher-portrait"
+                            key={t.id}
+                            onClick={() =>
+                              void runSearch('', {
+                                ...noFilters,
+                                teacher: String(t.id),
+                              })
+                            }
+                          >
+                            <Avatar src={t.image} name={t.name} />
+                            <span>{t.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
                   <section className="shiur-section">
                     <Tabs
                       value={homeTab}
@@ -981,8 +1061,8 @@ export default function TorahApp({
                         <div>
                           <h2>
                             {homeTab === 'featured'
-                              ? 'Worth your time'
-                              : 'Fresh from the beit midrash'}
+                              ? 'Editor’s picks'
+                              : 'Recently added'}
                           </h2>
                           <p>
                             {homeTab === 'featured'
@@ -1040,8 +1120,8 @@ export default function TorahApp({
                         </div>
                       </TabsContent>
                       <TabsContent value="recent">
-                        <div className="shiur-grid">
-                          {cards(home.recent.slice(0, 4))}
+                        <div className="recent-list">
+                          {rows(home.recent.slice(0, 6))}
                         </div>
                         <div className="more-row">
                           <button
@@ -1053,41 +1133,6 @@ export default function TorahApp({
                         </div>
                       </TabsContent>
                     </Tabs>
-                  </section>
-                  <section className="series-section">
-                    <div className="section-heading">
-                      <div>
-                        <h2>Build a learning habit</h2>
-                        <p>Find a series to come back to.</p>
-                      </div>
-                      <button
-                        className="text-button"
-                        onClick={() => navigate('series')}
-                      >
-                        All series <ArrowRight size={16} />
-                      </button>
-                    </div>
-                    <div className="series-preview-grid">
-                      {home.series.slice(0, 4).map((s) => (
-                        <button
-                          className="series-preview"
-                          key={s.id}
-                          onClick={() =>
-                            void runSearch('', {
-                              ...noFilters,
-                              series: String(s.id),
-                            })
-                          }
-                        >
-                          <img src={s.image} alt="" loading="lazy" />
-                          <div>
-                            <h3>{s.name}</h3>
-                            <p>{s.count.toLocaleString()} shiurim</p>
-                          </div>
-                          <ArrowUpRight size={16} />
-                        </button>
-                      ))}
-                    </div>
                   </section>
                 </>
               )}
@@ -1424,10 +1469,10 @@ export default function TorahApp({
                 <div className="eyebrow">EXPLORE THE LIBRARY</div>
                 <h1>
                   {view === 'teachers'
-                    ? 'Learn from someone remarkable.'
+                    ? 'Teachers'
                     : view === 'series'
-                      ? 'A little learning. A lasting habit.'
-                      : 'Find your next question.'}
+                      ? 'Series'
+                      : 'Topics'}
                 </h1>
                 <p>
                   {view === 'teachers'
@@ -1522,7 +1567,7 @@ export default function TorahApp({
                             })
                           }
                         >
-                          <Avatar src={s.image} name={s.name} />
+                          <SeriesCover name={s.name} id={s.id} />
                           <div>
                             <h2>{s.name}</h2>
                             <p>{s.count.toLocaleString()} shiurim</p>
@@ -1595,12 +1640,12 @@ export default function TorahApp({
                 <div className="eyebrow">YOUR LEARNING</div>
                 <h1>
                   {view === 'saved'
-                    ? 'Keep something worth returning to.'
+                    ? 'Saved shiurim'
                     : view === 'history'
-                      ? 'Right where you left off.'
+                      ? 'Listening history'
                       : playlist
                         ? playlist.name
-                        : 'Make room for your learning.'}
+                        : 'My playlists'}
                 </h1>
                 <p>
                   <HardDrive size={14} /> Saved in this browser, on this device.
