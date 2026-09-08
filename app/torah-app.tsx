@@ -671,6 +671,7 @@ export default function TorahApp({
       <Sidebar className="torah-sidebar">
         <SidebarHeader>
           <Link
+            prefetch={false}
             className="brand"
             href="/"
             onClick={(e) => {
