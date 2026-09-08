@@ -1,3 +1,4 @@
+import { searchText } from './search-discovery';
 import type {
   RawShiur,
   RawTeacher,
@@ -236,8 +237,17 @@ export function parseSearch(
   options: Partial<SearchPlan> = {},
   directory?: Directory,
 ): SearchPlan {
-  let term = query.trim().slice(0, 300);
+  let term = query.trim().slice(0, 300).replace(/\s+/g, ' ');
   const labels: string[] = [];
+  let format = options.format || '';
+  term = term.replace(
+    /\b(audio|video|articles?)\s+(?:shiurim|shiur|lectures?|on|about)\b/gi,
+    (_, kind) => {
+      if (!format)
+        format = /^article/i.test(kind) ? 'text' : kind.toLowerCase();
+      return ' ';
+    },
+  );
   let max = Number(options.max) || 0;
   let language = options.language || '';
   let teacherId = options.teacherId || 0;
@@ -255,20 +265,43 @@ export function parseSearch(
     if (!language) language = l.toLowerCase() === 'hebrew' ? 'HE' : 'EN';
     return ' ';
   });
-  if (directory && !teacherId) {
-    const found = directory.teachers.find(
+  term = term.replace(
+    /\b(\d+)[ -]minute\s+(?:shiurim|shiur|lectures?|classes?)\b/gi,
+    (_, n) => {
+      if (!max) max = Math.min(240, Number(n));
+      return ' ';
+    },
+  );
+  if (directory) {
+    const normalized = ` ${searchText(term)} `;
+    const fullMatches = directory.teachers.filter(
       (t) =>
         t.firstName &&
         t.lastName &&
-        term
-          .toLowerCase()
-          .includes(`${t.firstName} ${t.lastName}`.toLowerCase()),
+        normalized.includes(` ${searchText(`${t.firstName} ${t.lastName}`)} `),
     );
-    if (found) {
+    let found = fullMatches.length === 1 ? fullMatches[0] : undefined;
+    let surnameOnly = false;
+    if (!found && !fullMatches.length) {
+      const titled = term.match(/\b(?:rabbi|rav|r[.'’])\s+([\p{L}'’-]+)/iu);
+      if (titled) {
+        const candidates = directory.teachers.filter(
+          (t) => searchText(t.lastName) === searchText(titled[1]),
+        );
+        if (candidates.length === 1) {
+          found = candidates[0];
+          surnameOnly = true;
+        }
+      }
+    }
+    if (found && (!teacherId || teacherId === found.id)) {
       teacherId = found.id;
       teacherName = found.name;
+      const name = surnameOnly
+        ? escapeRegex(found.lastName)
+        : `${escapeRegex(found.firstName)}\\s+${escapeRegex(found.lastName)}`;
       const re = new RegExp(
-        `(?:by\\s+)?(?:rabbi\\s+|rav\\s+)?${escapeRegex(found.firstName)}\\s+${escapeRegex(found.lastName)}`,
+        `(?:by\\s+)?(?:(?:rabbi|rav|r[.'’])\\s+)?${name}`,
         'ig',
       );
       term = term.replace(re, ' ');
@@ -293,6 +326,12 @@ export function parseSearch(
     .trim();
   const aliases: Record<string, string> = {
     repentance: 'teshuva',
+    תשובה: 'teshuva',
+    תפילה: 'tefillah',
+    שבת: 'Shabbat',
+    'ראש השנה': 'Rosh Hashana',
+    'יום כיפור': 'Yom Kippur',
+    sabbath: 'Shabbat',
     teshuvah: 'teshuva',
     teshuva: 'teshuva',
     'rosh hashanah': 'Rosh Hashana',
@@ -341,6 +380,10 @@ export function parseSearch(
     seriesName =
       seriesName || directory.series.find((s) => s.id === seriesId)?.name || '';
   }
+  if (format)
+    labels.push(
+      format === 'text' ? 'Articles' : format === 'video' ? 'Video' : 'Audio',
+    );
   if (max) labels.push(`Under ${max} minutes`);
   if (language) labels.push(language === 'HE' ? 'Hebrew' : 'English');
   if (teacherName) labels.push(teacherName);
@@ -350,7 +393,7 @@ export function parseSearch(
     original: query,
     max,
     language,
-    format: options.format || '',
+    format,
     teacherId,
     teacherName,
     seriesId,

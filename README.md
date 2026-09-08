@@ -22,6 +22,9 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
 
 ## What works
 
+- Live teacher, topic, and series suggestions with close-spelling matches, keyboard selection, and device-local recent searches.
+- Removable filters, highlighted matches, description excerpts around search terms, and ordering of loaded results by relevance, date, length, or title.
+
 - Search the upstream index across titles and indexed metadata, with teacher, topic, series, format, language, and duration filters.
 - Parse searches such as “teshuva by Rabbi Hershel Schachter under 30 minutes”; show the interpreted filters. Common question phrasing maps to disclosed topics or keywords.
 - Browse teachers, series, topics, editor selections, recent additions, and daily learning.
@@ -36,6 +39,8 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
 
 YUTorah currently accepts teacher, series, and subcategory filters at its search endpoint. Its duration, language, and media filter parameters did not filter results in live testing, so this app checks those fields across batches of three upstream pages. The interface distinguishes loaded filtered matches from the upstream total and supports loading more until all pages are checked.
 
+Relevance ordering ranks the results loaded so far using title, topic, series, teacher, and description matches. It is labeled accordingly; it does not claim to rank unloaded pages. Ambiguous teacher surnames remain unfiltered until the user chooses a teacher.
+
 Search does not invent transcripts or answers to religious questions. It searches the available upstream index and visibly interprets supported phrases. Videos and materials appear only where supplied by YUTorah. The app does not synchronize with YUTorah user accounts; saved items, notes, playlists, and progress use localStorage. Clearing browser storage removes that personal data.
 
 This is an independent interface. It does not replace the existing yutorah.org domain or imply a new official Yeshiva University service.
@@ -49,6 +54,7 @@ The layout uses persistent navigation, restrained YU blue, white space, serif ed
 ```sh
 npx tsc --noEmit
 npm run lint
+npm run test:search
 npm run build
 # Start the production server in another terminal first:
 npm run test:live
@@ -58,4 +64,4 @@ npm run test:live
 
 ## Publishing
 
-Sites is configured in `.openai/hosting.json`. Reuse that exact project ID. The current account connection returns `NOT_FOUND` for the Site created during this task; publication has not succeeded. Restore access to that Site, then push the exact source commit, save its built version, privately deploy it, and repeat the live checks against the returned deployment URL. Do not create a duplicate Site to work around the access failure.
+Sites is configured in `.openai/hosting.json`. Reuse that exact project ID. Push the exact source commit, save its built version, privately deploy it, and repeat the live checks against the returned deployment URL. Do not create a duplicate Site.

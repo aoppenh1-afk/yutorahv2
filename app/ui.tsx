@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/empty';
 import type { Shiur } from '@/lib/yutorah';
 import { mediaKind } from '@/lib/yutorah';
+import { highlightParts, matchExcerpt } from '@/lib/search-discovery';
 import { timeLabel, useAudio, LibraryState } from '@/lib/library';
 export function Avatar({
   src,
@@ -120,6 +121,7 @@ export function ShiurCard({
   onSave,
   saved,
   active = false,
+  query = '',
 }: {
   shiur: Shiur;
   index?: number;
@@ -128,6 +130,7 @@ export function ShiurCard({
   onSave: (s: Shiur) => void;
   saved: boolean;
   active?: boolean;
+  query?: string;
 }) {
   const kind = mediaKind(s);
   return (
@@ -152,7 +155,11 @@ export function ShiurCard({
         {s.topics[0] || s.category || s.format.toUpperCase()}
       </button>
       <h3 dir="auto">
-        <button onClick={() => onDetails(s)}>{s.title}</button>
+        <button onClick={() => onDetails(s)}>
+          {highlightParts(s.title, query).map((part, i) =>
+            part.match ? <mark key={i}>{part.text}</mark> : part.text,
+          )}
+        </button>
       </h3>
       <div className="card-teacher">
         <Avatar src={s.image} name={s.teacher} />
@@ -197,6 +204,7 @@ export function ShiurRow({
   saved,
   progress,
   extra,
+  query = '',
 }: {
   shiur: Shiur;
   onPlay: (s: Shiur) => void;
@@ -206,6 +214,7 @@ export function ShiurRow({
   saved: boolean;
   progress?: { seconds: number; duration: number };
   extra?: React.ReactNode;
+  query?: string;
 }) {
   const kind = mediaKind(s);
   return (
@@ -222,11 +231,28 @@ export function ShiurRow({
       </button>
       <div className="row-content">
         <div className="row-meta">
-          {s.topics.slice(0, 2).join(' · ') || s.category}
-          {s.series && <span> · {s.series}</span>}
+          {highlightParts(
+            s.topics.slice(0, 2).join(' · ') || s.category,
+            query,
+          ).map((part, i) =>
+            part.match ? <mark key={i}>{part.text}</mark> : part.text,
+          )}
+          {s.series && (
+            <span>
+              {' '}
+              ·{' '}
+              {highlightParts(s.series, query).map((part, i) =>
+                part.match ? <mark key={i}>{part.text}</mark> : part.text,
+              )}
+            </span>
+          )}
         </div>
         <h3 dir="auto">
-          <button onClick={() => onDetails(s)}>{s.title}</button>
+          <button onClick={() => onDetails(s)}>
+            {highlightParts(s.title, query).map((part, i) =>
+              part.match ? <mark key={i}>{part.text}</mark> : part.text,
+            )}
+          </button>
         </h3>
         <p>
           {s.teacher}
@@ -262,7 +288,16 @@ export function ShiurRow({
             </small>
           </div>
         )}
-        {s.description && <p className="row-description">{s.description}</p>}
+        {s.description && (
+          <p className="row-description">
+            {highlightParts(
+              query ? matchExcerpt(s.description, query) : s.description,
+              query,
+            ).map((part, i) =>
+              part.match ? <mark key={i}>{part.text}</mark> : part.text,
+            )}
+          </p>
+        )}
       </div>
       <div className="row-actions">
         {extra}

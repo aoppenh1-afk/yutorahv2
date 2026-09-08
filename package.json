@@ -11,7 +11,8 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt",
-    "test:live": "node --test tests/live-api.test.mjs"
+    "test:live": "node --test tests/live-api.test.mjs",
+    "test:search": "node tests/search.test.mjs"
   },
   "dependencies": {
     "react": "19.2.6",

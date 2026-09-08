@@ -2,6 +2,8 @@
 /* oxlint-disable jsx-a11y/media-has-caption -- YUTorah provides no caption tracks for these recordings; never invent captions. */
 'use client';
 import Link from 'next/link';
+import { SearchBox } from './search-box';
+import { searchText, relevanceScore } from '@/lib/search-discovery';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Search,
@@ -173,6 +175,8 @@ export default function TorahApp({
   const [directoryLimit, setDirectoryLimit] = useState(36);
   const [topicGroup, setTopicGroup] = useState('all');
   const [grid, setGrid] = useState(false);
+  const [advancedFilters, setAdvancedFilters] = useState(false);
+  const [resultOrder, setResultOrder] = useState('library');
   const [detail, setDetail] = useState<
     (Shiur & { text?: string; video?: string }) | null
   >(null);
@@ -253,7 +257,10 @@ export default function TorahApp({
       setQ(query);
       setSubmitted(query);
       setFilters(nextFilters);
-      if (page === 1) setResults(null);
+      if (page === 1) {
+        setResults(null);
+        setResultOrder('library');
+      }
       if (push && page === 1) changeURL('search', query, nextFilters);
       const p = new URLSearchParams({ q: query, page: String(page) });
       Object.entries(nextFilters).forEach(([k, v]) => {
@@ -278,6 +285,7 @@ export default function TorahApp({
               : result,
           );
           if (page === 1) {
+            setResultOrder(result.plan.term ? 'relevance' : 'library');
             const resolved: Filters = {
               teacher: result.plan.teacherId
                 ? String(result.plan.teacherId)
@@ -557,6 +565,7 @@ export default function TorahApp({
       <ShiurRow
         key={s.id}
         shiur={s}
+        query={view === 'search' ? results?.plan.term : undefined}
         onPlay={play}
         onDetails={showDetail}
         onSave={save}
@@ -582,6 +591,7 @@ export default function TorahApp({
         key={s.id}
         shiur={s}
         index={i}
+        query={view === 'search' ? results?.plan.term : undefined}
         onPlay={play}
         onDetails={showDetail}
         onSave={save}
@@ -590,59 +600,54 @@ export default function TorahApp({
       />
     ));
   const searchBar = (
-    <form
-      className="main-search"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void runSearch(q, view === 'search' ? filters : noFilters);
-      }}
-    >
-      <Search size={23} />
-      <input
-        id="main-search"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search a topic, teacher, source, or question…"
-        aria-label="Search YUTorah"
-        autoComplete="off"
-        maxLength={300}
-      />
-      {q && (
-        <button
-          type="button"
-          className="clear-search"
-          aria-label="Clear search"
-          onClick={() => {
-            setQ('');
-            document.getElementById('main-search')?.focus();
-          }}
-        >
-          <X size={17} />
-        </button>
-      )}
-      <kbd>⌘ K</kbd>
-      <button type="submit" aria-label="Search">
-        <ArrowRight size={21} />
-      </button>
-    </form>
+    <SearchBox
+      value={q}
+      onChange={setQ}
+      directory={directory}
+      onSearch={(query) =>
+        void runSearch(query, view === 'search' ? filters : noFilters)
+      }
+      onSelect={(suggestion) =>
+        void runSearch('', {
+          ...noFilters,
+          [suggestion.kind]: String(suggestion.id),
+        })
+      }
+    />
   );
+  const orderedResults = useMemo(() => {
+    const items = [...(results?.items || [])];
+    if (resultOrder === 'relevance')
+      items.sort(
+        (a, b) =>
+          relevanceScore(b, results?.plan.term || '') -
+          relevanceScore(a, results?.plan.term || ''),
+      );
+    if (resultOrder === 'short')
+      items.sort((a, b) => (a.duration || Infinity) - (b.duration || Infinity));
+    if (resultOrder === 'new')
+      items.sort(
+        (a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0),
+      );
+    if (resultOrder === 'title')
+      items.sort((a, b) => a.title.localeCompare(b.title));
+    return items;
+  }, [results, resultOrder]);
   const listedTeachers =
     directory?.teachers.filter((t) =>
-      t.name.toLowerCase().includes(directoryQuery.toLowerCase()),
+      searchText(t.name).includes(searchText(directoryQuery)),
     ) || [];
   const listedSeries =
     directory?.series.filter((s) =>
-      (s.name + ' ' + s.description)
-        .toLowerCase()
-        .includes(directoryQuery.toLowerCase()),
+      searchText(s.name + ' ' + s.description).includes(
+        searchText(directoryQuery),
+      ),
     ) || [];
   const listedTopics =
     directory?.topics.filter(
       (t) =>
         (topicGroup === 'all' || t.group === topicGroup) &&
-        (t.name + ' ' + t.group)
-          .toLowerCase()
-          .includes(directoryQuery.toLowerCase()),
+        searchText(t.name + ' ' + t.group).includes(searchText(directoryQuery)),
     ) || [];
   const videoSource =
     detail?.video ||
@@ -745,11 +750,6 @@ export default function TorahApp({
               <Plus size={15} /> Create playlist
             </button>
           </SidebarGroup>
-          <div className="sidebar-note">
-            <BookOpen size={20} />
-            <p>Make time for Torah.</p>
-            <span>A few minutes can open up a whole new perspective.</span>
-          </div>
         </SidebarContent>
         <SidebarFooter>
           <div className="yu-affiliate">
@@ -803,11 +803,9 @@ export default function TorahApp({
           {view === 'discover' && (
             <>
               <section className="welcome">
-                <div className="eyebrow">A WORLD OF TORAH, WITHIN REACH</div>
+                <div className="eyebrow">THE MARCOS AND ADINA KATZ YUTORAH</div>
                 <h1>What will you learn today?</h1>
-                <p>
-                  Great teachers. New perspectives. A place for your learning.
-                </p>
+                <p>Search the library. Find a teacher. Keep learning.</p>
                 {searchBar}
                 <div className="suggestions">
                   <span>Start with</span>
@@ -1095,11 +1093,15 @@ export default function TorahApp({
             </>
           )}
           {view === 'search' && (
-            <section className="search-view">
+            <section
+              className={'search-view ' + (results ? 'has-results' : '')}
+            >
               <div className="view-heading">
                 <div className="eyebrow">THE YUTORAH LIBRARY</div>
-                <h1>Follow your curiosity.</h1>
-                <p>Search topics, descriptions, teachers, and series.</p>
+                <h1>Search the library.</h1>
+                <p>
+                  Find shiurim by topic, teacher, source, or the time you have.
+                </p>
               </div>
               {searchBar}
               <div className="search-examples">
@@ -1116,9 +1118,15 @@ export default function TorahApp({
                 </button>
               </div>
               <div className="filter-bar">
-                <span className="filter-label">
-                  <SlidersHorizontal size={16} /> Refine
-                </span>
+                <button
+                  className="filter-toggle"
+                  aria-expanded={advancedFilters}
+                  aria-controls="advanced-search-filters"
+                  onClick={() => setAdvancedFilters(!advancedFilters)}
+                >
+                  <SlidersHorizontal size={16} /> Filters{' '}
+                  <ChevronDown size={14} />
+                </button>
                 <FilterSelect
                   label="Duration"
                   value={filters.max || 'all'}
@@ -1152,48 +1160,54 @@ export default function TorahApp({
                     { value: 'text', label: 'Articles' },
                   ]}
                 />
-                {!!results?.facets.teachers.length && (
-                  <FilterSelect
-                    label="Teacher"
-                    value={filters.teacher || 'all'}
-                    onChange={(v) => filterChange('teacher', v)}
-                    options={[
-                      { value: 'all', label: 'All teachers' },
-                      ...results.facets.teachers.map((t) => ({
-                        value: String(t.id),
-                        label: t.name,
-                      })),
-                    ]}
-                  />
-                )}{' '}
-                {!!results?.facets.topics.length && (
-                  <FilterSelect
-                    label="Topic"
-                    value={filters.topic || 'all'}
-                    onChange={(v) => filterChange('topic', v)}
-                    options={[
-                      { value: 'all', label: 'All topics' },
-                      ...results.facets.topics.map((t) => ({
-                        value: String(t.id),
-                        label: t.name,
-                      })),
-                    ]}
-                  />
-                )}{' '}
-                {!!results?.facets.series.length && (
-                  <FilterSelect
-                    label="Series filter"
-                    value={filters.series || 'all'}
-                    onChange={(v) => filterChange('series', v)}
-                    options={[
-                      { value: 'all', label: 'All series' },
-                      ...results.facets.series.map((t) => ({
-                        value: String(t.id),
-                        label: t.name,
-                      })),
-                    ]}
-                  />
-                )}{' '}
+                <div
+                  id="advanced-search-filters"
+                  className="advanced-search-filters"
+                  hidden={!advancedFilters}
+                >
+                  {!!results?.facets.teachers.length && (
+                    <FilterSelect
+                      label="Teacher"
+                      value={filters.teacher || 'all'}
+                      onChange={(v) => filterChange('teacher', v)}
+                      options={[
+                        { value: 'all', label: 'All teachers' },
+                        ...results.facets.teachers.map((t) => ({
+                          value: String(t.id),
+                          label: t.name,
+                        })),
+                      ]}
+                    />
+                  )}{' '}
+                  {!!results?.facets.topics.length && (
+                    <FilterSelect
+                      label="Topic"
+                      value={filters.topic || 'all'}
+                      onChange={(v) => filterChange('topic', v)}
+                      options={[
+                        { value: 'all', label: 'All topics' },
+                        ...results.facets.topics.map((t) => ({
+                          value: String(t.id),
+                          label: t.name,
+                        })),
+                      ]}
+                    />
+                  )}{' '}
+                  {!!results?.facets.series.length && (
+                    <FilterSelect
+                      label="Series filter"
+                      value={filters.series || 'all'}
+                      onChange={(v) => filterChange('series', v)}
+                      options={[
+                        { value: 'all', label: 'All series' },
+                        ...results.facets.series.map((t) => ({
+                          value: String(t.id),
+                          label: t.name,
+                        })),
+                      ]}
+                    />
+                  )}{' '}
+                </div>
                 {Object.values(filters).some(Boolean) && (
                   <button
                     className="text-button"
@@ -1203,34 +1217,61 @@ export default function TorahApp({
                   </button>
                 )}
               </div>
-              {results?.plan.labels.length ||
-              filters.teacher ||
-              filters.series ||
-              filters.topic ? (
-                <div className="applied-filters">
-                  {[
-                    ...new Set(
-                      [
-                        ...(results?.plan.labels || []),
-                        directory?.teachers.find(
-                          (t) => String(t.id) === filters.teacher,
-                        )?.name,
-                        directory?.series.find(
-                          (t) => String(t.id) === filters.series,
-                        )?.name,
-                        directory?.topics.find(
-                          (t) => String(t.id) === filters.topic,
-                        )?.name,
-                      ].filter(Boolean),
-                    ),
-                  ].map((l) => (
-                    <span key={l}>{l}</span>
-                  ))}
+              {Object.values(filters).some(Boolean) && (
+                <div className="applied-filters" aria-label="Active filters">
+                  {(Object.entries(filters) as [keyof Filters, string][])
+                    .filter(([, v]) => v)
+                    .map(([key, value]) => {
+                      const label =
+                        key === 'teacher'
+                          ? directory?.teachers.find(
+                              (t) => String(t.id) === value,
+                            )?.name || 'Selected teacher'
+                          : key === 'series'
+                            ? directory?.series.find(
+                                (t) => String(t.id) === value,
+                              )?.name || 'Selected series'
+                            : key === 'topic'
+                              ? directory?.topics.find(
+                                  (t) => String(t.id) === value,
+                                )?.name || 'Selected topic'
+                              : key === 'max'
+                                ? `Under ${value} minutes`
+                                : key === 'language'
+                                  ? value === 'HE'
+                                    ? 'Hebrew'
+                                    : 'English'
+                                  : value === 'text'
+                                    ? 'Articles'
+                                    : value === 'audio'
+                                      ? 'Audio'
+                                      : 'Video';
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => filterChange(key, 'all')}
+                          aria-label={`Remove filter: ${label}`}
+                        >
+                          {label}
+                          <X size={13} />
+                        </button>
+                      );
+                    })}
                 </div>
-              ) : null}
+              )}
+              {!!results?.plan.labels.filter((l) =>
+                /→|^Topic:|^Keywords:/.test(l),
+              ).length && (
+                <p className="search-interpretation">
+                  <Search size={14} />{' '}
+                  {results.plan.labels
+                    .filter((l) => /→|^Topic:|^Keywords:/.test(l))
+                    .join(' · ')}
+                </p>
+              )}
               {searchError && (
                 <StatePanel
-                  title="Search is taking a break."
+                  title="Search could not be reached."
                   description={searchError}
                 >
                   <button
@@ -1266,28 +1307,42 @@ export default function TorahApp({
                         </p>
                       )}
                     </div>
-                    <div className="view-switch">
-                      <button
-                        aria-label="List view"
-                        aria-pressed={!grid}
-                        onClick={() => setGrid(false)}
-                      >
-                        <List size={17} />
-                      </button>
-                      <button
-                        aria-label="Grid view"
-                        aria-pressed={grid}
-                        onClick={() => setGrid(true)}
-                      >
-                        <LayoutGrid size={17} />
-                      </button>
+                    <div className="result-view-controls">
+                      <FilterSelect
+                        label={`Order ${results.items.length} loaded results`}
+                        value={resultOrder}
+                        onChange={setResultOrder}
+                        options={[
+                          { value: 'relevance', label: 'Best matches loaded' },
+                          { value: 'library', label: 'Library order' },
+                          { value: 'new', label: 'Newest loaded' },
+                          { value: 'short', label: 'Shortest loaded' },
+                          { value: 'title', label: 'Title A–Z' },
+                        ]}
+                      />
+                      <div className="view-switch">
+                        <button
+                          aria-label="List view"
+                          aria-pressed={!grid}
+                          onClick={() => setGrid(false)}
+                        >
+                          <List size={17} />
+                        </button>
+                        <button
+                          aria-label="Grid view"
+                          aria-pressed={grid}
+                          onClick={() => setGrid(true)}
+                        >
+                          <LayoutGrid size={17} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                   {results.items.length ? (
                     grid ? (
-                      <div className="shiur-grid">{cards(results.items)}</div>
+                      <div className="shiur-grid">{cards(orderedResults)}</div>
                     ) : (
-                      <div className="results-list">{rows(results.items)}</div>
+                      <div className="results-list">{rows(orderedResults)}</div>
                     )
                   ) : (
                     <StatePanel
@@ -1334,7 +1389,7 @@ export default function TorahApp({
               {!results && !searchLoading && !searchError && (
                 <div className="search-start">
                   <BookOpen size={28} />
-                  <h2>There is more than one way in.</h2>
+                  <h2>What would you like to learn?</h2>
                   <p>
                     Search a subject, a teacher’s full name, or a source. Add
                     “under 20 minutes” to fit your time.
