@@ -1,0 +1,5 @@
+# Replace the hostname with the VM's public DNS name. Caddy obtains HTTPS
+# certificates; the Node search process listens only on 127.0.0.1:8765.
+transcripts.example.com {
+    reverse_proxy 127.0.0.1:8765
+}
