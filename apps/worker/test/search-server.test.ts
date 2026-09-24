@@ -35,6 +35,12 @@ void test('read-only search server requires bearer auth and bounds requests', as
       shiurId: '123', startMs: 1834000, text: 'חזרה',
     });
     assert.deepEqual(calls, ['חזרה']);
+    assert.equal(
+      (await fetch(`${origin}/v1/transcripts/search?q=חזרה`, {
+        headers: { Authorization: 'Bearer short' },
+      })).status,
+      401,
+    );
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -45,12 +51,16 @@ void test('website bridge keeps the VM token server-side and returns timestamped
   const token = 'b'.repeat(48);
   const server = createSearchServer(
     {
-      search: async () => [{
+      search: async (query: string) => {
+        if (query === '...') throw new Error('Invalid transcript query');
+        if (query === 'down') throw new Error('Database unavailable');
+        return [{
         shiurId: '42', title: 'Hilchos Shabbos', teacher: 'Rabbi X',
         mediaUrl: 'https://download.yutorah.org/42.mp3', startMs: 1834000,
         endMs: 1840000, text: 'the concept of חזרה', matched: 'חזרה',
         href: '/?shiur=42&t=1834', aliasesExpanded: true,
-      }],
+        }];
+      },
     } as never,
     token,
   );
@@ -69,6 +79,12 @@ void test('website bridge keeps the VM token server-side and returns timestamped
     assert.equal(body.results[0].startMs, 1834000);
     assert.equal(body.results[0].href, '/?shiur=42&t=1834');
     assert.equal(JSON.stringify(body).includes(token), false);
+    const invalid = await websiteSearch(new Request('http://localhost/api/transcript-search?q=...'));
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await invalid.json(), { error: 'Try different search words.' });
+    const unavailable = await websiteSearch(new Request('http://localhost/api/transcript-search?q=down'));
+    assert.equal(unavailable.status, 503);
   } finally {
     if (priorUrl === undefined) delete process.env.TRANSCRIPT_API_URL;
     else process.env.TRANSCRIPT_API_URL = priorUrl;

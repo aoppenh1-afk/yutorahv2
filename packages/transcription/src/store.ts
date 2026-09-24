@@ -67,6 +67,8 @@ export type Checkpoints = {
   save: (index: number, range: Range, segments: Segment[]) => Promise<void>;
 };
 
+const MAX_JOB_ATTEMPTS = 5;
+
 function excerpt(text: string, term: string): string {
   if (text.length <= 360) return text;
   const normalized = normalizeTranscriptSearch(text);
@@ -158,19 +160,26 @@ export class TranscriptionStore {
     });
   }
   async claim(): Promise<Job | null> {
+    await this.pool.query(
+      `UPDATE transcription_jobs SET status='failed',completed_at=now(),lease_token=NULL,lease_until=NULL,
+       error=jsonb_build_object('code','attempts_exhausted')
+       WHERE cancel_requested=false AND status IN ('downloading','preparing','transcribing','merging')
+       AND lease_until < now() AND attempt >= $1`,
+      [MAX_JOB_ATTEMPTS],
+    );
     const token = randomUUID();
     const result = await this.pool.query<Job>(
       `WITH candidate AS (
       SELECT id FROM transcription_jobs WHERE cancel_requested=false AND
         ((status='queued' AND available_at <= now()) OR
-        (status IN ('downloading','preparing','transcribing','merging') AND lease_until < now()))
+        (status IN ('downloading','preparing','transcribing','merging') AND lease_until < now() AND attempt < $3))
       ORDER BY priority DESC,created_at LIMIT 1 FOR UPDATE SKIP LOCKED
     ), claimed AS (
       UPDATE transcription_jobs j SET status='downloading',attempt=attempt+1,started_at=coalesce(started_at,now()),
         lease_token=$1,lease_until=now()+$2*interval '1 second',error=NULL
       FROM candidate c WHERE j.id=c.id RETURNING j.*
     ) SELECT c.*,v.skill_text,v.settings,v.runtime FROM claimed c JOIN transcription_versions v ON v.id=c.transcription_version`,
-      [token, this.leaseSeconds],
+      [token, this.leaseSeconds, MAX_JOB_ATTEMPTS],
     );
     return result.rows[0] ?? null;
   }

@@ -31,6 +31,11 @@ export async function GET(request: Request) {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
       signal: AbortSignal.timeout(8_000),
     });
+    if (upstream.status === 400)
+      return Response.json(
+        { error: 'Try different search words.' },
+        { status: 400, headers: { 'Cache-Control': 'no-store' } },
+      );
     if (!upstream.ok) throw new Error('Search gateway failed');
     return Response.json(await upstream.json(), {
       headers: { 'Cache-Control': 'no-store' },

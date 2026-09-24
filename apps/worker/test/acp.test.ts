@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { readFile, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import {
@@ -11,6 +11,7 @@ import {
 import {
   prepareProfile,
   validateProfile,
+  withRuntime,
 } from '../../../packages/antigravity-acp/src/runtime.js';
 import { Failure } from '../../../packages/antigravity-acp/src/errors.js';
 import { digest } from '../../../packages/transcription/src/fingerprint.js';
@@ -206,6 +207,27 @@ void test('managed profile validates hooks without overwriting them', async () =
     await writeFile(file, text);
     await assert.rejects(prepareProfile(root), code('configuration'));
     assert.equal(await readFile(file, 'utf8'), text);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+void test('runtime removes its run directory when client construction is cancelled', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acp-run-'));
+  const profile = join(root, 'profile');
+  const scratch = join(root, 'scratch');
+  try {
+    await prepareProfile(profile);
+    const controller = new AbortController();
+    controller.abort(new Failure('cancelled'));
+    await assert.rejects(
+      withRuntime(
+        { directory: root, profile, scratch },
+        controller.signal,
+        async () => assert.fail('the client must not start'),
+      ),
+      code('cancelled'),
+    );
+    assert.deepEqual(await readdir(scratch), []);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

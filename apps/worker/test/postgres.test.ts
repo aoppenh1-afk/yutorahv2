@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fork } from 'node:child_process';
+import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Pool } from 'pg';
@@ -156,6 +157,85 @@ void test(
           await store.cancel(next.id);
         },
       );
+      await t.test('exhausted crashed job fails without blocking queued jobs', async () => {
+        const exhaustedId = await enqueue();
+        const exhausted = await claimed();
+        assert.equal(exhausted.id, exhaustedId);
+        const nextId = await enqueue();
+        await pool.query(
+          "UPDATE transcription_jobs SET attempt=5,lease_until=now()-interval '1 second' WHERE id=$1",
+          [exhaustedId],
+        );
+        const next = await claimed();
+        assert.equal(next.id, nextId);
+        const state = await pool.query(
+          'SELECT status,error,completed_at FROM transcription_jobs WHERE id=$1',
+          [exhaustedId],
+        );
+        assert.equal(state.rows[0].status, 'failed');
+        assert.deepEqual(state.rows[0].error, { code: 'attempts_exhausted' });
+        assert.ok(state.rows[0].completed_at);
+        await store.cancel(nextId);
+      });
+      await t.test('idle database pool failure exits the search service nonzero', async () => {
+        const portPicker = createServer();
+        portPicker.listen(0, '127.0.0.1');
+        await once(portPicker, 'listening');
+        const address = portPicker.address();
+        assert.ok(address && typeof address !== 'string');
+        await new Promise<void>((resolve) => portPicker.close(() => resolve()));
+        const token = 'c'.repeat(48);
+        const appName = `pool_failure_${randomUUID().replaceAll('-', '')}`;
+        const databaseUrl = new URL(process.env.TEST_DATABASE_URL!);
+        databaseUrl.searchParams.set('options', `-c search_path=${schema},public`);
+        databaseUrl.searchParams.set('application_name', appName);
+        const child = fork('apps/worker/src/cli.ts', ['serve-search'], {
+          execArgv: ['--import', 'tsx'],
+          env: {
+            ...process.env,
+            DATABASE_URL: databaseUrl.href,
+            TRANSCRIPT_API_PORT: String(address.port),
+            TRANSCRIPT_API_TOKEN: token,
+          },
+          stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+        });
+        let output = '';
+        child.stdout?.on('data', (data: Buffer) => { output += data.toString(); });
+        const exited = once(child, 'close');
+        const watchdog = setTimeout(() => child.kill('SIGKILL'), 5000);
+        try {
+          const url = `http://127.0.0.1:${address.port}`;
+          let ready = false;
+          for (let i = 0; i < 60; i++) {
+            try {
+              const response = await fetch(`${url}/health`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (response.ok) { ready = true; break; }
+            } catch { /* Service is still starting. */ }
+            await delay(50);
+          }
+          assert.ok(ready, 'search service must start');
+          const response = await fetch(`${url}/v1/transcripts/search?q=חזרה`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          assert.equal(response.status, 200);
+          await response.arrayBuffer();
+          const backends = await admin.query<{ pid: number }>(
+            'SELECT pid FROM pg_stat_activity WHERE application_name=$1',
+            [appName],
+          );
+          assert.equal(backends.rowCount, 1);
+          await admin.query('SELECT pg_terminate_backend($1)', [backends.rows[0].pid]);
+          const [exitCode] = await exited;
+          assert.equal(exitCode, 1);
+          assert.match(output, /"event":"worker_stopped","code":"lease_lost"/);
+        } finally {
+          clearTimeout(watchdog);
+          child.kill('SIGKILL');
+          await exited;
+        }
+      });
       await t.test(
         'final publication is atomic, searchable in Hebrew/English, and links to time',
         async () => {

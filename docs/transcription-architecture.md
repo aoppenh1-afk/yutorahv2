@@ -139,7 +139,8 @@ Original transcript text is never replaced with search-normalized text.
 Queue states: `queued → downloading → preparing → transcribing → merging → completed`;
 terminal alternatives are `failed` and `cancelled`. Claim a bounded number with
 `FOR UPDATE SKIP LOCKED`. Heartbeats extend leases; every mutation checks the lease
-token and expiry. Expired active jobs can be reclaimed. User cancellation stays
+token and expiry. Expired active jobs can be reclaimed for up to five attempts;
+an expired fifth attempt becomes `failed` until explicit retry. User cancellation stays
 cancelled; service shutdown releases work to the queue. Final segments and completed
 status commit in one transaction. A failed chunk preserves accepted siblings.
 

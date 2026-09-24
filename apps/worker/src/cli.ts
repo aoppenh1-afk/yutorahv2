@@ -213,13 +213,24 @@ async function main() {
     process.stdout.write(JSON.stringify(result.rows, null, 2) + '\n');
   } else throw new Failure('configuration');
 }
+const requestedShutdown = () => controller.signal.aborted &&
+  controller.signal.reason instanceof Failure &&
+  controller.signal.reason.code === 'cancelled';
+let reportedFailure = false;
 try {
   await main();
 } catch (error) {
-  if (!controller.signal.aborted) {
-    log({ event: 'worker_stopped', code: failure(error).code });
+  if (!requestedShutdown()) {
+    log({ event: 'worker_stopped', code: controller.signal.aborted
+      ? failure(controller.signal.reason).code
+      : failure(error).code });
     process.exitCode = 1;
+    reportedFailure = true;
   }
 } finally {
+  if (!reportedFailure && controller.signal.aborted && !requestedShutdown()) {
+    log({ event: 'worker_stopped', code: failure(controller.signal.reason).code });
+    process.exitCode = 1;
+  }
   await database?.end();
 }

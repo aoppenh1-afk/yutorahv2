@@ -1,14 +1,14 @@
 import { createServer, type Server } from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { once } from 'node:events';
 import type { TranscriptionStore } from '../../../packages/transcription/src/store.js';
 import { Failure } from '../../../packages/antigravity-acp/src/errors.js';
 
 function authorized(header: string | undefined, token: string): boolean {
   if (!header?.startsWith('Bearer ')) return false;
-  const actual = Buffer.from(header.slice(7));
-  const expected = Buffer.from(token);
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+  const actual = createHash('sha256').update(header.slice(7)).digest();
+  const expected = createHash('sha256').update(token).digest();
+  return timingSafeEqual(actual, expected);
 }
 
 export function createSearchServer(

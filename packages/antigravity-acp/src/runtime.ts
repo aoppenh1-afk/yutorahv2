@@ -109,38 +109,42 @@ export async function withRuntime<T>(
   const run = await mkdtemp(join(config.scratch, 'acp-'));
   const workspace = join(run, 'workspace'),
     temp = join(run, 'tmp');
-  await mkdir(workspace, { mode: 0o700 });
-  await mkdir(temp, { mode: 0o700 });
-  const client = new ACPClient(
-    {
-      executable: resolve(config.directory, 'agy_acp_server.par'),
-      args: ['--uid='],
-      cwd: workspace,
-      version: release.version,
-      env: {
-        PATH: '/usr/local/bin:/usr/bin:/bin',
-        LANG: 'C.UTF-8',
-        NODE_ENV: 'production',
-        HOME: resolve(config.profile),
-        GEMINI_HOME: resolve(config.profile),
-        AGY_ACP_FORCE_FILE_STORAGE: '1',
-        ANTIGRAVITY_HARNESS_PATH: resolve(
-          config.directory,
-          'localharness_external',
-        ),
-        BROWSER: `'${resolve(config.profile, 'browser-helper').replace(/'/g, `'"'"'`)}' %s`,
-        TMPDIR: temp,
-        PYTHONUNBUFFERED: '1',
-      },
-    },
-    signal,
-    onAuthorization,
-  );
+  let client: ACPClient | undefined;
   try {
+    await mkdir(workspace, { mode: 0o700 });
+    await mkdir(temp, { mode: 0o700 });
+    client = new ACPClient(
+      {
+        executable: resolve(config.directory, 'agy_acp_server.par'),
+        args: ['--uid='],
+        cwd: workspace,
+        version: release.version,
+        env: {
+          PATH: '/usr/local/bin:/usr/bin:/bin',
+          LANG: 'C.UTF-8',
+          NODE_ENV: 'production',
+          HOME: resolve(config.profile),
+          GEMINI_HOME: resolve(config.profile),
+          AGY_ACP_FORCE_FILE_STORAGE: '1',
+          ANTIGRAVITY_HARNESS_PATH: resolve(
+            config.directory,
+            'localharness_external',
+          ),
+          BROWSER: `'${resolve(config.profile, 'browser-helper').replace(/'/g, `'"'"'`)}' %s`,
+          TMPDIR: temp,
+          PYTHONUNBUFFERED: '1',
+        },
+      },
+      signal,
+      onAuthorization,
+    );
     await client.initialize();
     return await operation(client, workspace);
   } finally {
-    await client.close();
-    await rm(run, { recursive: true, force: true });
+    try {
+      await client?.close();
+    } finally {
+      await rm(run, { recursive: true, force: true });
+    }
   }
 }

@@ -125,18 +125,22 @@ systemd cgroup own process lifetime on the VM. Only one VM may actively operate
 this personal profile. A distributed active/active fleet needs additional session
 admission and network-partition testing.
 
-Use the same environment wrapper to execute these CLI commands as the service user:
+Run this block in one shell. The wrapper loads the service environment and runs
+each command as `yutorah-worker` from the deployment directory:
 
 ```sh
-node .worker-build/apps/worker/src/cli.js enqueue 1234567 --title 'Hilchos Shabbos' --teacher 'Rabbi X'
-node .worker-build/apps/worker/src/cli.js enqueue 1234567 --audio-url https://download.yutorah.org/example.mp3 --revision updated-source --backfill
-node .worker-build/apps/worker/src/cli.js sync-now
-node .worker-build/apps/worker/src/cli.js backfill --pages 4
-node .worker-build/apps/worker/src/cli.js status
-node .worker-build/apps/worker/src/cli.js search 'חזרה'
-node .worker-build/apps/worker/src/cli.js search 'Rashi' --literal
-node .worker-build/apps/worker/src/cli.js cancel JOB_UUID
-node .worker-build/apps/worker/src/cli.js retry JOB_UUID
+yutorah_worker() {
+  sudo -u yutorah-worker bash -c 'set -a; source /etc/yutorah-worker.env; set +a; cd /opt/yutorah; exec /usr/local/bin/node .worker-build/apps/worker/src/cli.js "$@"' bash "$@"
+}
+yutorah_worker enqueue 1234567 --title 'Hilchos Shabbos' --teacher 'Rabbi X'
+yutorah_worker enqueue 1234567 --audio-url https://download.yutorah.org/example.mp3 --revision updated-source --backfill
+yutorah_worker sync-now
+yutorah_worker backfill --pages 4
+yutorah_worker status
+yutorah_worker search 'חזרה'
+yutorah_worker search 'Rashi' --literal
+yutorah_worker cancel JOB_UUID
+yutorah_worker retry JOB_UUID
 ```
 
 IDs and URLs above illustrate syntax; use a real shiur. An omitted audio URL is
@@ -150,9 +154,10 @@ user-supplied URLs. The default ceiling is 1 GiB and 12 hours per source.
 
 Retries preserve accepted chunks. A cancelled job stays cancelled until explicit
 retry. Graceful service shutdown returns the active job to the queue. Hard crashes
-leave a 90-second lease; after it expires the worker resumes. Each accepted chunk
-is committed independently. Exhausted chunk retries and policy/validation failures
-mark a job failed for inspection rather than spinning forever. Auth failure stops
+leave a 90-second lease; after it expires the worker resumes. After five expired
+active attempts, the job fails with `attempts_exhausted` and needs explicit `retry`.
+Each accepted chunk is committed independently. Exhausted chunk retries and
+policy/validation failures mark a job failed for inspection. Auth failure stops
 the service; the next service start checks auth before consuming more jobs.
 
 Failures contain only typed codes and bounded job/chunk metadata. No prompts,
