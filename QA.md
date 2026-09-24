@@ -37,3 +37,13 @@ Live content and media availability depend on YUTorah and its CDNs. This record 
 - Direct title matches rank before incidental description mentions within loaded results. Sorting is explicitly labeled as applying to loaded results.
 
 - Production shortest-first sorting verified. Recent-search recall is available from the empty search input.
+
+## Complete search and natural query revision, 2026-09-08
+
+- Replaced batch-only search with resumable D1 candidate scans. Source requests stay bounded to four pages per pass; browser progress, pause/resume, and cancellation are implemented. A pass commits its records and cursor together, and failures release its lease without advancing it.
+- All filtering and sorting now run against the same cached candidate set. Candidate identity excludes refinements and sort order. Final count is reported only after every source page is checked, with duplicate/missing candidates and changing source totals treated as incomplete searches.
+- Seventeen deterministic tests pass, including a best match on the final upstream page, exact filtered counts, global sorting, distinct result pagination, refinement cache reuse, failed-page retry, empty results, bound filter values, natural time budgets and dates, and preserved question subjects.
+- Live test checked all 9,012 teshuva candidates and returned 1,006 matches for 20–30 minutes excluding parsha. The final revision's cold scan took about 85 seconds locally; cached page retrieval took about 20 ms. These are observations, not performance guarantees.
+- Live natural query resolved Rabbi Hershel Schachter, thirty minutes, newest order, and teshuva to 14 matches among 78 source candidates. Compound search, global pagination, and invalid-request regression tests pass.
+- TypeScript, authored-source lint, and the Worker build pass. D1 migrations were generated and applied locally. The new UI has not received browser interaction or mobile visual testing in this revision.
+- The original Sites project still returns project_not_found. No replacement project was created and the new DB-backed revision has not been published.

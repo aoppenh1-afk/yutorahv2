@@ -1,3 +1,4 @@
+import { naturalSearch } from './natural-search';
 import { searchText } from './search-discovery';
 import type {
   RawShiur,
@@ -223,6 +224,13 @@ export type SearchPlan = {
   term: string;
   original: string;
   max: number;
+  sort?: string;
+  min?: number;
+  after?: string;
+  before?: string;
+  phrase?: string;
+  exclude?: string;
+  scope?: string;
   language: string;
   format: string;
   teacherId: number;
@@ -237,8 +245,33 @@ export function parseSearch(
   options: Partial<SearchPlan> = {},
   directory?: Directory,
 ): SearchPlan {
-  let term = query.trim().slice(0, 300).replace(/\s+/g, ' ');
-  const labels: string[] = [];
+  const natural = naturalSearch(query.trim().slice(0, 300));
+  options = {
+    ...natural.options,
+    ...Object.fromEntries(
+      Object.entries(options).filter(
+        ([, v]) => v !== '' && v !== 0 && v !== undefined,
+      ),
+    ),
+  };
+  let term = natural.term;
+  const labels: string[] = natural.labels;
+  const sort = options.sort || (term ? 'relevance' : 'new');
+  const min = Number(options.min) || 0;
+  const after = options.after || '';
+  const before = options.before || '';
+  let phrase = options.phrase?.trim() || '';
+  const excluded = options.exclude?.trim().split(/\s+/).filter(Boolean) || [];
+  term = term.replace(/"([^"]+)"/g, (_, text) => {
+    if (!phrase) phrase = text;
+    return text;
+  });
+  term = term.replace(/(?:^|\s)-([\p{L}\p{N}]+)/gu, (_, word) => {
+    excluded.push(word);
+    return ' ';
+  });
+  const exclude = [...new Set(excluded)].join(' ');
+  const scope = options.scope === 'title' ? 'title' : '';
   let format = options.format || '';
   term = term.replace(
     /\b(audio|video|articles?)\s+(?:shiurim|shiur|lectures?|on|about)\b/gi,
@@ -380,6 +413,12 @@ export function parseSearch(
     seriesName =
       seriesName || directory.series.find((s) => s.id === seriesId)?.name || '';
   }
+  if (min) labels.push(`At least ${min} minutes`);
+  if (after) labels.push(`From ${after}`);
+  if (before) labels.push(`Through ${before}`);
+  if (phrase) labels.push(`Exact phrase: ${phrase}`);
+  if (exclude) labels.push(`Exclude: ${exclude}`);
+  if (scope) labels.push('Title only');
   if (format)
     labels.push(
       format === 'text' ? 'Articles' : format === 'video' ? 'Video' : 'Audio',
@@ -391,6 +430,13 @@ export function parseSearch(
   return {
     term: term.replace(/\s+/g, ' ').trim(),
     original: query,
+    sort,
+    min,
+    after,
+    before,
+    phrase,
+    exclude,
+    scope,
     max,
     language,
     format,
@@ -406,7 +452,29 @@ function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 export function matchesPlan(s: Shiur, plan: SearchPlan) {
+  const text = searchText(
+    plan.scope === 'title'
+      ? s.title
+      : [s.title, s.teacher, s.series, ...s.topics, s.description].join(' '),
+  );
+  const padded = ` ${text} `;
+  const date = Date.parse(s.date);
   return (
+    (!plan.min || s.duration >= plan.min * 60) &&
+    (!plan.after || date >= Date.parse(plan.after + 'T00:00:00Z')) &&
+    (!plan.before ||
+      date < Date.parse(plan.before + 'T00:00:00Z') + 86400000) &&
+    (!plan.phrase || padded.includes(` ${searchText(plan.phrase)} `)) &&
+    (!plan.exclude ||
+      searchText(plan.exclude)
+        .split(' ')
+        .filter(Boolean)
+        .every((word) => !padded.includes(` ${word} `))) &&
+    (!plan.scope ||
+      searchText(plan.term)
+        .split(' ')
+        .filter(Boolean)
+        .every((word) => padded.includes(` ${word} `))) &&
     (!plan.max || (s.duration > 0 && s.duration <= plan.max * 60)) &&
     (!plan.language || s.language === plan.language) &&
     (!plan.format || mediaKind(s) === plan.format)
@@ -428,67 +496,13 @@ export type SearchResult = {
   nextPage: number | null;
   plan: SearchPlan;
   filtered: boolean;
+  complete?: boolean;
+  scanned?: number;
+  sourceTotal?: number;
+  run?: string;
   facets: {
     teachers: { id: number; name: string; count: number }[];
     topics: { id: number; name: string; count: number }[];
     series: { id: number; name: string; count: number }[];
   };
 };
-export async function searchLibrary(
-  query: string,
-  options: Partial<SearchPlan>,
-  page = 1,
-): Promise<SearchResult> {
-  const directory = await getDirectory();
-  const plan = parseSearch(query, options, directory);
-  const filtered = !!(plan.max || plan.language || plan.format);
-  const count = filtered ? 3 : 1;
-  const pages = await Promise.all(
-    Array.from({ length: count }, (_, i) => {
-      const p = new URLSearchParams({
-        searchTerm: plan.term,
-        getFacets: 'true',
-        start: String(page + i),
-      });
-      if (plan.teacherId) p.set('teacherID', String(plan.teacherId));
-      if (plan.seriesId) p.set('seriesID', String(plan.seriesId));
-      if (plan.topicId) p.set('subcategoryID', String(plan.topicId));
-      return upstream<SearchResponse>('search/get?' + p.toString());
-    }),
-  );
-  if (!pages[0]?.response || !Array.isArray(pages[0].response.docs))
-    throw new Error('YUTorah search is unavailable');
-  const total = pages[0].response.numFound;
-  const facets = pages[0].facet_counts?.facet_fields || {};
-  const records = pages
-    .flatMap((p) => (p.response?.docs || []).map(normalize))
-    .filter((s: Shiur) => matchesPlan(s, plan));
-  return {
-    items: [
-      ...new Map<number, Shiur>(
-        records.map((s: Shiur) => [s.id, s] as [number, Shiur]),
-      ).values(),
-    ],
-    total,
-    plan,
-    filtered,
-    nextPage: (page + count - 1) * 30 < total ? page + count : null,
-    facets: {
-      teachers: (facets.teachers || []).slice(0, 50).map((t) => ({
-        id: t.TeacherId,
-        name:
-          directory.teachers.find((d) => d.id === t.TeacherId)?.name ||
-          t.TeacherName,
-        count: t.Match,
-      })),
-      topics: (facets.subcategories || []).slice(0, 40).map((t) => ({
-        id: t.SubcategoryId,
-        name: t.Subcategoryname,
-        count: t.Match,
-      })),
-      series: (facets.series || [])
-        .slice(0, 40)
-        .map((t) => ({ id: t.SeriesId, name: t.SeriesName, count: t.Match })),
-    },
-  };
-}

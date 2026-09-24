@@ -235,6 +235,7 @@ export function ShiurRow({
   onQueue,
   saved,
   progress,
+  learned = false,
   extra,
   query = '',
 }: {
@@ -245,6 +246,7 @@ export function ShiurRow({
   onQueue: (s: Shiur) => void;
   saved: boolean;
   progress?: { seconds: number; duration: number };
+  learned?: boolean;
   extra?: React.ReactNode;
   query?: string;
 }) {
@@ -263,6 +265,7 @@ export function ShiurRow({
       </button>
       <div className="row-content">
         <div className="row-meta">
+          {learned && <span className="learned-label">Learned</span>}
           {highlightParts(
             s.topics.slice(0, 2).join(' · ') || s.category,
             query,
@@ -314,7 +317,9 @@ export function ShiurRow({
               />
             </div>
             <small>
-              {progress.duration - progress.seconds < 15
+              {learned ||
+              (progress.duration > 0 &&
+                progress.duration - progress.seconds < 15)
                 ? 'Completed'
                 : `${timeLabel(progress.seconds)} listened`}
             </small>

@@ -2,7 +2,12 @@
 /* oxlint-disable jsx-a11y/media-has-caption -- YUTorah provides no caption tracks for these recordings; never invent captions. */
 'use client';
 import Link from 'next/link';
+import { AdvancedSearch, type Filters, noFilters } from './advanced-search';
 import { SearchBox } from './search-box';
+import { SearchTools } from './search-tools';
+import { Notebook } from './notebook';
+import { LearningHome, FollowButton } from './learning-home';
+import { isLearned, relatedShiurim, type Follow } from '@/lib/learning';
 import { searchText, relevanceScore } from '@/lib/search-discovery';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
@@ -17,10 +22,8 @@ import {
   ArrowRight,
   Play,
   Pause,
-  CalendarDays,
   ChevronRight,
   Plus,
-  Radio,
   ListMusic,
   ListPlus,
   X,
@@ -67,7 +70,6 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   Avatar,
   FilterSelect,
@@ -82,6 +84,8 @@ import type { HomeData, Shiur, Directory, SearchResult } from '@/lib/yutorah';
 import { mediaKind } from '@/lib/yutorah';
 type View =
   | 'discover'
+  | 'following'
+  | 'notes'
   | 'search'
   | 'teachers'
   | 'series'
@@ -89,30 +93,16 @@ type View =
   | 'saved'
   | 'history'
   | 'playlists';
-type Filters = {
-  teacher: string;
-  series: string;
-  topic: string;
-  max: string;
-  language: string;
-  format: string;
-};
-const noFilters: Filters = {
-  teacher: '',
-  series: '',
-  topic: '',
-  max: '',
-  language: '',
-  format: '',
-};
 const labels: Record<View, string> = {
-  discover: 'Discover',
+  discover: 'For you',
+  following: 'Following',
+  notes: 'My notebook',
   search: 'Search',
   teachers: 'Teachers',
   series: 'Series',
   topics: 'Topics',
   saved: 'Saved shiurim',
-  history: 'Listening history',
+  history: 'Learning history',
   playlists: 'My playlists',
 };
 async function requestJson<T>(url: string, signal?: AbortSignal): Promise<T> {
@@ -177,6 +167,9 @@ export default function TorahApp({
   const [topicGroup, setTopicGroup] = useState('all');
   const [grid, setGrid] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState(false);
+  const [withinResults, setWithinResults] = useState('');
+  const [learningFilter, setLearningFilter] = useState('all');
+  const [libraryQuery, setLibraryQuery] = useState('');
   const [resultOrder, setResultOrder] = useState('library');
   const [detail, setDetail] = useState<
     (Shiur & { text?: string; video?: string }) | null
@@ -193,7 +186,7 @@ export default function TorahApp({
   const [noteText, setNoteText] = useState('');
   const [toast, setToast] = useState('');
   const [help, setHelp] = useState(false);
-  const [homeTab, setHomeTab] = useState('featured');
+
   const searchAbort = useRef<AbortController | null>(null);
   const detailAbort = useRef<AbortController | null>(null);
   const initialized = useRef(false);
@@ -260,6 +253,7 @@ export default function TorahApp({
       setFilters(nextFilters);
       if (page === 1) {
         setResults(null);
+        setWithinResults('');
         setResultOrder('library');
       }
       if (push && page === 1) changeURL('search', query, nextFilters);
@@ -268,10 +262,32 @@ export default function TorahApp({
         if (v) p.set(k, v);
       });
       try {
-        const result = await requestJson<SearchResult>(
+        let result = await requestJson<SearchResult>(
           '/api/search?' + p,
           controller.signal,
         );
+        if (controller.signal.aborted) return;
+        setResultOrder(result.plan.sort || 'relevance');
+        while (result.complete === false && !controller.signal.aborted) {
+          setResults(result);
+          setAdvancedFilters(false);
+          p.set('run', result.run!);
+          await new Promise<void>((resolve, reject) => {
+            const stop = () => {
+              clearTimeout(timer);
+              reject(new DOMException('Aborted', 'AbortError'));
+            };
+            const timer = setTimeout(() => {
+              controller.signal.removeEventListener('abort', stop);
+              resolve();
+            }, 400);
+            controller.signal.addEventListener('abort', stop, { once: true });
+          });
+          result = await requestJson<SearchResult>(
+            '/api/search?' + p,
+            controller.signal,
+          );
+        }
         if (!controller.signal.aborted) {
           setResults((old) =>
             page > 1 && old
@@ -286,7 +302,8 @@ export default function TorahApp({
               : result,
           );
           if (page === 1) {
-            setResultOrder(result.plan.term ? 'relevance' : 'library');
+            setResultOrder(result.plan.sort || 'relevance');
+            setAdvancedFilters(false);
             const resolved: Filters = {
               teacher: result.plan.teacherId
                 ? String(result.plan.teacherId)
@@ -296,6 +313,13 @@ export default function TorahApp({
               max: result.plan.max ? String(result.plan.max) : '',
               language: result.plan.language,
               format: result.plan.format,
+              min: result.plan.min ? String(result.plan.min) : '',
+              after: result.plan.after || '',
+              before: result.plan.before || '',
+              phrase: result.plan.phrase || '',
+              exclude: result.plan.exclude || '',
+              scope: result.plan.scope || '',
+              sort: result.plan.sort || '',
             };
             setFilters(resolved);
             setSubmitted(result.plan.term);
@@ -320,6 +344,7 @@ export default function TorahApp({
       setSearchLoading(false);
       setView(next);
       setDirectoryQuery('');
+      setLibraryQuery('');
       setDirectoryLimit(36);
       setSelectedPlaylist('');
       changeURL(next);
@@ -383,7 +408,10 @@ export default function TorahApp({
       Object.keys(fs).forEach((k) => {
         fs[k as keyof Filters] = params.get(k) || '';
       });
-      if (v === 'search' || query) void runSearch(query, fs, 1, false);
+      searchAbort.current?.abort();
+      setSearchLoading(false);
+      if (query || (v === 'search' && Object.values(fs).some(Boolean)))
+        void runSearch(query, fs, 1, false);
       else if (v && v in labels) setView(v);
       else setView('discover');
       if (params.get('shiur'))
@@ -495,7 +523,33 @@ export default function TorahApp({
     }));
     notify(exists ? 'Removed from saved shiurim.' : 'Saved on this device.');
   };
+  const follow = (item: Follow) => {
+    const exists = library.following.some(
+      (f) => f.kind === item.kind && f.id === item.id,
+    );
+    if (!exists && library.following.length >= 100) {
+      notify('You can follow up to 100 teachers, topics, and series.');
+      return;
+    }
+    update((old) => ({
+      ...old,
+      following: exists
+        ? old.following.filter(
+            (f) => !(f.kind === item.kind && f.id === item.id),
+          )
+        : [...old.following, item],
+    }));
+    notify(
+      exists
+        ? `Unfollowed ${item.name}.`
+        : `Following ${item.name}. Your feed is updated.`,
+    );
+  };
   const enqueue = (s: Shiur) => {
+    if (library.queue.some((v) => v.id === s.id)) {
+      notify('Already in your queue.');
+      return;
+    }
     update((old) => ({ ...old, queue: [...old.queue, s] }));
     notify('Added to your queue.');
   };
@@ -553,10 +607,6 @@ export default function TorahApp({
       window.history.replaceState({}, '', url);
     }
   };
-  const searchTopic = (term: string) => {
-    void runSearch(term);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
   const filterChange = (key: keyof Filters, value: string) =>
     void runSearch(submitted, {
       ...filters,
@@ -573,17 +623,58 @@ export default function TorahApp({
         onSave={save}
         onQueue={enqueue}
         saved={savedIds.has(s.id)}
+        learned={isLearned(s, library)}
         progress={
           history ? library.history.find((h) => h.shiur.id === s.id) : undefined
         }
         extra={
-          <button
-            className="icon-button add-playlist-action"
-            aria-label={'Add to playlist: ' + s.title}
-            onClick={() => addToPlaylist(s)}
-          >
-            <Plus size={17} />
-          </button>
+          <>
+            <button
+              className="icon-button learned-action"
+              aria-label={
+                (isLearned(s, library)
+                  ? 'Mark as not learned: '
+                  : 'Mark as learned: ') + s.title
+              }
+              aria-pressed={isLearned(s, library)}
+              onClick={() => {
+                const learned = isLearned(s, library);
+                update((old) => ({
+                  ...old,
+                  completed: learned
+                    ? old.completed.filter((id) => id !== s.id)
+                    : [...new Set([...old.completed, s.id])],
+                  history: learned
+                    ? old.history.map((h) =>
+                        h.shiur.id === s.id ? { ...h, seconds: 0 } : h,
+                      )
+                    : old.history.some((h) => h.shiur.id === s.id)
+                      ? old.history
+                      : [
+                          {
+                            shiur: s,
+                            seconds: 0,
+                            duration: s.duration,
+                            updatedAt: new Date().toISOString(),
+                          },
+                          ...old.history,
+                        ].slice(0, 200),
+                }));
+                notify(
+                  learned ? 'Marked as not learned.' : 'Marked as learned.',
+                );
+              }}
+            >
+              <Check size={17} />
+            </button>
+            <button
+              className="icon-button add-playlist-action"
+              aria-label={'Add to playlist: ' + s.title}
+              onClick={() => addToPlaylist(s)}
+            >
+              <Plus size={17} />
+            </button>
+          </>
         }
       />
     ));
@@ -619,6 +710,7 @@ export default function TorahApp({
   );
   const orderedResults = useMemo(() => {
     const items = [...(results?.items || [])];
+    if (results?.complete !== undefined) return items;
     if (resultOrder === 'relevance')
       items.sort(
         (a, b) =>
@@ -635,6 +727,32 @@ export default function TorahApp({
       items.sort((a, b) => a.title.localeCompare(b.title));
     return items;
   }, [results, resultOrder]);
+  const visibleResults = orderedResults.filter((s) => {
+    if (learningFilter === 'unlearned' && isLearned(s, library)) return false;
+    if (learningFilter === 'saved' && !savedIds.has(s.id)) return false;
+    return searchText(
+      [s.title, s.teacher, s.description, s.series, ...s.topics].join(' '),
+    ).includes(searchText(withinResults));
+  });
+  const loadedItems = [
+    ...new Map(
+      [
+        ...(home?.featured || []),
+        ...(home?.recent || []),
+        ...(home?.daily || []),
+        ...(results?.items || []),
+        ...library.saved,
+        ...library.history.map((h) => h.shiur),
+      ].map((s) => [s.id, s]),
+    ).values(),
+  ];
+  const detailRelated = detail
+    ? relatedShiurim(detail, loadedItems, library)
+    : [];
+  const matchLibrary = (s: Shiur) =>
+    searchText(s.title + ' ' + s.teacher + ' ' + s.series).includes(
+      searchText(libraryQuery),
+    );
   const listedTeachers =
     directory?.teachers.filter((t) =>
       searchText(t.name).includes(searchText(directoryQuery)),
@@ -660,12 +778,9 @@ export default function TorahApp({
     /(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/,
   )?.[1];
   const playlist = library.playlists.find((p) => p.id === selectedPlaylist);
-  const continueItems = library.history
-    .filter((h) => h.seconds > 10 && h.duration - h.seconds > 20)
-    .slice(0, 3);
   return (
     <SidebarProvider
-      style={{ '--sidebar-width': '230px' } as React.CSSProperties}
+      style={{ '--sidebar-width': '244px' } as React.CSSProperties}
     >
       <a href="#main-content" className="skip-link">
         Skip to content
@@ -684,7 +799,7 @@ export default function TorahApp({
             <span className="brand-mark">YU</span>
             <span>
               Torah
-              <span className="brand-caption">THE MARCOS AND ADINA KATZ</span>
+              <span className="brand-caption">A WORLD OF LEARNING</span>
             </span>
           </Link>
         </SidebarHeader>
@@ -695,6 +810,7 @@ export default function TorahApp({
               {(
                 [
                   { icon: Compass, view: 'discover' },
+                  { icon: Users, view: 'following' },
                   { icon: Search, view: 'search' },
                   { icon: Users, view: 'teachers' },
                   { icon: BookOpen, view: 'series' },
@@ -719,6 +835,7 @@ export default function TorahApp({
                 [
                   { icon: Bookmark, view: 'saved' },
                   { icon: History, view: 'history' },
+                  { icon: NotebookPen, view: 'notes' },
                   { icon: Library, view: 'playlists' },
                 ] as const
               ).map((item) => (
@@ -758,7 +875,7 @@ export default function TorahApp({
           <div className="yu-affiliate">
             YESHIVA UNIVERSITY
             <br />
-            <span>Torah for everyone.</span>
+            <span>The Marcos and Adina Katz YUTorah</span>
           </div>
           <a
             href="https://yutorah.org"
@@ -797,7 +914,7 @@ export default function TorahApp({
               className="header-home"
               onClick={() => navigate('discover')}
             >
-              <span className="desktop-home-label">Explore</span>
+              <span className="desktop-home-label">Your learning</span>
               <span className="mobile-home-label">
                 YU<span>Torah</span>
               </span>
@@ -819,324 +936,27 @@ export default function TorahApp({
           </div>
         </header>
         <main id="main-content" className="main-content" tabIndex={-1}>
-          {view === 'discover' && (
-            <>
-              <section className="welcome">
-                <h1>Discover</h1>
-                <div className="suggestions">
-                  <span>Explore</span>
-                  {[
-                    'Teshuva',
-                    'Rosh Hashana',
-                    'Daf Yomi',
-                    'Under 20 minutes',
-                  ].map((t) => (
-                    <button key={t} onClick={() => searchTopic(t)}>
-                      {t}
-                      <ArrowUpRight size={12} />
-                    </button>
-                  ))}
-                </div>
-              </section>
-              {!home ? (
-                <StatePanel
-                  title="We couldn't reach YUTorah."
-                  description="The live library is temporarily unavailable. Please try again."
-                >
-                  <button
-                    className="primary-button"
-                    onClick={refreshHome}
-                    disabled={homeLoading}
-                  >
-                    {homeLoading ? 'Reconnecting…' : 'Try again'}
-                  </button>
-                </StatePanel>
-              ) : (
-                <>
-                  {continueItems.length > 0 && (
-                    <section className="continue-section">
-                      <div className="section-heading">
-                        <h2>Pick up where you left off</h2>
-                        <button
-                          className="text-button"
-                          onClick={() => navigate('history')}
-                        >
-                          History <ArrowRight size={16} />
-                        </button>
-                      </div>
-                      <div className="continue-grid">
-                        {continueItems.map((h) => (
-                          <button
-                            className="continue-card"
-                            key={h.shiur.id}
-                            onClick={() => player.start(h.shiur, h.seconds)}
-                          >
-                            <Avatar
-                              src={h.shiur.image}
-                              name={h.shiur.teacher}
-                            />
-                            <div>
-                              <strong dir="auto">{h.shiur.title}</strong>
-                              <span>
-                                {Math.ceil((h.duration - h.seconds) / 60)} min
-                                left
-                              </span>
-                              <div className="continue-progress">
-                                <i
-                                  style={{
-                                    width: (100 * h.seconds) / h.duration + '%',
-                                  }}
-                                />
-                              </div>
-                            </div>
-                            <Play size={16} fill="currentColor" />
-                          </button>
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                  <section className="today-strip">
-                    <span className="today-label">
-                      <CalendarDays size={18} /> Today’s learning
-                    </span>
-                    {[
-                      ['DAF YOMI', home.daf],
-                      ['MISHNA YOMI', home.mishna],
-                      ['NACH YOMI', home.nach],
-                    ]
-                      .filter((v) => v[1])
-                      .map(([label, value]) => (
-                        <button key={label} onClick={() => searchTopic(value)}>
-                          <span>{label}</span>
-                          <b>{value}</b>
-                          <ArrowUpRight size={14} />
-                        </button>
-                      ))}
-                  </section>
-                  <section className="feature-grid">
-                    <div className="season-feature">
-                      <div className="season-copy">
-                        <span className="feature-kicker">
-                          THE YUTORAH COLLECTION · TESHUVA
-                        </span>
-                        <h2>
-                          A deeper look
-                          <br />
-                          at teshuva.
-                        </h2>
-                        <p>
-                          Shiurim on reflection, renewal, and the year ahead.
-                        </p>
-                        <button
-                          className="light-button"
-                          onClick={() => searchTopic('teshuva')}
-                        >
-                          Explore the shiurim <ArrowRight size={17} />
-                        </button>
-                      </div>
-                      <img
-                        src="https://cdnyutorah.cachefly.net/_files/adSlideshow/rosh-hashana.jpg"
-                        alt="Shofar for Rosh Hashana"
-                      />
-                    </div>
-                    {home.daily[0] && (
-                      <div className="daily-feature">
-                        <div className="eyebrow">
-                          <Radio size={15} /> FROM THE BEIT MIDRASH
-                        </div>
-                        <h2>Learning, every day.</h2>
-                        <p>Join the daily shiur at Yeshiva University.</p>
-                        <button
-                          className="daily-teacher"
-                          onClick={() =>
-                            void runSearch('', {
-                              ...noFilters,
-                              teacher: String(home.daily[0].teacherId),
-                            })
-                          }
-                        >
-                          <Avatar
-                            src={home.daily[0].image}
-                            name={home.daily[0].teacher}
-                          />
-                          <div>
-                            <strong>{home.daily[0].teacher}</strong>
-                            <span>Daily shiur</span>
-                          </div>
-                        </button>
-                        <h3 dir="auto">
-                          <button
-                            onClick={() => void showDetail(home.daily[0])}
-                          >
-                            {home.daily[0].title}
-                          </button>
-                        </h3>
-                        <button
-                          className="text-button"
-                          onClick={() => play(home.daily[0])}
-                        >
-                          <span className="small-play">
-                            <Play size={15} fill="currentColor" />
-                          </span>
-                          Listen now{' '}
-                          <span>
-                            {Math.round(home.daily[0].duration / 60)} min
-                          </span>
-                        </button>
-                      </div>
-                    )}
-                  </section>
-                  <section className="series-section">
-                    <div className="section-heading">
-                      <div>
-                        <h2>Find your next series</h2>
-                        <p>Find a series to come back to.</p>
-                      </div>
-                      <button
-                        className="text-button"
-                        onClick={() => navigate('series')}
-                      >
-                        All series <ArrowRight size={16} />
-                      </button>
-                    </div>
-                    <div className="series-preview-grid">
-                      {home.series.slice(0, 4).map((s) => (
-                        <button
-                          className="series-preview"
-                          key={s.id}
-                          onClick={() =>
-                            void runSearch('', {
-                              ...noFilters,
-                              series: String(s.id),
-                            })
-                          }
-                        >
-                          <SeriesCover name={s.name} id={s.id} />
-                          <div>
-                            <h3>{s.name}</h3>
-                            <p>{s.count.toLocaleString()} shiurim</p>
-                          </div>
-                          <ArrowUpRight size={16} />
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-
-                  {directory && directory.teachers.length > 0 && (
-                    <section className="home-teachers">
-                      <div className="section-heading">
-                        <h2>Learn from our teachers</h2>
-                        <button
-                          className="text-button"
-                          onClick={() => navigate('teachers')}
-                        >
-                          All teachers <ArrowRight size={16} />
-                        </button>
-                      </div>
-                      <div className="teacher-rail">
-                        {directory.teachers.slice(0, 6).map((t) => (
-                          <button
-                            className="teacher-portrait"
-                            key={t.id}
-                            onClick={() =>
-                              void runSearch('', {
-                                ...noFilters,
-                                teacher: String(t.id),
-                              })
-                            }
-                          >
-                            <Avatar src={t.image} name={t.name} />
-                            <span>{t.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                  <section className="shiur-section">
-                    <Tabs
-                      value={homeTab}
-                      onValueChange={(v) => setHomeTab(String(v))}
-                    >
-                      <div className="section-heading">
-                        <div>
-                          <h2>
-                            {homeTab === 'featured'
-                              ? 'Editor’s picks'
-                              : 'Recently added'}
-                          </h2>
-                          <p>
-                            {homeTab === 'featured'
-                              ? 'Selected by the YUTorah editors.'
-                              : 'The latest uploads, straight from YUTorah.'}
-                          </p>
-                        </div>
-                        <TabsList variant="line" className="home-tabs">
-                          <TabsTrigger value="featured">
-                            Editor&apos;s picks
-                          </TabsTrigger>
-                          <TabsTrigger value="recent">Just added</TabsTrigger>
-                        </TabsList>
-                      </div>
-                      <TabsContent value="featured">
-                        <div className="shiur-grid">
-                          {cards(home.featured.slice(0, 4))}
-                        </div>
-                        <div className="more-row">
-                          <button
-                            className="text-button"
-                            onClick={() => {
-                              setSubmitted('');
-                              setQ('');
-                              setFilters(noFilters);
-                              setResults({
-                                items: home.featured,
-                                total: home.featured.length,
-                                nextPage: null,
-                                plan: {
-                                  term: '',
-                                  original: '',
-                                  max: 0,
-                                  language: '',
-                                  format: '',
-                                  teacherId: 0,
-                                  teacherName: '',
-                                  seriesId: 0,
-                                  seriesName: '',
-                                  topicId: 0,
-                                  labels: ['YUTorah editor’s picks'],
-                                },
-                                filtered: false,
-                                facets: {
-                                  teachers: [],
-                                  series: [],
-                                  topics: [],
-                                },
-                              });
-                              setView('search');
-                            }}
-                          >
-                            All editor’s picks <ArrowRight size={15} />
-                          </button>
-                        </div>
-                      </TabsContent>
-                      <TabsContent value="recent">
-                        <div className="recent-list">
-                          {rows(home.recent.slice(0, 6))}
-                        </div>
-                        <div className="more-row">
-                          <button
-                            className="text-button"
-                            onClick={() => void runSearch('')}
-                          >
-                            Browse the library <ArrowRight size={15} />
-                          </button>
-                        </div>
-                      </TabsContent>
-                    </Tabs>
-                  </section>
-                </>
-              )}
-            </>
+          {(view === 'discover' || view === 'following') && (
+            <LearningHome
+              key={view}
+              home={home}
+              directory={directory}
+              library={library}
+              update={update}
+              onPlay={(s, seconds) =>
+                seconds !== undefined ? player.start(s, seconds) : play(s)
+              }
+              onDetails={showDetail}
+              onSave={save}
+              onQueue={enqueue}
+              onFollow={follow}
+              onSearch={(query, fs) => void runSearch(query, fs)}
+              onNavigate={navigate}
+              notify={notify}
+              onRefresh={refreshHome}
+              refreshing={homeLoading}
+              followingPage={view === 'following'}
+            />
           )}
           {view === 'search' && (
             <section
@@ -1144,25 +964,22 @@ export default function TorahApp({
             >
               <div className="view-heading">
                 <div className="eyebrow">THE YUTORAH LIBRARY</div>
-                <h1>Search the library.</h1>
+                <h1>What will you learn next?</h1>
                 <p>
                   Find shiurim by topic, teacher, source, or the time you have.
                 </p>
               </div>
               {searchBar}
-              <div className="search-examples">
-                <span>Try a full search</span>
-                <button
-                  onClick={() =>
-                    void runSearch(
-                      'teshuva by Rabbi Hershel Schachter under 30 minutes',
-                    )
-                  }
-                >
-                  Teshuva by Rabbi Hershel Schachter under 30 minutes{' '}
-                  <ArrowUpRight size={13} />
-                </button>
-              </div>
+              <SearchTools
+                query={q}
+                filters={filters}
+                directory={directory}
+                library={library}
+                update={update}
+                onSearch={(query, fs) => void runSearch(query, fs)}
+                notify={notify}
+                hasResults={!!results}
+              />
               <div className="filter-bar">
                 <button
                   className="filter-toggle"
@@ -1170,7 +987,7 @@ export default function TorahApp({
                   aria-controls="advanced-search-filters"
                   onClick={() => setAdvancedFilters(!advancedFilters)}
                 >
-                  <SlidersHorizontal size={16} /> Filters{' '}
+                  <SlidersHorizontal size={16} /> Advanced search{' '}
                   <ChevronDown size={14} />
                 </button>
                 <FilterSelect
@@ -1179,10 +996,20 @@ export default function TorahApp({
                   onChange={(v) => filterChange('max', v)}
                   options={[
                     { value: 'all', label: 'Any length' },
-                    ...['10', '20', '30', '60'].map((v) => ({
-                      value: v,
-                      label: `Under ${v} min`,
-                    })),
+                    ...Array.from(
+                      new Set([
+                        '10',
+                        '20',
+                        '30',
+                        '60',
+                        ...(filters.max ? [filters.max] : []),
+                      ]),
+                    )
+                      .sort((a, b) => Number(a) - Number(b))
+                      .map((v) => ({
+                        value: v,
+                        label: `Under ${v} min`,
+                      })),
                   ]}
                 />
                 <FilterSelect
@@ -1206,55 +1033,9 @@ export default function TorahApp({
                     { value: 'text', label: 'Articles' },
                   ]}
                 />
-                <div
-                  id="advanced-search-filters"
-                  className="advanced-search-filters"
-                  hidden={!advancedFilters}
-                >
-                  {!!results?.facets.teachers.length && (
-                    <FilterSelect
-                      label="Teacher"
-                      value={filters.teacher || 'all'}
-                      onChange={(v) => filterChange('teacher', v)}
-                      options={[
-                        { value: 'all', label: 'All teachers' },
-                        ...results.facets.teachers.map((t) => ({
-                          value: String(t.id),
-                          label: t.name,
-                        })),
-                      ]}
-                    />
-                  )}{' '}
-                  {!!results?.facets.topics.length && (
-                    <FilterSelect
-                      label="Topic"
-                      value={filters.topic || 'all'}
-                      onChange={(v) => filterChange('topic', v)}
-                      options={[
-                        { value: 'all', label: 'All topics' },
-                        ...results.facets.topics.map((t) => ({
-                          value: String(t.id),
-                          label: t.name,
-                        })),
-                      ]}
-                    />
-                  )}{' '}
-                  {!!results?.facets.series.length && (
-                    <FilterSelect
-                      label="Series filter"
-                      value={filters.series || 'all'}
-                      onChange={(v) => filterChange('series', v)}
-                      options={[
-                        { value: 'all', label: 'All series' },
-                        ...results.facets.series.map((t) => ({
-                          value: String(t.id),
-                          label: t.name,
-                        })),
-                      ]}
-                    />
-                  )}{' '}
-                </div>
-                {Object.values(filters).some(Boolean) && (
+                {Object.entries(filters).some(
+                  ([key, value]) => key !== 'sort' && value,
+                ) && (
                   <button
                     className="text-button"
                     onClick={() => void runSearch(submitted, noFilters)}
@@ -1263,13 +1044,35 @@ export default function TorahApp({
                   </button>
                 )}
               </div>
-              {Object.values(filters).some(Boolean) && (
+              {advancedFilters && (
+                <AdvancedSearch
+                  key={JSON.stringify(filters)}
+                  filters={filters}
+                  directory={directory}
+                  loading={searchLoading}
+                  onApply={(next) => void runSearch(q, next)}
+                />
+              )}
+              {Object.entries(filters).some(
+                ([key, value]) => key !== 'sort' && value,
+              ) && (
                 <div className="applied-filters" aria-label="Active filters">
                   {(Object.entries(filters) as [keyof Filters, string][])
-                    .filter(([, v]) => v)
+                    .filter(([key, v]) => v && key !== 'sort')
                     .map(([key, value]) => {
+                      const extraLabels: Partial<
+                        Record<keyof Filters, string>
+                      > = {
+                        min: `At least ${value} minutes`,
+                        after: `From ${value}`,
+                        before: `Through ${value}`,
+                        phrase: `Exact phrase: ${value}`,
+                        exclude: `Exclude: ${value}`,
+                        scope: 'Title only',
+                      };
                       const label =
-                        key === 'teacher'
+                        extraLabels[key] ||
+                        (key === 'teacher'
                           ? directory?.teachers.find(
                               (t) => String(t.id) === value,
                             )?.name || 'Selected teacher'
@@ -1291,7 +1094,7 @@ export default function TorahApp({
                                     ? 'Articles'
                                     : value === 'audio'
                                       ? 'Audio'
-                                      : 'Video';
+                                      : 'Video');
                       return (
                         <button
                           key={key}
@@ -1339,10 +1142,39 @@ export default function TorahApp({
                   <div className="results-heading" aria-live="polite">
                     <div>
                       <h2>
-                        {results.filtered
-                          ? `${results.items.length} matching shiurim loaded`
-                          : `${results.total.toLocaleString()} shiurim`}
+                        {results.complete === false
+                          ? `${results.total.toLocaleString()} matches found so far`
+                          : results.filtered
+                            ? `${results.items.length} matching shiurim loaded`
+                            : `${results.total.toLocaleString()} shiurim`}
                       </h2>
+                      {results.complete !== undefined && (
+                        <p>
+                          {results.complete
+                            ? `All ${results.sourceTotal?.toLocaleString()} library candidates checked. ${results.total.toLocaleString()} matches.`
+                            : `Checking the full result set: ${results.scanned?.toLocaleString()} of ${results.sourceTotal?.toLocaleString()} shiurim. Counts and order are provisional until complete.`}
+                        </p>
+                      )}
+                      {results.complete === false && (
+                        <div className="full-search-progress">
+                          <progress
+                            aria-label="Search progress"
+                            value={results.scanned || 0}
+                            max={results.sourceTotal || 1}
+                          />
+                          <button
+                            className="text-button"
+                            onClick={() => {
+                              if (searchLoading) {
+                                searchAbort.current?.abort();
+                                setSearchLoading(false);
+                              } else void runSearch(submitted, filters);
+                            }}
+                          >
+                            {searchLoading ? 'Pause search' : 'Continue search'}
+                          </button>
+                        </div>
+                      )}
                       {results.filtered && (
                         <p>
                           Filtered from {results.total.toLocaleString()} library
@@ -1355,14 +1187,18 @@ export default function TorahApp({
                     </div>
                     <div className="result-view-controls">
                       <FilterSelect
-                        label={`Order ${results.items.length} loaded results`}
+                        label="Sort all results"
                         value={resultOrder}
-                        onChange={setResultOrder}
+                        onChange={(sort) =>
+                          void runSearch(submitted, { ...filters, sort })
+                        }
                         options={[
-                          { value: 'relevance', label: 'Best matches loaded' },
+                          { value: 'relevance', label: 'Best matches' },
                           { value: 'library', label: 'Library order' },
-                          { value: 'new', label: 'Newest loaded' },
-                          { value: 'short', label: 'Shortest loaded' },
+                          { value: 'new', label: 'Newest first' },
+                          { value: 'old', label: 'Oldest first' },
+                          { value: 'long', label: 'Longest first' },
+                          { value: 'short', label: 'Shortest first' },
                           { value: 'title', label: 'Title A–Z' },
                         ]}
                       />
@@ -1384,22 +1220,123 @@ export default function TorahApp({
                       </div>
                     </div>
                   </div>
+                  {results.items.length > 0 && (
+                    <div className="results-workspace-tools">
+                      <label className="within-search">
+                        <Search size={16} />
+                        <input
+                          aria-label="Find within loaded results"
+                          placeholder="Find within these results…"
+                          value={withinResults}
+                          onChange={(e) => setWithinResults(e.target.value)}
+                        />
+                      </label>
+                      <FilterSelect
+                        label="Learning status"
+                        value={learningFilter}
+                        onChange={setLearningFilter}
+                        options={[
+                          { value: 'all', label: 'All learning' },
+                          { value: 'unlearned', label: 'Not learned yet' },
+                          { value: 'saved', label: 'Saved only' },
+                        ]}
+                      />
+                      <button
+                        className="text-button"
+                        onClick={() => {
+                          const audio = visibleResults.filter(
+                            (s) => mediaKind(s) === 'audio',
+                          );
+                          update((old) => ({
+                            ...old,
+                            queue: [
+                              ...new Map(
+                                [...old.queue, ...audio].map((s) => [s.id, s]),
+                              ).values(),
+                            ],
+                          }));
+                          notify(
+                            `Added ${audio.length} audio shiurim to your queue.`,
+                          );
+                        }}
+                      >
+                        <ListPlus size={16} />
+                        Queue results
+                      </button>
+                      {(withinResults || learningFilter !== 'all') && (
+                        <p>
+                          {visibleResults.length} of {results.items.length}{' '}
+                          loaded shiurim match these local refinements.{' '}
+                          <button
+                            onClick={() => {
+                              setWithinResults('');
+                              setLearningFilter('all');
+                            }}
+                          >
+                            Reset
+                          </button>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {results.plan.teacherId > 0 && (
+                    <div className="search-follow-banner">
+                      <span>
+                        <Users size={17} />
+                        {results.plan.teacherName ||
+                          directory?.teachers.find(
+                            (t) => t.id === results.plan.teacherId,
+                          )?.name ||
+                          'This teacher'}
+                      </span>
+                      <FollowButton
+                        follow={{
+                          kind: 'teacher',
+                          id: results.plan.teacherId,
+                          name:
+                            results.plan.teacherName ||
+                            directory?.teachers.find(
+                              (t) => t.id === results.plan.teacherId,
+                            )?.name ||
+                            'Selected teacher',
+                        }}
+                        library={library}
+                        onFollow={follow}
+                      />
+                    </div>
+                  )}
+                  {results.items.length > 0 && visibleResults.length === 0 && (
+                    <StatePanel
+                      title="No matches in these loaded results"
+                      description="Clear the local refinement or load more shiurim to keep looking."
+                    >
+                      <button
+                        className="outline-button"
+                        onClick={() => {
+                          setWithinResults('');
+                          setLearningFilter('all');
+                        }}
+                      >
+                        Clear refinement
+                      </button>
+                    </StatePanel>
+                  )}
                   {results.items.length ? (
                     grid ? (
-                      <div className="shiur-grid">{cards(orderedResults)}</div>
+                      <div className="shiur-grid">{cards(visibleResults)}</div>
                     ) : (
-                      <div className="results-list">{rows(orderedResults)}</div>
+                      <div className="results-list">{rows(visibleResults)}</div>
                     )
                   ) : (
                     <StatePanel
                       title={
-                        results.nextPage
-                          ? 'No matches in this batch.'
+                        results.complete === false
+                          ? 'Still checking for matches…'
                           : 'No matching shiurim.'
                       }
                       description={
-                        results.nextPage
-                          ? 'Keep searching the next part of the library, or adjust your filters.'
+                        results.complete === false
+                          ? 'The search continues automatically. You can narrow the filters while it runs.'
                           : 'Try a broader topic, a teacher’s full name, or fewer filters.'
                       }
                     />
@@ -1534,74 +1471,100 @@ export default function TorahApp({
                   {view === 'teachers' && (
                     <div className="teacher-grid">
                       {listedTeachers.slice(0, directoryLimit).map((t) => (
-                        <button
-                          className="teacher-card"
-                          key={t.id}
-                          onClick={() =>
-                            void runSearch('', {
-                              ...noFilters,
-                              teacher: String(t.id),
-                            })
-                          }
-                        >
-                          <Avatar src={t.image} name={t.name} />
-                          <h2>{t.name}</h2>
-                          <p>{t.count.toLocaleString()} shiurim</p>
-                          <span>
-                            Explore shiurim <ArrowRight size={14} />
-                          </span>
-                        </button>
+                        <article className="teacher-card-wrap" key={t.id}>
+                          <button
+                            className="teacher-card"
+                            onClick={() =>
+                              void runSearch('', {
+                                ...noFilters,
+                                teacher: String(t.id),
+                              })
+                            }
+                          >
+                            <Avatar src={t.image} name={t.name} />
+                            <h2>{t.name}</h2>
+                            <p>{t.count.toLocaleString()} shiurim</p>
+                            <span>
+                              Explore shiurim <ArrowRight size={14} />
+                            </span>
+                          </button>
+                          <FollowButton
+                            follow={{
+                              kind: 'teacher',
+                              id: t.id,
+                              name: t.name,
+                              image: t.image,
+                            }}
+                            library={library}
+                            onFollow={follow}
+                          />
+                        </article>
                       ))}
                     </div>
                   )}
                   {view === 'series' && (
                     <div className="series-directory">
                       {listedSeries.slice(0, directoryLimit).map((s) => (
-                        <button
-                          className="series-directory-card"
-                          key={s.id}
-                          onClick={() =>
-                            void runSearch('', {
-                              ...noFilters,
-                              series: String(s.id),
-                            })
-                          }
-                        >
-                          <SeriesCover name={s.name} id={s.id} />
-                          <div>
-                            <h2>{s.name}</h2>
-                            <p>{s.count.toLocaleString()} shiurim</p>
-                            {s.description && (
-                              <p className="series-description">
-                                {s.description}
-                              </p>
-                            )}
-                          </div>
-                          <ArrowUpRight size={19} />
-                        </button>
+                        <article className="series-follow-wrap" key={s.id}>
+                          <button
+                            className="series-directory-card"
+                            onClick={() =>
+                              void runSearch('', {
+                                ...noFilters,
+                                series: String(s.id),
+                              })
+                            }
+                          >
+                            <SeriesCover name={s.name} id={s.id} />
+                            <div>
+                              <h2>{s.name}</h2>
+                              <p>{s.count.toLocaleString()} shiurim</p>
+                              {s.description && (
+                                <p className="series-description">
+                                  {s.description}
+                                </p>
+                              )}
+                            </div>
+                            <ArrowUpRight size={19} />
+                          </button>
+                          <FollowButton
+                            follow={{ kind: 'series', id: s.id, name: s.name }}
+                            library={library}
+                            onFollow={follow}
+                          />
+                        </article>
                       ))}
                     </div>
                   )}
                   {view === 'topics' && (
                     <div className="topic-grid">
                       {listedTopics.slice(0, directoryLimit).map((t) => (
-                        <button
-                          className="topic-card"
+                        <article
+                          className="topic-follow-wrap"
                           key={t.id + '-' + t.group}
-                          onClick={() =>
-                            void runSearch('', {
-                              ...noFilters,
-                              topic: String(t.id),
-                            })
-                          }
                         >
-                          <span>{t.group}</span>
-                          <h2>{t.name}</h2>
-                          <p>
-                            {t.count.toLocaleString()} shiurim{' '}
-                            <ArrowUpRight size={17} />
-                          </p>
-                        </button>
+                          <button
+                            className="topic-card"
+                            onClick={() =>
+                              void runSearch('', {
+                                ...noFilters,
+                                topic: String(t.id),
+                              })
+                            }
+                          >
+                            <span>{t.group}</span>
+                            <h2>{t.name}</h2>
+                            <p>
+                              {t.count.toLocaleString()} shiurim{' '}
+                              <ArrowUpRight size={17} />
+                            </p>
+                          </button>
+                          <FollowButton
+                            follow={{ kind: 'topic', id: t.id, name: t.name }}
+                            library={library}
+                            onFollow={follow}
+                          />
+                        </article>
                       ))}
                     </div>
                   )}
@@ -1642,7 +1605,7 @@ export default function TorahApp({
                   {view === 'saved'
                     ? 'Saved shiurim'
                     : view === 'history'
-                      ? 'Listening history'
+                      ? 'Learning history'
                       : playlist
                         ? playlist.name
                         : 'My playlists'}
@@ -1658,6 +1621,25 @@ export default function TorahApp({
                 </output>
               ) : (
                 <>
+                  {(view === 'saved' || view === 'history') && (
+                    <div className="library-search-toolbar">
+                      <div className="directory-search">
+                        <Search size={17} />
+                        <input
+                          aria-label="Search your learning"
+                          placeholder="Find a shiur or teacher in your learning…"
+                          value={libraryQuery}
+                          onChange={(e) => setLibraryQuery(e.target.value)}
+                        />
+                      </div>
+                      <span>
+                        {view === 'saved'
+                          ? library.saved.length
+                          : library.history.length}{' '}
+                        shiurim
+                      </span>
+                    </div>
+                  )}
                   {view === 'saved' &&
                     (library.saved.length ? (
                       <>
@@ -1688,7 +1670,7 @@ export default function TorahApp({
                             Play saved shiurim
                           </button>
                         </div>
-                        {rows(library.saved)}
+                        {rows(library.saved.filter(matchLibrary))}
                       </>
                     ) : (
                       <StatePanel
@@ -1706,7 +1688,9 @@ export default function TorahApp({
                   {view === 'history' &&
                     (library.history.length ? (
                       rows(
-                        library.history.map((h) => h.shiur),
+                        library.history
+                          .map((h) => h.shiur)
+                          .filter(matchLibrary),
                         true,
                       )
                     ) : (
@@ -1908,6 +1892,43 @@ export default function TorahApp({
               )}
             </section>
           )}
+          {view === 'notes' && (
+            <Notebook
+              library={library}
+              items={loadedItems}
+              onOpen={(id) => void openById(String(id))}
+              onExplore={() => navigate('discover')}
+              onPlay={(id, seconds) => {
+                const s =
+                  loadedItems.find((item) => item.id === id) ||
+                  library.notes.find((n) => n.shiurId === id)?.shiur;
+                if (s) {
+                  if (mediaKind(s) === 'audio') player.start(s, seconds);
+                  else void showDetail(s);
+                } else
+                  requestJson<Shiur>('/api/shiur?id=' + id)
+                    .then((fresh) => {
+                      if (mediaKind(fresh) === 'audio')
+                        player.start(fresh, seconds);
+                      else void showDetail(fresh);
+                    })
+                    .catch(() =>
+                      notify('This shiur could not load. Please try again.'),
+                    );
+              }}
+              onRemove={(note) => {
+                update((old) => ({
+                  ...old,
+                  notes: old.notes.filter((n) => n.id !== note.id),
+                }));
+                notify('Note removed.');
+                setUndoAction(() => () => {
+                  update((old) => ({ ...old, notes: [...old.notes, note] }));
+                  notify('Note restored.');
+                });
+              }}
+            />
+          )}
           <footer className="page-footer">
             <span>
               {home ? `${home.total.toLocaleString()} shiurim. ` : ''}One shared
@@ -1968,6 +1989,52 @@ export default function TorahApp({
                   </span>
                 </div>
               </button>
+              <div className="detail-follow-controls">
+                <FollowButton
+                  follow={{
+                    kind: 'teacher',
+                    id: detail.teacherId,
+                    name: detail.teacher,
+                    image: detail.image,
+                  }}
+                  library={library}
+                  onFollow={follow}
+                />
+                <button
+                  className="text-button"
+                  aria-pressed={isLearned(detail, library)}
+                  onClick={() => {
+                    const learned = isLearned(detail, library);
+                    update((old) => ({
+                      ...old,
+                      completed: learned
+                        ? old.completed.filter((id) => id !== detail.id)
+                        : [...new Set([...old.completed, detail.id])],
+                      history: learned
+                        ? old.history.map((h) =>
+                            h.shiur.id === detail.id ? { ...h, seconds: 0 } : h,
+                          )
+                        : old.history.some((h) => h.shiur.id === detail.id)
+                          ? old.history
+                          : [
+                              {
+                                shiur: detail,
+                                seconds: 0,
+                                duration: detail.duration,
+                                updatedAt: new Date().toISOString(),
+                              },
+                              ...old.history,
+                            ].slice(0, 200),
+                    }));
+                    notify(
+                      learned ? 'Marked as not learned.' : 'Marked as learned.',
+                    );
+                  }}
+                >
+                  <Check size={15} />
+                  {isLearned(detail, library) ? 'Learned' : 'Mark as learned'}
+                </button>
+              </div>
               <div className="detail-meta">
                 <span>
                   {detail.duration
@@ -2173,6 +2240,7 @@ export default function TorahApp({
                         {
                           id: crypto.randomUUID(),
                           shiurId: detail.id,
+                          shiur: detail,
                           text,
                           seconds,
                           date: new Date().toISOString(),
@@ -2249,6 +2317,20 @@ export default function TorahApp({
                   <Share2 size={16} />
                   Copy link at {timeLabel(player.time)}
                 </button>
+              )}
+              {detailRelated.length > 0 && (
+                <section className="detail-section detail-related">
+                  <h3>Where to go next</h3>
+                  {detailRelated.map(({ shiur: s }) => (
+                    <button key={s.id} onClick={() => void showDetail(s)}>
+                      <span>
+                        <strong>{s.title}</strong>
+                        <small>{s.teacher}</small>
+                      </span>
+                      <ArrowRight size={16} />
+                    </button>
+                  ))}
+                </section>
               )}
               <a
                 className="original-shiur-link"
@@ -2484,9 +2566,36 @@ export default function TorahApp({
           <h3>Your learning stays on this device</h3>
           <p>
             Saved shiurim, playlists, notes, and listening progress are stored
-            in this browser. They do not sync to your YUTorah account. Clearing
-            your browser’s site data removes them.
+            in this browser, along with follows, saved searches, and learning
+            goals. They do not sync to your YUTorah account. Clearing your
+            browser’s site data removes them.
           </p>
+          <button
+            className="outline-button"
+            onClick={() => {
+              const url = URL.createObjectURL(
+                new Blob(
+                  [
+                    JSON.stringify(
+                      { ...library, exportedAt: new Date().toISOString() },
+                      null,
+                      2,
+                    ),
+                  ],
+                  { type: 'application/json' },
+                ),
+              );
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = 'yutorah-learning-backup.json';
+              link.click();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+              notify('Your learning backup is ready.');
+            }}
+          >
+            <Download size={16} />
+            Export my learning
+          </button>
           <h3>A search that goes further</h3>
           <p>
             Search covers YUTorah’s indexed titles, descriptions, keywords,

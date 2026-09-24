@@ -143,3 +143,137 @@ test('direct title matches rank ahead of incidental description matches', () => 
   assert.ok(excerpt.includes('teshuva'));
   assert.ok(excerpt.length <= 232);
 });
+
+test('quoted phrases and excluded words become persistent filters', () => {
+  const plan = parseSearch('"hilchos teshuva" -parsha -introduction');
+  assert.equal(plan.phrase, 'hilchos teshuva');
+  assert.equal(plan.exclude, 'parsha introduction');
+  assert.equal(plan.term, 'hilchos teshuva');
+  assert.ok(plan.labels.includes('Exact phrase: hilchos teshuva'));
+});
+
+const { matchesPlan } = await load('lib/yutorah.ts');
+const shiur = {
+  title: 'Rambam Hilchos Teshuva',
+  teacher: 'Rabbi Example',
+  series: '',
+  topics: [],
+  description: 'A discussion about repentance.',
+  duration: 1800,
+  date: '2026-09-08T18:00:00Z',
+  materials: [{ name: 'Sources', url: 'https://example.org/sources.pdf' }],
+  language: 'EN',
+  format: 'mp3',
+  audio: '',
+};
+
+test('advanced filters combine and date endpoints include the whole day', () => {
+  const plan = parseSearch('', {
+    min: 20,
+    max: 30,
+    after: '2026-09-08',
+    before: '2026-09-08',
+    phrase: 'hilchos teshuva',
+    exclude: 'parsha',
+  });
+  assert.equal(matchesPlan(shiur, plan), true);
+  for (const patch of [
+    { duration: 1000 },
+    { duration: 1900 },
+    { date: '2026-09-09T00:00:00Z' },
+    { date: '' },
+    { title: 'Parsha: Hilchos Teshuva' },
+  ]) {
+    assert.equal(
+      matchesPlan({ ...shiur, ...patch }, plan),
+      false,
+      JSON.stringify(patch),
+    );
+  }
+});
+
+test('phrase and exclusion filters use normalized whole words', () => {
+  assert.equal(
+    matchesPlan(shiur, parseSearch('', { phrase: 'HILCHOS, TESHUVA' })),
+    true,
+  );
+  assert.equal(
+    matchesPlan(shiur, parseSearch('', { phrase: 'hilchos teshuvah' })),
+    false,
+  );
+  assert.equal(matchesPlan(shiur, parseSearch('', { exclude: 'ram' })), true);
+  assert.equal(
+    matchesPlan(shiur, parseSearch('', { exclude: 'Rambam' })),
+    false,
+  );
+});
+
+test('title scope excludes incidental description matches', () => {
+  assert.equal(
+    matchesPlan(shiur, parseSearch('discussion', { scope: 'title' })),
+    false,
+  );
+  assert.equal(
+    matchesPlan(shiur, parseSearch('rambam teshuva', { scope: 'title' })),
+    true,
+  );
+  assert.equal(
+    matchesPlan(
+      shiur,
+      parseSearch('', { phrase: 'discussion about', scope: 'title' }),
+    ),
+    false,
+  );
+  assert.equal(
+    matchesPlan(shiur, parseSearch('', { phrase: 'discussion about' })),
+    true,
+  );
+});
+
+test('natural searching understands time budgets, ranges and ordering', () => {
+  let plan = parseSearch(
+    'Show me the newest shiurim on teshuva under thirty minutes',
+  );
+  assert.equal(plan.term, 'teshuva');
+  assert.equal(plan.max, 30);
+  assert.equal(plan.sort, 'new');
+  assert.equal(
+    parseSearch('Find a shiur on teshuva under twenty-five minutes').max,
+    25,
+  );
+  plan = parseSearch(
+    'I have half an hour to listen. Find me a shiur about Shabbat',
+  );
+  assert.equal(plan.max, 30);
+  assert.equal(plan.term.replace(/[.]/g, '').trim(), 'Shabbat');
+  plan = parseSearch(
+    'Find me English shiurim on tefillah between 10 and 25 minutes, shortest first',
+  );
+  assert.equal(plan.language, 'EN');
+  assert.equal(plan.min, 10);
+  assert.equal(plan.max, 25);
+  assert.equal(plan.sort, 'short');
+});
+
+test('natural questions keep their specific subject instead of collapsing to a broad topic', () => {
+  const plan = parseSearch('How do I pray on Shabbat?');
+  assert.match(plan.term, /tefillah/);
+  assert.match(plan.term, /Shabbat/);
+  assert.equal(parseSearch('How can I improve my prayer?').term, 'tefillah');
+  assert.equal(parseSearch('"what is prayer"').phrase, 'what is prayer');
+});
+
+test('relative dates are deterministic and explicit filters win', async () => {
+  const { naturalSearch } = await load('lib/natural-search.ts');
+  const parsed = naturalSearch(
+    'Find me shiurim on teshuva from last year',
+    new Date('2026-09-08T12:00:00Z'),
+  );
+  assert.equal(parsed.options.after, '2025-01-01');
+  assert.equal(parsed.options.before, '2025-12-31');
+  assert.equal(parseSearch('short shiurim on teshuva', { max: 45 }).max, 45);
+  assert.equal(
+    parseSearch('newest shiurim on teshuva', { sort: 'short' }).sort,
+    'short',
+  );
+});

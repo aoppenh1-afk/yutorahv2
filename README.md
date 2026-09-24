@@ -8,6 +8,7 @@ Requires Node 22.13 or newer.
 
 ```sh
 npm ci
+npm run db:migrate:local
 npm run dev
 ```
 
@@ -23,7 +24,7 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
 ## What works
 
 - Live teacher, topic, and series suggestions with close-spelling matches, keyboard selection, and device-local recent searches.
-- Removable filters, highlighted matches, description excerpts around search terms, and ordering of loaded results by relevance, date, length, or title.
+- Removable filters, highlighted matches, description excerpts around search terms, and global ordering of completed result sets by relevance, date, length, or title.
 
 - Search the upstream index across titles and indexed metadata, with teacher, topic, series, format, language, and duration filters.
 - Parse searches such as “teshuva by Rabbi Hershel Schachter under 30 minutes”; show the interpreted filters. Common question phrasing maps to disclosed topics or keywords.
@@ -37,9 +38,13 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
 
 `lib/yutorah.ts` adapts `https://yutorah.org/api/`. Routes under `app/api` cache public responses, bound query sizes, normalize upstream fields, and return friendly failures. No YUTorah credentials or private API keys are needed.
 
-YUTorah currently accepts teacher, series, and subcategory filters at its search endpoint. Its duration, language, and media filter parameters did not filter results in live testing, so this app checks those fields across batches of three upstream pages. The interface distinguishes loaded filtered matches from the upstream total and supports loading more until all pages are checked.
+Search now checks every upstream candidate page automatically and stores a bounded pass at a time in D1. The first pass for a broad query can take a minute or more; the entire unfiltered archive can take much longer. The UI labels interim counts and order as provisional, supports pause/resume, and reports an exact filtered count only after the pass completes. Changed upstream totals, duplicate/missing candidates, and failed pages never silently become a completed search.
 
-Relevance ordering ranks the results loaded so far using title, topic, series, teacher, and description matches. It is labeled accordingly; it does not claim to rank unloaded pages. Ambiguous teacher surnames remain unfiltered until the user chooses a teacher.
+Completed candidate sets are cached for one hour after completion. Unfinished passes can resume for up to 24 hours. Duration, language, format, date, exact phrase, excluded words, title scope, and ordering operate over the same stored candidate set. Changing those refinements reuses the candidates. Keyword, teacher, topic, or series changes identify a different candidate set. Sorting and pagination apply to all matches in the completed set, including matches originally on the last upstream page. This is a query-specific candidate index, not a permanent mirror of all YUTorah content.
+
+Natural queries support English number words, time budgets such as "I have half an hour", duration ranges, newest/oldest/shortest/longest ordering, relative dates such as "last year", and conversational requests. Specific subject words are preserved when simplifying questions. Interpretations are shown as filters or keywords; this parser is deterministic rather than an LLM.
+
+Local setup runs `npm run db:migrate:local` before starting the app. D1 schema lives in `db/schema.ts`; generated, append-only migrations live in `drizzle/`. Sites applies those migrations to its hosted DB binding when publishing. No public administrative importer or credentials are exposed.
 
 Search does not invent transcripts or answers to religious questions. It searches the available upstream index and visibly interprets supported phrases. Videos and materials appear only where supplied by YUTorah. The app does not synchronize with YUTorah user accounts; saved items, notes, playlists, and progress use localStorage. Clearing browser storage removes that personal data.
 

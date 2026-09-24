@@ -7,7 +7,19 @@ async function json(path) {
     signal: AbortSignal.timeout(45000),
   });
   assert.equal(response.status, 200, `${path}: ${response.status}`);
-  return response.json();
+  let result = await response.json();
+  if (path.startsWith('/api/search')) {
+    const url = new URL(path, origin);
+    let passes = 0;
+    while (result.complete === false) {
+      assert.ok(++passes <= 200, 'Search did not finish');
+      url.searchParams.set('run', result.run);
+      const next = await fetch(url, { signal: AbortSignal.timeout(45000) });
+      assert.equal(next.status, 200);
+      result = await next.json();
+    }
+  }
+  return result;
 }
 
 test('homepage has real, actionable content', async () => {
@@ -68,7 +80,9 @@ test('shiur details expose playable media, video, and real source materials', as
   assert.match(shiur.audio, /^https:\/\//);
   assert.match(shiur.video, /youtu/);
   assert.ok(shiur.materials.length > 0);
-  assert.ok(shiur.materials.every((m) => m.name && m.url.startsWith('https://')));
+  assert.ok(
+    shiur.materials.every((m) => m.name && m.url.startsWith('https://')),
+  );
   const media = await fetch(shiur.audio, {
     headers: { Range: 'bytes=0-1023' },
     signal: AbortSignal.timeout(30000),

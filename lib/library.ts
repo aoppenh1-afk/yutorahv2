@@ -1,6 +1,12 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Shiur } from './yutorah';
+import {
+  defaultLearning,
+  restoreLearning,
+  dayKey,
+  type LearningPreferences,
+} from './learning';
 export type Progress = {
   shiur: Shiur;
   seconds: number;
@@ -8,6 +14,7 @@ export type Progress = {
   updatedAt: string;
 };
 export type Note = {
+  shiur?: Shiur;
   id: string;
   shiurId: number;
   seconds: number;
@@ -15,7 +22,7 @@ export type Note = {
   date: string;
 };
 export type Playlist = { id: string; name: string; items: Shiur[] };
-export type LibraryState = {
+export type LibraryState = LearningPreferences & {
   saved: Shiur[];
   history: Progress[];
   playlists: Playlist[];
@@ -26,6 +33,7 @@ export type LibraryState = {
   last: Shiur | null;
 };
 const initial: LibraryState = {
+  ...defaultLearning,
   saved: [],
   history: [],
   playlists: [],
@@ -47,10 +55,12 @@ export function readLibrary(): LibraryState {
       Array.isArray(s.topics);
     return {
       ...initial,
+      ...restoreLearning(value),
       saved: Array.isArray(value.saved) ? value.saved.filter(valid) : [],
       history: Array.isArray(value.history)
         ? value.history.filter(
             (v: Progress) =>
+              v &&
               valid(v.shiur) &&
               Number.isFinite(v.seconds) &&
               Number.isFinite(v.duration),
@@ -60,6 +70,7 @@ export function readLibrary(): LibraryState {
         ? value.playlists
             .filter(
               (v: Playlist) =>
+                v &&
                 typeof v.id === 'string' &&
                 typeof v.name === 'string' &&
                 Array.isArray(v.items),
@@ -69,6 +80,7 @@ export function readLibrary(): LibraryState {
       notes: Array.isArray(value.notes)
         ? value.notes.filter(
             (n: Note) =>
+              n &&
               typeof n.text === 'string' &&
               Number.isFinite(n.seconds) &&
               Number.isFinite(n.shiurId),
@@ -146,6 +158,30 @@ export function useAudio(
   const wantsPlay = useRef(false);
   const loaded = useRef(false);
   const lastSave = useRef(0);
+  useEffect(() => {
+    if (!playing) return;
+    let previous = Date.now();
+    const tick = () => {
+      const now = Date.now();
+      const elapsed = Math.min(10, (now - previous) / 1000);
+      previous = now;
+      const el = audio.current;
+      if (!el || el.readyState < 3 || el.seeking || elapsed < 0.5) return;
+      const day = dayKey();
+      update((old) => ({
+        ...old,
+        learningDays: {
+          ...old.learningDays,
+          [day]: (old.learningDays[day] || 0) + elapsed,
+        },
+      }));
+    };
+    const interval = setInterval(tick, 5000);
+    return () => {
+      clearInterval(interval);
+      tick();
+    };
+  }, [playing, update]);
   useEffect(() => {
     if (ready && !loaded.current) {
       loaded.current = true;
@@ -359,7 +395,10 @@ export function useAudio(
       setLoading(false);
       persist();
     },
-    onWaiting: () => setLoading(true),
+    onWaiting: () => {
+      setLoading(true);
+      setPlaying(false);
+    },
     onCanPlay: () => setLoading(false),
     onError: () => {
       setPlaying(false);
@@ -371,6 +410,12 @@ export function useAudio(
     onEnded: () => {
       setPlaying(false);
       persist();
+      const id = activeRef.current?.id;
+      if (id)
+        update((old) => ({
+          ...old,
+          completed: [...new Set([...old.completed, id])],
+        }));
       next();
     },
   };
