@@ -1,0 +1,28 @@
+[Unit]
+Description=YU Torah read-only transcript search
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=yutorah-search
+Group=yutorah-search
+WorkingDirectory=/opt/yutorah
+EnvironmentFile=/etc/yutorah-search.env
+ExecStart=/usr/local/bin/node /opt/yutorah/.worker-build/apps/worker/src/cli.js serve-search
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

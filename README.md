@@ -4,6 +4,17 @@ A responsive reading and listening interface connected to YUTorah's public libra
 
 ## Run
 
+The Linux Antigravity transcription worker is described in
+[the first-deployment checklist](docs/transcription-setup.md),
+[the architecture report](docs/transcription-architecture.md) and
+[the provisioning/operations guide](docs/transcription-operations.md).
+It uses the complete Lectern skill, PostgreSQL jobs/checkpoints, and native ACP audio.
+Build with `npm run worker:build`; test with `npm run test:worker`.
+Once deployed, the worker discovers new audio shiurim automatically and the search
+view shows timestamped matches from completed transcripts. The website needs the
+server-side `TRANSCRIPT_API_URL` and `TRANSCRIPT_API_TOKEN` settings described in
+the operations guide.
+
 Requires Node 22.13 or newer.
 
 ```sh
@@ -12,9 +23,10 @@ npm run db:migrate:local
 npm run dev
 ```
 
-For the production Worker runtime:
+For the production Worker runtime (uses the same local D1 state as migrations):
 
 ```sh
+npm run db:migrate:local
 npm run build
 npm run start -- --port 3001
 ```
@@ -46,7 +58,7 @@ Natural queries support English number words, time budgets such as "I have half 
 
 Local setup runs `npm run db:migrate:local` before starting the app. D1 schema lives in `db/schema.ts`; generated, append-only migrations live in `drizzle/`. Sites applies those migrations to its hosted DB binding when publishing. No public administrative importer or credentials are exposed.
 
-Search does not invent transcripts or answers to religious questions. It searches the available upstream index and visibly interprets supported phrases. Videos and materials appear only where supplied by YUTorah. The app does not synchronize with YUTorah user accounts; saved items, notes, playlists, and progress use localStorage. Clearing browser storage removes that personal data.
+Search does not invent transcripts or answers to religious questions. Metadata search uses the available upstream index; the transcript panel searches only completed, timestamped transcripts from the PostgreSQL worker. Videos and materials appear only where supplied by YUTorah. The app does not synchronize with YUTorah user accounts; saved items, notes, playlists, and progress use localStorage. Clearing browser storage removes that personal data.
 
 This is an independent interface. It does not replace the existing yutorah.org domain or imply a new official Yeshiva University service.
 

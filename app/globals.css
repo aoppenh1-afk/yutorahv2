@@ -52,6 +52,87 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+.transcript-search {
+  margin: 1.25rem 0 1.75rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: #f8faff;
+}
+.transcript-search-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.transcript-search h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.transcript-search p {
+  margin: 0.35rem 0 0;
+  color: var(--muted-foreground);
+}
+.transcript-search-heading label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+.transcript-search-heading select {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: white;
+}
+.transcript-search .transcript-search-state {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 1rem;
+}
+.transcript-hits {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+.transcript-hit {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: white;
+  color: var(--foreground);
+  text-decoration: none;
+}
+.transcript-hit:hover,
+.transcript-hit:focus-visible {
+  border-color: var(--primary);
+}
+.transcript-hit-title {
+  font-weight: 650;
+}
+.transcript-hit-text {
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+.transcript-hit-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--primary);
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+@media (max-width: 600px) {
+  .transcript-search-heading {
+    flex-direction: column;
+  }
+}
+
 :root {
   --background: #fff;
   --foreground: #18263b;

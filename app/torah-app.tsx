@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AdvancedSearch, type Filters, noFilters } from './advanced-search';
 import { SearchBox } from './search-box';
 import { SearchTools } from './search-tools';
+import { TranscriptSearch, type TranscriptHit } from './transcript-search';
 import { Notebook } from './notebook';
 import { LearningHome, FollowButton } from './learning-home';
 import { isLearned, relatedShiurim, type Follow } from '@/lib/learning';
@@ -607,6 +608,43 @@ export default function TorahApp({
       window.history.replaceState({}, '', url);
     }
   };
+  const openTranscriptHit = (hit: TranscriptHit) => {
+    const seconds = Math.max(0, hit.startMs / 1000);
+    const url = new URL(window.location.href);
+    url.searchParams.set('shiur', hit.shiurId);
+    url.searchParams.set('t', String(Math.floor(seconds)));
+    window.history.pushState({}, '', url);
+    if (hit.mediaUrl) {
+      const shiur: Shiur = {
+        id: Number(hit.shiurId),
+        title: hit.title,
+        teacher: hit.teacher,
+        teacherId: 0,
+        image: '',
+        audio: hit.mediaUrl,
+        url: `https://yutorah.org/lectures/details?shiurID=${hit.shiurId}`,
+        duration: 0,
+        date: '',
+        topics: [],
+        category: '',
+        language: '',
+        series: '',
+        seriesId: 0,
+        description: '',
+        format: 'mp3',
+        materials: [],
+      };
+      player.start(shiur, seconds);
+      void showDetail(shiur);
+    } else {
+      void requestJson<Shiur>(`/api/shiur?id=${hit.shiurId}`)
+        .then((shiur) => {
+          player.start(shiur, seconds);
+          void showDetail(shiur);
+        })
+        .catch((error) => notify(error instanceof Error ? error.message : 'Shiur audio is unavailable.'));
+    }
+  };
   const filterChange = (key: keyof Filters, value: string) =>
     void runSearch(submitted, {
       ...filters,
@@ -980,6 +1018,7 @@ export default function TorahApp({
                 notify={notify}
                 hasResults={!!results}
               />
+              <TranscriptSearch query={submitted} onSelect={openTranscriptHit} />
               <div className="filter-bar">
                 <button
                   className="filter-toggle"
