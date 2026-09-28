@@ -3,6 +3,13 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 const [behavior = 'normal', marker = ''] = process.argv.slice(2);
+if (behavior === 'ready_on_close') {
+  setInterval(() => {}, 1000);
+  process.once('SIGTERM', () => {
+    writeFileSync(marker, 'ready');
+    process.exit(0);
+  });
+}
 const model = 'gemini-3.8-flash-high';
 const send = (value) =>
   process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...value }) + '\n');

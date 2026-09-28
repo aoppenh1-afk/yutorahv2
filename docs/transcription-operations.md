@@ -1,5 +1,7 @@
 # Provision and operate the Linux worker
 
+For a first installation, follow [the ordered setup checklist](transcription-setup.md).
+
 Read [the architecture report](transcription-architecture.md) for the Lectern code
 trace and research limitations. The website's D1 metadata cache remains separate
 from the PostgreSQL transcript store. The Linux worker now polls the public YU Torah
@@ -51,8 +53,8 @@ read-only database role for the search process.
 For commands below, load the controlled environment file as the service user:
 
 ```sh
-sudo -u yutorah-worker bash -c 'set -a; source /etc/yutorah-worker.env; set +a; cd /opt/yutorah; /usr/local/bin/node .worker-build/apps/worker/src/cli.js migrate'
-sudo -u yutorah-worker bash -c 'set -a; source /etc/yutorah-worker.env; set +a; cd /opt/yutorah; /usr/local/bin/node .worker-build/apps/worker/src/cli.js probe'
+sudo -u yutorah-worker bash -ec 'set -a; source /etc/yutorah-worker.env; set +a; cd /opt/yutorah; /usr/local/bin/node .worker-build/apps/worker/src/cli.js migrate'
+sudo -u yutorah-worker bash -ec 'set -a; source /etc/yutorah-worker.env; set +a; cd /opt/yutorah; /usr/local/bin/node .worker-build/apps/worker/src/cli.js probe'
 ```
 
 `migrate` applies the numbered SQL files in order, serializes itself, and records
@@ -68,7 +70,7 @@ x86-64 handshake passed; ARM64 execution still needs a smoke test on ARM hardwar
 Stop the worker before sign-in. Open an interactive SSH terminal to the VM, then:
 
 ```sh
-sudo -u yutorah-worker bash -c 'set -a; source /etc/yutorah-worker.env; set +a; cd /opt/yutorah; /usr/local/bin/node .worker-build/apps/worker/src/cli.js auth'
+sudo -u yutorah-worker bash -ec 'set -a; source /etc/yutorah-worker.env; set +a; cd /opt/yutorah; /usr/local/bin/node .worker-build/apps/worker/src/cli.js auth'
 ```
 
 The command must have a TTY. It prints the validated Google URL and selected loopback
@@ -109,9 +111,9 @@ sudo systemctl status yutorah-worker
 sudo journalctl -u yutorah-worker -f
 ```
 
-The service verifies existing auth before claiming work, polls every five seconds,
+The service verifies existing auth and the configured model before claiming work, polls every five seconds,
 and transcribes one shiur at a time with up to `ACP_CONCURRENCY` parallel chunks.
-In parallel, it checks YU Torah's small recent feed every five minutes and performs
+With `CATALOG_ENABLED=true`, it checks YU Torah's small recent feed every five minutes and performs
 a paginated backstop scan hourly. New audio shiurim enter the durable queue
 automatically. Its cursor survives restarts, and
 the next scan reaches back before the last completed pass, so a VM outage does not
@@ -125,12 +127,17 @@ systemd cgroup own process lifetime on the VM. Only one VM may actively operate
 this personal profile. A distributed active/active fleet needs additional session
 admission and network-partition testing.
 
+The deployment example starts with `CATALOG_ENABLED=false` and concurrency 1 for
+manual commissioning. Enqueued jobs are still processed. Enable discovery and restart
+the service after validating short and long recordings. When the setting is omitted,
+discovery defaults to enabled for compatibility with existing installations.
+
 Run this block in one shell. The wrapper loads the service environment and runs
 each command as `yutorah-worker` from the deployment directory:
 
 ```sh
 yutorah_worker() {
-  sudo -u yutorah-worker bash -c 'set -a; source /etc/yutorah-worker.env; set +a; cd /opt/yutorah; exec /usr/local/bin/node .worker-build/apps/worker/src/cli.js "$@"' bash "$@"
+  sudo -u yutorah-worker bash -ec 'set -a; source /etc/yutorah-worker.env; set +a; cd /opt/yutorah; exec /usr/local/bin/node .worker-build/apps/worker/src/cli.js "$@"' bash "$@"
 }
 yutorah_worker enqueue 1234567 --title 'Hilchos Shabbos' --teacher 'Rabbi X'
 yutorah_worker enqueue 1234567 --audio-url https://download.yutorah.org/example.mp3 --revision updated-source --backfill
@@ -154,8 +161,8 @@ user-supplied URLs. The default ceiling is 1 GiB and 12 hours per source.
 
 Retries preserve accepted chunks. A cancelled job stays cancelled until explicit
 retry. Graceful service shutdown returns the active job to the queue. Hard crashes
-leave a 90-second lease; after it expires the worker resumes. After five expired
-active attempts, the job fails with `attempts_exhausted` and needs explicit `retry`.
+leave a 90-second lease; after it expires the worker resumes. If the lease expires on the fifth or a later
+claim, the job fails with `attempts_exhausted` and needs explicit `retry`.
 Each accepted chunk is committed independently. Exhausted chunk retries and
 policy/validation failures mark a job failed for inspection. Auth failure stops
 the service; the next service start checks auth before consuming more jobs.
@@ -183,7 +190,8 @@ sudo sh -c 'printf "TRANSCRIPT_API_TOKEN=%s\n" "$(openssl rand -hex 32)" >> /etc
 
 Configure a DNS name for the VM, replace the hostname in
 `deploy/transcription/Caddyfile.example`, and install it in `/etc/caddy/Caddyfile`.
-Open only HTTPS port 443; Node binds `127.0.0.1:8765` and PostgreSQL stays private.
+Allow ports 80/443 for Caddy's HTTPS setup and redirects; Node binds
+`127.0.0.1:8765` and PostgreSQL stays private. Restrict SSH to administrative access.
 Then enable both services:
 
 ```sh

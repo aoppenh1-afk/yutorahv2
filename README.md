@@ -5,6 +5,7 @@ A responsive reading and listening interface connected to YUTorah's public libra
 ## Run
 
 The Linux Antigravity transcription worker is described in
+[the first-deployment checklist](docs/transcription-setup.md),
 [the architecture report](docs/transcription-architecture.md) and
 [the provisioning/operations guide](docs/transcription-operations.md).
 It uses the complete Lectern skill, PostgreSQL jobs/checkpoints, and native ACP audio.

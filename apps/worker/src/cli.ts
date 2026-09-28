@@ -144,7 +144,9 @@ async function main() {
     if (command === 'run') {
       const intervalMs = Number(process.env.CATALOG_POLL_MS ?? 300_000);
       const deepIntervalMs = Number(process.env.CATALOG_DEEP_POLL_MS ?? 3_600_000);
+      const catalogEnabled = process.env.CATALOG_ENABLED ?? 'true';
       if (
+        !['true', 'false'].includes(catalogEnabled) ||
         !Number.isInteger(intervalMs) || intervalMs < 60_000 ||
         !Number.isInteger(deepIntervalMs) || deepIntervalMs < intervalMs
       )
@@ -155,7 +157,10 @@ async function main() {
           runtime,
           concurrency: Number(process.env.ACP_CONCURRENCY ?? 3),
           pollMs: 5000,
-          catalog: { profile: currentProfile, intervalMs, deepIntervalMs },
+          model: settings.model,
+          catalog: catalogEnabled === 'true'
+            ? { profile: currentProfile, intervalMs, deepIntervalMs }
+            : undefined,
         },
         controller.signal,
       );

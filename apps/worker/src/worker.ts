@@ -44,6 +44,7 @@ export type WorkerConfig = {
   runtime: RuntimeConfig;
   concurrency: number;
   pollMs: number;
+  model?: string;
   catalog?: { profile: Profile; intervalMs: number; deepIntervalMs: number };
 };
 export type Diagnostic = {
@@ -233,7 +234,7 @@ export async function runWorker(
     const pool = new SessionPool(config.concurrency);
     await withRuntime(config.runtime, combined, async (client, workspace) => {
       await client.authenticate();
-      await client.session(workspace);
+      await client.session(workspace, config.model);
     });
     if (config.catalog) {
       catalogTask = pollCatalog(
@@ -268,11 +269,16 @@ export async function runWorker(
           throw e;
       }
     }
+    // Loss during successful preflight/cleanup must still reach the CLI as a failure.
+    checkAbort(combined);
   } finally {
     catalogStop.abort();
-    await catalogTask;
-    leader.removeListener('error', lostLeadership);
-    await leader.query('SELECT pg_advisory_unlock(891733,1)').catch(() => {});
-    leader.release();
+    try {
+      await catalogTask;
+    } finally {
+      leader.removeListener('error', lostLeadership);
+      await leader.query('SELECT pg_advisory_unlock(891733,1)').catch(() => {});
+      leader.release();
+    }
   }
 }
