@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
-    "start": "wrangler dev --config dist/server/wrangler.json",
+    "start": "wrangler dev --config dist/server/wrangler.json --persist-to .wrangler/state",
     "lint": "oxlint",
     "format": "oxfmt",
     "test:live": "node --test tests/live-api.test.mjs",

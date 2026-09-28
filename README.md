@@ -23,9 +23,10 @@ npm run db:migrate:local
 npm run dev
 ```
 
-For the production Worker runtime:
+For the production Worker runtime (uses the same local D1 state as migrations):
 
 ```sh
+npm run db:migrate:local
 npm run build
 npm run start -- --port 3001
 ```
