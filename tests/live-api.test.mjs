@@ -11,8 +11,9 @@ async function json(path) {
   if (path.startsWith('/api/search')) {
     const url = new URL(path, origin);
     let passes = 0;
+    const maxPasses = Math.ceil((result.sourceTotal || 0) / 120) + 5;
     while (result.complete === false) {
-      assert.ok(++passes <= 200, 'Search did not finish');
+      assert.ok(++passes <= maxPasses, 'Search did not finish');
       url.searchParams.set('run', result.run);
       const next = await fetch(url, { signal: AbortSignal.timeout(45000) });
       assert.equal(next.status, 200);
@@ -71,6 +72,51 @@ test('question search resolves a disclosed topic', async () => {
   assert.equal(result.plan.term, 'tefillah');
   assert.ok(result.plan.labels.includes('Topic: tefillah'));
   assert.ok(result.total > 0);
+});
+
+test('submitted misspellings and partial teacher names resolve real filtered results', async () => {
+  const result = await json(
+    '/api/search?q=' +
+      encodeURIComponent('teshvu by Rabbi Hershl Schact under thirty minutes'),
+  );
+  assert.equal(result.plan.teacherId, 80153);
+  assert.equal(result.plan.max, 30);
+  assert.equal(result.complete, true);
+  assert.ok(result.total > 0);
+  assert.ok(
+    result.items.every(
+      (shiur) =>
+        shiur.teacherId === 80153 &&
+        shiur.duration > 0 &&
+        shiur.duration <= 1800,
+    ),
+  );
+  assert.ok(
+    result.plan.labels.some((label) => label.includes('Hershl Schact →')),
+  );
+});
+
+test('multiple shortened or misspelled subject words preserve the compound query', async () => {
+  const result = await json(
+    '/api/search?teacher=80153&q=' + encodeURIComponent('rambm hilch teshuv'),
+  );
+  assert.match(result.plan.term, /rambam/i);
+  assert.match(result.plan.term, /hilch/i);
+  assert.match(result.plan.term, /teshuv/i);
+  assert.ok(result.total > 0);
+  assert.equal(result.complete, true);
+  assert.ok(result.items.every((shiur) => shiur.teacherId === 80153));
+});
+
+test('a transposed partial word outside the directory vocabulary retrieves archive content', async () => {
+  const result = await json('/api/search?teacher=80153&q=donait');
+  assert.equal(result.complete, true);
+  assert.ok(result.total > 0);
+  assert.ok(
+    result.items.every(
+      (shiur) => shiur.id > 0 && shiur.title && shiur.teacherId === 80153,
+    ),
+  );
 });
 
 test('shiur details expose playable media, video, and real source materials', async () => {

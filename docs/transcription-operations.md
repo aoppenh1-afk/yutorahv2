@@ -183,7 +183,7 @@ only. Create that role and grant it access **after** `migrate`:
 sudo -u postgres createuser yutorah-search
 sudo -u postgres psql -d yutorah_transcription -c 'GRANT CONNECT ON DATABASE yutorah_transcription TO "yutorah-search"'
 sudo -u postgres psql -d yutorah_transcription -c 'GRANT USAGE ON SCHEMA public TO "yutorah-search"'
-sudo -u postgres psql -d yutorah_transcription -c 'GRANT SELECT ON transcription_shiurim, transcript_segments TO "yutorah-search"'
+sudo -u postgres psql -d yutorah_transcription -c 'GRANT SELECT ON transcription_shiurim, transcript_segments, transcript_search_words TO "yutorah-search"'
 sudo install -m 0640 -o root -g yutorah-search deploy/transcription/search.env.example /etc/yutorah-search.env
 sudo sh -c 'printf "TRANSCRIPT_API_TOKEN=%s\n" "$(openssl rand -hex 32)" >> /etc/yutorah-search.env'
 ```
@@ -228,13 +228,23 @@ them, cancel old jobs and enqueue the new version. A runtime upgrade also requir
 new jobs/profile versions. Do not mutate version rows in place.
 
 The VM search process calls `TranscriptionStore.search(query, aliases, limit, mode)`
-using a PostgreSQL pool/read-only role. Default mode is normalized literal phrase;
-`terms` uses PostgreSQL `simple` full-text matching. Return the original text,
+using a PostgreSQL pool/read-only role. The website and HTTP service default to
+`smart`: prefix full-text matching plus a trigram-indexed spelling vocabulary.
+`phrase` remains normalized literal phrase matching; `terms` remains exact
+PostgreSQL `simple` full-text matching. The store/CLI default remains `phrase`.
+Return the original text,
 matched term, alias disclosure, title, teacher, and `startMs`. The returned
 `/?shiur=ID&t=SECONDS` URL matches the existing website player's seek-link format.
 Render text as escaped text, never model-generated HTML. Phrase search supports up
 to 16 query words, including crossings of adjacent segments. No semantic service
 is involved. The initial website panel returns up to twenty results per query.
+
+Apply `003_tolerant_search.sql` with the existing `migrate` command before
+restarting the upgraded search service. It backfills the spelling vocabulary,
+maintains it automatically on publication, indexes segment windows, and grants
+SELECT to an existing `yutorah-search` role. A custom read-only role also needs
+SELECT on `transcript_search_words`. See [search architecture](search-architecture.md)
+for the research, matching rules, and validation commands.
 
 Completed transcript rows remain versioned; only the current requested job can
 replace the shiur's active transcript. Search only reads active transcripts. D1
