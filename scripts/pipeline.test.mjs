@@ -59,21 +59,23 @@ function start(executable, args, env = {}) {
     },
     async stop() {
       if (child.exitCode !== null || child.signalCode !== null) return;
+      // A failed spawn still needs to let the rest of cleanup finish.
+      const settled = closed.catch(() => {});
       const pid = child.pid;
       if (!pid) {
-        await closed;
+        await settled;
         return;
       }
       try {
         process.kill(-pid, 'SIGTERM');
       } catch {}
-      await Promise.race([closed, delay(5000, undefined, { ref: false })]);
+      await Promise.race([settled, delay(5000, undefined, { ref: false })]);
       if (child.exitCode === null && child.signalCode === null) {
         try {
           process.kill(-pid, 'SIGKILL');
         } catch {}
       }
-      await closed;
+      await settled;
     },
   };
 }
@@ -103,6 +105,13 @@ async function ready(process, url, status, headers = {}) {
   }
   assert.fail(`Service did not become ready: ${url}\n${process.output()}`);
 }
+
+void test('pipeline cleanup tolerates an executable that cannot be spawned', async () => {
+  const process = start(join(tmpdir(), 'yutorah-missing-' + randomUUID()), []);
+  const failure = assert.rejects(process.result(), { code: 'ENOENT' });
+  await process.stop();
+  await failure;
+});
 
 void test(
   'compiled pipeline publishes ACP checkpoints through PostgreSQL and the built website',
