@@ -47,3 +47,31 @@ Live content and media availability depend on YUTorah and its CDNs. This record 
 - Live natural query resolved Rabbi Hershel Schachter, thirty minutes, newest order, and teshuva to 14 matches among 78 source candidates. Compound search, global pagination, and invalid-request regression tests pass.
 - TypeScript, authored-source lint, and the Worker build pass. D1 migrations were generated and applied locally. The new UI has not received browser interaction or mobile visual testing in this revision.
 - The original Sites project still returns project_not_found. No replacement project was created and the new DB-backed revision has not been published.
+
+## Typo and partial-word search, 2026-09-30
+
+- Researched Solr, PostgreSQL pg_trgm, MiniSearch, Typesense, and Meilisearch.
+  Selected the existing Solr metadata index and PostgreSQL transcript database;
+  no new hosted service or API credentials are required. See
+  [search architecture](docs/search-architecture.md).
+- 88 automated checks passed: 19 matcher/parser checks, five complete-search
+  checks, 12 learning regressions, 43 worker/PostgreSQL checks, and nine live API
+  checks. PostgreSQL ran in an isolated local cluster with no skipped tests.
+- Live submitted searches verified teacher-name typos, shortened subject words,
+  a transposed partial word outside the directory vocabulary, complete totals,
+  pagination, question interpretation, and strict input handling. The live suite
+  scanned every candidate for its broad queries and took about five minutes.
+- Desktop (1280 × 900) and mobile (390 × 844) Chrome checks passed. Typing
+  `Hershl Schact` suggested Rabbi Hershel Schachter. Submitting
+  `teshvu by Rabbi Hershl Schact under thirty minutes` returned 15 matches among
+  102 candidates, with teacher ID 80153 and the 30-minute limit applied. The
+  transcript selector defaulted to tolerant matching and supported switching to
+  exact phrase. No browser errors, failed requests, or mobile horizontal overflow
+  occurred. The collaborative preview host was unavailable, so these checks used
+  headless Chrome through Playwright.
+- The transcript migration was additionally checked against pre-existing rows:
+  vocabulary backfill, insert/update maintenance, window indexing, and SELECT
+  access for the existing read-only role all passed.
+- TypeScript, lint, the worker build, and the production website build passed.
+  Apply the new PostgreSQL migration before restarting an existing transcript
+  search service; metadata requires no new D1 schema migration.

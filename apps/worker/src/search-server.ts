@@ -49,14 +49,14 @@ export function createSearchServer(
     }
     const query = url.searchParams.get('q') ?? '';
     const limit = Number(url.searchParams.get('limit') ?? 20);
-    const mode = url.searchParams.get('mode') ?? 'phrase';
+    const mode = url.searchParams.get('mode') ?? 'smart';
     if (
       !query.trim() ||
       query.length > 200 ||
       !Number.isInteger(limit) ||
       limit < 1 ||
       limit > 50 ||
-      !['phrase', 'terms'].includes(mode)
+      !['phrase', 'terms', 'smart'].includes(mode)
     ) {
       reply(400, { error: 'Invalid search' });
       return;
@@ -66,7 +66,7 @@ export function createSearchServer(
         query,
         url.searchParams.get('aliases') !== 'false',
         limit,
-        mode as 'phrase' | 'terms',
+        mode as 'phrase' | 'terms' | 'smart',
       );
       reply(200, { results });
     } catch (error) {

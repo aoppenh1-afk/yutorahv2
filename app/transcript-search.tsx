@@ -14,6 +14,7 @@ export type TranscriptHit = {
   matched: string;
   href: string;
   aliasesExpanded: boolean;
+  spellingExpanded?: boolean;
 };
 
 export function TranscriptSearch({
@@ -23,7 +24,7 @@ export function TranscriptSearch({
   query: string;
   onSelect: (hit: TranscriptHit) => void;
 }) {
-  const [mode, setMode] = useState<'phrase' | 'terms'>('phrase');
+  const [mode, setMode] = useState<'phrase' | 'terms' | 'smart'>('smart');
   const [hits, setHits] = useState<TranscriptHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -45,8 +46,10 @@ export function TranscriptSearch({
           results?: TranscriptHit[];
           error?: string;
         };
-        if (!response.ok) throw new Error(body.error || 'Transcript search is unavailable.');
-        if (!Array.isArray(body.results)) throw new Error('Transcript search is unavailable.');
+        if (!response.ok)
+          throw new Error(body.error || 'Transcript search is unavailable.');
+        if (!Array.isArray(body.results))
+          throw new Error('Transcript search is unavailable.');
         return body.results;
       })
       .then((items) => {
@@ -54,7 +57,11 @@ export function TranscriptSearch({
       })
       .catch((reason) => {
         if (!controller.signal.aborted)
-          setError(reason instanceof Error ? reason.message : 'Transcript search is unavailable.');
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : 'Transcript search is unavailable.',
+          );
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -62,24 +69,40 @@ export function TranscriptSearch({
     return () => controller.abort();
   }, [query, mode]);
   return (
-    <section className="transcript-search" aria-label="Search inside shiur audio">
+    <section
+      className="transcript-search"
+      aria-label="Search inside shiur audio"
+    >
       <div className="transcript-search-heading">
         <div>
           <h2>Inside the shiurim</h2>
-          <p>Find spoken words in completed transcripts and jump to that point in the audio.</p>
+          <p>
+            Find spoken words in completed transcripts and jump to that point in
+            the audio.
+          </p>
         </div>
         <label>
           Match
-          <select value={mode} onChange={(event) => setMode(event.target.value as 'phrase' | 'terms')}>
+          <select
+            value={mode}
+            onChange={(event) =>
+              setMode(event.target.value as 'phrase' | 'terms' | 'smart')
+            }
+          >
+            <option value="smart">Typos & partial words</option>
             <option value="phrase">Exact phrase</option>
             <option value="terms">All words</option>
           </select>
         </label>
       </div>
       {!query.trim() ? (
-        <p className="transcript-search-state">Search above for a word or phrase spoken in a shiur.</p>
+        <p className="transcript-search-state">
+          Search above for a word or phrase spoken in a shiur.
+        </p>
       ) : loading ? (
-        <p className="transcript-search-state"><Loader2 size={16} className="animate-spin" /> Searching transcripts…</p>
+        <p className="transcript-search-state">
+          <Loader2 size={16} className="animate-spin" /> Searching transcripts…
+        </p>
       ) : error ? (
         <output className="transcript-search-state">{error}</output>
       ) : hits.length ? (
@@ -90,19 +113,39 @@ export function TranscriptSearch({
               href={hit.href}
               className="transcript-hit"
               onClick={(event) => {
-                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                if (
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey
+                )
+                  return;
                 event.preventDefault();
                 onSelect(hit);
               }}
             >
-              <span className="transcript-hit-title">{hit.teacher} — {hit.title}</span>
-              <span className="transcript-hit-text" dir="auto">“{hit.text}”</span>
-              <span className="transcript-hit-meta"><Play size={14} /> {timeLabel(hit.startMs / 1000)}{hit.aliasesExpanded && hit.matched !== query.toLowerCase() ? ` · matched ${hit.matched}` : ''}</span>
+              <span className="transcript-hit-title">
+                {hit.teacher} — {hit.title}
+              </span>
+              <span className="transcript-hit-text" dir="auto">
+                “{hit.text}”
+              </span>
+              <span className="transcript-hit-meta">
+                <Play size={14} /> {timeLabel(hit.startMs / 1000)}
+                {hit.spellingExpanded
+                  ? ' · close spelling'
+                  : hit.aliasesExpanded && hit.matched !== query.toLowerCase()
+                    ? ` · matched ${hit.matched}`
+                    : ''}
+              </span>
             </a>
           ))}
         </div>
       ) : (
-        <p className="transcript-search-state">No completed transcript matches yet. New shiurim appear here after transcription finishes.</p>
+        <p className="transcript-search-state">
+          No completed transcript matches yet. New shiurim appear here after
+          transcription finishes.
+        </p>
       )}
     </section>
   );
