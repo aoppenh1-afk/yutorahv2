@@ -27,18 +27,20 @@ const plain = (value: unknown) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-/** Reject shape or ordering changes rather than advancing past unseen uploads. */
-export function catalogRecords(docs: Record<string, unknown>[]): {
+/** Paged scans require date ordering; the homepage lists upload order instead. */
+export function catalogRecords(docs: Record<string, unknown>[], requireDateOrder = true): {
   records: CatalogRecord[];
   oldest: number;
 } {
   let previous = Infinity;
+  let oldest = Infinity;
   const records: CatalogRecord[] = [];
   for (const raw of docs) {
     const published = Date.parse(scalar(raw.shiurDate ?? raw.shiurdate));
-    if (!Number.isFinite(published) || published > previous)
+    if (!Number.isFinite(published) || (requireDateOrder && published > previous))
       throw new Failure('download');
     previous = published;
+    oldest = Math.min(oldest, published);
     const format = scalar(raw.shiurMediaType ?? raw.mediatypename)
       .toLowerCase()
       .trim();
@@ -62,7 +64,7 @@ export function catalogRecords(docs: Record<string, unknown>[]): {
       published,
     });
   }
-  return { records, oldest: previous };
+  return { records, oldest };
 }
 
 async function enqueuePage(
@@ -101,7 +103,7 @@ export async function scanHomepage(
   fetchRecent = homepageRecent,
 ): Promise<number> {
   const docs = await fetchRecent(signal);
-  return enqueuePage(store, profile, catalogRecords(docs).records, -Infinity, 0, signal);
+  return enqueuePage(store, profile, catalogRecords(docs, false).records, -Infinity, 0, signal);
 }
 
 /** Each page is bounded; enqueue is idempotent if interrupted mid-page. */

@@ -8,6 +8,7 @@ The Linux Antigravity transcription worker is described in
 [the first-deployment checklist](docs/transcription-setup.md),
 [the architecture report](docs/transcription-architecture.md) and
 [the provisioning/operations guide](docs/transcription-operations.md).
+Oracle Cloud Free Tier setup starts with [the Oracle VM notes](docs/transcription-oracle.md).
 It uses the complete Lectern skill, PostgreSQL jobs/checkpoints, and native ACP audio.
 Build with `npm run worker:build`; test with `npm run test:worker`.
 Once deployed, the worker discovers new audio shiurim automatically and the search
@@ -71,8 +72,15 @@ The layout uses persistent navigation, restrained YU blue, white space, serif ed
 ```sh
 npx tsc --noEmit
 npm run lint
+npm run audit
 npm run test:search
+npm run test:learning
+npm run worker:build
+# Use a disposable PostgreSQL database; runs the database/recovery tests:
+TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:worker
 npm run build
+# Checks the built website, compiled search service and PostgreSQL together:
+TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:pipeline
 # Start the production server in another terminal first:
 npm run test:live
 ```

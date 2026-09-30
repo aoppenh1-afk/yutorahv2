@@ -9,6 +9,7 @@ import {
   type Shiur,
 } from './yutorah';
 import type { SearchResponse } from './api-types';
+import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
 import { relevanceScore, searchText } from './search-discovery';
 
 type Run = {

@@ -4,6 +4,9 @@ This is the path from merged source to a running service. Use the longer
 [operations guide](transcription-operations.md) for maintenance and troubleshooting.
 The Git merge does not provision a VM, authenticate Google, or publish the website.
 
+For Oracle Cloud Free Tier, first follow [the Oracle VM notes](transcription-oracle.md)
+to identify the architecture and configure both network firewalls, then return here.
+
 The code preserves Antigravity ACP plus the full Lectern skill. Automated tests use
 an ACP fixture; an authenticated short and long transcription, token renewal, and
 ARM64 execution still need validation on your account and VM.
@@ -35,8 +38,8 @@ On the VM:
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl xz-utils unzip ffmpeg postgresql postgresql-contrib git caddy openssl
 sudo systemctl enable --now postgresql
-sudo useradd --system --create-home --home-dir /var/lib/yutorah-worker --shell /usr/sbin/nologin yutorah-worker
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin yutorah-search
+sudo useradd --system --user-group --create-home --home-dir /var/lib/yutorah-worker --shell /usr/sbin/nologin yutorah-worker
+sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin yutorah-search
 sudo chmod 700 /var/lib/yutorah-worker
 ```
 

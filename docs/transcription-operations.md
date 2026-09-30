@@ -21,8 +21,8 @@ Example Debian/Ubuntu setup (run the repository commands from `/opt/yutorah`):
 ```sh
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl xz-utils unzip ffmpeg postgresql postgresql-contrib git caddy openssl
-sudo useradd --system --create-home --home-dir /var/lib/yutorah-worker --shell /usr/sbin/nologin yutorah-worker
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin yutorah-search
+sudo useradd --system --user-group --create-home --home-dir /var/lib/yutorah-worker --shell /usr/sbin/nologin yutorah-worker
+sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin yutorah-search
 sudo chmod 700 /var/lib/yutorah-worker
 ```
 
@@ -264,6 +264,9 @@ npm run test:worker
 TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:worker
 npx tsc --noEmit
 npm run lint
+# After building the website and worker; uses only a disposable database:
+npm run build
+TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:pipeline
 ```
 
 Without `TEST_DATABASE_URL`, the PostgreSQL suite is explicitly skipped. With it,
@@ -274,3 +277,13 @@ audio test uses synthetic silence and FFmpeg. Before production, run a real shor
 shiur and a long English/Hebrew/Aramaic shiur; check coverage, boundary accuracy,
 speaker handling, model availability, native-tool policy, memory, quota throttling,
 and account token renewal on the target VM.
+
+`test:pipeline` runs the compiled migration command twice, enqueues a job through
+the CLI, prepares real WAV audio with FFmpeg, transcribes it through an ACP fixture
+that checks the complete skill hash, and persists checkpoints and final segments.
+It then starts the compiled search service with the documented read-only database
+grants and the built Cloudflare website with migrated, isolated D1 state. English
+and Hebrew queries must return the expected timestamp links through the website.
+Invalid requests and loss of the search service must return 400 and 503. The check
+requires `TEST_DATABASE_URL` and fails if it is missing; it never signs into Google
+or downloads production audio. GitHub Actions runs it on PRs and main.

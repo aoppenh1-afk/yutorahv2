@@ -105,20 +105,24 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     const blocks = req.params.prompt;
     const text = blocks.find((b) => b.type === 'text')?.text ?? '';
     const audio = blocks.find((b) => b.type === 'audio');
+    const audioBytes = audio && Buffer.from(audio.data, 'base64');
     if (
       !audio ||
-      Buffer.from(audio.data, 'base64').toString() !== 'fixture audio' ||
+      (behavior === 'pipeline_audio'
+        ? audioBytes.toString('ascii', 0, 4) !== 'RIFF'
+        : audioBytes.toString() !== 'fixture audio') ||
       !audio.mimeType.startsWith('audio/')
     )
       process.exit(51);
-    if (process.env.EXPECT_SKILL_HASH) {
+    const skillHash = behavior === 'pipeline_audio' ? marker : process.env.EXPECT_SKILL_HASH;
+    if (skillHash) {
       const start =
         text.indexOf('Instructions from /lectern-transcription:\n') +
         'Instructions from /lectern-transcription:\n'.length;
       const end = text.indexOf('\n\nApply the included', start);
       if (
         createHash('sha256').update(text.slice(start, end)).digest('hex') !==
-        process.env.EXPECT_SKILL_HASH
+        skillHash
       )
         process.exit(52);
     }
