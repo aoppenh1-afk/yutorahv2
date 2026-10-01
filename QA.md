@@ -1,5 +1,13 @@
 # Verification record
 
+## CodeRabbit tunnel review, 2026-10-01
+
+- Reviewed every CodeRabbit inline comment, review summary, and walkthrough on PR #6. Both actionable findings were valid: a stale PID could be reused by an unrelated process, and a retry after the URL timeout could exit successfully without an address.
+- The launcher verifies the exact runuser command and Linux process start time, upgrades the existing PID-only installation after checking its command, and serializes launchers with a lock released by the background process. An existing tunnel without an address goes through the readiness loop again; success requires a valid recorded URL.
+- The follow-up review on PR #7 identified a delayed URL from a rejected live process contaminating the replacement's shared log. Each launch now atomically installs a fresh log inode at the documented path, so the prior process retains its own file descriptor and cannot write into the replacement's log.
+- Six Linux launcher regression checks exercise real runuser processes in isolated state directories: unrelated live PID preservation, a mismatched start time despite a matching command, existing/legacy process reuse, timeout and retry with empty/missing URL state, simultaneous startup, and an old process emitting its URL after the replacement starts. Shell syntax, TypeScript, lint, and whitespace checks pass.
+- Installed the fixed launcher on the VM. It adopted PID 2490671, recorded its start time, returned the existing authenticated API tunnel address, and preserved the connected pilot website's HTTP 200 transcript response. The regular Sites publication issue is unchanged by this launcher fix.
+
 ## Five parallel Antigravity sessions and long audio, 2026-09-30
 
 - The old worker regression produced one blocked ACP request when five were expected. The worker now admits bounded concurrent recordings/notes jobs, with all chunk, cleanup, notes, and repair requests using one shared session pool. The installer, CLI, and VM environment default to five. The GUI reports occupied slots and the configured limit.

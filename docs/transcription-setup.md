@@ -104,6 +104,10 @@ address, and log are in `/run/yutorah-content-tunnel.pid`,
 `/run/yutorah-content-tunnel-url`, and `/var/log/yutorah-content-tunnel.log`.
 Running the script again preserves an active tunnel. A VM or tunnel restart
 changes the address: update the website setting and redeploy a saved version.
+The launcher records the Linux process start time in
+`/run/yutorah-content-tunnel.start` and verifies the command before reusing a PID.
+If startup times out, rerunning it waits for the existing tunnel's address;
+it reports success only after recording that address.
 Quick tunnels are temporary; use a named tunnel or the DNS/TLS setup below for
 a permanent connection.
 
