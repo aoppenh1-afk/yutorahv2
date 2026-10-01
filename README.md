@@ -82,7 +82,7 @@ This is an independent interface. It does not replace the existing yutorah.org d
 
 ## Design references
 
-The September 2026 redesign combines a warm editorial layout, navy and YU blue, a Jerusalem image, authentic teacher portraits, typographic collection covers, and a persistent player. Spotify's library patterns, Apple Music's editorial shelves and expandable MiniPlayer, TorahAnytime's follows, and OU Torah's daily series informed the navigation and discovery flows. [Research, implementation choices, and the generated image prompt](docs/redesign.md) are documented together.
+The September 2026 redesign uses a white sidebar, cobalt navigation, larger typography, a Jerusalem image, authentic teacher portraits in their original colors, and colorful collection covers. A floating player keeps playback controls available. Spotify's library patterns, Apple Music's shelves and expandable MiniPlayer, TorahAnytime's follows, and OU Torah's daily series informed the navigation and discovery flows. [Research, implementation choices, and the generated image prompt](docs/redesign.md) are documented together.
 
 ## Validation
 

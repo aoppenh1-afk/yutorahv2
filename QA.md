@@ -115,3 +115,12 @@ Live content and media availability depend on YUTorah and its CDNs. This record 
 - TypeScript, lint, the worker build, and the production website build passed.
   Apply the new PostgreSQL migration before restarting an existing transcript
   search service; metadata requires no new D1 schema migration.
+## Visual uplift and learning verification, 2026-09-30
+
+- Brought the completed discovery redesign into the current branch while retaining the transcription pipeline changes. The shared avatar, card portrait, and daily teacher styles no longer apply grayscale filters.
+- Updated the interface with a white sidebar, cobalt navigation, larger headings and teacher portraits, mint/coral/blue/lilac covers, labeled play buttons, and a floating player. The homepage provides direct listening and topic browsing actions; the teacher directory and library share the same visual system.
+- Native browser checks confirmed loaded CDN portraits with `filter: none`, and no horizontal overflow at 320, 390, 768, 1024, and 1440 CSS pixels. Mobile checks used fixed-width, same-origin frames because the collaborative preview's viewport resize operation timed out.
+- Played actual recording 1190295 from the new hero action. Pausing saved 72.439241 seconds; reload restored that exact position without autoplay. Resume continued from the saved position. Bookmarks and teacher follows also survived reload. Browser test data used a separate origin and was cleared afterward.
+- Expanded mobile controls fit at 320 and 390 pixels and expose seeking, speed, notes, volume, and queue actions. Remounting the controlled volume slider when expanding fixes its measurement after initially being hidden. A browser interaction changed both the audio element and persisted volume to 0.5.
+- Live discovery returned 180 sampled recordings and genuine view counts in descending order. Related discovery for a Ten Minute Halacha recording returned 87 candidates, including 29 in the same series, with no partial failures.
+- All 40 deterministic learning, discovery, and search checks passed, as did TypeScript, lint, and the website build using the repository's pinned React 19.2.8 and Vite 8.0.16 dependencies. No deployment was performed.

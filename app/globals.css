@@ -611,7 +611,7 @@ svg {
   height: 37px;
   object-fit: cover;
   border-radius: 50%;
-  filter: grayscale(1);
+  filter: none;
 }
 .daily-teacher strong {
   display: block;
@@ -741,7 +741,7 @@ svg {
   height: 24px;
   border-radius: 50%;
   object-fit: cover;
-  filter: grayscale(1);
+  filter: none;
 }
 .card-bottom {
   display: flex;
@@ -1081,7 +1081,7 @@ svg {
   object-fit: cover;
   flex-shrink: 0;
   background: #edf0f5;
-  filter: grayscale(1);
+  filter: none;
 }
 .initials {
   display: inline-grid;

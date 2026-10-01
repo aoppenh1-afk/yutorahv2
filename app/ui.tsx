@@ -162,7 +162,9 @@ export function ShiurCard({
           <span className="art-imprint">YUTORAH</span>
           <Avatar src={s.image} name={s.teacher} />
           <span className="art-subject" dir="auto">
-            {s.topics[0] || s.category || s.series || 'Torah learning'}
+            {(s.topics[0] || s.category || s.series || 'Torah learning')
+              .split('/')[0]
+              .trim()}
           </span>
           <span className="art-teacher">{s.teacher}</span>
           <span className="art-play">
@@ -195,6 +197,7 @@ export function ShiurCard({
             )}
           </button>
         </h3>
+        <p className="card-teacher-name">{s.teacher}</p>
         <div className="card-bottom">
           <span>
             {kind === 'text' ? (
@@ -225,6 +228,15 @@ export function ShiurCard({
             ) : (
               <Play size={14} fill="currentColor" />
             )}
+            <span>
+              {kind === 'text'
+                ? 'Read'
+                : kind === 'video'
+                  ? 'Watch'
+                  : active
+                    ? 'Pause'
+                    : 'Play'}
+            </span>
           </button>
         </div>
       </div>
@@ -528,6 +540,7 @@ export function Player({
                 {library.volume ? <Volume2 size={18} /> : <VolumeX size={18} />}
               </button>
               <Slider
+                key={expanded ? 'expanded-volume' : 'compact-volume'}
                 aria-label="Volume"
                 min={0}
                 max={1}
