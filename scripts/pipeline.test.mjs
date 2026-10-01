@@ -144,7 +144,7 @@ void test(
       assert.equal(
         (await pool.query('SELECT count(*) FROM transcription_migrations'))
           .rows[0].count,
-        '2',
+        '3',
       );
       await run(
         process.execPath,
@@ -279,7 +279,7 @@ void test(
       readerCreated = true;
       await admin.query(`GRANT USAGE ON SCHEMA ${schema} TO ${reader}`);
       await admin.query(
-        `GRANT SELECT ON ${schema}.transcription_shiurim, ${schema}.transcript_segments TO ${reader}`,
+        `GRANT SELECT ON ${schema}.transcription_shiurim, ${schema}.transcript_segments, ${schema}.transcript_search_words TO ${reader}`,
       );
       const readerClient = await pool.connect();
       try {

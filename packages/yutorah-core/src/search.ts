@@ -1,4 +1,11 @@
 /** Display text is preserved separately. This normalization is for search only. */
+import {
+  interpretAliases,
+  searchAliases,
+  searchText,
+  searchVocabulary,
+  wordMatch,
+} from './search-matching.js';
 export function normalizeTranscriptSearch(text: string): string {
   return text
     .normalize('NFKC')
@@ -35,4 +42,63 @@ export function searchVariants(query: string, expandAliases = true): string[] {
 }
 export function timestampLink(shiurId: string, startMs: number): string {
   return `/?shiur=${encodeURIComponent(shiurId)}&t=${Math.floor(startMs / 1000)}`;
+}
+
+/** Prefix FTS clauses, with spelling candidates checked by the shared matcher. */
+export function transcriptSearchClauses(
+  query: string,
+  candidates: Map<string, string[]> = new Map(),
+  expandAliases = true,
+) {
+  // Apply the same size/word validation as exact transcript search.
+  const normalized = searchVariants(query, false)[0];
+  let spellingExpanded = false;
+  let aliasesExpanded = false;
+  const clauses = normalized.split(' ').map((token) => {
+    const words = new Set([token]);
+    if (expandAliases) {
+      const interpreted = interpretAliases(token);
+      for (const alias of searchAliases(interpreted.term)) words.add(alias);
+      for (const form of searchVocabulary())
+        if (wordMatch(searchText(token), form) > 0)
+          for (const alias of searchAliases(form)) words.add(alias);
+      aliasesExpanded ||= words.size > 1;
+      spellingExpanded ||=
+        interpreted.labels.length > 0 &&
+        !searchAliases(token).includes(searchText(interpreted.term));
+    }
+    const matched = (candidates.get(token) ?? [])
+      .map((word) => ({
+        word,
+        score: wordMatch(searchText(token), searchText(word)),
+      }))
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score || a.word.localeCompare(b.word))
+      .slice(0, 8);
+    for (const { word, score } of matched) {
+      words.add(word);
+      spellingExpanded ||= score < 0.85;
+    }
+    return (
+      '(' +
+      [...words]
+        .map((word) => {
+          // Normalized words contain letters/numbers only; single quotes additionally
+          // make the tsquery literal contract explicit. Numbers never use prefixes.
+          const literal =
+            "'" + normalizeTranscriptSearch(word).replaceAll("'", "''") + "'";
+          return (
+            literal + (word.length >= 3 && !/\p{N}/u.test(word) ? ':*' : '')
+          );
+        })
+        .join(' | ') +
+      ')'
+    );
+  });
+  return {
+    all: clauses.join(' & '),
+    any: clauses.join(' | '),
+    spellingExpanded,
+    aliasesExpanded,
+  };
 }

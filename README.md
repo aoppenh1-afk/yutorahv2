@@ -36,10 +36,16 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
 
 ## What works
 
-- Live teacher, topic, and series suggestions with close-spelling matches, keyboard selection, and device-local recent searches.
+- Submitted searches and live suggestions understand typos, transposed letters,
+  incomplete words, and common English/Hebrew/transliteration aliases. Teacher
+  names resolve only when unambiguous. Ranking, highlights, directory browsing,
+  saved-library search, and search within results use the same matching rules.
 - Removable filters, highlighted matches, description excerpts around search terms, and global ordering of completed result sets by relevance, date, length, or title.
 
-- Search the upstream index across titles and indexed metadata, with teacher, topic, series, format, language, and duration filters.
+- Search the upstream index across titles and indexed metadata, with teacher,
+  topic, series, format, language, and duration filters. Examples:
+  `teshvu by Rabbi Hershl Schact under thirty minutes`, `rambm hilch teshuv`,
+  and `How can I imprve my pryaer on Shabos?`.
 - Parse searches such as “teshuva by Rabbi Hershel Schachter under 30 minutes”; show the interpreted filters. Common question phrasing maps to disclosed topics or keywords.
 - Browse teachers, series, topics, editor selections, recent additions, and daily learning.
 - Resume unfinished learning directly from Discover, or revisit each recording's progress in Learning history.
@@ -59,6 +65,12 @@ Search now checks every upstream candidate page automatically and stores a bound
 Completed candidate sets are cached for one hour after completion. Unfinished passes can resume for up to 24 hours. Duration, language, format, date, exact phrase, excluded words, title scope, and ordering operate over the same stored candidate set. Changing those refinements reuses the candidates. Keyword, teacher, topic, or series changes identify a different candidate set. Sorting and pagination apply to all matches in the completed set, including matches originally on the last upstream page. This is a query-specific candidate index, not a permanent mirror of all YUTorah content.
 
 Natural queries support English number words, time budgets such as "I have half an hour", duration ranges, newest/oldest/shortest/longest ordering, relative dates such as "last year", and conversational requests. Specific subject words are preserved when simplifying questions. Interpretations are shown as filters or keywords; this parser is deterministic rather than an LLM.
+
+Typo/prefix retrieval uses YUTorah's existing Solr index. The transcript panel
+defaults to tolerant matching and still offers exact phrase and exact words.
+Existing transcript installations must run the worker's `migrate` command before
+restarting the upgraded search service. Research, matching rules, and rollout
+details are in [the search architecture guide](docs/search-architecture.md).
 
 Local setup runs `npm run db:migrate:local` before starting the app. D1 schema lives in `db/schema.ts`; generated, append-only migrations live in `drizzle/`. Sites applies those migrations to its hosted DB binding when publishing. No public administrative importer or credentials are exposed.
 

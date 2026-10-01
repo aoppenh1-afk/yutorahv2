@@ -1,5 +1,6 @@
 import { naturalSearch } from './natural-search';
-import { searchText } from './search-discovery';
+import { searchText, teacherMention } from './search-discovery';
+import { interpretAliases, matchQuery, wordMatch } from './search-matching';
 import type {
   RawShiur,
   RawTeacher,
@@ -206,13 +207,16 @@ export type Directory = {
   topics: Topic[];
   groups: string[];
 };
+let directorySnapshot: { until: number; data: Directory } | undefined;
 export async function getDirectory(): Promise<Directory> {
+  if (directorySnapshot && directorySnapshot.until > Date.now())
+    return directorySnapshot.data;
   const [teachers, series, categories] = await Promise.all([
     upstream<RawTeacher[]>('browse/teachers', 3600),
     upstream<RawSeries[]>('browse/series', 3600),
     upstream<RawCategory[]>('browse/categories', 3600),
   ]);
-  return {
+  const data = {
     teachers: teachers
       .filter((t) => !t.isHidden && t.shiurCount > 0)
       .map((t) => ({
@@ -247,6 +251,8 @@ export async function getDirectory(): Promise<Directory> {
     ),
     groups: categories.map((c) => c.shortName || c.name),
   };
+  directorySnapshot = { until: Date.now() + 3600000, data };
+  return data;
 }
 export type SearchPlan = {
   term: string;
@@ -290,9 +296,11 @@ export function parseSearch(
   const before = options.before || '';
   let phrase = options.phrase?.trim() || '';
   const excluded = options.exclude?.trim().split(/\s+/).filter(Boolean) || [];
+  const quoted: string[] = [];
   term = term.replace(/"([^"]+)"/g, (_, text) => {
     if (!phrase) phrase = text;
-    return text;
+    quoted.push(text);
+    return `EXACTQUOTED${quoted.length - 1}TOKEN`;
   });
   term = term.replace(/(?:^|\s)-([\p{L}\p{N}]+)/gu, (_, word) => {
     excluded.push(word);
@@ -334,105 +342,72 @@ export function parseSearch(
     },
   );
   if (directory) {
-    const normalized = ` ${searchText(term)} `;
-    const fullMatches = directory.teachers.filter(
-      (t) =>
-        t.firstName &&
-        t.lastName &&
-        normalized.includes(` ${searchText(`${t.firstName} ${t.lastName}`)} `),
-    );
-    let found = fullMatches.length === 1 ? fullMatches[0] : undefined;
-    let surnameOnly = false;
-    if (!found && !fullMatches.length) {
-      const titled = term.match(/\b(?:rabbi|rav|r[.'’])\s+([\p{L}'’-]+)/iu);
-      if (titled) {
-        const candidates = directory.teachers.filter(
-          (t) => searchText(t.lastName) === searchText(titled[1]),
-        );
-        if (candidates.length === 1) {
-          found = candidates[0];
-          surnameOnly = true;
-        }
-      }
-    }
-    if (found && (!teacherId || teacherId === found.id)) {
-      teacherId = found.id;
-      teacherName = found.name;
-      const name = surnameOnly
-        ? escapeRegex(found.lastName)
-        : `${escapeRegex(found.firstName)}\\s+${escapeRegex(found.lastName)}`;
-      const re = new RegExp(
-        `(?:by\\s+)?(?:(?:rabbi|rav|r[.'’])\\s+)?${name}`,
-        'ig',
-      );
-      term = term.replace(re, ' ');
+    const mention = teacherMention(term, directory);
+    if (mention && (!teacherId || teacherId === mention.teacher.id)) {
+      teacherId = mention.teacher.id;
+      teacherName = mention.teacher.name;
+      const typed = term
+        .slice(mention.start, mention.end)
+        .replace(/^(?:by\s+)?(?:rabbi|rabi|rabby|rav|r[.'’]?)\s+/i, '');
+      if (
+        searchText(typed) !==
+          searchText(
+            `${mention.teacher.firstName} ${mention.teacher.lastName}`,
+          ) &&
+        searchText(typed) !== searchText(mention.teacher.lastName)
+      )
+        labels.push(`${typed} → ${teacherName}`);
+      term = term.slice(0, mention.start) + ' ' + term.slice(mention.end);
     }
   }
   if (directory && !seriesId) {
-    const found = directory.series.find(
-      (s) => s.name.length > 5 && term.toLowerCase() === s.name.toLowerCase(),
+    const typed = searchText(term);
+    const tokens = typed.split(' ').filter(Boolean);
+    const exact = directory.series.filter(
+      (series) => searchText(series.name) === typed,
     );
+    const candidates = exact.length
+      ? exact
+      : directory.series.filter((series) => {
+          const name = searchText(series.name).split(' ');
+          return (
+            tokens.length >= 2 &&
+            tokens.length === name.length &&
+            tokens.every((token, i) => wordMatch(token, name[i]) >= 0.5)
+          );
+        });
+    const found = candidates.length === 1 ? candidates[0] : undefined;
     if (found) {
       seriesId = found.id;
       seriesName = found.name;
+      if (typed !== searchText(found.name))
+        labels.push(`${term.trim()} → ${found.name}`);
       term = '';
     }
   }
   term = term
     .replace(/\b(?:shiurim|shiur|lectures?|classes)\s*(?:on|about)?\b/gi, ' ')
+    .replace(/\bby\s+(?=(?:rabbi|rabi|rabby|rav|r[.'’]?)\b)/gi, ' ')
+    .replace(/\b(?:rabbi|rabi|rabby|rav)\s+/gi, ' ')
     .replace(
       /^\s*(?:teach me about|what does judaism say about|learn about|on|about|by)\s+/i,
       '',
     )
     .trim();
-  const aliases: Record<string, string> = {
-    repentance: 'teshuva',
-    תשובה: 'teshuva',
-    תפילה: 'tefillah',
-    שבת: 'Shabbat',
+  const phrases: Record<string, string> = {
     'ראש השנה': 'Rosh Hashana',
     'יום כיפור': 'Yom Kippur',
-    sabbath: 'Shabbat',
-    teshuvah: 'teshuva',
-    teshuva: 'teshuva',
     'rosh hashanah': 'Rosh Hashana',
-    shabbos: 'Shabbat',
-    prayer: 'tefillah',
-    selichos: 'selichot',
-    slichot: 'selichot',
   };
-  if (/^(how|what|why|can|is|does|when|where)\b/i.test(term)) {
-    const subjects: [RegExp, string][] = [
-      [/\b(pray|prayer|prayers|daven|davening)\b/i, 'tefillah'],
-      [/\b(repent|repentance|forgive|forgiveness)\b/i, 'teshuva'],
-      [/\b(faith|believe|belief)\b/i, 'emunah'],
-      [/\b(character|anger|patience)\b/i, 'middot'],
-      [/\b(marriage|married)\b/i, 'marriage'],
-      [/\b(kosher|kashrut|kashrus)\b/i, 'kashrut'],
-      [/\b(shabbat|shabbos|sabbath)\b/i, 'Shabbat'],
-    ];
-    const subject = subjects.find(([re]) => re.test(term));
-    if (subject) {
-      term = subject[1];
-      labels.push(`Topic: ${term}`);
-    } else {
-      term = term
-        .replace(
-          /\b(how|what|why|can|is|does|when|where|do|i|my|the|a|an|to|me|you|your|we|our|and|of|should|could|would)\b/gi,
-          ' ',
-        )
-        .replace(/[?]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (term) labels.push(`Keywords: ${term}`);
-    }
-  }
-  if (aliases[term.toLowerCase()]) {
-    const translated = aliases[term.toLowerCase()];
-    if (translated.toLowerCase() !== term.toLowerCase())
-      labels.push(`${term} → ${translated}`);
+  const translated = phrases[searchText(term)];
+  if (translated) {
+    labels.push(`${term} → ${translated}`);
     term = translated;
   }
+  const interpreted = interpretAliases(term);
+  term = interpreted.term;
+  labels.push(...interpreted.labels);
+  term = term.replace(/EXACTQUOTED(\d+)TOKEN/g, (_, i) => quoted[Number(i)]);
   if (directory) {
     teacherName =
       teacherName ||
@@ -476,9 +451,6 @@ export function parseSearch(
     labels,
   };
 }
-function escapeRegex(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 export function matchesPlan(s: Shiur, plan: SearchPlan) {
   const text = searchText(
     plan.scope === 'title'
@@ -498,11 +470,7 @@ export function matchesPlan(s: Shiur, plan: SearchPlan) {
         .split(' ')
         .filter(Boolean)
         .every((word) => !padded.includes(` ${word} `))) &&
-    (!plan.scope ||
-      searchText(plan.term)
-        .split(' ')
-        .filter(Boolean)
-        .every((word) => padded.includes(` ${word} `))) &&
+    (!plan.scope || matchQuery(s.title, plan.term)) &&
     (!plan.max || (s.duration > 0 && s.duration <= plan.max * 60)) &&
     (!plan.language || s.language === plan.language) &&
     (!plan.format || mediaKind(s) === plan.format)

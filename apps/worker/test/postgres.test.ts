@@ -41,6 +41,7 @@ void test(
     const sql = await readFile('db/transcription/001_initial.sql', 'utf8');
     await pool.query(sql);
     await pool.query(await readFile('db/transcription/002_catalog_cursor.sql', 'utf8'));
+    await pool.query(await readFile('db/transcription/003_tolerant_search.sql', 'utf8'));
     const skill = await readFile(
       'packages/transcription/skills/lectern-transcription/SKILL.md',
       'utf8',
@@ -274,7 +275,7 @@ void test(
           );
           const segments = [
             {
-              ...segment('The גמ׳ introduces חזרה with תוס׳, רש״י and מיגו.'),
+              ...segment('Opening context. '.repeat(30) + 'The גמ׳ introduces חזרה with תוס׳, רש״י and מיגו. There are 613 mitzvos. ' + 'Closing context. '.repeat(30)),
               endMs: 4000,
             },
             {
@@ -309,6 +310,23 @@ void test(
           const phrase = await store.search('phrase crosses a segment');
           assert.equal(phrase.length, 1);
           assert.equal(phrase[0].startMs, 4000);
+          for (const query of ['chazra', 'Tosf', 'introducs', 'intro', 'רשי', 'mitzvot', '613']) {
+            const smart = await store.search(query, true, 20, 'smart');
+            assert.equal(smart.length, 1, query);
+            assert.equal(smart[0].startMs, 1000, query);
+          }
+          const partialTypo = await store.search('segmnt boudn', true, 20, 'smart');
+          assert.ok((await store.search('introducs', true, 20, 'smart'))[0].text.includes('introduces'));
+          assert.equal(partialTypo.length, 1);
+          assert.equal(partialTypo[0].startMs, 6000);
+          const crossing = await store.search('phrsae crosses seg', true, 20, 'smart');
+          assert.equal(crossing.length, 1);
+          assert.equal(crossing[0].startMs, 4000);
+          assert.equal((await store.search('introducs', true, 20, 'phrase')).length, 0);
+          assert.equal((await store.search('introducs', true, 20, 'terms')).length, 0);
+          assert.equal((await store.search('614', true, 20, 'smart')).length, 0);
+          assert.equal((await store.search('chazra astronomy', true, 20, 'smart')).length, 0);
+          assert.ok((await pool.query('SELECT word FROM transcript_search_words WHERE word=$1', ['introduces'])).rowCount);
         },
       );
       await t.test(

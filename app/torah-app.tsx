@@ -9,7 +9,8 @@ import { TranscriptSearch, type TranscriptHit } from './transcript-search';
 import { Notebook } from './notebook';
 import { LearningHome, FollowButton } from './learning-home';
 import { isLearned, relatedShiurim, type Follow } from '@/lib/learning';
-import { searchText, relevanceScore } from '@/lib/search-discovery';
+import { relevanceScore } from '@/lib/search-discovery';
+import { matchQuery } from '@/lib/search-matching';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Search,
@@ -675,7 +676,13 @@ export default function TorahApp({
           player.start(shiur, seconds);
           void showDetail(shiur);
         })
-        .catch((error) => notify(error instanceof Error ? error.message : 'Shiur audio is unavailable.'));
+        .catch((error) =>
+          notify(
+            error instanceof Error
+              ? error.message
+              : 'Shiur audio is unavailable.',
+          ),
+        );
     }
   };
   const filterChange = (key: keyof Filters, value: string) =>
@@ -801,9 +808,10 @@ export default function TorahApp({
   const visibleResults = orderedResults.filter((s) => {
     if (learningFilter === 'unlearned' && isLearned(s, library)) return false;
     if (learningFilter === 'saved' && !savedIds.has(s.id)) return false;
-    return searchText(
+    return matchQuery(
       [s.title, s.teacher, s.description, s.series, ...s.topics].join(' '),
-    ).includes(searchText(withinResults));
+      withinResults,
+    );
   });
   const loadedItems = [
     ...new Map(
@@ -821,24 +829,19 @@ export default function TorahApp({
     ? relatedShiurim(detail, [...relatedCandidates, ...loadedItems], library)
     : [];
   const matchLibrary = (s: Shiur) =>
-    searchText(s.title + ' ' + s.teacher + ' ' + s.series).includes(
-      searchText(libraryQuery),
-    );
+    matchQuery(s.title + ' ' + s.teacher + ' ' + s.series, libraryQuery);
   const listedTeachers =
-    directory?.teachers.filter((t) =>
-      searchText(t.name).includes(searchText(directoryQuery)),
-    ) || [];
+    directory?.teachers.filter((t) => matchQuery(t.name, directoryQuery, 2)) ||
+    [];
   const listedSeries =
     directory?.series.filter((s) =>
-      searchText(s.name + ' ' + s.description).includes(
-        searchText(directoryQuery),
-      ),
+      matchQuery(s.name + ' ' + s.description, directoryQuery, 2),
     ) || [];
   const listedTopics =
     directory?.topics.filter(
       (t) =>
         (topicGroup === 'all' || t.group === topicGroup) &&
-        searchText(t.name + ' ' + t.group).includes(searchText(directoryQuery)),
+        matchQuery(t.name + ' ' + t.group, directoryQuery, 2),
     ) || [];
   const videoSource =
     detail?.video ||
@@ -1067,7 +1070,10 @@ export default function TorahApp({
                 notify={notify}
                 hasResults={!!results}
               />
-              <TranscriptSearch query={submitted} onSelect={openTranscriptHit} />
+              <TranscriptSearch
+                query={results?.plan.term ?? submitted}
+                onSelect={openTranscriptHit}
+              />
               <div className="filter-bar">
                 <button
                   className="filter-toggle"

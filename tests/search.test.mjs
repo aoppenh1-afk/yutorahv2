@@ -277,3 +277,148 @@ void test('relative dates are deterministic and explicit filters win', async () 
     'short',
   );
 });
+
+void test('submitted teacher names support typos and incomplete words without guessing ambiguous surnames', () => {
+  const plan = parseSearch(
+    'teshvu by Rabbi Hershl Schact under 30 minutes',
+    {},
+    directory,
+  );
+  assert.equal(plan.teacherId, 1);
+  assert.equal(plan.max, 30);
+  assert.ok(
+    plan.labels.some((label) =>
+      label.includes('Hershl Schact → Rabbi Hershel Schachter'),
+    ),
+  );
+  assert.equal(parseSearch('Rabbi Sobolofsk', {}, directory).teacherId, 3);
+  assert.equal(parseSearch('her schach', {}, directory).teacherId, 1);
+  const ambiguous = parseSearch('teshuva by Rabbi Schact', {}, directory);
+  assert.equal(ambiguous.teacherId, 0);
+  assert.equal(ambiguous.term, 'teshuva Schact');
+  assert.equal(
+    parseSearch('teshuva by Rabbi Hershl Schact', { teacherId: 2 }, directory)
+      .teacherId,
+    2,
+  );
+});
+
+void test('suggestions combine typos with partial words and transliteration aliases', () => {
+  assert.equal(suggestSearch('Hershl Schact', directory)[0].id, 1);
+  assert.equal(suggestSearch('Hreshel Schachter', directory)[0].id, 1);
+  assert.equal(suggestSearch('shabos', directory)[0].id, 10);
+  assert.equal(suggestSearch('שבת', directory)[0].id, 10);
+  const series = parseSearch('Daf Yom', {}, directory);
+  assert.equal(series.seriesId, 20);
+  assert.equal(series.term, '');
+});
+
+void test('misspelled conversational subjects and filter words become useful, disclosed queries', () => {
+  const plan = parseSearch(
+    'Plase show me shuirim about pryaer on Shabos undr thirty minuts',
+    {},
+    directory,
+  );
+  assert.equal(plan.term, 'tefillah on Shabbat');
+  assert.equal(plan.max, 30);
+  assert.ok(plan.labels.some((label) => label.includes('pryaer → tefillah')));
+  assert.ok(plan.labels.some((label) => label.includes('undr → under')));
+  assert.equal(parseSearch('How can I imprve my pryaer?').term, 'tefillah');
+  assert.equal(parseSearch('"pryaer on Shabos"').term, 'pryaer on Shabos');
+  assert.equal(parseSearch('"pryaer on Shabos"').phrase, 'pryaer on Shabos');
+});
+
+void test('fuzzy title matching, highlighting and excerpts use the same normalized words', () => {
+  assert.equal(
+    matchesPlan(shiur, parseSearch('rambm tesh', { scope: 'title' })),
+    true,
+  );
+  assert.equal(
+    matchesPlan(shiur, parseSearch('astronomy', { scope: 'title' })),
+    false,
+  );
+  const text = 'תְּפִלָּה — Hershel Schachter: Teshuva';
+  const parts = highlightParts(text, 'תפלה Hershl Schact tesh');
+  assert.equal(parts.map((part) => part.text).join(''), text);
+  assert.deepEqual(
+    parts.filter((part) => part.match).map((part) => part.text),
+    ['תְּפִלָּה', 'Hershel', 'Schachter', 'Teshuva'],
+  );
+  const excerpt = matchExcerpt(
+    'Opening. '.repeat(50) +
+      'The Schachter lecture starts here. ' +
+      'Ending. '.repeat(50),
+    'Schact',
+  );
+  assert.ok(excerpt.includes('Schachter'));
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Teshuva' },
+      parseSearch('"teshuvah"', { scope: 'title' }),
+    ),
+    false,
+  );
+});
+
+void test('relevance rewards literal title matches over fuzzy and incidental matches', () => {
+  const base = { topics: [], series: '', teacher: '', description: '' };
+  const exact = relevanceScore({ ...base, title: 'Prayer' }, 'prayer');
+  const fuzzy = relevanceScore({ ...base, title: 'Prayers' }, 'prayer');
+  const incidental = relevanceScore(
+    { ...base, title: 'Other lecture', description: 'Prayer' },
+    'prayer',
+  );
+  assert.ok(exact > fuzzy);
+  assert.ok(fuzzy > incidental);
+  assert.ok(
+    relevanceScore({ ...base, title: 'Rabbi Schachter' }, 'Schact') >
+      relevanceScore(
+        { ...base, title: 'Other lecture', description: 'Schachter' },
+        'Schact',
+      ),
+  );
+});
+
+const { librarySearchQuery, searchVocabulary, wordMatch, typoBudget } =
+  await load('lib/search-matching.ts');
+void test('retrieval compiles bounded typo/prefix clauses, keeps all subjects, and never forwards query syntax', () => {
+  const query = librarySearchQuery(
+    'Schact rambm',
+    searchVocabulary(['Hershel Schachter', 'Rambam']),
+  );
+  assert.match(query, /schact\*/);
+  assert.match(query, /schact~1/);
+  assert.match(query, /schachter/);
+  assert.match(query, / AND /);
+  assert.match(query, /rambm~1/);
+  assert.match(librarySearchQuery('donait'), /donati\*/);
+  assert.match(librarySearchQuery('donait'), /dona\?it\*/);
+  assert.match(librarySearchQuery('tefillah Shabbat'), /prayer/);
+  assert.match(librarySearchQuery('tefillah Shabbat'), /שבת/);
+  assert.doesNotMatch(librarySearchQuery('eruv'), /eruv~/);
+  assert.equal(librarySearchQuery('2026'), '2026');
+  assert.equal(typoBudget('daf'), 0);
+  assert.equal(wordMatch('2026', '2025'), 0);
+  assert.equal(wordMatch('daf', 'dav'), 0);
+  assert.equal(wordMatch('Schact'.toLowerCase(), 'schachter'), 0.5);
+  assert.ok(wordMatch('hreshel', 'hershel') > 0);
+  const injection = librarySearchQuery('title:* OR (*:*)^999 { !lucene }');
+  assert.doesNotMatch(injection, /[:{}!^]/);
+  assert.equal(librarySearchQuery(''), '');
+  assert.throws(() => librarySearchQuery('???'), RangeError);
+  assert.throws(
+    () =>
+      librarySearchQuery(
+        Array.from({ length: 33 }, (_, i) => `word${i}`).join(' '),
+      ),
+    RangeError,
+  );
+  const long = librarySearchQuery(
+    Array.from(
+      { length: 30 },
+      (_, i) =>
+        'lecture' + String.fromCharCode(97 + Math.floor(i / 26), 97 + (i % 26)),
+    ).join(' '),
+  );
+  assert.ok(long.length < 4000);
+});

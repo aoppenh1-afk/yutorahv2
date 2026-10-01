@@ -6596,3 +6596,9 @@ a {
     min-width: 100%;
   }
 }
+.search-matching-hint {
+  margin: 8px 2px 0;
+  color: var(--muted-foreground, #64748b);
+  font-size: 12px;
+  line-height: 1.5;
+}

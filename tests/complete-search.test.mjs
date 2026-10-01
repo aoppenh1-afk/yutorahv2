@@ -188,3 +188,106 @@ void test('cached refinements enforce phrase, exclusion, title scope and date bo
   });
   assert.equal(injection.total, 0);
 });
+
+void test('submitted partial misspellings retrieve real candidates and retain fuzzy title refinements across every page', async () => {
+  // An isolated module has its own upstream cache, like a fresh worker isolate.
+  const { completeSearch: smartSearch } = await import(
+    'data:text/javascript;base64,' +
+      Buffer.from(compiled.outputFiles[0].text).toString('base64') +
+      '#smart'
+  );
+  const fixtureFetch = globalThis.fetch;
+  const requests = [];
+  const candidates = records.map((record, i) => ({
+    ...record,
+    shiurid: 2000 + i,
+    shiurtitle: i === 180 ? 'Schachter' : 'General lecture',
+    shiurdescription: 'A discussion referencing Schachter',
+    teacherfullname: 'Rabbi Example',
+  }));
+  globalThis.fetch = async (input) => {
+    const url = new URL(input);
+    if (url.pathname.endsWith('/browse/teachers'))
+      return Response.json([
+        {
+          ID: 1,
+          title: 'Rabbi',
+          firstName: 'Hershel',
+          lastName: 'Schachter',
+          shiurCount: 7500,
+        },
+        {
+          ID: 2,
+          title: 'Rabbi',
+          firstName: 'Shay',
+          lastName: 'Schachter',
+          shiurCount: 2000,
+        },
+      ]);
+    if (url.pathname.includes('/browse/')) return Response.json([]);
+    requests.push(url.searchParams.get('searchTerm'));
+    // This fixture's native index resolves "schachter"; keyword-only "schact"
+    // cannot retrieve these records. Query construction is asserted separately.
+    const hits = url.searchParams.get('searchTerm').includes('schachter')
+      ? candidates
+      : [];
+    const page = Number(url.searchParams.get('start') || 1);
+    return Response.json({
+      response: {
+        numFound: hits.length,
+        docs: hits.slice((page - 1) * 30, page * 30),
+      },
+    });
+  };
+  try {
+    const db = database();
+    let result = await smartSearch(db, 'schact', { language: 'EN' });
+    assert.equal(result.complete, false);
+    while (!result.complete)
+      result = await smartSearch(
+        db,
+        'schact',
+        { language: 'EN' },
+        1,
+        result.run,
+      );
+    assert.equal(result.sourceTotal, 181);
+    assert.equal(result.total, 91);
+    assert.equal(result.items[0].id, 2180);
+    assert.ok(
+      requests.every(
+        (query) =>
+          query.includes('schact*') &&
+          query.includes('schact~1') &&
+          query.includes('schachter'),
+      ),
+    );
+    const calls = requests.length;
+    const title = await smartSearch(db, 'schact', { scope: 'title', max: 5 });
+    assert.equal(title.run, result.run);
+    assert.equal(title.total, 1);
+    assert.equal(title.items[0].id, 2180);
+    const literal = await smartSearch(db, 'schact', { phrase: 'schact' });
+    assert.equal(literal.total, 0);
+    assert.equal(
+      requests.length,
+      calls,
+      'Refinements reuse the completed candidates',
+    );
+    const next = await smartSearch(
+      db,
+      'schact',
+      { language: 'EN' },
+      2,
+      result.run,
+    );
+    assert.equal(next.items.length, 30);
+    assert.ok(
+      next.items.every(
+        (item) => !result.items.some((first) => first.id === item.id),
+      ),
+    );
+  } finally {
+    globalThis.fetch = fixtureFetch;
+  }
+});

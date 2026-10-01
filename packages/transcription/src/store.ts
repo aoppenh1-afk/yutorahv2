@@ -5,6 +5,7 @@ import {
   normalizeTranscriptSearch,
   searchVariants,
   timestampLink,
+  transcriptSearchClauses,
 } from '../../yutorah-core/src/search.js';
 import { digest, objectDigest } from './fingerprint.js';
 import {
@@ -16,6 +17,7 @@ import {
 } from './types.js';
 import { validRanges } from './planning.js';
 import { validSegments } from './transcript.js';
+import { matchingSpans } from '../../yutorah-core/src/search-matching.js';
 
 export type Profile = {
   id: string;
@@ -69,11 +71,16 @@ export type Checkpoints = {
 
 const MAX_JOB_ATTEMPTS = 5;
 
-function excerpt(text: string, term: string): string {
+function excerpt(text: string, term: string, tolerant = false): string {
   if (text.length <= 360) return text;
   const normalized = normalizeTranscriptSearch(text);
   const found = normalized.indexOf(term);
-  const approximate = found < 0 ? 0 : Math.floor((found / Math.max(1, normalized.length)) * text.length);
+  let approximate =
+    found < 0
+      ? 0
+      : Math.floor((found / Math.max(1, normalized.length)) * text.length);
+  if (found < 0 && tolerant)
+    approximate = matchingSpans(text, term)[0]?.start ?? 0;
   const start = Math.max(0, Math.min(text.length - 360, approximate - 100));
   return `${start ? '…' : ''}${text.slice(start, start + 360)}${start + 360 < text.length ? '…' : ''}`;
 }
@@ -394,8 +401,10 @@ export class TranscriptionStore {
       "SELECT last_complete_at FROM transcription_catalog_cursors WHERE name='recent'",
     );
     if (!result.rows[0]) throw new Failure('configuration');
-    return Math.min(Date.now(), result.rows[0].last_complete_at.getTime())
-      - lookbackDays * 86_400_000;
+    return (
+      Math.min(Date.now(), result.rows[0].last_complete_at.getTime()) -
+      lookbackDays * 86_400_000
+    );
   }
   async advanceCatalogCursor(
     name: 'recent' | 'backfill',
@@ -415,11 +424,80 @@ export class TranscriptionStore {
     query: string,
     expandAliases = true,
     limit = 20,
-    mode: 'phrase' | 'terms' = 'phrase',
+    mode: 'phrase' | 'terms' | 'smart' = 'phrase',
   ) {
     const variants = searchVariants(query, expandAliases);
     return transaction(this.pool, async (client) => {
       await client.query("SET LOCAL statement_timeout = '3s'");
+      if (mode === 'smart') {
+        await client.query("SET LOCAL pg_trgm.similarity_threshold = '0.2'");
+        await client.query(
+          "SET LOCAL pg_trgm.word_similarity_threshold = '0.2'",
+        );
+        const words = normalizeTranscriptSearch(query)
+          .split(' ')
+          .filter(
+            (word) =>
+              word.length >= 4 && word.length <= 64 && !/\p{N}/u.test(word),
+          );
+        const vocabulary = await client.query<{ term: string; word: string }>(
+          `
+          SELECT q.term,w.word FROM unnest($1::text[]) AS q(term)
+          CROSS JOIN LATERAL (
+            SELECT word FROM transcript_search_words
+            WHERE word % q.term OR word %> q.term OR word LIKE q.term || '%'
+            ORDER BY similarity(word,q.term) DESC,word LIMIT 128
+          ) w`,
+          [[...new Set(words)]],
+        );
+        const candidates = new Map<string, string[]>();
+        for (const { term, word } of vocabulary.rows)
+          candidates.set(term, [...(candidates.get(term) ?? []), word]);
+        const clauses = transcriptSearchClauses(
+          query,
+          candidates,
+          expandAliases,
+        );
+        const literal = transcriptSearchClauses(query, new Map(), false);
+        const result = await client.query<{
+          shiur_id: string;
+          title: string;
+          teacher: string;
+          media_url: string | null;
+          start_ms: string;
+          end_ms: string;
+          text: string;
+          literal_match: boolean;
+        }>(
+          `
+          SELECT s.shiur_id,h.title,h.teacher,h.media_url,s.start_ms,s.end_ms,s.text,
+            s.search_window_tokens @@ to_tsquery('simple',$4) AS literal_match
+          FROM transcript_segments s JOIN transcription_shiurim h ON h.active_transcript_id=s.transcript_id
+          WHERE s.search_window_tokens @@ to_tsquery('simple',$1)
+            AND s.search_tokens @@ to_tsquery('simple',$2)
+          ORDER BY literal_match DESC,ts_rank_cd(s.search_tokens,to_tsquery('simple',$1)) DESC,s.shiur_id,s.segment_index
+          LIMIT $3`,
+          [
+            clauses.all,
+            clauses.any,
+            Math.max(1, Math.min(100, limit)),
+            literal.all,
+          ],
+        );
+        return result.rows.map((row) => ({
+          shiurId: row.shiur_id,
+          title: row.title,
+          teacher: row.teacher,
+          mediaUrl: row.media_url,
+          startMs: Number(row.start_ms),
+          endMs: Number(row.end_ms),
+          text: excerpt(row.text, normalizeTranscriptSearch(query), true),
+          matched: normalizeTranscriptSearch(query),
+          href: timestampLink(row.shiur_id, Number(row.start_ms)),
+          aliasesExpanded: clauses.aliasesExpanded,
+          spellingExpanded: clauses.spellingExpanded && !row.literal_match,
+        }));
+      }
       const result = await client.query<{
         shiur_id: string;
         title: string;

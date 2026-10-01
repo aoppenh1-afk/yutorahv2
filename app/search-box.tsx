@@ -135,6 +135,7 @@ export function SearchBox({
           aria-autocomplete="list"
           aria-expanded={open && count > 0}
           aria-controls={open && count ? 'search-suggestions' : undefined}
+          aria-describedby="search-matching-hint"
           aria-activedescendant={
             open && selected >= 0 ? `search-option-${selected}` : undefined
           }
@@ -161,6 +162,9 @@ export function SearchBox({
           <ArrowRight size={21} />
         </button>
       </form>
+      <p id="search-matching-hint" className="search-matching-hint">
+        Try a question or start typing a name. Typos and partial words work too.
+      </p>
       {open && count > 0 && (
         <div className="search-suggestion-panel">
           <div className="suggestion-heading">

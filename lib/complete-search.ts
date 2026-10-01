@@ -11,6 +11,11 @@ import {
 import type { SearchResponse } from './api-types';
 import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
 import { relevanceScore, searchText } from './search-discovery';
+import {
+  librarySearchQuery,
+  matchQuery,
+  searchVocabulary,
+} from './search-matching';
 
 type Run = {
   id: string;
@@ -32,9 +37,9 @@ const sorts: Record<string, string> = {
 };
 export class SearchChangedError extends Error {}
 
-function sourceParams(plan: SearchPlan, page: number) {
+function sourceParams(plan: SearchPlan, query: string, page: number) {
   const p = new URLSearchParams({
-    searchTerm: plan.term || plan.phrase || '',
+    searchTerm: query,
     getFacets: 'false',
     start: String(page),
   });
@@ -56,10 +61,19 @@ export async function completeSearch(
   const plan = parseSearch(query, options, directory);
   if (plan.min && plan.max && plan.min > plan.max)
     throw new RangeError('Minimum duration must not exceed maximum duration.');
-  // Cache candidates independently of refinements and sorting.
+  const sourceQuery = librarySearchQuery(
+    plan.term || plan.phrase || '',
+    searchVocabulary([
+      ...directory.teachers.map((teacher) => teacher.name),
+      ...directory.topics.map((topic) => topic.name),
+      ...directory.series.map((series) => series.name),
+    ]),
+  );
+  // Cache the actual expansion independently of refinements and sorting. A
+  // vocabulary change must never resume a pass using different candidates.
   const criteria = {
-    version: 2,
-    term: plan.term || plan.phrase || '',
+    version: 3,
+    term: sourceQuery,
     teacher: plan.teacherId,
     topic: plan.topicId,
     series: plan.seriesId,
@@ -89,10 +103,14 @@ export async function completeSearch(
       .bind(fingerprint, cutoff, activeCutoff)
       .first<Run>();
   if (!run) {
-    const first = await upstream<SearchResponse>(sourceParams(plan, 1), 0);
+    const first = await upstream<SearchResponse>(
+      sourceParams(plan, sourceQuery, 1),
+      0,
+    );
     if (
       !Array.isArray(first.response?.docs) ||
-      !Number.isFinite(first.response.numFound)
+      !Number.isSafeInteger(first.response.numFound) ||
+      first.response.numFound < 0
     )
       throw new Error('Search is unavailable.');
     run = {
@@ -130,7 +148,10 @@ export async function completeSearch(
         const end = Math.min(pages + 1, run.next + 4);
         const batches = await Promise.all(
           Array.from({ length: end - run.next }, (_, i) =>
-            upstream<SearchResponse>(sourceParams(plan, run!.next + i), 0),
+            upstream<SearchResponse>(
+              sourceParams(plan, sourceQuery, run!.next + i),
+              0,
+            ),
           ),
         );
         if (
@@ -158,7 +179,7 @@ export async function completeSearch(
               run!.id,
               s.id,
               JSON.stringify(s),
-              1,
+              matchQuery(s.title, plan.term) ? 1 : 0,
               searchText(
                 [s.title, s.teacher, s.series, ...s.topics, s.description].join(
                   ' ',
@@ -245,14 +266,7 @@ export async function completeSearch(
       `NOT EXISTS (SELECT 1 FROM json_each(?) AS word WHERE instr(' ' || ${field} || ' ', ' ' || word.value || ' ') > 0)`,
       JSON.stringify(excluded),
     );
-  if (plan.scope === 'title') {
-    const words = searchText(plan.term).split(' ').filter(Boolean);
-    if (words.length)
-      add(
-        "NOT EXISTS (SELECT 1 FROM json_each(?) AS word WHERE instr(' ' || title || ' ', ' ' || word.value || ' ') = 0)",
-        JSON.stringify(words),
-      );
-  }
+  if (plan.scope === 'title' && plan.term) predicates.push('matched = 1');
   const where = predicates.join(' AND ');
   const counts = await db
     .prepare('SELECT COUNT(*) AS scanned FROM search_hits WHERE run = ?')
