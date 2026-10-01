@@ -35,8 +35,9 @@ main's typo and partial-word matching.
    Source selections can be saved before Google is connected. Importing waits
    for sign-in and a saved advertised model, so jobs cannot accidentally pin an
    unavailable default model. Importing itself does not download audio.
-7. Click **Start queue**. Recordings run one at a time, with configured chunk
-   concurrency. The GUI shows transcription and notes statuses independently.
+7. Click **Start queue**. Up to five Antigravity sessions run in parallel by
+   default. Separate recordings, long-recording chunks, and study notes share
+   that limit. The GUI shows active sessions and each job’s statuses.
    **Pause queue** aborts owned work, saves reusable chunks/cleaned text, and
    requeues interrupted jobs. **Pause selection** stops that source's discovery
    and future claims; a job already running can finish.
@@ -132,6 +133,24 @@ Notes are tied to that exact transcript version, so an old notes job can never
 appear beside a newer transcript. Raw timed segments remain available while
 notes are queued or fail. Website requests carry the read token only on the
 server, and all content/search responses use `Cache-Control: no-store`.
+
+## Parallel processing and long recordings
+
+`ACP_CONCURRENCY=5` in `/etc/yutorah-operator.env` sets one shared limit for
+all transcription and notes requests. It also bounds the number of leased
+recordings/notes jobs. Values from 1 to 20 are supported; restart the operator
+after changing it. Pause drains all sessions and keeps accepted database
+checkpoints. Only one worker owns the account and scratch directory.
+
+Lectern’s audio preparation is preserved: recordings over 16 MiB are split
+into size-budgeted cores, moved to quiet points within 15 seconds of the
+planned boundary, and exported with up to five seconds of overlap on either
+side. AAC/ALAC samples are copied; other codecs are converted to AAC with
+conservative size planning. Every exported file must fit the 20 MiB native
+audio limit. Results are checkpointed as they finish, merged in recording
+order with global timestamps, and deduplicated only at chunk boundaries.
+Completed chunks are reused after a restart. Source and exported audio are
+deleted when each attempt ends.
 
 ## Lectern generation and storage
 

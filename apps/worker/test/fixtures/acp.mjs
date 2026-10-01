@@ -1,8 +1,15 @@
 import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { writeFileSync, appendFileSync } from 'node:fs';
+import { writeFileSync, appendFileSync, existsSync } from 'node:fs';
 const [behavior = 'normal', marker = ''] = process.argv.slice(2);
+const parallel = behavior === 'pipeline_parallel';
+const record = (event, extra = {}) => appendFileSync(marker, JSON.stringify({ event, pid: process.pid, workspace: process.cwd(), ...extra }) + '\n');
+if (parallel) {
+  record('opened');
+  process.once('exit', () => record('closed'));
+  process.once('SIGTERM', () => process.exit(0));
+}
 if (behavior === 'ready_on_close') {
   setInterval(() => {}, 1000);
   process.once('SIGTERM', () => {
@@ -105,6 +112,16 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     const blocks = req.params.prompt;
     const text = blocks.find((b) => b.type === 'text')?.text ?? '';
     const audio = blocks.find((b) => b.type === 'audio');
+    if (parallel) {
+      record('prompt', { kind: audio ? 'audio' : text.includes('<transcription-contract>') ? 'cleanup' : 'notes' });
+      const respond = () => {
+        if (!existsSync(marker + '.release')) { setTimeout(respond, 20); return; }
+        update('agent_message_chunk', audio ? '[00:01] The גמ׳ asks on תוס׳.\n[00:04] Student: What about רש״י?' : text.includes('<transcription-contract>') ? 'The גמ׳ asks on תוס׳. The student asks about רש״י.' : '# The question on תוס׳\n\n## The גמ׳ and the student\n\n- **גמ׳:** asks on תוס׳\n    - **Student:** asks about רש״י');
+        send({ id: req.id, result: { stopReason: 'end_turn' } });
+      };
+      respond();
+      return;
+    }
     if ((behavior.startsWith('generation') || behavior==='pipeline_all') && !audio) {
       const cleanup = text.includes('<transcription-contract>');
       const repair = text.includes('<draft-notes>');

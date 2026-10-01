@@ -337,7 +337,8 @@ void test('literal Hebrew normalization, explicit aliases and safe media resolut
     'https://download.yutorah.org/a.mp3',
   );
   assert.equal(
-    mediaURL('https://pub-118b5aaf6ae949ac8f59a93faec8a3da.r2.dev/a.mp3').hostname,
+    mediaURL('https://pub-118b5aaf6ae949ac8f59a93faec8a3da.r2.dev/a.mp3')
+      .hostname,
     'pub-118b5aaf6ae949ac8f59a93faec8a3da.r2.dev',
   );
   for (const url of [
@@ -404,3 +405,156 @@ void test('FFmpeg prepares a large source into bounded playable AAC chunks', asy
     await rm(root, { recursive: true, force: true });
   }
 });
+
+void test(
+  'twenty-minute audio splits at quiet boundaries, exports the overlaps, and resumes ordered merging',
+  { timeout: 120000 },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), 'worker-long-audio-'));
+    try {
+      const source = join(root, 'long.wav');
+      await runProcess(
+        '/usr/bin/ffmpeg',
+        [
+          '-nostdin',
+          '-v',
+          'error',
+          '-f',
+          'lavfi',
+          '-i',
+          'sine=frequency=440:sample_rate=16000',
+          '-af',
+          "volume=0:enable='between(t,305,308)+between(t,605,608)+between(t,905,908)'",
+          '-t',
+          '1200',
+          source,
+        ],
+        { cwd: root, signal: signal() },
+      );
+      const info = await inspectAudio(source, signal());
+      const originalHash = await hashFile(source);
+      const plan = await prepareRanges(source, info, signal());
+      assert.equal(plan.length, 4);
+      assert.ok(validRanges(plan, 1200));
+      const audioParts: Array<{ path: string; mimeType: string }> = [];
+      for (const [index, range] of plan.entries()) {
+        if (index < plan.length - 1) {
+          const silenceStart = 305 + index * 300;
+          assert.ok(
+            range.coreEnd > silenceStart && range.coreEnd < silenceStart + 3,
+            `boundary ${index} must move from speech to silence`,
+          );
+          assert.equal(range.end - range.coreEnd, 5);
+        }
+        if (index) assert.equal(range.coreStart - range.start, 5);
+        const audio = await exportChunk(
+          source,
+          info,
+          range,
+          index,
+          plan.length,
+          root,
+          signal(),
+        );
+        const exported = await inspectAudio(audio.path, signal());
+        assert.ok(exported.bytes <= MAX_AUDIO_BYTES);
+        assert.equal(exported.mimeType, 'audio/m4a');
+        assert.ok(
+          Math.abs(exported.durationMs - (range.end - range.start) * 1000) <
+            250,
+        );
+        if (index) {
+          // The pause at the source boundary must also be present five seconds
+          // into the exported chunk, proving its overlap and seek are correct.
+          const pcm = await runProcess(
+            '/usr/bin/ffmpeg',
+            [
+              '-nostdin',
+              '-v',
+              'error',
+              '-ss',
+              String(range.coreStart - range.start),
+              '-i',
+              audio.path,
+              '-t',
+              '0.5',
+              '-ac',
+              '1',
+              '-ar',
+              '16000',
+              '-f',
+              's16le',
+              'pipe:1',
+            ],
+            { cwd: root, signal: signal() },
+          );
+          assert.ok(pcm.length > 10000);
+          let square = 0;
+          for (let i = 0; i + 2 <= pcm.length; i += 2)
+            square += (pcm.readInt16LE(i) / 32767) ** 2;
+          assert.ok(Math.sqrt(square / (pcm.length / 2)) < 0.003);
+        }
+        audioParts.push(audio);
+      }
+      const cp = checkpoints();
+      const completion: number[] = [];
+      const timestamp = (seconds: number) => {
+        const value = Math.floor(seconds);
+        return `${Math.floor(value / 60)
+          .toString()
+          .padStart(2, '0')}:${(value % 60).toString().padStart(2, '0')}`;
+      };
+      const shared = {
+        ranges: plan,
+        durationMs: info.durationMs,
+        settings: defaultSettings,
+        checkpoints: cp,
+        pool: new SessionPool(5),
+        signal: signal(),
+      };
+      const result = await transcribeChunks({
+        ...shared,
+        transcribe: async ({ index, range }) => {
+          assert.ok(
+            (await readFile(audioParts[index].path)).length <= MAX_AUDIO_BYTES,
+          );
+          await delay((plan.length - index) * 20);
+          completion.push(index);
+          const prefix = index ? 'what is מיגו here and part' : 'Start part';
+          return `[00:01] ${prefix}${index}.\n[00:20] what is מיגו here${index < plan.length - 1 ? `\n[${timestamp(range.coreEnd - range.start - 2)}] The גמ׳ asks what is מיגו here` : ''}`;
+        },
+        onMerging: async () => {
+          assert.equal(cp.parts.size, plan.length);
+        },
+      });
+      assert.equal(completion[0], 3);
+      assert.deepEqual(
+        result.segments.filter((s) => /part\d/.test(s.text)).map((s) => s.text),
+        ['Start part0.', 'and part1.', 'and part2.', 'and part3.'],
+      );
+      assert.deepEqual(
+        result.segments
+          .filter((s) => /part\d/.test(s.text))
+          .map((s) => s.startMs),
+        plan.map((range, index) =>
+          index ? Math.round(range.coreStart * 1000) : 1000,
+        ),
+        'chunk-local timestamps must shift onto the complete recording timeline',
+      );
+      assert.equal(
+        result.segments.filter((s) => s.text === 'what is מיגו here').length,
+        4,
+        'real later repetitions must survive boundary deduplication',
+      );
+      const resumed = await transcribeChunks({
+        ...shared,
+        transcribe: async () =>
+          assert.fail('accepted long-audio chunks must not be uploaded again'),
+      });
+      assert.deepEqual(resumed, result);
+      assert.equal(await hashFile(source), originalHash);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

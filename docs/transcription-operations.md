@@ -21,7 +21,7 @@ read-only VM service. Deployment and account sign-in still require an operator.
 Use Linux x86-64 or ARM64 with Node 22.13+ (tested here with Node 24.20.0), FFmpeg,
 PostgreSQL 15+, and several GB of free disk for concurrent runtime extraction/audio.
 There is no GPU or local speech model. Start with concurrency 1 on a very small VM;
-raise toward Lectern's default 3 after measuring peak RSS, disk, and account limits.
+the app defaults to five shared sessions, adjustable with `ACP_CONCURRENCY`.
 Do not assume free-tier capacity or continuous subscription quota.
 
 Example Debian/Ubuntu setup (run the repository commands from `/opt/yutorah`):

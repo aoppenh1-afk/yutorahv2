@@ -17,6 +17,7 @@ import { notesProfile } from '../../../packages/transcription/src/notes.js';
 import { defaultSettings } from '../../../packages/transcription/src/types.js';
 import { SelectionStore, scanSelections } from './selections.js';
 import { runWorker, runtimeIdentity } from './worker.js';
+import type { SessionPool } from '../../../packages/antigravity-acp/src/pool.js';
 
 export type OperatorConfig = {
   runtime: RuntimeConfig;
@@ -37,6 +38,7 @@ export class OperatorRuntime {
   private models: string[] = [];
   private connected = false;
   private changing = false;
+  private sessions?: SessionPool;
   private readonly selections: SelectionStore;
   constructor(
     private readonly store: TranscriptionStore,
@@ -73,6 +75,8 @@ export class OperatorRuntime {
       authUrl: this.authUrl,
       authPort: this.authPort,
       scratchBytes,
+      concurrency: this.config.concurrency,
+      activeSessions: this.sessions?.activeCount ?? 0,
     };
   }
   async currentProfile() {
@@ -130,10 +134,11 @@ export class OperatorRuntime {
           intervalMs: this.config.intervalMs,
           deepIntervalMs: this.config.intervalMs,
         },
-        onReady: (models) => {
+        onReady: (models, pool) => {
           this.state = 'running';
           this.connected = true;
           this.models = models;
+          this.sessions = pool;
         },
       },
       this.workAbort.signal,

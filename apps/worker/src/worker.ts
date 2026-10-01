@@ -57,7 +57,7 @@ export type WorkerConfig = {
   catalog?: { profile: Profile; intervalMs: number; deepIntervalMs: number };
   selectedOnly?: boolean;
   notes?: NotesProfile;
-  onReady?: (models: string[]) => void;
+  onReady?: (models: string[], pool: SessionPool) => void;
   media?: {
     resolveMedia: typeof resolveMedia;
     downloadAudio: typeof downloadAudio;
@@ -231,6 +231,7 @@ export async function processNotesJob(
   job: NotesJob,
   config: WorkerConfig,
   signal: AbortSignal,
+  pool = new SessionPool(config.concurrency),
 ) {
   const p = notesProfile({
     model: job.model,
@@ -248,11 +249,13 @@ export async function processNotesJob(
     signal,
     saveCleaned: (text) => store.saveCleaned(job, text),
     request: (prompt) =>
-      withRuntime(config.runtime, signal, async (client, workspace) => {
-        await client.authenticate();
-        await client.session(workspace, job.model);
-        return client.textPrompt(prompt);
-      }),
+      pool.run(signal, () =>
+        withRuntime(config.runtime, signal, async (client, workspace) => {
+          await client.authenticate();
+          await client.session(workspace, job.model);
+          return client.textPrompt(prompt);
+        }),
+      ),
   });
   await store.complete(job, result.markdown);
   log({ event: 'notes_completed', job: job.id });
@@ -263,6 +266,7 @@ export async function runWorker(
   config: WorkerConfig,
   signal: AbortSignal,
 ): Promise<void> {
+  const pool = new SessionPool(config.concurrency);
   const leader: PoolClient = await store.pool.connect();
   const lost = new AbortController();
   const catalogStop = new AbortController();
@@ -284,7 +288,6 @@ export async function runWorker(
       if (entry.isDirectory() && /^(job|acp)-[A-Za-z0-9]+$/.test(entry.name))
         await rm(join(config.runtime.scratch, entry.name), { recursive: true });
     }
-    const pool = new SessionPool(config.concurrency);
     const models = await withRuntime(
       config.runtime,
       combined,
@@ -293,7 +296,8 @@ export async function runWorker(
         return client.session(workspace, config.model);
       },
     );
-    config.onReady?.(models);
+    checkAbort(combined);
+    config.onReady?.(models, pool);
     if (config.catalog) {
       catalogTask = pollSelections(
         store,
@@ -303,52 +307,73 @@ export async function runWorker(
         log,
       );
     }
-    while (!combined.aborted) {
-      // A broken leadership connection cannot admit more jobs.
-      await leader.query('SELECT 1');
-      if (config.notes) {
-        const notesStore = new NotesStore(store.pool);
-        await notesStore.enqueueMissing(config.notes, config.selectedOnly);
-        const notesJob = await notesStore.claim(config.selectedOnly);
-        if (notesJob) {
-          try {
-            await runLeasedJob(notesStore, notesJob, combined, (s) =>
-              processNotesJob(notesStore, notesJob, config, s),
-            );
-          } catch (error) {
-            const e = failure(error);
-            log({ event: 'notes_failed', job: notesJob.id, code: e.code });
-            if (
-              ['auth_required', 'configuration', 'lease_lost'].includes(
-                e.code,
-              ) &&
-              !signal.aborted
-            )
-              throw e;
+    const notesStore = config.notes ? new NotesStore(store.pool) : undefined;
+    let enqueueNotes: Promise<void> | undefined;
+    const lane = async () => {
+      while (!combined.aborted) {
+        // A broken leadership connection cannot admit more jobs.
+        await leader.query('SELECT 1');
+        if (notesStore && config.notes) {
+          // Concurrent lanes share discovery as well as the account-wide ACP pool.
+          enqueueNotes ??= notesStore
+            .enqueueMissing(config.notes, config.selectedOnly)
+            .finally(() => {
+              enqueueNotes = undefined;
+            });
+          await enqueueNotes;
+          checkAbort(combined);
+          const notesJob = await notesStore.claim(config.selectedOnly);
+          if (notesJob) {
+            try {
+              await runLeasedJob(notesStore, notesJob, combined, (s) =>
+                processNotesJob(notesStore, notesJob, config, s, pool),
+              );
+            } catch (error) {
+              const e = failure(error);
+              log({ event: 'notes_failed', job: notesJob.id, code: e.code });
+              if (
+                ['auth_required', 'configuration', 'lease_lost'].includes(
+                  e.code,
+                ) &&
+                !combined.aborted
+              )
+                throw e;
+            }
+            continue;
           }
+        }
+        checkAbort(combined);
+        const job = await store.claim(config.selectedOnly);
+        if (!job) {
+          await delay(config.pollMs, undefined, { signal: combined });
           continue;
         }
+        log({ event: 'claimed', job: job.id, attempt: job.attempt });
+        try {
+          await runLeasedJob(store, job, combined, (s) =>
+            processJob(store, job, config, pool, s, log, config.media),
+          );
+        } catch (error) {
+          const e = failure(error);
+          log({ event: 'job_failed', job: job.id, code: e.code });
+          if (
+            ['auth_required', 'configuration', 'lease_lost'].includes(e.code) &&
+            !combined.aborted
+          )
+            throw e;
+        }
       }
-      const job = await store.claim(config.selectedOnly);
-      if (!job) {
-        await delay(config.pollMs, undefined, { signal: combined });
-        continue;
-      }
-      log({ event: 'claimed', job: job.id, attempt: job.attempt });
-      try {
-        await runLeasedJob(store, job, combined, (s) =>
-          processJob(store, job, config, pool, s, log, config.media),
-        );
-      } catch (error) {
-        const e = failure(error);
-        log({ event: 'job_failed', job: job.id, code: e.code });
-        if (
-          ['auth_required', 'configuration', 'lease_lost'].includes(e.code) &&
-          !signal.aborted
-        )
-          throw e;
-      }
-    }
+    };
+    // Short recordings can run together; a long recording's parallel chunks and
+    // all notes requests still acquire permits from this same five-session pool.
+    // Drain every lane before scratch cleanup or releasing the leadership lock.
+    await Promise.all(
+      Array.from({ length: pool.limit }, () =>
+        lane().catch((error) => {
+          lost.abort(failure(error));
+        }),
+      ),
+    );
     // Loss during successful preflight/cleanup must still reach the CLI as a failure.
     checkAbort(combined);
   } finally {

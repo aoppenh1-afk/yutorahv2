@@ -123,6 +123,8 @@ async function refresh() {
     snapshot = await api('status');
     el('workspace').hidden = false;
     const r = snapshot.runtime;
+    el('session-state').textContent =
+      `${r.activeSessions} of ${r.concurrency} Antigravity sessions active. Transcription and notes share these slots.`;
     el('run-state').textContent = names[r.state] || r.state;
     el('start').disabled =
       ['starting', 'running', 'authenticating'].includes(r.state) ||

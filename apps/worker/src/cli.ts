@@ -24,6 +24,7 @@ import { NotesStore } from '../../../packages/transcription/src/notes-store.js';
 import { OperatorRuntime } from './operator-runtime.js';
 import { serveOperator } from './operator-server.js';
 import { serveSearch } from './search-server.js';
+import { DEFAULT_CONCURRENCY } from '../../../packages/antigravity-acp/src/pool.js';
 
 const [command, ...args] = process.argv.slice(2);
 const controller = new AbortController();
@@ -153,7 +154,7 @@ async function main() {
         process.env.NOTES_SKILL_PATH ??
           'packages/transcription/skills/lectern-notes/SKILL.md',
       ),
-      concurrency: Number(process.env.ACP_CONCURRENCY ?? 1),
+      concurrency: Number(process.env.ACP_CONCURRENCY ?? DEFAULT_CONCURRENCY),
       intervalMs: Number(process.env.CATALOG_POLL_MS ?? 300_000),
     });
     await serveOperator(
@@ -196,7 +197,9 @@ async function main() {
         db,
         {
           runtime,
-          concurrency: Number(process.env.ACP_CONCURRENCY ?? 3),
+          concurrency: Number(
+            process.env.ACP_CONCURRENCY ?? DEFAULT_CONCURRENCY,
+          ),
           pollMs: 5000,
           model: settings.model,
           selectedOnly: !args.includes('--unscoped'),
