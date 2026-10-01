@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { mkdtemp, readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const exec = promisify(execFile);
 const source = resolve('deploy/transcription/start-content-tunnel.sh');
@@ -27,8 +28,8 @@ async function fixture(ready = true) {
 set -euo pipefail
 root=$(dirname "$(dirname "$0")")
 printf '%s\\n' "$PPID" >> "$root/started-pids"
-while [ ! -f "$root/ready" ]; do sleep 0.05; done
-printf '%s\\n' '${url}'
+while [ ! -f "$root/ready" ] && [ ! -f "$root/ready-$PPID" ]; do sleep 0.05; done
+if [ -f "$root/url-$PPID" ]; then cat "$root/url-$PPID"; else printf '%s\\n' '${url}'; fi
 while true; do sleep 0.05; done
 `, { mode: 0o755 });
   if (ready) await writeFile(join(root, 'ready'), '');
@@ -119,5 +120,35 @@ void test('concurrent tunnel launchers share a single process and address', asyn
     const results = await Promise.all([f.run(), f.run()]);
     assert.ok(results.every(result => result.stdout.includes(url)));
     assert.equal((await f.read('started-pids')).trim().split(/\s+/).length, 1);
+  } finally { await f.close(); }
+});
+
+void test('a rejected live process cannot publish its URL through the replacement log', async () => {
+  const f = await fixture(false);
+  try {
+    await assert.rejects(f.run(), (e: Error & { code?: number }) => e.code === 1);
+    const oldPid = (await f.read('tunnel.pid')).trim();
+    const oldUrl = 'https://old-review.trycloudflare.com';
+    await f.write(`url-${oldPid}`, oldUrl + '\n');
+    await f.write('tunnel.start', '0\n');
+    const replacement = f.run();
+    // Attach the rejection handler before releasing either fixture process.
+    const stillAwaitingUrl = assert.rejects(replacement,
+      (e: Error & { code?: number }) => e.code === 1);
+    let newPid = oldPid;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const pids = (await f.read('started-pids')).trim().split(/\s+/);
+      if (pids.length === 2) { newPid = pids[1]; break; }
+      await delay(10);
+    }
+    assert.notEqual(newPid, oldPid, 'replacement process started');
+    await f.write(`ready-${oldPid}`, '');
+    await stillAwaitingUrl;
+    await f.write(`ready-${newPid}`, '');
+    const result = await f.run();
+    assert.ok(result.stdout.includes(url));
+    assert.ok(!result.stdout.includes(oldUrl));
+    assert.equal((await f.read('tunnel-url')).trim(), url);
+    assert.equal((await f.read('tunnel.pid')).trim(), newPid);
   } finally { await f.close(); }
 });

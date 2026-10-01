@@ -49,6 +49,9 @@ if tunnel_alive; then
 else
   # Never load worker credentials, kill an unrelated PID, or forward the operator.
   : > "$urlfile"
+  # Replace the inode instead of truncating a file an old process may still write.
+  fresh_log=$(mktemp "${logfile}.XXXXXX")
+  mv -- "$fresh_log" "$logfile"
   nohup runuser -u yutorah-search -- "$cloudflared_bin" tunnel \
     --no-autoupdate --url http://127.0.0.1:8765 --protocol http2 \
     > "$logfile" 2>&1 < /dev/null 9>&- &
