@@ -16,9 +16,8 @@ main's typo and partial-word matching.
 
    Then open `http://127.0.0.1:8766` on your laptop. The collaborative preview can
    also use environment port 8766 when its connection to this VM supports it.
-2. Read `OPERATOR_TOKEN` privately from `/etc/yutorah-operator.env` using sudo and
-   paste it into the login form. This operator key is separate from the website's
-   search token. It is exchanged for an HttpOnly session cookie.
+2. The workspace opens directly. There is no operator password or login form;
+   access uses your VM session or the SSH tunnel.
 3. Click **Connect Google**. The GUI pauses its worker first and shows a callback
    tunnel command and the exact Google URL. Run that second SSH tunnel on your
    laptop, open the URL, and leave the GUI open until it reports connected. Stop
@@ -82,7 +81,7 @@ accounts, applies migrations, and sets the read-only role's grants.
 | --- | --- |
 | `/opt/yutorah-operator` | Installed source-independent application |
 | `/opt/antigravity-acp/1.2.1` | Verified Google runtime pair |
-| `/etc/yutorah-operator.env` | Database/runtime settings and private operator key |
+| `/etc/yutorah-operator.env` | Database/runtime settings |
 | `/etc/yutorah-search.env` | Read-only database settings and website token |
 | `/var/lib/yutorah-worker/profile` | Private Google credentials |
 | `/var/lib/yutorah-worker/scratch` | Disposable in-flight audio/runtime directories |
@@ -115,9 +114,11 @@ and database. Database migrations are append-only.
 Put the read-only endpoint behind HTTPS (for example the existing Caddy
 configuration), and configure the existing website with server-side
 `TRANSCRIPT_API_URL` and `TRANSCRIPT_API_TOKEN` from the search environment.
-Never use the operator key as the website token or expose the operator through
-the public website. A managed website cannot reach this VM's loopback address;
-it needs the deployed HTTPS endpoint.
+The operator is a password-free VM-local application. Keep it on loopback;
+its request checks reject other hostnames, cross-origin calls, and forwarded
+proxy traffic. The public website uses only the separately authenticated reader.
+A managed website cannot reach this VM's loopback address; it needs the deployed
+HTTPS endpoint.
 
 Migration **004_operator_notes.sql** follows the search branch's migration 003.
 The new content reader needs SELECT on `transcripts`, `notes_jobs`, and

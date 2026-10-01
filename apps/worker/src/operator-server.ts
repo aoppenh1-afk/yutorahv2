@@ -1,5 +1,4 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -14,11 +13,27 @@ import {
 } from './selections.js';
 import { OperatorRuntime } from './operator-runtime.js';
 
-const equal = (a: string, b: string) =>
-  timingSafeEqual(
-    createHash('sha256').update(a).digest(),
-    createHash('sha256').update(b).digest(),
-  );
+/** The operator is a VM-local application; only its own loopback origin may use it. */
+function localRequest(req: IncomingMessage): boolean {
+  try {
+    const host = new URL(`http://${req.headers.host}`);
+    return (
+      ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(
+        req.socket.remoteAddress ?? '',
+      ) &&
+      ['127.0.0.1', 'localhost', '[::1]'].includes(host.hostname) &&
+      Number(host.port || 80) === req.socket.localPort &&
+      (!req.headers.origin || req.headers.origin === host.origin) &&
+      req.headers['sec-fetch-site'] !== 'cross-site' &&
+      !req.headers.forwarded &&
+      !req.headers['x-forwarded-for'] &&
+      !req.headers['x-forwarded-host'] &&
+      !req.headers['x-forwarded-proto']
+    );
+  } catch {
+    return false;
+  }
+}
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   if (
@@ -39,12 +54,9 @@ async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
 export function createOperatorServer(
   store: TranscriptionStore,
   runtime: OperatorRuntime,
-  token: string,
   publicDir: string,
   loadDirectory = catalogDirectory,
 ): Server {
-  if (Buffer.byteLength(token) < 32) throw new Failure('configuration');
-  const cookie = randomBytes(32).toString('hex');
   const selections = new SelectionStore(store.pool);
   const notes = new NotesStore(store.pool);
   let directory: Awaited<ReturnType<typeof catalogDirectory>> | undefined;
@@ -75,37 +87,17 @@ export function createOperatorServer(
       res.end(JSON.stringify(value));
     };
     try {
+      if (!localRequest(req)) {
+        reply(403, {
+          error: 'Open the workspace from this VM\u2019s localhost address.',
+        });
+        return;
+      }
       const url = new URL(req.url ?? '/', 'http://localhost');
       const file = files.get(url.pathname);
       if (req.method === 'GET' && file) {
         res.setHeader('Content-Type', `${file[1]}; charset=utf-8`);
         res.end(await readFile(join(publicDir, file[0])));
-        return;
-      }
-      if (req.method === 'POST' && url.pathname === '/api/operator/session') {
-        const data = await body(req);
-        if (typeof data.token !== 'string' || !equal(data.token, token)) {
-          reply(401, { error: 'Invalid operator key.' });
-          return;
-        }
-        res.setHeader(
-          'Set-Cookie',
-          `yutorah_operator=${cookie}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`,
-        );
-        reply(200, { ok: true });
-        return;
-      }
-      const bearer = req.headers.authorization?.startsWith('Bearer ')
-        ? req.headers.authorization.slice(7)
-        : '';
-      const session =
-        req.headers.cookie
-          ?.split(';')
-          .map((s) => s.trim())
-          .find((s) => s.startsWith('yutorah_operator='))
-          ?.slice('yutorah_operator='.length) ?? '';
-      if (!equal(bearer, token) && !equal(session, cookie)) {
-        reply(401, { error: 'Sign in with your operator key.' });
         return;
       }
       if (req.method === 'GET' && url.pathname === '/api/operator/status') {
@@ -230,14 +222,13 @@ export function createOperatorServer(
 export async function serveOperator(
   store: TranscriptionStore,
   runtime: OperatorRuntime,
-  token: string,
   publicDir: string,
   port: number,
   signal: AbortSignal,
 ) {
   if (!Number.isInteger(port) || port < 1024 || port > 65535)
     throw new Failure('configuration');
-  const server = createOperatorServer(store, runtime, token, publicDir);
+  const server = createOperatorServer(store, runtime, publicDir);
   server.listen(port, '127.0.0.1');
   await once(server, 'listening');
   try {

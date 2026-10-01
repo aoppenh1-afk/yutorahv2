@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { request as httpRequest } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 import {
@@ -742,7 +743,7 @@ void test(
         },
       );
       await t.test(
-        'operator endpoints require a private session, reject CSRF, and accept canonical directory selections',
+        'VM-local operator opens without a password, rejects cross-origin requests, and accepts canonical selections',
         async () => {
           await reset();
           await setFixture('normal');
@@ -752,11 +753,9 @@ void test(
             concurrency: 1,
             intervalMs: 60000,
           });
-          const token = 'operator-test-token-'.repeat(3);
           const server = createOperatorServer(
             store,
             operator,
-            token,
             resolve('apps/worker/public'),
             async () => ({
               teachers: [
@@ -771,32 +770,77 @@ void test(
           assert.ok(address && typeof address !== 'string');
           const origin = `http://127.0.0.1:${address.port}`;
           try {
-            assert.equal((await fetch(origin + '/')).status, 200);
+            const page = await fetch(origin + '/');
+            assert.equal(page.status, 200);
+            assert.doesNotMatch(await page.text(), /operator-key|login-form/);
             assert.equal(
               (await fetch(origin + '/api/operator/status')).status,
-              401,
+              200,
             );
-            const login = await fetch(origin + '/api/operator/session', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Operator-Request': '1',
-              },
-              body: JSON.stringify({ token }),
-            });
-            assert.equal(login.status, 200);
-            const cookie = login.headers.get('set-cookie')!;
-            assert.match(cookie, /HttpOnly; SameSite=Strict/);
             const headers = {
               'Content-Type': 'application/json',
               'X-Operator-Request': '1',
-              Cookie: cookie.split(';')[0],
             };
+            const unsafeHeaders: Array<Record<string, string>> = [
+              { Origin: 'https://other.example' },
+              { 'Sec-Fetch-Site': 'cross-site' },
+              { 'X-Forwarded-For': '203.0.113.1' },
+            ];
+            for (const unsafe of unsafeHeaders)
+              assert.equal(
+                (
+                  await fetch(origin + '/api/operator/status', {
+                    headers: unsafe,
+                  })
+                ).status,
+                403,
+              );
+            const rebound = await new Promise<number>((resolve, reject) => {
+              const req = httpRequest(
+                origin + '/api/operator/status',
+                { headers: { Host: `other.example:${address.port}` } },
+                (res) => {
+                  res.resume();
+                  resolve(res.statusCode!);
+                },
+              );
+              req.on('error', reject);
+              req.end();
+            });
+            assert.equal(rebound, 403);
+            assert.equal(
+              (
+                await fetch(origin + '/api/operator/status', {
+                  headers: { Origin: origin },
+                })
+              ).status,
+              200,
+            );
+            assert.equal(
+              (
+                await fetch(origin + '/api/operator/session', {
+                  method: 'POST',
+                  headers,
+                  body: '{}',
+                })
+              ).status,
+              404,
+            );
+            assert.equal(
+              (
+                await fetch(origin + '/api/operator/stop', {
+                  method: 'POST',
+                  headers: { ...headers, Origin: 'https://other.example' },
+                  body: '{}',
+                })
+              ).status,
+              403,
+            );
             assert.equal(
               (
                 await fetch(origin + '/api/operator/targets', {
                   method: 'POST',
-                  headers: { Cookie: headers.Cookie },
+                  headers: { 'Content-Type': 'application/json' },
                   body: '{}',
                 })
               ).status,
@@ -819,7 +863,6 @@ void test(
             ).json();
             assert.equal(status.targets[0].name, 'Rabbi Hershel Schachter');
             assert.equal(status.settings.worker_enabled, false);
-            assert.equal(JSON.stringify(status).includes(token), false);
             assert.equal(
               (
                 await fetch(origin + '/api/operator/scan', {

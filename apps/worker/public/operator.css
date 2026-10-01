@@ -359,17 +359,6 @@ footer {
   color: var(--muted);
   font-size: 12px;
 }
-.login {
-  max-width: 570px;
-  margin: 50px auto;
-}
-#login-form button {
-  margin-top: 18px;
-}
-#login-error {
-  color: #993b3b;
-  text-align: center;
-}
 dialog {
   border: 1px solid var(--line);
   border-radius: 12px;
