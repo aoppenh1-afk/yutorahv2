@@ -54,6 +54,7 @@ const records = Array.from({ length: 181 }, (_, i) => ({
   mediatypename: 'MP3',
   teacherfullname: 'Rabbi Example',
   teacherid: 1,
+  shiurvisitsnum: i === 179 ? 1000000 : i * 10,
 }));
 let failPage = 0;
 const realFetch = globalThis.fetch;
@@ -139,6 +140,44 @@ void test('a failed upstream page does not advance the cursor and retry finishes
   const retry = await completeSearch(db, 'retry-test', {}, 1, first.run);
   assert.equal(retry.complete, true);
   assert.equal(retry.scanned, 181);
+});
+
+void test('most popular ranks every matching candidate by views after applying refinements', async () => {
+  const db = database();
+  const options = { sort: 'popular', language: 'EN', max: 20 };
+  let result = await completeSearch(db, 'teshuva', options);
+  while (!result.complete)
+    result = await completeSearch(db, 'teshuva', options, 1, result.run);
+  assert.equal(
+    result.items[0].id,
+    181,
+    'Includes the most viewed match on the last page',
+  );
+  assert.equal(result.total, 10);
+  assert.ok(
+    result.items.every((s) => s.language === 'EN' && s.duration <= 1200),
+  );
+  assert.ok(
+    !result.items.some((s) => s.id === 180),
+    'Excludes the more viewed Hebrew shiur',
+  );
+  assert.deepEqual(
+    result.items.map((s) => s.views),
+    result.items.map((s) => s.views).sort((a, b) => b - a),
+  );
+  const titleOnly = await completeSearch(db, 'teshuva', {
+    sort: 'popular',
+    scope: 'title',
+  });
+  assert.deepEqual(
+    titleOnly.items.map((s) => s.id),
+    [181],
+  );
+  const hebrew = await completeSearch(db, 'teshuva', {
+    sort: 'popular',
+    language: 'HE',
+  });
+  assert.equal(hebrew.items[0].id, 180);
 });
 
 void test('an exhausted search with no matching records reports exact zero', async () => {

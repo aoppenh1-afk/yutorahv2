@@ -33,7 +33,7 @@ import {
 import { Avatar, SeriesCover, ShiurCard, ShiurRow, StatePanel } from './ui';
 import { noFilters, type Filters } from './advanced-search';
 import type { Directory, HomeData, Shiur } from '@/lib/yutorah';
-import { mediaKind } from '@/lib/yutorah';
+import { mediaKind, selectHomeFeature } from '@/lib/yutorah';
 import type { LibraryState } from '@/lib/library';
 import type { DiscoveryData } from '@/lib/discovery';
 import {
@@ -315,8 +315,7 @@ export function LearningHome(props: Props) {
   const shortSeries = directory?.series.find((s) =>
     /^ten minute halacha$/i.test(s.name),
   );
-  const pick =
-    home?.featured.find((s) => mediaKind(s) === 'audio') || home?.featured[0];
+  const pick = selectHomeFeature(home);
   const hasInterests = !!(
     library.history.length ||
     library.saved.length ||
@@ -868,6 +867,11 @@ export function LearningHome(props: Props) {
               <RefreshCw size={16} className={discoveryLoading ? 'spin' : ''} />
             </button>
           </div>
+          <p className="trending-source">
+            YUTorah supplies total views for these recordings. Views for the
+            past 24 hours, week, month, or year are unavailable from the public
+            API, so this chart uses lifetime views.
+          </p>
           {discoveryLoading && !discovery ? (
             <div className="discovery-loading">
               <Loader2 size={18} className="spin" />

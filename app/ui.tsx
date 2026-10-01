@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/empty';
 import type { Shiur } from '@/lib/yutorah';
 import { mediaKind } from '@/lib/yutorah';
-import { highlightParts, matchExcerpt } from '@/lib/search-discovery';
+import { matchExcerpt } from '@/lib/search-discovery';
 import { timeLabel, useAudio, LibraryState } from '@/lib/library';
 export function Avatar({
   src,
@@ -135,7 +135,6 @@ export function ShiurCard({
   onSave,
   saved,
   active = false,
-  query = '',
 }: {
   shiur: Shiur;
   index?: number;
@@ -191,11 +190,7 @@ export function ShiurCard({
           {s.topics[0] || s.category || s.format}
         </button>
         <h3 dir="auto">
-          <button onClick={() => onDetails(s)}>
-            {highlightParts(s.title, query).map((part, i) =>
-              part.match ? <mark key={i}>{part.text}</mark> : part.text,
-            )}
-          </button>
+          <button onClick={() => onDetails(s)}>{s.title}</button>
         </h3>
         <p className="card-teacher-name">{s.teacher}</p>
         <div className="card-bottom">
@@ -282,28 +277,11 @@ export function ShiurRow({
       <div className="row-content">
         <div className="row-meta">
           {learned && <span className="learned-label">Learned</span>}
-          {highlightParts(
-            s.topics.slice(0, 2).join(' · ') || s.category,
-            query,
-          ).map((part, i) =>
-            part.match ? <mark key={i}>{part.text}</mark> : part.text,
-          )}
-          {s.series && (
-            <span>
-              {' '}
-              ·{' '}
-              {highlightParts(s.series, query).map((part, i) =>
-                part.match ? <mark key={i}>{part.text}</mark> : part.text,
-              )}
-            </span>
-          )}
+          {s.topics.slice(0, 2).join(' · ') || s.category}
+          {s.series && <span> · {s.series}</span>}
         </div>
         <h3 dir="auto">
-          <button onClick={() => onDetails(s)}>
-            {highlightParts(s.title, query).map((part, i) =>
-              part.match ? <mark key={i}>{part.text}</mark> : part.text,
-            )}
-          </button>
+          <button onClick={() => onDetails(s)}>{s.title}</button>
         </h3>
         <p>
           {s.teacher}
@@ -343,12 +321,7 @@ export function ShiurRow({
         )}
         {s.description && (
           <p className="row-description">
-            {highlightParts(
-              query ? matchExcerpt(s.description, query) : s.description,
-              query,
-            ).map((part, i) =>
-              part.match ? <mark key={i}>{part.text}</mark> : part.text,
-            )}
+            {query ? matchExcerpt(s.description, query) : s.description}
           </p>
         )}
       </div>

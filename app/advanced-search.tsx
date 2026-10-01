@@ -203,6 +203,26 @@ export function AdvancedSearch({
         </fieldset>
         <fieldset className="builder-section">
           <legend>Time & format</legend>
+          <label>
+            <span>Sort results</span>
+            <select
+              value={draft.sort}
+              onChange={(e) => change('sort', e.target.value)}
+            >
+              <option value="">Default order</option>
+              <option value="relevance">Best matches</option>
+              <option value="popular">Most popular</option>
+              <option value="library">Library order</option>
+              <option value="new">Newest first</option>
+              <option value="old">Oldest first</option>
+              <option value="short">Shortest first</option>
+              <option value="long">Longest first</option>
+              <option value="title">Title A–Z</option>
+            </select>
+            <small>
+              Most popular ranks matching shiurim by total YUTorah views.
+            </small>
+          </label>
           <div className="builder-range">
             <label>
               <span>Min. minutes</span>

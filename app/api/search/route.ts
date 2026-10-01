@@ -44,6 +44,7 @@ export async function GET(request: Request) {
         {
           sort: [
             'relevance',
+            'popular',
             'library',
             'new',
             'old',

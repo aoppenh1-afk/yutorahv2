@@ -798,6 +798,8 @@ export default function TorahApp({
       );
     if (resultOrder === 'short')
       items.sort((a, b) => (a.duration || Infinity) - (b.duration || Infinity));
+    if (resultOrder === 'popular')
+      items.sort((a, b) => (b.views || 0) - (a.views || 0));
     if (resultOrder === 'new')
       items.sort(
         (a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0),
@@ -1289,6 +1291,7 @@ export default function TorahApp({
                         }
                         options={[
                           { value: 'relevance', label: 'Best matches' },
+                          { value: 'popular', label: 'Most popular' },
                           { value: 'library', label: 'Library order' },
                           { value: 'new', label: 'Newest first' },
                           { value: 'old', label: 'Oldest first' },
@@ -2315,7 +2318,10 @@ export default function TorahApp({
                   ))}
                 </section>
               )}
-              <TranscriptReader shiurId={detail.id} onSeek={seconds => player.start(detail,seconds)} />
+              <TranscriptReader
+                shiurId={detail.id}
+                onSeek={(seconds) => player.start(detail, seconds)}
+              />
               <section className="detail-section">
                 <div className="note-heading">
                   <h3>
