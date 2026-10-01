@@ -1,4 +1,5 @@
 import type { SearchPlan } from './yutorah';
+import { searchText, wordMatch } from './search-matching';
 
 /** Deterministic, disclosed interpretation. Never generates religious answers. */
 export function naturalSearch(
@@ -13,6 +14,49 @@ export function naturalSearch(
   term = term.replace(/"[^"]+"/g, (value) => {
     quotes.push(value);
     return `QUOTED${quotes.length - 1}TOKEN`;
+  });
+  // Correct only recognizable request/filter words, with a unique one-edit
+  // whole-word match. Subjects and quoted phrases are handled separately.
+  const controls = [
+    'please',
+    'find',
+    'show',
+    'recommend',
+    'shiur',
+    'shiurim',
+    'lecture',
+    'lectures',
+    'minutes',
+    'minute',
+    'under',
+    'newest',
+    'latest',
+    'shortest',
+    'longest',
+    'english',
+    'hebrew',
+    'improve',
+    'understand',
+  ];
+  term = term.replace(/[\p{L}\p{M}]+/gu, (word) => {
+    const normalized = searchText(word);
+    if (normalized.length < 4 || controls.includes(normalized)) return word;
+    const matches = [
+      ...new Set(
+        controls
+          .filter((control) => wordMatch(normalized, control) === 0.65)
+          .map((control) =>
+            /^minutes?$/.test(control)
+              ? 'minutes'
+              : /^lectures?$/.test(control)
+                ? 'lecture'
+                : control,
+          ),
+      ),
+    ];
+    if (matches.length !== 1) return word;
+    labels.push(`${word} → ${matches[0]}`);
+    return matches[0];
   });
   const words: Record<string, number> = {
     one: 1,

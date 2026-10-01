@@ -205,7 +205,7 @@ Create the database reader after migrations:
 sudo -u postgres createuser yutorah-search
 sudo -u postgres psql -d yutorah_transcription -c 'GRANT CONNECT ON DATABASE yutorah_transcription TO "yutorah-search"'
 sudo -u postgres psql -d yutorah_transcription -c 'GRANT USAGE ON SCHEMA public TO "yutorah-search"'
-sudo -u postgres psql -d yutorah_transcription -c 'GRANT SELECT ON transcription_shiurim, transcript_segments TO "yutorah-search"'
+sudo -u postgres psql -d yutorah_transcription -c 'GRANT SELECT ON transcription_shiurim, transcript_segments, transcript_search_words TO "yutorah-search"'
 sudo install -m 0640 -o root -g yutorah-search deploy/transcription/search.env.example /etc/yutorah-search.env
 sudo sh -c 'printf "TRANSCRIPT_API_TOKEN=%s\n" "$(openssl rand -hex 32)" >> /etc/yutorah-search.env'
 sudo install -m 0644 deploy/transcription/yutorah-search.service /etc/systemd/system/
@@ -241,9 +241,9 @@ An unauthenticated `curl -i https://transcripts.YOUR_DOMAIN/health` should retur
 
 Set these **server-side runtime settings** on the existing website deployment:
 
-| Name | Value |
-| --- | --- |
-| `TRANSCRIPT_API_URL` | `https://transcripts.YOUR_DOMAIN` |
+| Name                   | Value                                              |
+| ---------------------- | -------------------------------------------------- |
+| `TRANSCRIPT_API_URL`   | `https://transcripts.YOUR_DOMAIN`                  |
 | `TRANSCRIPT_API_TOKEN` | The generated token from `/etc/yutorah-search.env` |
 
 For a Cloudflare Worker you manage directly, use Workers & Pages → your existing

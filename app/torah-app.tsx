@@ -9,7 +9,8 @@ import { TranscriptSearch, type TranscriptHit } from './transcript-search';
 import { Notebook } from './notebook';
 import { LearningHome, FollowButton } from './learning-home';
 import { isLearned, relatedShiurim, type Follow } from '@/lib/learning';
-import { searchText, relevanceScore } from '@/lib/search-discovery';
+import { relevanceScore } from '@/lib/search-discovery';
+import { matchQuery } from '@/lib/search-matching';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Search,
@@ -43,6 +44,8 @@ import {
   LayoutGrid,
   List,
   NotebookPen,
+  Flame,
+  Info,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -86,6 +89,7 @@ import { mediaKind } from '@/lib/yutorah';
 type View =
   | 'discover'
   | 'following'
+  | 'trending'
   | 'notes'
   | 'search'
   | 'teachers'
@@ -95,7 +99,8 @@ type View =
   | 'history'
   | 'playlists';
 const labels: Record<View, string> = {
-  discover: 'For you',
+  discover: 'Discover',
+  trending: 'Trending',
   following: 'Following',
   notes: 'My notebook',
   search: 'Search',
@@ -177,6 +182,10 @@ export default function TorahApp({
   >(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
+  const [relatedCandidates, setRelatedCandidates] = useState<Shiur[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [relatedError, setRelatedError] = useState(false);
+  const [relatedRetry, setRelatedRetry] = useState(0);
   const [queueOpen, setQueueOpen] = useState(false);
   const [playlistDialog, setPlaylistDialog] = useState(false);
   const [playlistName, setPlaylistName] = useState('');
@@ -203,6 +212,31 @@ export default function TorahApp({
   }, []);
   const { library, update, ready } = useLibrary(notify);
   const player = useAudio(library, update, ready, notify);
+  const detailId = detail?.id;
+  useEffect(() => {
+    setRelatedCandidates([]);
+    setRelatedError(false);
+    if (!detailId) return;
+    const controller = new AbortController();
+    setRelatedLoading(true);
+    requestJson<{ items: Shiur[]; partial: boolean }>(
+      '/api/related?id=' + detailId,
+      controller.signal,
+    )
+      .then((data) => {
+        if (!controller.signal.aborted) {
+          setRelatedCandidates(data.items);
+          setRelatedError(data.partial);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setRelatedError(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setRelatedLoading(false);
+      });
+    return () => controller.abort();
+  }, [detailId, relatedRetry]);
   const savedIds = useMemo(
     () => new Set(library.saved.map((s) => s.id)),
     [library.saved],
@@ -642,7 +676,13 @@ export default function TorahApp({
           player.start(shiur, seconds);
           void showDetail(shiur);
         })
-        .catch((error) => notify(error instanceof Error ? error.message : 'Shiur audio is unavailable.'));
+        .catch((error) =>
+          notify(
+            error instanceof Error
+              ? error.message
+              : 'Shiur audio is unavailable.',
+          ),
+        );
     }
   };
   const filterChange = (key: keyof Filters, value: string) =>
@@ -768,9 +808,10 @@ export default function TorahApp({
   const visibleResults = orderedResults.filter((s) => {
     if (learningFilter === 'unlearned' && isLearned(s, library)) return false;
     if (learningFilter === 'saved' && !savedIds.has(s.id)) return false;
-    return searchText(
+    return matchQuery(
       [s.title, s.teacher, s.description, s.series, ...s.topics].join(' '),
-    ).includes(searchText(withinResults));
+      withinResults,
+    );
   });
   const loadedItems = [
     ...new Map(
@@ -785,27 +826,22 @@ export default function TorahApp({
     ).values(),
   ];
   const detailRelated = detail
-    ? relatedShiurim(detail, loadedItems, library)
+    ? relatedShiurim(detail, [...relatedCandidates, ...loadedItems], library)
     : [];
   const matchLibrary = (s: Shiur) =>
-    searchText(s.title + ' ' + s.teacher + ' ' + s.series).includes(
-      searchText(libraryQuery),
-    );
+    matchQuery(s.title + ' ' + s.teacher + ' ' + s.series, libraryQuery);
   const listedTeachers =
-    directory?.teachers.filter((t) =>
-      searchText(t.name).includes(searchText(directoryQuery)),
-    ) || [];
+    directory?.teachers.filter((t) => matchQuery(t.name, directoryQuery, 2)) ||
+    [];
   const listedSeries =
     directory?.series.filter((s) =>
-      searchText(s.name + ' ' + s.description).includes(
-        searchText(directoryQuery),
-      ),
+      matchQuery(s.name + ' ' + s.description, directoryQuery, 2),
     ) || [];
   const listedTopics =
     directory?.topics.filter(
       (t) =>
         (topicGroup === 'all' || t.group === topicGroup) &&
-        searchText(t.name + ' ' + t.group).includes(searchText(directoryQuery)),
+        matchQuery(t.name + ' ' + t.group, directoryQuery, 2),
     ) || [];
   const videoSource =
     detail?.video ||
@@ -818,7 +854,7 @@ export default function TorahApp({
   const playlist = library.playlists.find((p) => p.id === selectedPlaylist);
   return (
     <SidebarProvider
-      style={{ '--sidebar-width': '244px' } as React.CSSProperties}
+      style={{ '--sidebar-width': '232px' } as React.CSSProperties}
     >
       <a href="#main-content" className="skip-link">
         Skip to content
@@ -837,7 +873,7 @@ export default function TorahApp({
             <span className="brand-mark">YU</span>
             <span>
               Torah
-              <span className="brand-caption">A WORLD OF LEARNING</span>
+              <span className="brand-caption">TORAH. EVERY DAY.</span>
             </span>
           </Link>
         </SidebarHeader>
@@ -848,6 +884,7 @@ export default function TorahApp({
               {(
                 [
                   { icon: Compass, view: 'discover' },
+                  { icon: Flame, view: 'trending' },
                   { icon: Users, view: 'following' },
                   { icon: Search, view: 'search' },
                   { icon: Users, view: 'teachers' },
@@ -964,17 +1001,29 @@ export default function TorahApp({
             <div className="header-search">{searchBar}</div>
           )}
           <div className="header-right">
-            <button className="device-label" onClick={() => setHelp(true)}>
-              <HardDrive size={14} /> On this device
-            </button>
-            <span className="header-divider" />
             <span className="hebrew" lang="he">
               {home?.hebrewDate}
             </span>
+            <button
+              className="header-library-button"
+              aria-label="Open saved shiurim"
+              onClick={() => navigate('saved')}
+            >
+              <Bookmark size={19} />
+            </button>
+            <button
+              className="header-about-button"
+              aria-label="About your learning library"
+              onClick={() => setHelp(true)}
+            >
+              <Info size={19} />
+            </button>
           </div>
         </header>
         <main id="main-content" className="main-content" tabIndex={-1}>
-          {(view === 'discover' || view === 'following') && (
+          {(view === 'discover' ||
+            view === 'following' ||
+            view === 'trending') && (
             <LearningHome
               key={view}
               home={home}
@@ -994,6 +1043,9 @@ export default function TorahApp({
               onRefresh={refreshHome}
               refreshing={homeLoading}
               followingPage={view === 'following'}
+              trendingPage={view === 'trending'}
+              activeId={player.active?.id}
+              playing={player.playing}
             />
           )}
           {view === 'search' && (
@@ -1018,7 +1070,10 @@ export default function TorahApp({
                 notify={notify}
                 hasResults={!!results}
               />
-              <TranscriptSearch query={submitted} onSelect={openTranscriptHit} />
+              <TranscriptSearch
+                query={results?.plan.term ?? submitted}
+                onSelect={openTranscriptHit}
+              />
               <div className="filter-bar">
                 <button
                   className="filter-toggle"
@@ -1675,7 +1730,11 @@ export default function TorahApp({
                         {view === 'saved'
                           ? library.saved.length
                           : library.history.length}{' '}
-                        shiurim
+                        {(view === 'saved'
+                          ? library.saved.length
+                          : library.history.length) === 1
+                          ? 'shiur'
+                          : 'shiurim'}
                       </span>
                     </div>
                   )}
@@ -2357,14 +2416,34 @@ export default function TorahApp({
                   Copy link at {timeLabel(player.time)}
                 </button>
               )}
-              {detailRelated.length > 0 && (
+              {(detailRelated.length > 0 || relatedLoading || relatedError) && (
                 <section className="detail-section detail-related">
-                  <h3>Where to go next</h3>
-                  {detailRelated.map(({ shiur: s }) => (
+                  <h3>Based on this shiur</h3>
+                  {relatedLoading && (
+                    <p className="feed-loading">
+                      <Loader2 className="spin" size={14} />
+                      Finding related learning…
+                    </p>
+                  )}
+                  {relatedError && (
+                    <p className="feed-notice">
+                      Some recommendations could not load.{' '}
+                      <button onClick={() => setRelatedRetry((n) => n + 1)}>
+                        Try again
+                      </button>
+                    </p>
+                  )}
+                  {detailRelated.slice(0, 5).map(({ shiur: s, reason }) => (
                     <button key={s.id} onClick={() => void showDetail(s)}>
                       <span>
                         <strong>{s.title}</strong>
-                        <small>{s.teacher}</small>
+                        <small>
+                          {s.teacher} ·{' '}
+                          {s.duration
+                            ? Math.round(s.duration / 60) + ' min'
+                            : s.format}
+                        </small>
+                        <small className="related-reason">{reason}</small>
                       </span>
                       <ArrowRight size={16} />
                     </button>

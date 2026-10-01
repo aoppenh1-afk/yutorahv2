@@ -36,12 +36,21 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
 
 ## What works
 
-- Live teacher, topic, and series suggestions with close-spelling matches, keyboard selection, and device-local recent searches.
+- Submitted searches and live suggestions understand typos, transposed letters,
+  incomplete words, and common English/Hebrew/transliteration aliases. Teacher
+  names resolve only when unambiguous. Ranking, highlights, directory browsing,
+  saved-library search, and search within results use the same matching rules.
 - Removable filters, highlighted matches, description excerpts around search terms, and global ordering of completed result sets by relevance, date, length, or title.
 
-- Search the upstream index across titles and indexed metadata, with teacher, topic, series, format, language, and duration filters.
+- Search the upstream index across titles and indexed metadata, with teacher,
+  topic, series, format, language, and duration filters. Examples:
+  `teshvu by Rabbi Hershl Schact under thirty minutes`, `rambm hilch teshuv`,
+  and `How can I imprve my pryaer on Shabos?`.
 - Parse searches such as “teshuva by Rabbi Hershel Schachter under 30 minutes”; show the interpreted filters. Common question phrasing maps to disclosed topics or keywords.
 - Browse teachers, series, topics, editor selections, recent additions, and daily learning.
+- Resume unfinished learning directly from Discover, or revisit each recording's progress in Learning history.
+- Explore trending recordings ranked by real public view counts across the latest 180 uploads. The interface discloses the sample and uses lifetime views rather than claiming a rolling archive-wide chart.
+- Follow teachers, topics, and series; filter recommendations to a time budget. Related learning fetches additional recordings from the current shiur's series, topics, and teacher, with a reason for each recommendation.
 - Play recordings while navigating; seek, change speed and volume, manage the queue, set a sleep timer, and resume listening.
 - Save shiurim, create and edit playlists, and keep timestamped notes on this device. Removal actions support undo.
 - Open available videos and original source materials. Copy links to a shiur or a playback timestamp.
@@ -57,6 +66,12 @@ Completed candidate sets are cached for one hour after completion. Unfinished pa
 
 Natural queries support English number words, time budgets such as "I have half an hour", duration ranges, newest/oldest/shortest/longest ordering, relative dates such as "last year", and conversational requests. Specific subject words are preserved when simplifying questions. Interpretations are shown as filters or keywords; this parser is deterministic rather than an LLM.
 
+Typo/prefix retrieval uses YUTorah's existing Solr index. The transcript panel
+defaults to tolerant matching and still offers exact phrase and exact words.
+Existing transcript installations must run the worker's `migrate` command before
+restarting the upgraded search service. Research, matching rules, and rollout
+details are in [the search architecture guide](docs/search-architecture.md).
+
 Local setup runs `npm run db:migrate:local` before starting the app. D1 schema lives in `db/schema.ts`; generated, append-only migrations live in `drizzle/`. Sites applies those migrations to its hosted DB binding when publishing. No public administrative importer or credentials are exposed.
 
 Search does not invent transcripts or answers to religious questions. Metadata search uses the available upstream index; the transcript panel searches only completed, timestamped transcripts from the PostgreSQL worker. Videos and materials appear only where supplied by YUTorah. The app does not synchronize with YUTorah user accounts; saved items, notes, playlists, and progress use localStorage. Clearing browser storage removes that personal data.
@@ -65,7 +80,7 @@ This is an independent interface. It does not replace the existing yutorah.org d
 
 ## Design references
 
-The layout uses persistent navigation, restrained YU blue, white space, serif editorial headings, and compact learning controls. The research included [Linear's interface refresh](https://linear.app/now/behind-the-latest-design-refresh) for navigation and hierarchy, and [Spotify's listening controls](https://newsroom.spotify.com/2025-09-05/new-user-controls-personalize-listening/) for filtering and player continuity. No emojis or generated decorative imagery are used.
+The September 2026 redesign combines a warm editorial layout, navy and YU blue, a Jerusalem image, authentic teacher portraits, typographic collection covers, and a persistent player. Spotify's library patterns, Apple Music's editorial shelves and expandable MiniPlayer, TorahAnytime's follows, and OU Torah's daily series informed the navigation and discovery flows. [Research, implementation choices, and the generated image prompt](docs/redesign.md) are documented together.
 
 ## Validation
 

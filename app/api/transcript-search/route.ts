@@ -2,9 +2,14 @@
 export async function GET(request: Request) {
   const p = new URL(request.url).searchParams;
   const q = p.get('q') || '';
-  const mode = p.get('mode') === 'terms' ? 'terms' : 'phrase';
+  const mode = ['terms', 'phrase'].includes(p.get('mode') || '')
+    ? p.get('mode')!
+    : 'smart';
   if (!q.trim() || q.length > 200 || q.trim().split(/\s+/).length > 16)
-    return Response.json({ error: 'Enter up to sixteen search words.' }, { status: 400 });
+    return Response.json(
+      { error: 'Enter up to sixteen search words.' },
+      { status: 400 },
+    );
   const base = process.env.TRANSCRIPT_API_URL;
   const token = process.env.TRANSCRIPT_API_TOKEN;
   if (!base || !token)
