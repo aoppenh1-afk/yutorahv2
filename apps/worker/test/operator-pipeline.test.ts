@@ -127,6 +127,7 @@ void test(
       connectionString: process.env.TEST_DATABASE_URL,
       options: `-c search_path=${schema},public`,
       max: 12,
+      application_name: schema,
     });
     const store = new TranscriptionStore(pool, 5);
     const notes = new NotesStore(pool);
@@ -556,6 +557,162 @@ void test(
           } finally {
             stop.abort(new Failure('cancelled'));
             await outcome;
+          }
+        },
+      );
+      await t.test(
+        'five real ACP processes share transcription and notes capacity and drain on pause or leadership loss',
+        async () => {
+          for (const finish of [
+            'complete',
+            'pause',
+            'leadership_loss',
+          ] as const) {
+            await reset();
+            await publish();
+            const ids = [701, 702, 703, 704, 705, 706];
+            for (const id of ids)
+              await store.enqueue(
+                { id: String(id), title: 'Parallel shiur', teacher: 'Test' },
+                p,
+              );
+            const marker = join(root, `parallel-${finish}.jsonl`);
+            await setFixture('pipeline_parallel', marker);
+            const events = async () =>
+              (await readFile(marker, 'utf8').catch(() => ''))
+                .trim()
+                .split('\n')
+                .filter(Boolean)
+                .map(
+                  (line) =>
+                    JSON.parse(line) as {
+                      event: string;
+                      pid: number;
+                      workspace: string;
+                      kind?: string;
+                    },
+                );
+            const stop = new AbortController();
+            const running = runWorker(
+              store,
+              {
+                ...config,
+                concurrency: 5,
+                notes: np,
+                media: {
+                  resolveMedia: async () => 'fixture',
+                  downloadAudio: async (_url, destination) =>
+                    copyFile(join(root, 'fixture.wav'), destination),
+                },
+              },
+              stop.signal,
+            );
+            const outcome = running.then(
+              () => undefined,
+              (error: unknown) => error,
+            );
+            try {
+              const deadline = Date.now() + 10000;
+              while (
+                (await events()).filter((e) => e.event === 'prompt').length <
+                  5 &&
+                Date.now() < deadline
+              )
+                await delay(20);
+              const prompts = (await events()).filter(
+                (e) => e.event === 'prompt',
+              );
+              assert.equal(
+                prompts.length,
+                5,
+                'five separate recordings/notes must reach ACP before any request finishes',
+              );
+              assert.equal(prompts.filter((e) => e.kind === 'audio').length, 4);
+              assert.equal(
+                prompts.filter((e) => e.kind === 'cleanup').length,
+                1,
+              );
+              assert.equal(new Set(prompts.map((e) => e.workspace)).size, 5);
+              if (finish === 'complete') {
+                await writeFile(marker + '.release', 'ready');
+                const completeBy = Date.now() + 30000;
+                while (Date.now() < completeBy) {
+                  const result = await pool.query(
+                    "SELECT count(*)::int AS n FROM notes_jobs WHERE status='completed'",
+                  );
+                  if (result.rows[0].n === 7) break;
+                  await delay(50);
+                }
+                assert.equal(
+                  (
+                    await pool.query(
+                      "SELECT count(*)::int AS n FROM notes_jobs WHERE status='completed'",
+                    )
+                  ).rows[0].n,
+                  7,
+                );
+                for (const id of ids)
+                  assert.equal(
+                    (await store.content(String(id)))?.notes?.status,
+                    'completed',
+                  );
+              } else if (finish === 'leadership_loss') {
+                const leader = await admin.query(
+                  "SELECT l.pid FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE l.locktype='advisory' AND l.classid=891733 AND l.objid=1 AND l.granted AND a.application_name=$1",
+                  [schema],
+                );
+                assert.equal(leader.rows.length, 1);
+                await admin.query('SELECT pg_terminate_backend($1)', [
+                  leader.rows[0].pid,
+                ]);
+                const error = await Promise.race([
+                  outcome,
+                  delay(5000).then(() =>
+                    assert.fail(
+                      'leadership loss must promptly drain every session',
+                    ),
+                  ),
+                ]);
+                assert.ok(error instanceof Failure);
+                assert.equal(error.code, 'lease_lost');
+              }
+            } finally {
+              stop.abort(new Failure('cancelled'));
+              await outcome;
+            }
+            const live = new Set<number>();
+            let peak = 0;
+            for (const e of await events()) {
+              if (e.event === 'opened') live.add(e.pid);
+              if (e.event === 'closed') live.delete(e.pid);
+              peak = Math.max(peak, live.size);
+            }
+            assert.equal(
+              peak,
+              5,
+              'notes, audio parts, and separate jobs must all obey the same limit',
+            );
+            assert.equal(
+              live.size,
+              0,
+              'pause must close every ACP process before releasing leadership',
+            );
+            assert.deepEqual(await readdir(runtime.scratch), []);
+            if (finish !== 'complete') {
+              assert.equal(
+                (
+                  await pool.query(
+                    "SELECT count(*)::int AS n FROM transcription_jobs WHERE status='queued'",
+                  )
+                ).rows[0].n,
+                6,
+              );
+              assert.equal(
+                (await pool.query('SELECT status FROM notes_jobs')).rows[0]
+                  .status,
+                'queued',
+              );
+            }
           }
         },
       );

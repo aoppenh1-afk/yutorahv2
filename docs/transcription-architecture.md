@@ -144,12 +144,14 @@ an expired fifth attempt becomes `failed` until explicit retry. User cancellatio
 cancelled; service shutdown releases work to the queue. Final segments and completed
 status commit in one transaction. A failed chunk preserves accepted siblings.
 
-Initially one active worker owns the account-wide pool (default 3); a PostgreSQL
+One active worker owns the account-wide pool (default 5); a PostgreSQL
 advisory leadership lock and systemd prevent accidental duplicate worker services.
 The queue never loads the archive into memory. Multiple active VM workers would
 require distributed session admission and tested partition handling; this foundation
-does not claim a multi-VM global limit. One job at a time with parallel chunks is
-the conservative default. Backfill inserts jobs in bounded batches with low priority.
+does not claim a multi-VM global limit. Up to five jobs run concurrently; all chunk
+and notes requests acquire permits from the same pool. A fatal account/runtime/
+leadership error cancels and drains every lane before the worker releases its
+leadership lock. Backfill inserts jobs in bounded batches with low priority.
 The recent catalog scan persists its page cursor and last completed pass, overlaps
 the last pass after downtime, and independently revisits page one each deep poll.
 The small homepage feed is checked more often; the paginated backstop closes gaps
@@ -207,9 +209,12 @@ Audio instructions are untrusted content. Runtime code has network and profile
 access: protocol controls are not a security sandbox. Use a dedicated VM/account
 context, minimal secrets, read-only application/runtime files, and private DB access.
 The worker logs only job/chunk IDs, attempts, durations and typed error codes.
-Google's runtime may maintain its own private session files; do not promise that
-the runtime stores no prompts. Profile retention must preserve credentials while
-following supported runtime cleanup behavior; do not edit undocumented token files.
+Google's runtime writes private SQLite conversations that can contain uploaded
+audio. Following Lectern's UUID-scoped cleanup, remove recorded conversations,
+sidecars, and brain artifacts only after the owning process exits. An atomic
+scratch ledger supports cleanup recovery before the next worker startup sweep.
+Legacy pruning runs idle and protects recent files/work. Credential files are
+outside these session paths and are preserved.
 
 The search process runs under a separate OS/PostgreSQL read-only identity, binds
 loopback, and is exposed through HTTPS by the VM reverse proxy. The Cloudflare
@@ -219,7 +224,7 @@ exposed. The search and transcription processes do not share the OAuth profile.
 
 Remaining gates: account login and long-term refresh; current advertised model;
 ARM64 execution; multilingual quality and long/sparse audio; FFmpeg AAC differences
-from Apple's encoder; memory/disk at concurrency 3; subscription throughput/quotas;
+from Apple's encoder; memory/disk at concurrency 5; subscription throughput/quotas;
 runtime native-tool containment. A cheap/free VM is plausible, not a verified
 capacity or pricing promise. Start with measured capacity and throttle archive work.
 

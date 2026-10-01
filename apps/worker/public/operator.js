@@ -123,6 +123,8 @@ async function refresh() {
     snapshot = await api('status');
     el('workspace').hidden = false;
     const r = snapshot.runtime;
+    el('session-state').textContent =
+      `${r.activeSessions} of ${r.concurrency} Antigravity sessions active. Transcription and notes share these slots.`;
     el('run-state').textContent = names[r.state] || r.state;
     el('start').disabled =
       ['starting', 'running', 'authenticating'].includes(r.state) ||
@@ -185,7 +187,7 @@ async function refresh() {
     el('queued-count').textContent = count('queued');
     el('completed-count').textContent = count('completed');
     el('audio-size').textContent =
-      (r.scratchBytes / 1048576).toFixed(1) + ' MB';
+      ((r.scratchBytes + r.conversationBytes) / 1048576).toFixed(1) + ' MB';
     if (
       !(
         el('targets').contains(document.activeElement) &&

@@ -127,8 +127,9 @@ main remains the matching implementation.
 ## 6. Operate within the chosen scope
 
 Raise a selection's total budget to add more recordings. Automatic polling stops
-at that budget; it never discovers the whole archive. Start at concurrency 1,
-then measure memory, disk, latency, and account limits before increasing it.
+at that budget; it never discovers the whole archive. The VM app defaults to
+five shared Antigravity sessions across recordings, chunks, and notes. Change
+`ACP_CONCURRENCY` and restart to adjust this limit for the VM/account.
 Pause a selection to prevent future discovery/claims from that source.
 
 On systemd VMs, use `systemctl`/`journalctl` for `yutorah-operator` and

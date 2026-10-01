@@ -17,6 +17,7 @@ import { notesProfile } from '../../../packages/transcription/src/notes.js';
 import { defaultSettings } from '../../../packages/transcription/src/types.js';
 import { SelectionStore, scanSelections } from './selections.js';
 import { runWorker, runtimeIdentity } from './worker.js';
+import type { SessionPool } from '../../../packages/antigravity-acp/src/pool.js';
 
 export type OperatorConfig = {
   runtime: RuntimeConfig;
@@ -37,6 +38,7 @@ export class OperatorRuntime {
   private models: string[] = [];
   private connected = false;
   private changing = false;
+  private sessions?: SessionPool;
   private readonly selections: SelectionStore;
   constructor(
     private readonly store: TranscriptionStore,
@@ -52,18 +54,24 @@ export class OperatorRuntime {
       () => true,
       () => false,
     );
-    let scratchBytes = 0;
-    const size = async (path: string): Promise<void> => {
+    const size = async (path: string): Promise<number> => {
+      let bytes = 0;
       for (const file of await readdir(path, { withFileTypes: true }).catch(
         () => [],
       )) {
         const full = join(path, file.name);
-        if (file.isDirectory()) await size(full);
+        if (file.isDirectory()) bytes += await size(full);
         else if (file.isFile())
-          scratchBytes += (await stat(full).catch(() => ({ size: 0 }))).size;
+          bytes += (await stat(full).catch(() => ({ size: 0 }))).size;
       }
+      return bytes;
     };
-    await size(this.config.runtime.scratch);
+    const scratchBytes = await size(this.config.runtime.scratch);
+    const conversationBytes =
+      (await size(
+        join(this.config.runtime.profile, 'antigravity-acp/conversations'),
+      )) +
+      (await size(join(this.config.runtime.profile, 'antigravity-acp/brain')));
     return {
       state: this.state,
       error: this.error,
@@ -73,6 +81,9 @@ export class OperatorRuntime {
       authUrl: this.authUrl,
       authPort: this.authPort,
       scratchBytes,
+      conversationBytes,
+      concurrency: this.config.concurrency,
+      activeSessions: this.sessions?.activeCount ?? 0,
     };
   }
   async currentProfile() {
@@ -130,10 +141,11 @@ export class OperatorRuntime {
           intervalMs: this.config.intervalMs,
           deepIntervalMs: this.config.intervalMs,
         },
-        onReady: (models) => {
+        onReady: (models, pool) => {
           this.state = 'running';
           this.connected = true;
           this.models = models;
+          this.sessions = pool;
         },
       },
       this.workAbort.signal,

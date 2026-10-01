@@ -39,7 +39,7 @@ chmod -R a+rX "$operator_root"
 install -d -m 0700 -o yutorah-worker -g yutorah-worker /var/lib/yutorah-worker
 if [ ! -f /etc/yutorah-operator.env ]; then
   {
-    printf 'DATABASE_URL=postgresql:///yutorah_transcription?host=/var/run/postgresql\nWORKER_STATE_DIR=/var/lib/yutorah-worker\nACP_RUNTIME_DIR=/opt/antigravity-acp/1.2.1\nACP_CONCURRENCY=1\nCATALOG_POLL_MS=300000\nOPERATOR_PORT=8766\n'
+    printf 'DATABASE_URL=postgresql:///yutorah_transcription?host=/var/run/postgresql\nWORKER_STATE_DIR=/var/lib/yutorah-worker\nACP_RUNTIME_DIR=/opt/antigravity-acp/1.2.1\nACP_CONCURRENCY=5\nCATALOG_POLL_MS=300000\nOPERATOR_PORT=8766\n'
     printf 'TRANSCRIPTION_SKILL_PATH=%s/packages/transcription/skills/lectern-transcription/SKILL.md\nNOTES_SKILL_PATH=%s/packages/transcription/skills/lectern-notes/SKILL.md\n' "$operator_root" "$operator_root"
   } > /etc/yutorah-operator.env
   chown root:yutorah-worker /etc/yutorah-operator.env; chmod 0640 /etc/yutorah-operator.env

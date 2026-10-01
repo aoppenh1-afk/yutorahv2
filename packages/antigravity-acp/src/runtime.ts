@@ -6,10 +6,12 @@ import {
   stat,
   mkdtemp,
   rm,
+  rename,
 } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { ACPClient } from './client.js';
 import { Failure } from './errors.js';
+import { removeConversations } from './session-cleanup.js';
 
 export const release = {
   version: '1.2.1',
@@ -110,6 +112,7 @@ export async function withRuntime<T>(
   const workspace = join(run, 'workspace'),
     temp = join(run, 'tmp');
   let client: ACPClient | undefined;
+  const sessions = new Set<string>();
   try {
     await mkdir(workspace, { mode: 0o700 });
     await mkdir(temp, { mode: 0o700 });
@@ -137,6 +140,17 @@ export async function withRuntime<T>(
       },
       signal,
       onAuthorization,
+      2000,
+      async (id) => {
+        sessions.add(id);
+        const pending = join(run, 'sessions.json.next');
+        await writeFile(
+          pending,
+          JSON.stringify({ version: 1, ids: [...sessions] }),
+          { mode: 0o600 },
+        );
+        await rename(pending, join(run, 'sessions.json'));
+      },
     );
     await client.initialize();
     return await operation(client, workspace);
@@ -144,7 +158,11 @@ export async function withRuntime<T>(
     try {
       await client?.close();
     } finally {
-      await rm(run, { recursive: true, force: true });
+      try {
+        await removeConversations(config.profile, sessions);
+      } finally {
+        await rm(run, { recursive: true, force: true });
+      }
     }
   }
 }
