@@ -182,8 +182,12 @@ export async function transferTitles(db: SearchDatabase, input: unknown) {
   return status;
 }
 
-export async function transferAuthorized(request: Request, token?: string) {
-  if (!token) return false;
+export async function transferAuthorized(
+  request: Request,
+  token?: string,
+  enabled = false,
+) {
+  if (!enabled || !token) return false;
   const received = request.headers.get('Authorization') || '';
   const digest = async (text: string) =>
     new Uint8Array(

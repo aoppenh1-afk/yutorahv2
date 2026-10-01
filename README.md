@@ -83,7 +83,7 @@ Existing transcript installations must run the worker's `migrate` command before
 restarting the upgraded search service. Research, matching rules, and rollout
 details are in [the search architecture guide](docs/search-architecture.md).
 
-Local setup runs `npm run db:migrate:local` before starting the app. D1 schema lives in `db/schema.ts`; generated, append-only migrations live in `drizzle/`. Sites applies those migrations to its hosted DB binding when publishing. The operator title-transfer endpoint requires a secret and is disabled when that secret is removed after migration. Credentials stay on the server.
+Local setup runs `npm run db:migrate:local` before starting the app. D1 schema lives in `db/schema.ts`; generated, append-only migrations live in `drizzle/`. Sites applies those migrations to its hosted DB binding when publishing. The operator title-transfer endpoint requires both explicit enablement and a secret; it is disabled by default and switched off after migration. Credentials stay on the server.
 
 Search does not invent transcripts or answers to religious questions. Metadata search uses the available upstream index; the transcript panel searches only completed, timestamped transcripts from the PostgreSQL worker. Videos and materials appear only where supplied by YUTorah. The app does not synchronize with YUTorah user accounts; saved items, notes, playlists, and progress use localStorage. Clearing browser storage removes that personal data.
 

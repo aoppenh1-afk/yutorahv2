@@ -73,7 +73,8 @@ includes them, while user result retrieval continues to use the existing API.
 
 For a new Sites database, `npm run search:transfer -- SNAPSHOT.sqlite SITE_URL`
 copies an immutable, completed local snapshot over HTTPS. Set the secret
-`SEARCH_INDEX_TRANSFER_TOKEN` in both the operator environment and Sites, and
+`SEARCH_INDEX_TRANSFER_TOKEN` in both the operator environment and Sites, enable
+`SEARCH_INDEX_TRANSFER_ENABLED=true` in Sites only during the transfer, and set
 `SITES_API_TOKEN` only in the operator environment for the private site's access
 gate. Titles rebuild document frequencies through the same database triggers;
 unique spelling keys are copied separately in bounded batches. Both phases
@@ -82,8 +83,11 @@ vocabulary are transferred. Completion expires finished query caches so requests
 can immediately use the imported vocabulary, while pending searches retain their
 original expansion. Completion checks
 title coverage and spelling-key coverage before marking the archive complete.
-Remove the Sites transfer secret and redeploy after verification; this disables
-`/api/search-index`. The endpoint accepts only these bounded archive operations.
+Set `SEARCH_INDEX_TRANSFER_ENABLED=false`, remove the Sites transfer secret,
+and redeploy after verification. The switch defaults to off and disables
+`/api/search-index` even if the hosting runtime retains an old secret binding.
+Verify that the old credential gets HTTP 404 for both GET and POST. The endpoint
+accepts only these bounded archive operations.
 
 This learns archive vocabulary and word boundaries. Open-ended meaning matching
 still requires title embeddings and an inference model; a spelling dictionary

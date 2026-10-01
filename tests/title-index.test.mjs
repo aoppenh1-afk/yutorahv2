@@ -145,17 +145,36 @@ void test('production transfer rejects unauthenticated requests and disables its
     });
   assert.equal(await transfer.transferAuthorized(request()), false);
   assert.equal(
-    await transfer.transferAuthorized(request('Bearer secret'), undefined),
+    await transfer.transferAuthorized(
+      request('Bearer secret'),
+      undefined,
+      true,
+    ),
     false,
   );
-  assert.equal(await transfer.transferAuthorized(request(), 'secret'), false);
   assert.equal(
-    await transfer.transferAuthorized(request('Bearer wrong'), 'secret'),
+    await transfer.transferAuthorized(request(), 'secret', true),
     false,
+  );
+  assert.equal(
+    await transfer.transferAuthorized(request('Bearer wrong'), 'secret', true),
+    false,
+  );
+  assert.equal(
+    await transfer.transferAuthorized(request('Bearer secret'), 'secret', true),
+    true,
   );
   assert.equal(
     await transfer.transferAuthorized(request('Bearer secret'), 'secret'),
-    true,
+    false,
+  );
+  assert.equal(
+    await transfer.transferAuthorized(
+      request('Bearer secret'),
+      'secret',
+      false,
+    ),
+    false,
   );
 });
 

@@ -7,10 +7,19 @@ import {
 } from '@/lib/title-transfer';
 
 async function handle(request: Request) {
-  const token = (env as unknown as { SEARCH_INDEX_TRANSFER_TOKEN?: string })
-    .SEARCH_INDEX_TRANSFER_TOKEN;
+  const settings = env as unknown as {
+    SEARCH_INDEX_TRANSFER_TOKEN?: string;
+    SEARCH_INDEX_TRANSFER_ENABLED?: string;
+  };
+  const token = settings.SEARCH_INDEX_TRANSFER_TOKEN;
   const headers = { 'Cache-Control': 'no-store' };
-  if (!(await transferAuthorized(request, token)))
+  if (
+    !(await transferAuthorized(
+      request,
+      token,
+      settings.SEARCH_INDEX_TRANSFER_ENABLED === 'true',
+    ))
+  )
     return Response.json({ error: 'Not found.' }, { status: 404, headers });
   try {
     if (request.method === 'GET')
