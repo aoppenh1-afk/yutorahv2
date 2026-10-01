@@ -888,6 +888,27 @@ export function searchRetrieval(term: string, vocabulary: string[] = []) {
   term = interpretSpacing(term).term;
   const tokens = [...new Set(searchTerms(term))];
   const known = new Set(vocabulary.map(searchText));
+  // A real title may itself contain a misspelling or an uncommon transliteration.
+  // Preserve its exact retrieval first; only zero source results may try nearby
+  // indexed spellings. Reviewed subjects and numeric constraints stay literal.
+  const recoverable = new Set(
+    tokens.filter(
+      (token) =>
+        known.has(token) &&
+        !/\p{N}/u.test(token) &&
+        !knownSubjectWords.has(lexicalBase(token)) &&
+        vocabulary.some((word) => word !== token && wordMatch(token, word) > 0),
+    ),
+  );
+  const strictQuery = librarySearchQuery(term, vocabulary);
+  const spellingCandidate = recoverable.size
+    ? librarySearchQuery(
+        term,
+        vocabulary.filter((word) => !recoverable.has(searchText(word))),
+      )
+    : '';
+  const spellingQuery =
+    spellingCandidate !== strictQuery ? spellingCandidate : '';
   const secondary = new Set(
     'practical basics basic beginner beginners introduction introductory overview guide examples'.split(
       ' ',
@@ -918,7 +939,8 @@ export function searchRetrieval(term: string, vocabulary: string[] = []) {
     .join(' OR ');
   const relatedQuery = encodedQueryLength(compiled) <= 1800 ? compiled : '';
   return {
-    strictQuery: librarySearchQuery(term, vocabulary),
+    strictQuery,
+    spellingQuery,
     relatedQuery,
     matches(text: string, related = false): boolean {
       const matched = tokens.map((token) => textMatchScore(text, token) > 0);

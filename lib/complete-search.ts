@@ -71,7 +71,7 @@ export async function completeSearch(
   // The expansion is snapshotted on the run. Learning more titles must not
   // change a pending scan's source query, title matching, or candidate counts.
   const criteria = {
-    version: 7,
+    version: 8,
     term: plan.term || plan.phrase || '',
     quoted: /"[^"]+"/.test(query),
     teacher: plan.teacherId,
@@ -156,6 +156,21 @@ export async function completeSearch(
       return first;
     };
     firstPage = await fetchFirst();
+    if (
+      firstPage.response.numFound === 0 &&
+      !criteria.quoted &&
+      !plan.phrase &&
+      retrieval.spellingQuery
+    ) {
+      sourceQuery = retrieval.spellingQuery;
+      firstPage = await fetchFirst();
+      if (firstPage.response.numFound > 0) {
+        const label =
+          'Spelling alternatives: no original match; showing close indexed spellings.';
+        expansion.corrections.push(label);
+        plan.labels.push(label);
+      }
+    }
     let related = false;
     if (firstPage.response.numFound === 0 && relatedQuery) {
       sourceQuery = relatedQuery;

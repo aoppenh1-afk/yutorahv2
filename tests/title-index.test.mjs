@@ -28,6 +28,32 @@ const [index, catalog, matching, migration, transfer] = await Promise.all(
   ),
 );
 
+void test('an indexed spelling keeps exact retrieval first and can recover a close spelling after zero results', async () => {
+  const db = database();
+  await db.batch(
+    index.indexTitleStatements(db, [
+      { id: 1, title: 'BaSukkos Teshvu' },
+      { id: 2, title: 'Hilchos Teshuva' },
+    ]),
+  );
+  const learned = await index.titleVocabulary(db, 'teshvu');
+  const retrieval = matching.searchRetrieval('teshvu', learned.words);
+  assert.doesNotMatch(retrieval.strictQuery, /teshuva/);
+  assert.match(retrieval.spellingQuery, /teshuva/);
+  assert.equal(
+    matching.searchRetrieval('eruv', ['eruv', 'erev']).spellingQuery,
+    '',
+  );
+  assert.equal(
+    matching.searchRetrieval('900', ['900', '901']).spellingQuery,
+    '',
+  );
+  assert.equal(
+    matching.searchRetrieval('crispix', ['crispix']).spellingQuery,
+    '',
+  );
+});
+
 void test('production transfer resumes committed batches and audits titles and spelling keys', async () => {
   const source = database();
   const target = database();

@@ -77,6 +77,100 @@ test.after(() => {
   globalThis.fetch = realFetch;
 });
 
+void test('an indexed title spelling can recover after zero source results without losing teacher filters', async () => {
+  const { completeSearch: recoveredSearch } = await import(
+    'data:text/javascript;base64,' +
+      Buffer.from(compiled.outputFiles[0].text).toString('base64') +
+      '#indexed-spelling'
+  );
+  const titleCompiled = await build({
+    entryPoints: ['lib/title-index.ts'],
+    bundle: true,
+    write: false,
+    platform: 'node',
+    format: 'esm',
+  });
+  const { indexTitleStatements } = await import(
+    'data:text/javascript;base64,' +
+      Buffer.from(titleCompiled.outputFiles[0].text).toString('base64')
+  );
+  const fixtureFetch = globalThis.fetch;
+  const queries = [];
+  let exact = false;
+  globalThis.fetch = async (input) => {
+    const url = new URL(input);
+    if (url.pathname.includes('/browse/')) return Response.json([]);
+    const query = url.searchParams.get('searchTerm');
+    queries.push(query);
+    assert.equal(url.searchParams.get('teacherID'), '1');
+    const docs =
+      exact || query.includes('teshuva')
+        ? [
+            {
+              ...records[0],
+              shiurid: 9003,
+              shiurtitle: exact ? 'BaSukkos Teshvu' : 'Hilchos Teshuva',
+              duration: 10,
+            },
+          ]
+        : [];
+    return Response.json({ response: { numFound: docs.length, docs } });
+  };
+  try {
+    const seeded = async () => {
+      const db = database();
+      await db.batch(
+        indexTitleStatements(db, [
+          { id: 9001, title: 'BaSukkos Teshvu' },
+          { id: 9002, title: 'Hilchos Teshuva' },
+        ]),
+      );
+      return db;
+    };
+    const result = await recoveredSearch(await seeded(), 'teshvu', {
+      teacherId: 1,
+      max: 30,
+    });
+    assert.doesNotMatch(queries[0], /teshuva/);
+    assert.match(queries[1], /teshuva/);
+    assert.equal(result.total, 1);
+    assert.equal(result.complete, true);
+    assert.equal(result.items[0].teacherId, 1);
+    assert.equal(result.plan.max, 30);
+    assert.equal(result.related, false);
+    assert.ok(
+      result.plan.labels.some((label) =>
+        label.startsWith('Spelling alternatives:'),
+      ),
+    );
+    const calls = queries.length;
+    await recoveredSearch(await seeded(), '"teshvu"', {
+      teacherId: 1,
+      max: 30,
+    });
+    assert.equal(
+      queries.length,
+      calls + 1,
+      'Quotes cannot activate spelling recovery',
+    );
+    exact = true;
+    const strict = await recoveredSearch(await seeded(), 'teshvu', {
+      teacherId: 1,
+      max: 30,
+    });
+    assert.equal(strict.total, 1);
+    assert.doesNotMatch(queries.at(-1), /teshuva/);
+    assert.equal(
+      strict.plan.labels.some((label) =>
+        label.startsWith('Spelling alternatives:'),
+      ),
+      false,
+    );
+  } finally {
+    globalThis.fetch = fixtureFetch;
+  }
+});
+
 void test('learning title vocabulary cannot change a resumed search expansion or its pagination', async () => {
   const titleCompiled = await build({
     entryPoints: ['lib/title-index.ts'],

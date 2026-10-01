@@ -22,6 +22,13 @@ than loading the full archive into the website or browser. Quoted spans, numbers
 and ambiguous word boundaries remain literal. An exact indexed spelling does not
 expand to neighboring words simply because they are popular.
 
+If that exact indexed spelling yields zero source results under the selected
+teacher/topic/series, retrieval may retry close indexed spellings while retaining
+every subject and filter. This handles misspellings already present in titles,
+which would otherwise suppress typo recovery. Recognized subjects, numbers, and
+explicit quotes remain protected; successful spelling recovery is disclosed and
+snapshotted on the search run. Exact results always keep their original query.
+
 The upstream index contains the full archive; the application's new learned
 vocabulary covers the titles ingested so far. `lib/title-catalog.ts` and
 `npm run search:index` provide a bounded, resumable scan of that existing index
