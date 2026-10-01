@@ -49,7 +49,7 @@ export function Avatar({
   className?: string;
 }) {
   const [bad, setBad] = useState(false);
-  return src && !bad && !src.includes('_default.') ? (
+  return src && !bad && !/_default\.|missingpicture/i.test(src) ? (
     <img
       className={'avatar ' + className}
       src={src}
@@ -124,7 +124,7 @@ export function SeriesCover({ name, id }: { name: string; id: number }) {
         {name}
       </span>
       <span className="cover-rule" />
-      <span className="cover-caption">LEARN. RETURN. GROW.</span>
+      <span className="cover-caption">THE YUTORAH LIBRARY</span>
     </span>
   );
 }
@@ -159,7 +159,11 @@ export function ShiurCard({
             s.title
           }
         >
+          <span className="art-imprint">YUTORAH</span>
           <Avatar src={s.image} name={s.teacher} />
+          <span className="art-subject" dir="auto">
+            {s.topics[0] || s.category || s.series || 'Torah learning'}
+          </span>
           <span className="art-teacher">{s.teacher}</span>
           <span className="art-play">
             {active ? (
