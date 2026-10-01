@@ -1,5 +1,8 @@
 # Oracle Cloud Free Tier deployment
 
+For the current teacher/series GUI, installation, and notes workflow, use [the transcription operator guide](transcription-operator.md). Automated discovery is now restricted to enabled selections and their recording budgets. The CLI `sync-now` and `backfill` commands use the same selections. For an explicitly enqueued commissioning recording, run `run --unscoped` with the regular worker stopped; the normal worker claims selected-source jobs only.
+
+
 Use this page for Oracle-specific VM and networking setup, then follow
 [the complete installation checklist](transcription-setup.md). The website stays
 on its existing host; this VM runs PostgreSQL, the transcription worker, and the

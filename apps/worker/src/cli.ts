@@ -18,7 +18,11 @@ import {
 } from '../../../packages/transcription/src/store.js';
 import { mediaURL } from '../../../packages/yutorah-core/src/media.js';
 import { runWorker, runtimeIdentity, log } from './worker.js';
-import { backfillPages, scanHomepage, scanRecent } from './catalog.js';
+import { SelectionStore, scanSelections } from './selections.js';
+import { notesProfile } from '../../../packages/transcription/src/notes.js';
+import { NotesStore } from '../../../packages/transcription/src/notes-store.js';
+import { OperatorRuntime } from './operator-runtime.js';
+import { serveOperator } from './operator-server.js';
 import { serveSearch } from './search-server.js';
 
 const [command, ...args] = process.argv.slice(2);
@@ -34,7 +38,12 @@ const runtime: RuntimeConfig = {
     process.env.ACP_RUNTIME_DIR ?? `/opt/antigravity-acp/${release.version}`,
   ),
   profile: join(state, 'profile'),
-  scratch: join(state, command === 'run' ? 'scratch' : 'interactive'),
+  scratch: join(
+    state,
+    ['run', 'serve-operator'].includes(command ?? '')
+      ? 'scratch'
+      : 'interactive',
+  ),
 };
 const option = (name: string, fallback = '') =>
   args[args.indexOf(name) + 1] && args.includes(name)
@@ -55,7 +64,9 @@ function store() {
   return new TranscriptionStore(database);
 }
 async function main() {
-  if (['auth', 'auth-check', 'probe', 'run'].includes(command)) {
+  if (
+    ['auth', 'auth-check', 'probe', 'run', 'serve-operator'].includes(command)
+  ) {
     if (
       process.platform !== 'linux' ||
       !['x64', 'arm64'].includes(process.arch)
@@ -104,11 +115,14 @@ async function main() {
         .sort()) {
         const id = file.slice(0, 3);
         if (
-          (await client.query(
-            'SELECT id FROM transcription_migrations WHERE id=$1',
-            [id],
-          )).rowCount
-        ) continue;
+          (
+            await client.query(
+              'SELECT id FROM transcription_migrations WHERE id=$1',
+              [id],
+            )
+          ).rowCount
+        )
+          continue;
         const sql = await readFile(resolve('db/transcription', file), 'utf8');
         if (!sql.startsWith('BEGIN;') || !/COMMIT;\s*$/.test(sql))
           throw new Failure('configuration');
@@ -128,7 +142,31 @@ async function main() {
       await client.query('SELECT pg_advisory_unlock(891733,2)').catch(() => {});
       client.release();
     }
-  } else if (['enqueue', 'run', 'sync-now', 'backfill'].includes(command ?? '')) {
+  } else if (command === 'serve-operator') {
+    const operator = new OperatorRuntime(db, {
+      runtime,
+      transcriptionSkillPath: resolve(
+        process.env.TRANSCRIPTION_SKILL_PATH ??
+          'packages/transcription/skills/lectern-transcription/SKILL.md',
+      ),
+      notesSkillPath: resolve(
+        process.env.NOTES_SKILL_PATH ??
+          'packages/transcription/skills/lectern-notes/SKILL.md',
+      ),
+      concurrency: Number(process.env.ACP_CONCURRENCY ?? 1),
+      intervalMs: Number(process.env.CATALOG_POLL_MS ?? 300_000),
+    });
+    await serveOperator(
+      db,
+      operator,
+      process.env.OPERATOR_TOKEN ?? '',
+      resolve('apps/worker/public'),
+      Number(process.env.OPERATOR_PORT ?? 8766),
+      controller.signal,
+    );
+  } else if (
+    ['enqueue', 'run', 'sync-now', 'backfill'].includes(command ?? '')
+  ) {
     const skill = await readFile(
       resolve(
         process.env.TRANSCRIPTION_SKILL_PATH ??
@@ -143,12 +181,16 @@ async function main() {
     const currentProfile = profile(skill, settings, runtimeIdentity());
     if (command === 'run') {
       const intervalMs = Number(process.env.CATALOG_POLL_MS ?? 300_000);
-      const deepIntervalMs = Number(process.env.CATALOG_DEEP_POLL_MS ?? 3_600_000);
+      const deepIntervalMs = Number(
+        process.env.CATALOG_DEEP_POLL_MS ?? 3_600_000,
+      );
       const catalogEnabled = process.env.CATALOG_ENABLED ?? 'true';
       if (
         !['true', 'false'].includes(catalogEnabled) ||
-        !Number.isInteger(intervalMs) || intervalMs < 60_000 ||
-        !Number.isInteger(deepIntervalMs) || deepIntervalMs < intervalMs
+        !Number.isInteger(intervalMs) ||
+        intervalMs < 60_000 ||
+        !Number.isInteger(deepIntervalMs) ||
+        deepIntervalMs < intervalMs
       )
         throw new Failure('configuration');
       await runWorker(
@@ -158,22 +200,47 @@ async function main() {
           concurrency: Number(process.env.ACP_CONCURRENCY ?? 3),
           pollMs: 5000,
           model: settings.model,
-          catalog: catalogEnabled === 'true'
-            ? { profile: currentProfile, intervalMs, deepIntervalMs }
-            : undefined,
+          selectedOnly: !args.includes('--unscoped'),
+          notes:
+            process.env.NOTES_ENABLED === 'false'
+              ? undefined
+              : notesProfile({
+                  model: settings.model,
+                  language: settings.language,
+                  runtime: runtimeIdentity(),
+                  transcriptionSkill: skill,
+                  notesSkill: await readFile(
+                    resolve(
+                      process.env.NOTES_SKILL_PATH ??
+                        'packages/transcription/skills/lectern-notes/SKILL.md',
+                    ),
+                    'utf8',
+                  ),
+                }),
+          catalog:
+            catalogEnabled === 'true'
+              ? { profile: currentProfile, intervalMs, deepIntervalMs }
+              : undefined,
         },
         controller.signal,
       );
       return;
     }
     if (command === 'sync-now') {
-      log({ event: 'catalog_recent', audio: await scanHomepage(db, currentProfile, controller.signal) });
-      log({ event: 'catalog_backstop', ...(await scanRecent(db, currentProfile, controller.signal)) });
+      log({
+        event: 'selection_scan',
+        ...(await scanSelections(db, currentProfile, controller.signal)),
+      });
       return;
     }
     if (command === 'backfill') {
       const count = Number(option('--pages', '4'));
-      log({ event: 'backfill_scanned', ...(await backfillPages(db, currentProfile, count, controller.signal)) });
+      if (!Number.isInteger(count) || count < 1 || count > 10)
+        throw new Failure('configuration');
+      log({
+        event: 'selection_scan',
+        ...(await scanSelections(db, currentProfile, controller.signal, count)),
+      });
       return;
     }
     const id = args[0];
@@ -191,6 +258,11 @@ async function main() {
       args.includes('--backfill') ? -10 : 0,
     );
     log({ event: 'enqueued', job });
+  } else if (command === 'targets') {
+    process.stdout.write(
+      JSON.stringify(await new SelectionStore(db.pool).targets(), null, 2) +
+        '\n',
+    );
   } else if (command === 'serve-search') {
     await serveSearch(
       db,
@@ -200,6 +272,8 @@ async function main() {
     );
   } else if (command === 'cancel') await db.cancel(args[0]);
   else if (command === 'retry') await db.retry(args[0]);
+  else if (command === 'retry-notes')
+    await new NotesStore(db.pool).retry(args[0]);
   else if (command === 'search')
     process.stdout.write(
       JSON.stringify(
@@ -218,7 +292,8 @@ async function main() {
     process.stdout.write(JSON.stringify(result.rows, null, 2) + '\n');
   } else throw new Failure('configuration');
 }
-const requestedShutdown = () => controller.signal.aborted &&
+const requestedShutdown = () =>
+  controller.signal.aborted &&
   controller.signal.reason instanceof Failure &&
   controller.signal.reason.code === 'cancelled';
 let reportedFailure = false;
@@ -226,15 +301,21 @@ try {
   await main();
 } catch (error) {
   if (!requestedShutdown()) {
-    log({ event: 'worker_stopped', code: controller.signal.aborted
-      ? failure(controller.signal.reason).code
-      : failure(error).code });
+    log({
+      event: 'worker_stopped',
+      code: controller.signal.aborted
+        ? failure(controller.signal.reason).code
+        : failure(error).code,
+    });
     process.exitCode = 1;
     reportedFailure = true;
   }
 } finally {
   if (!reportedFailure && controller.signal.aborted && !requestedShutdown()) {
-    log({ event: 'worker_stopped', code: failure(controller.signal.reason).code });
+    log({
+      event: 'worker_stopped',
+      code: failure(controller.signal.reason).code,
+    });
     process.exitCode = 1;
   }
   await database?.end();

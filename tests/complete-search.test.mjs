@@ -189,7 +189,7 @@ void test('cached refinements enforce phrase, exclusion, title scope and date bo
   assert.equal(injection.total, 0);
 });
 
-test('submitted partial misspellings retrieve real candidates and retain fuzzy title refinements across every page', async () => {
+void test('submitted partial misspellings retrieve real candidates and retain fuzzy title refinements across every page', async () => {
   // An isolated module has its own upstream cache, like a fresh worker isolate.
   const { completeSearch: smartSearch } = await import(
     'data:text/javascript;base64,' +

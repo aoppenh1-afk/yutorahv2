@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
+import {
+  mkdtemp,
+  readFile,
+  writeFile,
+  rm,
+  mkdir,
+  readdir,
+} from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -24,6 +31,9 @@ import {
 } from '../.worker-build/packages/transcription/src/fingerprint.js';
 import { transcriptionPrompt } from '../.worker-build/packages/transcription/src/prompt.js';
 import { SessionPool } from '../.worker-build/packages/antigravity-acp/src/pool.js';
+import { NotesStore } from '../.worker-build/packages/transcription/src/notes-store.js';
+import { notesProfile } from '../.worker-build/packages/transcription/src/notes.js';
+import { processNotesJob } from '../.worker-build/apps/worker/src/worker.js';
 import {
   prepareProfile,
   withRuntime,
@@ -144,7 +154,11 @@ void test(
       assert.equal(
         (await pool.query('SELECT count(*) FROM transcription_migrations'))
           .rows[0].count,
-        '2',
+        String(
+          (await readdir('db/transcription')).filter((name) =>
+            /^\d{3}_[a-z0-9_]+\.sql$/.test(name),
+          ).length,
+        ),
       );
       await run(
         process.execPath,
@@ -210,7 +224,7 @@ void test(
       await prepareProfile(runtime.profile);
       await writeFile(
         join(runtime.directory, 'agy_acp_server.par'),
-        `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(resolve('apps/worker/test/fixtures/acp.mjs'))} pipeline_audio ${quote(digest(job.skill_text))}\n`,
+        `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(resolve('apps/worker/test/fixtures/acp.mjs'))} pipeline_all ${quote(digest(job.skill_text))}\n`,
         { mode: 0o700 },
       );
       const transcript = await transcribeChunks({
@@ -254,6 +268,35 @@ void test(
         },
       });
       await store.complete(job, transcript);
+      const notesStore = new NotesStore(pool);
+      await notesStore.enqueueMissing(
+        notesProfile({
+          model: job.model,
+          language: job.settings.language,
+          runtime: job.runtime,
+          transcriptionSkill: job.skill_text,
+          notesSkill: await readFile(
+            'packages/transcription/skills/lectern-notes/SKILL.md',
+            'utf8',
+          ),
+        }),
+      );
+      const notesJob = await notesStore.claim();
+      assert.ok(
+        notesJob,
+        'A completed transcript must admit a separate generation job.',
+      );
+      await processNotesJob(
+        notesStore,
+        notesJob,
+        { runtime, concurrency: 1, pollMs: 1000 },
+        signal,
+      );
+      assert.deepEqual(
+        await readdir(runtime.scratch),
+        [],
+        'Native audio and generation runs must leave no temporary runtime files.',
+      );
       assert.equal(
         (
           await pool.query(
@@ -279,7 +322,7 @@ void test(
       readerCreated = true;
       await admin.query(`GRANT USAGE ON SCHEMA ${schema} TO ${reader}`);
       await admin.query(
-        `GRANT SELECT ON ${schema}.transcription_shiurim, ${schema}.transcript_segments TO ${reader}`,
+        `GRANT SELECT ON ${schema}.transcription_shiurim, ${schema}.transcript_segments, ${schema}.transcript_search_words, ${schema}.transcripts, ${schema}.notes_jobs, ${schema}.transcript_notes TO ${reader}`,
       );
       const readerClient = await pool.connect();
       try {
@@ -365,6 +408,7 @@ void test(
       for (const [query, startMs] of [
         ['תוס', 1000],
         ['what about', 4000],
+        ['whta', 4000],
       ]) {
         const response = await fetch(
           `${websiteOrigin}/api/transcript-search?q=${encodeURIComponent(query)}`,
@@ -382,6 +426,24 @@ void test(
         `${websiteOrigin}/api/transcript-search?q=...`,
       );
       assert.equal(invalid.status, 400);
+      const contentResponse = await fetch(
+        `${websiteOrigin}/api/transcript?id=42`,
+      );
+      assert.equal(
+        contentResponse.status,
+        200,
+        await contentResponse.clone().text(),
+      );
+      assert.equal(contentResponse.headers.get('cache-control'), 'no-store');
+      const content = await contentResponse.json();
+      assert.equal(content.segments[0].startMs, 1000);
+      assert.equal(content.notes.status, 'completed');
+      assert.match(content.notes.markdown, /תוס׳/);
+      assert.equal(JSON.stringify(content).includes(token), false);
+      assert.equal(
+        (await fetch(`${websiteOrigin}/api/transcript?id=999`)).status,
+        404,
+      );
       await search.stop();
       const unavailable = await fetch(
         `${websiteOrigin}/api/transcript-search?q=test`,

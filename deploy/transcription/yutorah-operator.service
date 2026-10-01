@@ -1,0 +1,30 @@
+[Unit]
+Description=YU Torah transcription operator and scoped worker
+Wants=network-online.target
+After=network-online.target postgresql.service
+Conflicts=yutorah-worker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=yutorah-worker
+Group=yutorah-worker
+WorkingDirectory=/opt/yutorah-operator
+EnvironmentFile=/etc/yutorah-operator.env
+StateDirectory=yutorah-worker
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/opt/yutorah-operator/bin/node .worker-build/apps/worker/src/cli.js serve-operator
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=45
+KillMode=control-group
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/yutorah-worker
+
+[Install]
+WantedBy=multi-user.target

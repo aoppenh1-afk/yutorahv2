@@ -12,7 +12,8 @@ function authorized(header: string | undefined, token: string): boolean {
 }
 
 export function createSearchServer(
-  store: Pick<TranscriptionStore, 'search'>,
+  store: Pick<TranscriptionStore, 'search'> &
+    Partial<Pick<TranscriptionStore, 'content'>>,
   token: string,
 ): Server {
   if (Buffer.byteLength(token) < 32) throw new Failure('configuration');
@@ -41,6 +42,21 @@ export function createSearchServer(
     }
     if (url.pathname === '/health') {
       reply(200, { ok: true });
+      return;
+    }
+    const contentId = url.pathname.match(
+      /^\/v1\/transcripts\/(\d{1,12})$/,
+    )?.[1];
+    if (contentId && store.content) {
+      try {
+        const content = await store.content(contentId);
+        reply(
+          content ? 200 : 404,
+          content ?? { error: 'No completed transcript yet.' },
+        );
+      } catch {
+        reply(503, { error: 'Transcript is unavailable.' });
+      }
       return;
     }
     if (url.pathname !== '/v1/transcripts/search') {
@@ -82,7 +98,8 @@ export function createSearchServer(
 
 /** The VM reverse proxy owns TLS; this process accepts only loopback traffic. */
 export async function serveSearch(
-  store: Pick<TranscriptionStore, 'search'>,
+  store: Pick<TranscriptionStore, 'search'> &
+    Partial<Pick<TranscriptionStore, 'content'>>,
   token: string,
   port: number,
   signal: AbortSignal,

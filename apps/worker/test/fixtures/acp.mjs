@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, appendFileSync } from 'node:fs';
 const [behavior = 'normal', marker = ''] = process.argv.slice(2);
 if (behavior === 'ready_on_close') {
   setInterval(() => {}, 1000);
@@ -105,16 +105,26 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     const blocks = req.params.prompt;
     const text = blocks.find((b) => b.type === 'text')?.text ?? '';
     const audio = blocks.find((b) => b.type === 'audio');
+    if ((behavior.startsWith('generation') || behavior==='pipeline_all') && !audio) {
+      const cleanup = text.includes('<transcription-contract>');
+      const repair = text.includes('<draft-notes>');
+      if(marker)appendFileSync(marker,`${cleanup?'cleanup':repair?'repair':'notes'}\n`);
+      if(behavior==='generation_tool')update('tool_call');
+      const output=cleanup?'The גמ׳ asks on תוס׳. The student asks about רש״י.':behavior==='generation_invalid'||behavior==='generation_repair'&&!repair?'# Notes\n\nToo short.':'# The question on תוס׳\n\n## The גמ׳ and the student\n\n- **גמ׳:** asks on תוס׳\n    - **Student:** asks about רש״י';
+      update('agent_message_chunk',output);
+      send({id:req.id,result:{stopReason:'end_turn'}});
+      return;
+    }
     const audioBytes = audio && Buffer.from(audio.data, 'base64');
     if (
       !audio ||
-      (behavior === 'pipeline_audio'
+      (['pipeline_audio','pipeline_all'].includes(behavior)
         ? audioBytes.toString('ascii', 0, 4) !== 'RIFF'
         : audioBytes.toString() !== 'fixture audio') ||
       !audio.mimeType.startsWith('audio/')
     )
       process.exit(51);
-    const skillHash = behavior === 'pipeline_audio' ? marker : process.env.EXPECT_SKILL_HASH;
+    const skillHash = ['pipeline_audio','pipeline_all'].includes(behavior) ? marker : process.env.EXPECT_SKILL_HASH;
     if (skillHash) {
       const start =
         text.indexOf('Instructions from /lectern-transcription:\n') +

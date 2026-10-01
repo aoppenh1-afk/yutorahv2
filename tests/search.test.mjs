@@ -278,7 +278,7 @@ void test('relative dates are deterministic and explicit filters win', async () 
   );
 });
 
-test('submitted teacher names support typos and incomplete words without guessing ambiguous surnames', () => {
+void test('submitted teacher names support typos and incomplete words without guessing ambiguous surnames', () => {
   const plan = parseSearch(
     'teshvu by Rabbi Hershl Schact under 30 minutes',
     {},
@@ -303,7 +303,7 @@ test('submitted teacher names support typos and incomplete words without guessin
   );
 });
 
-test('suggestions combine typos with partial words and transliteration aliases', () => {
+void test('suggestions combine typos with partial words and transliteration aliases', () => {
   assert.equal(suggestSearch('Hershl Schact', directory)[0].id, 1);
   assert.equal(suggestSearch('Hreshel Schachter', directory)[0].id, 1);
   assert.equal(suggestSearch('shabos', directory)[0].id, 10);
@@ -313,7 +313,7 @@ test('suggestions combine typos with partial words and transliteration aliases',
   assert.equal(series.term, '');
 });
 
-test('misspelled conversational subjects and filter words become useful, disclosed queries', () => {
+void test('misspelled conversational subjects and filter words become useful, disclosed queries', () => {
   const plan = parseSearch(
     'Plase show me shuirim about pryaer on Shabos undr thirty minuts',
     {},
@@ -328,7 +328,7 @@ test('misspelled conversational subjects and filter words become useful, disclos
   assert.equal(parseSearch('"pryaer on Shabos"').phrase, 'pryaer on Shabos');
 });
 
-test('fuzzy title matching, highlighting and excerpts use the same normalized words', () => {
+void test('fuzzy title matching, highlighting and excerpts use the same normalized words', () => {
   assert.equal(
     matchesPlan(shiur, parseSearch('rambm tesh', { scope: 'title' })),
     true,
@@ -360,7 +360,7 @@ test('fuzzy title matching, highlighting and excerpts use the same normalized wo
   );
 });
 
-test('relevance rewards literal title matches over fuzzy and incidental matches', () => {
+void test('relevance rewards literal title matches over fuzzy and incidental matches', () => {
   const base = { topics: [], series: '', teacher: '', description: '' };
   const exact = relevanceScore({ ...base, title: 'Prayer' }, 'prayer');
   const fuzzy = relevanceScore({ ...base, title: 'Prayers' }, 'prayer');
@@ -381,7 +381,7 @@ test('relevance rewards literal title matches over fuzzy and incidental matches'
 
 const { librarySearchQuery, searchVocabulary, wordMatch, typoBudget } =
   await load('lib/search-matching.ts');
-test('retrieval compiles bounded typo/prefix clauses, keeps all subjects, and never forwards query syntax', () => {
+void test('retrieval compiles bounded typo/prefix clauses, keeps all subjects, and never forwards query syntax', () => {
   const query = librarySearchQuery(
     'Schact rambm',
     searchVocabulary(['Hershel Schachter', 'Rambam']),

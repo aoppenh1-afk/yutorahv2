@@ -1,5 +1,13 @@
 # Provision and operate the Linux worker
 
+For the current teacher/series GUI, installation, and notes workflow, use
+[the transcription operator guide](transcription-operator.md). Automated discovery
+is restricted to enabled selections and their recording budgets. The CLI
+`sync-now` and `backfill` commands use the same selections. For an explicitly
+enqueued commissioning recording, run `run --unscoped` with the regular worker
+stopped; the normal worker claims selected-source jobs only. The manual service
+setup below is an alternative to the GUI installer. Do not run both worker owners.
+
 For a first installation, follow [the ordered setup checklist](transcription-setup.md).
 
 Read [the architecture report](transcription-architecture.md) for the Lectern code
@@ -113,24 +121,22 @@ sudo journalctl -u yutorah-worker -f
 
 The service verifies existing auth and the configured model before claiming work, polls every five seconds,
 and transcribes one shiur at a time with up to `ACP_CONCURRENCY` parallel chunks.
-With `CATALOG_ENABLED=true`, it checks YU Torah's small recent feed every five minutes and performs
-a paginated backstop scan hourly. New audio shiurim enter the durable queue
-automatically. Its cursor survives restarts, and
-the next scan reaches back before the last completed pass, so a VM outage does not
-silently create a three-day gap. Each page is bounded to thirty source records;
-the worker never loads the full archive into memory. `sync-now` runs one immediate
-bounded discovery pass. `backfill --pages 4` advances a separate persisted archive
-cursor and enqueues at low priority. Repeat it to continue; do not launch a huge
-archive import before measuring account quota and storage.
+With `CATALOG_ENABLED=true`, it checks enabled teacher/series selections every
+five minutes, importing only up to their saved total recording budgets. Each
+selection has a durable page/offset cursor; overlapping selections share jobs.
+Each page is bounded to thirty source records. `sync-now` runs one bounded
+selection scan. `backfill --pages 4` scans up to four pages per selection, still
+respecting its budget. These commands never start a whole-archive import.
 Its advisory database lock prevents a second active worker; the local `flock` and
 systemd cgroup own process lifetime on the VM. Only one VM may actively operate
 this personal profile. A distributed active/active fleet needs additional session
 admission and network-partition testing.
 
 The deployment example starts with `CATALOG_ENABLED=false` and concurrency 1 for
-manual commissioning. Enqueued jobs are still processed. Enable discovery and restart
-the service after validating short and long recordings. When the setting is omitted,
-discovery defaults to enabled for compatibility with existing installations.
+manual commissioning. Manually enqueued jobs need `run --unscoped`, with the
+regular worker stopped; the default service requires selected-source ownership.
+For routine batches, use the operator GUI to configure selections and start its
+worker. When `CATALOG_ENABLED` is omitted, selection discovery defaults to enabled.
 
 Run this block in one shell. The wrapper loads the service environment and runs
 each command as `yutorah-worker` from the deployment directory:
@@ -183,7 +189,7 @@ only. Create that role and grant it access **after** `migrate`:
 sudo -u postgres createuser yutorah-search
 sudo -u postgres psql -d yutorah_transcription -c 'GRANT CONNECT ON DATABASE yutorah_transcription TO "yutorah-search"'
 sudo -u postgres psql -d yutorah_transcription -c 'GRANT USAGE ON SCHEMA public TO "yutorah-search"'
-sudo -u postgres psql -d yutorah_transcription -c 'GRANT SELECT ON transcription_shiurim, transcript_segments, transcript_search_words TO "yutorah-search"'
+sudo -u postgres psql -d yutorah_transcription -c 'GRANT SELECT ON transcription_shiurim, transcripts, transcript_segments, transcript_search_words, notes_jobs, transcript_notes TO "yutorah-search"'
 sudo install -m 0640 -o root -g yutorah-search deploy/transcription/search.env.example /etc/yutorah-search.env
 sudo sh -c 'printf "TRANSCRIPT_API_TOKEN=%s\n" "$(openssl rand -hex 32)" >> /etc/yutorah-search.env'
 ```
@@ -209,15 +215,16 @@ bounded requests. The search view uses the same submitted query for metadata and
 spoken-word results, and a transcript hit seeks the audio player to `startMs`.
 If the bridge is not configured or unreachable, metadata search keeps working and
 the transcript panel says so. The VM endpoint requires a bearer token, returns
-short excerpts, and serves no queue mutation routes. Apply normal edge rate limits
+short search excerpts and published transcripts/notes, and serves no queue mutation routes. Apply normal edge rate limits
 to the public website route.
 
 ## Catalog ingestion and skill updates
 
 The worker's automatic catalog poll calls
 `TranscriptionStore.enqueue(shiur, profile, priority)`. It upserts metadata and adds
-the job atomically; duplicate source/version requests are idempotent. Archive pages
-use priority -10. No archive is loaded into worker memory.
+the job atomically; duplicate source/version requests are idempotent. The current
+selection scanner applies the configured total budget before associating each
+job with its source. No archive is loaded into worker memory.
 `sourceRevision` distinguishes changed upstream audio at the same URL or an explicit
 fresh transcription. Use `retry` for resuming an existing job.
 

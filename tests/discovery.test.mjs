@@ -43,7 +43,7 @@ const shiur = (id, values = {}) => ({
   ...values,
 });
 
-test('popularity uses genuine view counts, deduplicates, and excludes absent or zero counts', () => {
+void test('popularity uses genuine view counts, deduplicates, and excludes absent or zero counts', () => {
   const result = rankTrending([
     shiur(1),
     shiur(2, { views: 0 }),
@@ -58,14 +58,14 @@ test('popularity uses genuine view counts, deduplicates, and excludes absent or 
   );
   assert.equal(result[0].views, 40);
 });
-test('downloads break genuine view ties and the result respects its bound', () => {
+void test('downloads break genuine view ties and the result respects its bound', () => {
   const result = rankTrending(
     [shiur(1, { views: 20 }), shiur(2, { views: 20, downloads: 5 })],
     1,
   );
   assert.equal(result[0].id, 2);
 });
-test('normalization preserves topic IDs from the sparse detail API and explicit view counts', () => {
+void test('normalization preserves topic IDs from the sparse detail API and explicit view counts', () => {
   const result = normalize({
     shiurID: 1,
     shiurTitle: 'Title',
@@ -81,7 +81,7 @@ test('normalization preserves topic IDs from the sparse detail API and explicit 
   assert.equal(result.date, '2026-09-30T00:00:00Z');
   assert.equal(normalize({ shiurID: 2 }).views, undefined);
 });
-test('related learning prefers the same short series and explains the match', () => {
+void test('related learning prefers the same short series and explains the match', () => {
   const source = shiur(1, { seriesId: 20, series: 'Ten Minute Halacha' });
   const result = relatedShiurim(
     source,
@@ -97,7 +97,7 @@ test('related learning prefers the same short series and explains the match', ()
   assert.equal(result[0].reason, 'More in Ten Minute Halacha');
   assert.ok(result.every((s) => s.shiur.id !== 1));
 });
-test('matching topic IDs connect differently named metadata and beat an unrelated teacher match', () => {
+void test('matching topic IDs connect differently named metadata and beat an unrelated teacher match', () => {
   const source = shiur(1, { topics: [], teacherId: 11, category: '' });
   const result = relatedShiurim(
     source,
@@ -110,7 +110,7 @@ test('matching topic IDs connect differently named metadata and beat an unrelate
   assert.equal(result[0].shiur.id, 3);
   assert.match(result[0].reason, /Kashrut/);
 });
-test('a generic Daily Shiur series does not recommend unrelated learning ahead of the topic', () => {
+void test('a generic Daily Shiur series does not recommend unrelated learning ahead of the topic', () => {
   const source = shiur(1, { seriesId: 4000, series: 'Daily Shiur' });
   const result = relatedShiurim(
     source,
@@ -133,7 +133,7 @@ test('a generic Daily Shiur series does not recommend unrelated learning ahead o
   );
   assert.match(result[0].reason, /Halacha/);
 });
-test('unrelated recommendations never inherit a misleading reason from listening history', () => {
+void test('unrelated recommendations never inherit a misleading reason from listening history', () => {
   const source = shiur(1, {
     teacherId: 11,
     topics: ['Tefillah'],
@@ -150,7 +150,7 @@ test('unrelated recommendations never inherit a misleading reason from listening
     [],
   );
 });
-test('a fixed ranking time keeps the initial feed deterministic across renders', () => {
+void test('a fixed ranking time keeps the initial feed deterministic across renders', () => {
   const items = [shiur(1), shiur(2, { date: '2026-09-29T00:00:00Z' })];
   const options = { now: Date.parse('2026-10-01T00:00:00Z') };
   const original = Date.now;
@@ -168,7 +168,7 @@ test('a fixed ranking time keeps the initial feed deterministic across renders',
     Date.now = original;
   }
 });
-test('discovery keeps the sample for duration filters and discloses a failed page', async () => {
+void test('discovery keeps the sample for duration filters and discloses a failed page', async () => {
   const original = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (url) => {
@@ -208,7 +208,7 @@ test('discovery keeps the sample for duration filters and discloses a failed pag
     globalThis.fetch = original;
   }
 });
-test('related candidates fetch the series, two topics, and teacher even with sparse detail metadata', async () => {
+void test('related candidates fetch the series, two topics, and teacher even with sparse detail metadata', async () => {
   const original = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (url) => {
@@ -251,7 +251,7 @@ test('related candidates fetch the series, two topics, and teacher even with spa
   }
 });
 const { GET } = await load('app/api/related/route.ts');
-test('related endpoint rejects missing, malformed and zero IDs before contacting YUTorah', async () => {
+void test('related endpoint rejects missing, malformed and zero IDs before contacting YUTorah', async () => {
   for (const id of ['', '0', '-1', '1.5', 'x']) {
     const response = await GET(
       new Request('http://localhost/api/related?id=' + id),

@@ -261,23 +261,38 @@ export class ACPClient {
     mimeType: string,
     timeoutMs: number,
   ): Promise<string> {
-    if (!this.sessionId) throw new Failure('protocol');
     if (
       audio.length > 20 * 1024 * 1024 ||
       !audio.length ||
       Buffer.byteLength(text) > 1024 * 1024
     )
       throw new Failure('configuration');
+    return this.sendPrompt(
+      [
+        { type: 'text', text },
+        { type: 'audio', data: audio.toString('base64'), mimeType },
+      ],
+      timeoutMs,
+    );
+  }
+  /** Generation uses the same deny-tools policy as native audio transcription. */
+  async textPrompt(text: string, timeoutMs = 900_000): Promise<string> {
+    if (!text.trim() || Buffer.byteLength(text) > 1024 * 1024)
+      throw new Failure('configuration');
+    return this.sendPrompt([{ type: 'text', text }], timeoutMs);
+  }
+  private async sendPrompt(
+    prompt: ObjectValue[],
+    timeoutMs: number,
+  ): Promise<string> {
+    if (!this.sessionId) throw new Failure('protocol');
     this.output = [];
     this.outputBytes = 0;
     const result = await this.request(
       'session/prompt',
       {
         sessionId: this.sessionId,
-        prompt: [
-          { type: 'text', text },
-          { type: 'audio', data: audio.toString('base64'), mimeType },
-        ],
+        prompt,
       },
       timeoutMs,
     );

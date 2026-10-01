@@ -85,7 +85,7 @@ function excerpt(text: string, term: string, tolerant = false): string {
   return `${start ? '…' : ''}${text.slice(start, start + 360)}${start + 360 < text.length ? '…' : ''}`;
 }
 
-async function transaction<T>(
+export async function transaction<T>(
   pool: Pool,
   work: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
@@ -166,7 +166,7 @@ export class TranscriptionStore {
       return id;
     });
   }
-  async claim(): Promise<Job | null> {
+  async claim(selectedOnly = false): Promise<Job | null> {
     await this.pool.query(
       `UPDATE transcription_jobs SET status='failed',completed_at=now(),lease_token=NULL,lease_until=NULL,
        error=jsonb_build_object('code','attempts_exhausted')
@@ -178,6 +178,7 @@ export class TranscriptionStore {
     const result = await this.pool.query<Job>(
       `WITH candidate AS (
       SELECT id FROM transcription_jobs WHERE cancel_requested=false AND
+        (NOT $4 OR EXISTS (SELECT 1 FROM transcription_target_jobs tj JOIN transcription_targets t ON t.id=tj.target_id WHERE tj.job_id=transcription_jobs.id AND t.enabled)) AND
         ((status='queued' AND available_at <= now()) OR
         (status IN ('downloading','preparing','transcribing','merging') AND lease_until < now() AND attempt < $3))
       ORDER BY priority DESC,created_at LIMIT 1 FOR UPDATE SKIP LOCKED
@@ -186,7 +187,7 @@ export class TranscriptionStore {
         lease_token=$1,lease_until=now()+$2*interval '1 second',error=NULL
       FROM candidate c WHERE j.id=c.id RETURNING j.*
     ) SELECT c.*,v.skill_text,v.settings,v.runtime FROM claimed c JOIN transcription_versions v ON v.id=c.transcription_version`,
-      [token, this.leaseSeconds, MAX_JOB_ATTEMPTS],
+      [token, this.leaseSeconds, MAX_JOB_ATTEMPTS, selectedOnly],
     );
     return result.rows[0] ?? null;
   }
@@ -383,10 +384,37 @@ export class TranscriptionStore {
   }
   async retry(id: string): Promise<void> {
     await this.pool.query(
-      `UPDATE transcription_jobs SET status='queued',cancel_requested=false,error=NULL,available_at=now(),completed_at=NULL
+      `UPDATE transcription_jobs SET status='queued',cancel_requested=false,error=NULL,attempt=0,available_at=now(),completed_at=NULL
       WHERE id=$1 AND status IN ('failed','cancelled')`,
       [id],
     );
+  }
+  /** Only the active, fully published transcript is exposed to readers. */
+  async content(shiurId: string) {
+    const result = await this.pool.query<{
+      id: string;
+      title: string;
+      teacher: string;
+      transcriptId: string;
+      text: string;
+      durationMs: number;
+      createdAt: string;
+      segments: Segment[];
+      notes: {
+        status: string;
+        markdown: string | null;
+        cleanedText: string | null;
+      } | null;
+    }>(
+      `SELECT h.id,h.title,h.teacher,t.id AS "transcriptId",t.text,t.duration_ms::float8 AS "durationMs",t.created_at AS "createdAt",
+       (SELECT coalesce(jsonb_agg(jsonb_build_object('startMs',s.start_ms,'endMs',s.end_ms,'text',s.text,'speaker',s.speaker,'language',s.language) ORDER BY segment_index),'[]') FROM transcript_segments s WHERE s.transcript_id=t.id) AS segments,
+       (SELECT jsonb_build_object('status',j.status,'markdown',n.markdown,'cleanedText',j.cleaned_text)
+        FROM notes_jobs j LEFT JOIN transcript_notes n ON n.id=j.id WHERE j.transcript_id=t.id
+        ORDER BY (j.status='completed') DESC,j.created_at DESC LIMIT 1) AS notes
+       FROM transcription_shiurim h JOIN transcripts t ON t.id=h.active_transcript_id WHERE h.id=$1`,
+      [shiurId],
+    );
+    return result.rows[0] ?? null;
   }
   async catalogCursor(name: 'recent' | 'backfill'): Promise<number> {
     const result = await this.pool.query<{ next_page: number }>(

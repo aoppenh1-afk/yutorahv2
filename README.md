@@ -4,6 +4,8 @@ A responsive reading and listening interface connected to YUTorah's public libra
 
 ## Run
 
+Start with [the VM transcription operator](docs/transcription-operator.md) to select teachers or series, set recording budgets, connect Google, and run the queue. Completed shiurim have a timestamped transcript reader and automatic Lectern study notes.
+
 The Linux Antigravity transcription worker is described in
 [the first-deployment checklist](docs/transcription-setup.md),
 [the architecture report](docs/transcription-architecture.md) and
@@ -11,7 +13,7 @@ The Linux Antigravity transcription worker is described in
 Oracle Cloud Free Tier setup starts with [the Oracle VM notes](docs/transcription-oracle.md).
 It uses the complete Lectern skill, PostgreSQL jobs/checkpoints, and native ACP audio.
 Build with `npm run worker:build`; test with `npm run test:worker`.
-Once deployed, the worker discovers new audio shiurim automatically and the search
+Once enabled, the worker discovers audio only from your selected teachers/series within their budgets, and the search
 view shows timestamped matches from completed transcripts. The website needs the
 server-side `TRANSCRIPT_API_URL` and `TRANSCRIPT_API_TOKEN` settings described in
 the operations guide.
