@@ -150,7 +150,14 @@ conservative size planning. Every exported file must fit the 20 MiB native
 audio limit. Results are checkpointed as they finish, merged in recording
 order with global timestamps, and deduplicated only at chunk boundaries.
 Completed chunks are reused after a restart. Source and exported audio are
-deleted when each attempt ends.
+deleted when each attempt ends. Antigravity's per-session SQLite databases,
+sidecars, and brain artifacts are also removed after their owning process
+exits, following Lectern's cleanup. Each run records its session IDs in an
+atomic scratch ledger so worker startup can recover cleanup after a crash.
+The idle startup sweep prunes untracked legacy sessions older than one day,
+keeping recently modified sidecars or brain work. Google credentials are
+outside these UUID-scoped paths and remain in the private profile. The GUI's
+temporary storage counter includes scratch and conversation artifacts.
 
 ## Lectern generation and storage
 

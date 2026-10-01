@@ -1,7 +1,8 @@
 import { createInterface } from 'node:readline';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { writeFileSync, appendFileSync, existsSync } from 'node:fs';
+import { writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 const [behavior = 'normal', marker = ''] = process.argv.slice(2);
 const parallel = behavior === 'pipeline_parallel';
 const record = (event, extra = {}) => appendFileSync(marker, JSON.stringify({ event, pid: process.pid, workspace: process.cwd(), ...extra }) + '\n');
@@ -72,6 +73,16 @@ createInterface({ input: process.stdin }).on('line', (line) => {
         },
       ],
     };
+    if (behavior === 'session_storage') {
+      const id = randomUUID();
+      const profile = join(process.env.GEMINI_HOME, 'antigravity-acp');
+      mkdirSync(join(profile, 'conversations'), { recursive: true });
+      mkdirSync(join(profile, 'brain', id), { recursive: true });
+      for (const suffix of ['.db', '.db-wal', '.db-shm', '.meta'])
+        writeFileSync(join(profile, 'conversations', id + suffix), 'stored audio fixture');
+      writeFileSync(join(profile, 'brain', id, 'artifact'), 'stored session fixture');
+      result.sessionId = id;
+    }
   } else if (req.method === 'echo') {
     setTimeout(
       () => send({ id: req.id, result: { value: req.params.value } }),

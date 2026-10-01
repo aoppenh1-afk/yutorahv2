@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  readFile,
+  mkdtemp,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import {
@@ -228,6 +235,66 @@ void test('runtime removes its run directory when client construction is cancell
       code('cancelled'),
     );
     assert.deepEqual(await readdir(scratch), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test('runtime removes stored audio conversations after success and failed sessions while preserving credentials', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acp-session-cleanup-'));
+  const quote = (s: string) => "'" + s.replaceAll("'", "'\"'\"'") + "'";
+  const profile = join(root, 'profile');
+  const runtime = { directory: root, profile, scratch: join(root, 'scratch') };
+  try {
+    await prepareProfile(profile);
+    const token = join(profile, 'antigravity-acp/acp_token.json');
+    await writeFile(token, 'credential sentinel');
+    await writeFile(
+      join(root, 'agy_acp_server.par'),
+      `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(fixture)} session_storage\n`,
+      { mode: 0o700 },
+    );
+    for (const scenario of [
+      'success',
+      'failed',
+      'cancelled',
+      'invalid_model',
+    ] as const) {
+      const controller = new AbortController();
+      const work = withRuntime(
+        runtime,
+        controller.signal,
+        async (c, workspace) => {
+          await c.authenticate();
+          await c.session(
+            workspace,
+            scenario === 'invalid_model'
+              ? 'unknown-model'
+              : defaultSettings.model,
+          );
+          // A caller can create another session before returning; both must be owned.
+          await c.session(workspace, defaultSettings.model);
+          if (scenario === 'failed') throw new Failure('provider');
+          if (scenario === 'cancelled') {
+            controller.abort(new Failure('cancelled'));
+            throw new Failure('cancelled');
+          }
+        },
+      );
+      if (scenario === 'success') await work;
+      else await assert.rejects(work, Failure);
+      assert.deepEqual(
+        await readdir(join(profile, 'antigravity-acp/conversations')),
+        [],
+        `${scenario} must remove the recorded databases and their sidecars`,
+      );
+      assert.deepEqual(
+        await readdir(join(profile, 'antigravity-acp/brain')),
+        [],
+      );
+      assert.equal(await readFile(token, 'utf8'), 'credential sentinel');
+      assert.deepEqual(await readdir(runtime.scratch), []);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

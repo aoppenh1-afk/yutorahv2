@@ -128,6 +128,7 @@ export class ACPClient {
     private signal: AbortSignal,
     private onAuthorization?: (value: { url: URL; port: number }) => void,
     private graceMs = 2000,
+    private onSession?: (id: string) => Promise<void>,
   ) {
     checkAbort(signal);
     this.owned = new OwnedProcess(
@@ -208,6 +209,7 @@ export class ACPClient {
     if (typeof result.sessionId !== 'string' || !result.sessionId)
       throw new Failure('protocol');
     this.sessionId = result.sessionId;
+    await this.onSession?.(this.sessionId);
     const modes = rows(object(result.modes).availableModes).map((m) => m.id);
     if (modes.length && !modes.includes('default'))
       throw new Failure('configuration');

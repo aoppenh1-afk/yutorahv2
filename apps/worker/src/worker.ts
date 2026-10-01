@@ -9,6 +9,10 @@ import {
 } from '../../../packages/antigravity-acp/src/runtime.js';
 import { SessionPool } from '../../../packages/antigravity-acp/src/pool.js';
 import {
+  recoverConversations,
+  pruneConversations,
+} from '../../../packages/antigravity-acp/src/session-cleanup.js';
+import {
   Failure,
   failure,
   checkAbort,
@@ -285,9 +289,16 @@ export async function runWorker(
     for (const entry of await readdir(config.runtime.scratch, {
       withFileTypes: true,
     })) {
-      if (entry.isDirectory() && /^(job|acp)-[A-Za-z0-9]+$/.test(entry.name))
+      if (entry.isDirectory() && /^(job|acp)-[A-Za-z0-9]+$/.test(entry.name)) {
+        if (entry.name.startsWith('acp-'))
+          await recoverConversations(
+            config.runtime.profile,
+            join(config.runtime.scratch, entry.name),
+          );
         await rm(join(config.runtime.scratch, entry.name), { recursive: true });
+      }
     }
+    await pruneConversations(config.runtime.profile);
     const models = await withRuntime(
       config.runtime,
       combined,

@@ -209,9 +209,12 @@ Audio instructions are untrusted content. Runtime code has network and profile
 access: protocol controls are not a security sandbox. Use a dedicated VM/account
 context, minimal secrets, read-only application/runtime files, and private DB access.
 The worker logs only job/chunk IDs, attempts, durations and typed error codes.
-Google's runtime may maintain its own private session files; do not promise that
-the runtime stores no prompts. Profile retention must preserve credentials while
-following supported runtime cleanup behavior; do not edit undocumented token files.
+Google's runtime writes private SQLite conversations that can contain uploaded
+audio. Following Lectern's UUID-scoped cleanup, remove recorded conversations,
+sidecars, and brain artifacts only after the owning process exits. An atomic
+scratch ledger supports cleanup recovery before the next worker startup sweep.
+Legacy pruning runs idle and protects recent files/work. Credential files are
+outside these session paths and are preserved.
 
 The search process runs under a separate OS/PostgreSQL read-only identity, binds
 loopback, and is exposed through HTTPS by the VM reverse proxy. The Cloudflare

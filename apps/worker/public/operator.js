@@ -187,7 +187,7 @@ async function refresh() {
     el('queued-count').textContent = count('queued');
     el('completed-count').textContent = count('completed');
     el('audio-size').textContent =
-      (r.scratchBytes / 1048576).toFixed(1) + ' MB';
+      ((r.scratchBytes + r.conversationBytes) / 1048576).toFixed(1) + ' MB';
     if (
       !(
         el('targets').contains(document.activeElement) &&
