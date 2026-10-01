@@ -23,6 +23,7 @@ const names = {
   starting: 'Starting',
   running: 'Running',
   stopped: 'Paused',
+  waiting_quota: 'Waiting for usage reset',
   authenticating: 'Connecting',
   error: 'Needs attention',
 };
@@ -125,15 +126,21 @@ async function refresh() {
     const r = snapshot.runtime;
     el('session-state').textContent =
       `${r.activeSessions} of ${r.concurrency} Antigravity sessions active. Transcription and notes share these slots.`;
-    el('run-state').textContent = names[r.state] || r.state;
+    el('run-state').textContent =
+      r.state === 'waiting_quota' && r.resumeAt
+        ? `Resumes automatically at ${new Date(r.resumeAt).toLocaleString()}`
+        : names[r.state] || r.state;
     el('start').disabled =
       ['starting', 'running', 'authenticating'].includes(r.state) ||
       !r.runtimeInstalled ||
-      !r.connected ||
-      !r.models.includes(snapshot.settings.model) ||
+      (!r.connected && r.state !== 'waiting_quota') ||
+      (!r.models.includes(snapshot.settings.model) &&
+        r.state !== 'waiting_quota') ||
       settingsDirty ||
       !snapshot.targets.some((t) => t.enabled);
-    el('stop').disabled = !['starting', 'running'].includes(r.state);
+    el('stop').disabled = !['starting', 'running', 'waiting_quota'].includes(
+      r.state,
+    );
     el('connect').disabled =
       !r.runtimeInstalled || r.state === 'authenticating';
     el('check').disabled = el('connect').disabled;
@@ -141,6 +148,8 @@ async function refresh() {
     const errors = {
       auth_required: 'Google sign-in is needed.',
       configuration: 'The runtime or selected model needs attention.',
+      quota_exhausted:
+        'Antigravity usage limit reached. The queue resumes automatically 5 hours and 1 minute after detection. Pause queue cancels the scheduled resume.',
       provider:
         'The provider could not finish the request. Check the connection and account quota.',
       timeout: 'The provider timed out.',

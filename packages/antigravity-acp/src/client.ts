@@ -120,6 +120,7 @@ export class ACPClient {
     protocolMessages: 0,
     messageChunks: 0,
     thoughtChunks: 0,
+    thoughtBytes: 0,
     stderrBytes: 0,
   };
 
@@ -241,9 +242,10 @@ export class ACPClient {
           configId: modelOption.id ?? modelOption.configId,
           value: model,
         });
-      const effort = model.match(/-(low|medium|high)$/)?.[1] ?? 'high';
+      const effort = model.match(/-(low|medium|high)$/)?.[1];
       const thought = selector('thought_level');
       if (
+        effort &&
         thought &&
         values(thought).includes(effort) &&
         thought.currentValue !== effort
@@ -301,7 +303,7 @@ export class ACPClient {
     if (this.error) throw this.error;
     if (result.stopReason !== 'end_turn')
       throw new Failure('incomplete_output');
-    return this.output
+    const text = this.output
       .join('')
       .split('\n')
       .filter(
@@ -311,6 +313,16 @@ export class ACPClient {
       )
       .join('\n')
       .trim();
+    // ACP can report account exhaustion as a successful plain-text end_turn.
+    // Match the provider notice at the start; spoken quota terms in a timed
+    // transcript must remain ordinary transcript content.
+    if (
+      /^Usage Limit Reached\s+You have reached your current quota for this period\./i.test(
+        text,
+      )
+    )
+      throw new Failure('quota_exhausted');
+    return text;
   }
   request(
     method: string,
@@ -393,9 +405,15 @@ export class ACPClient {
         const error = object(value.error);
         call.reject(
           new Failure(
-            error.code === 401 || /auth|sign.?in/i.test(String(error.message))
-              ? 'auth_required'
-              : 'provider',
+            error.code === 429 ||
+              /quota.*(?:exceeded|exhausted)|resource.?exhausted|rate.?limit/i.test(
+                String(error.message),
+              )
+              ? 'quota_exhausted'
+              : error.code === 401 ||
+                  /auth|sign.?in/i.test(String(error.message))
+                ? 'auth_required'
+                : 'provider',
           ),
         );
       } else if (value.result !== undefined) call.resolve(object(value.result));
@@ -433,6 +451,9 @@ export class ACPClient {
     }
     if (update.sessionUpdate === 'agent_thought_chunk') {
       this.diagnostics.thoughtChunks++;
+      const content = object(update.content);
+      if (content.type === 'text' && typeof content.text === 'string')
+        this.diagnostics.thoughtBytes += Buffer.byteLength(content.text);
       return;
     }
     if (

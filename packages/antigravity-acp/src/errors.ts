@@ -7,6 +7,7 @@ export type FailureCode =
   | 'output_limit'
   | 'incomplete_output'
   | 'auth_required'
+  | 'quota_exhausted'
   | 'configuration'
   | 'provider'
   | 'invalid_transcript'

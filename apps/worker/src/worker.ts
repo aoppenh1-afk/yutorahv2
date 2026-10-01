@@ -8,6 +8,7 @@ import {
   type RuntimeConfig,
 } from '../../../packages/antigravity-acp/src/runtime.js';
 import { SessionPool } from '../../../packages/antigravity-acp/src/pool.js';
+import type { ACPClient } from '../../../packages/antigravity-acp/src/client.js';
 import {
   recoverConversations,
   pruneConversations,
@@ -62,6 +63,7 @@ export type WorkerConfig = {
   selectedOnly?: boolean;
   notes?: NotesProfile;
   onReady?: (models: string[], pool: SessionPool) => void;
+  onQuotaExhausted?: () => void;
   media?: {
     resolveMedia: typeof resolveMedia;
     downloadAudio: typeof downloadAudio;
@@ -78,11 +80,51 @@ export type Diagnostic = {
   audio?: number;
   nextPage?: number;
   accepted?: number;
+  model?: string;
+  kind?: 'transcription' | 'cleanup' | 'notes' | 'notes_repair';
+  audioSeconds?: number;
+  audioBytes?: number;
+  inputTextBytes?: number;
+  outputTextBytes?: number;
+  thoughtChunks?: number;
+  thoughtBytes?: number;
 };
 export const log = (event: Diagnostic) =>
   process.stdout.write(JSON.stringify(event) + '\n');
 export const runtimeIdentity = () =>
   `${release.version}:${release[process.arch === 'arm64' ? 'arm64' : 'x64'].sha256}`;
+
+/** Count work without retaining audio, transcript text, or private reasoning. */
+async function modelRequest(
+  client: ACPClient,
+  operation: () => Promise<string>,
+  event: Diagnostic,
+  diagnostic: (event: Diagnostic) => void = log,
+  onQuotaExhausted?: () => void,
+): Promise<string> {
+  const started = Date.now();
+  let output: string | undefined;
+  let code: string | undefined;
+  try {
+    output = await operation();
+    return output;
+  } catch (error) {
+    code = failure(error).code;
+    if (code === 'quota_exhausted') onQuotaExhausted?.();
+    throw error;
+  } finally {
+    diagnostic({
+      ...event,
+      event: 'model_request',
+      elapsedMs: Date.now() - started,
+      outputTextBytes:
+        output === undefined ? undefined : Buffer.byteLength(output),
+      thoughtChunks: client.diagnostics.thoughtChunks,
+      thoughtBytes: client.diagnostics.thoughtBytes,
+      code,
+    });
+  }
+}
 
 export async function processJob(
   store: TranscriptionStore,
@@ -149,17 +191,30 @@ export async function processJob(
               input.total === 1
                 ? 'lecture-audio'
                 : `lecture-audio-part-${input.index + 1}-of-${input.total}`;
-            return client.prompt(
-              transcriptionPrompt(
-                job.skill_text,
-                job.settings,
-                name,
-                input.index,
-                input.total,
-              ),
-              await readFile(audio.path),
-              audio.mimeType,
-              input.timeoutMs,
+            const prompt = transcriptionPrompt(
+              job.skill_text,
+              job.settings,
+              name,
+              input.index,
+              input.total,
+            );
+            const bytes = await readFile(audio.path);
+            return modelRequest(
+              client,
+              () =>
+                client.prompt(prompt, bytes, audio.mimeType, input.timeoutMs),
+              {
+                event: 'model_request',
+                job: job.id,
+                model: job.model,
+                kind: 'transcription',
+                chunk: input.index,
+                audioSeconds: input.range.end - input.range.start,
+                audioBytes: bytes.length,
+                inputTextBytes: Buffer.byteLength(prompt),
+              },
+              diagnostic,
+              config.onQuotaExhausted,
             );
           },
         );
@@ -222,7 +277,9 @@ export async function runLeasedJob<T>(
       combined.aborted && combined.reason instanceof Failure
         ? combined.reason.code
         : failure(error).code;
-    await store.finishFailure(job, code, signal.aborted).catch(() => {});
+    await store
+      .finishFailure(job, code, signal.aborted || code === 'quota_exhausted')
+      .catch(() => {});
     throw new Failure(code);
   } finally {
     stopHeartbeat.abort();
@@ -237,13 +294,15 @@ export async function processNotesJob(
   signal: AbortSignal,
   pool = new SessionPool(config.concurrency),
 ) {
-  const p = notesProfile({
+  const profileInput = {
     model: job.model,
     language: job.language,
     runtime: job.runtime,
     transcriptionSkill: job.transcription_skill,
     notesSkill: job.notes_skill,
-  });
+  };
+  let p = notesProfile(profileInput);
+  if (p.id !== job.version_id) p = notesProfile(profileInput, 'notes-1');
   if (p.id !== job.version_id || p.runtime !== runtimeIdentity())
     throw new Failure('configuration');
   const result = await generateNotes({
@@ -257,7 +316,23 @@ export async function processNotesJob(
         withRuntime(config.runtime, signal, async (client, workspace) => {
           await client.authenticate();
           await client.session(workspace, job.model);
-          return client.textPrompt(prompt);
+          return modelRequest(
+            client,
+            () => client.textPrompt(prompt),
+            {
+              event: 'model_request',
+              job: job.id,
+              model: job.model,
+              kind: prompt.includes('<transcription-contract>')
+                ? 'cleanup'
+                : prompt.includes('<draft-notes>')
+                  ? 'notes_repair'
+                  : 'notes',
+              inputTextBytes: Buffer.byteLength(prompt),
+            },
+            log,
+            config.onQuotaExhausted,
+          );
         }),
       ),
   });
@@ -343,9 +418,12 @@ export async function runWorker(
               const e = failure(error);
               log({ event: 'notes_failed', job: notesJob.id, code: e.code });
               if (
-                ['auth_required', 'configuration', 'lease_lost'].includes(
-                  e.code,
-                ) &&
+                [
+                  'auth_required',
+                  'configuration',
+                  'lease_lost',
+                  'quota_exhausted',
+                ].includes(e.code) &&
                 !combined.aborted
               )
                 throw e;
@@ -368,7 +446,12 @@ export async function runWorker(
           const e = failure(error);
           log({ event: 'job_failed', job: job.id, code: e.code });
           if (
-            ['auth_required', 'configuration', 'lease_lost'].includes(e.code) &&
+            [
+              'auth_required',
+              'configuration',
+              'lease_lost',
+              'quota_exhausted',
+            ].includes(e.code) &&
             !combined.aborted
           )
             throw e;

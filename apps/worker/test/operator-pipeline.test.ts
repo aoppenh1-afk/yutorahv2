@@ -60,13 +60,16 @@ void test('notes validation and one repair preserve the full source and copied c
     'packages/transcription/skills/lectern-notes/SKILL.md',
     'utf8',
   );
-  const p = notesProfile({
-    model: defaultSettings.model,
-    language: 'hebrewEnglish',
-    runtime: runtimeIdentity(),
-    transcriptionSkill,
-    notesSkill,
-  });
+  const p = notesProfile(
+    {
+      model: defaultSettings.model,
+      language: 'hebrewEnglish',
+      runtime: runtimeIdentity(),
+      transcriptionSkill,
+      notesSkill,
+    },
+    'notes-1',
+  );
   const requests: string[] = [];
   let saved = '';
   const result = await generateNotes({
@@ -114,6 +117,41 @@ void test('notes validation and one repair preserve the full source and copied c
   );
 });
 
+void test('new notes use the complete native transcript in one request and checkpoint it', async () => {
+  const source = 'The גמ׳ introduces חזרה and the student asks about רש״י.';
+  const p = notesProfile({
+    model: defaultSettings.model,
+    language: 'hebrewEnglish',
+    runtime: runtimeIdentity(),
+    transcriptionSkill: 'transcription contract',
+    notesSkill: 'notes contract',
+  });
+  const requests: string[] = [];
+  let saved = '';
+  const result = await generateNotes({
+    profile: p,
+    source,
+    signal,
+    saveCleaned: async (text) => {
+      saved = text;
+    },
+    request: async (prompt) => {
+      requests.push(prompt);
+      return validNotes;
+    },
+  });
+  assert.equal(
+    requests.length,
+    1,
+    'notes must not pay for a second full transcription pass',
+  );
+  assert.equal(saved, source);
+  assert.equal(result.cleaned, source);
+  assert.equal(result.markdown, validNotes);
+  assert.ok(requests[0].includes(source));
+  assert.ok(requests[0].includes(p.notesSkill));
+});
+
 void test(
   'selected ingestion, audio cleanup, generation, and content publication',
   { skip: !process.env.TEST_DATABASE_URL, timeout: 90000 },
@@ -150,6 +188,16 @@ void test(
       transcriptionSkill: skill,
       notesSkill,
     });
+    const legacyNp = notesProfile(
+      {
+        model: p.settings.model,
+        language: p.settings.language,
+        runtime: p.runtime,
+        transcriptionSkill: skill,
+        notesSkill,
+      },
+      'notes-1',
+    );
     const runtime = {
       directory: join(root, 'runtime'),
       profile: join(root, 'profile'),
@@ -229,6 +277,168 @@ void test(
       await mkdir(runtime.directory);
       await mkdir(runtime.scratch);
       await prepareProfile(runtime.profile);
+      await t.test(
+        'quota deadlines persist in PostgreSQL and manual pause clears them',
+        async () => {
+          const settings = await selections.settings();
+          await selections.saveSettings({ ...settings, worker_enabled: true });
+          const deadline = new Date('2026-10-01T21:01:00Z');
+          assert.equal(
+            (await selections.setQuotaResume(deadline))?.getTime(),
+            deadline.getTime(),
+          );
+          assert.equal(
+            (
+              await new SelectionStore(pool).settings()
+            ).quota_resume_at?.getTime(),
+            deadline.getTime(),
+          );
+          await selections.saveSettings({ ...settings, worker_enabled: false });
+          assert.equal((await selections.settings()).quota_resume_at, null);
+          assert.equal(
+            await selections.setQuotaResume(deadline),
+            null,
+            'a paused operator cannot be silently rearmed',
+          );
+        },
+      );
+      await t.test(
+        'quota exhaustion stops all lanes and requeues transcription and notes',
+        async () => {
+          const wav = join(root, 'quota.wav');
+          await runProcess(
+            '/usr/bin/ffmpeg',
+            [
+              '-nostdin',
+              '-v',
+              'error',
+              '-f',
+              'lavfi',
+              '-i',
+              'anullsrc=r=16000:cl=mono',
+              '-t',
+              '10',
+              wav,
+            ],
+            { cwd: root, signal },
+          );
+          for (const withNotes of [false, true]) {
+            await reset();
+            if (withNotes) await publish();
+            for (let id = 100; id < 120; id++)
+              await store.enqueue(
+                { id: String(id), title: 'Quota test', teacher: 'Test' },
+                p,
+              );
+            await setFixture('usage_limit');
+            await assert.rejects(
+              runWorker(
+                store,
+                {
+                  ...config,
+                  concurrency: 5,
+                  notes: withNotes ? np : undefined,
+                  media: {
+                    resolveMedia: async () =>
+                      'https://download.yutorah.org/test.wav',
+                    downloadAudio: async (_url, destination) => {
+                      await copyFile(wav, destination);
+                    },
+                  },
+                },
+                AbortSignal.timeout(15000),
+              ),
+              { code: 'quota_exhausted' },
+            );
+            const rows = (
+              await pool.query(
+                "SELECT status,attempt FROM transcription_jobs WHERE status<>'completed'",
+              )
+            ).rows;
+            assert.equal(rows.length, 20);
+            assert.ok(rows.every((row) => row.status === 'queued'));
+            assert.ok(
+              rows.filter((row) => row.attempt > 0).length <= 5,
+              'exhausted quota must not drain the backlog',
+            );
+            if (withNotes)
+              assert.equal(
+                (await pool.query('SELECT status FROM notes_jobs')).rows[0]
+                  .status,
+                'queued',
+              );
+            assert.deepEqual(await readdir(runtime.scratch), []);
+          }
+        },
+      );
+      await t.test(
+        'model changes move only compatible untouched selected jobs',
+        async () => {
+          await reset();
+          const high = profile(
+            skill,
+            { ...defaultSettings, model: 'gemini-3.8-flash-high' },
+            runtimeIdentity(),
+          );
+          await select(3);
+          await scanSelections(store, high, signal, 2, async () => ({
+            total: 3,
+            docs: docs(),
+          }));
+          const started = await store.claim(true);
+          assert.ok(started);
+          await store.finishFailure(started, 'cancelled', true);
+          await store.enqueue(
+            { id: '999', title: 'Unselected', teacher: 'Other' },
+            high,
+          );
+          assert.equal(await store.reconfigureQueued(p, true), 2);
+          const rows = (
+            await pool.query('SELECT id,model FROM transcription_jobs')
+          ).rows;
+          assert.equal(
+            rows.find((row) => row.id === started.id).model,
+            high.settings.model,
+          );
+          assert.equal(
+            rows.filter((row) => row.model === defaultSettings.model).length,
+            2,
+          );
+          assert.equal(await store.reconfigureQueued(p, true), 0);
+        },
+      );
+      await t.test(
+        'model and pipeline changes never silently regenerate existing notes',
+        async () => {
+          await reset();
+          await publish();
+          await notes.enqueueMissing(legacyNp);
+          await notes.enqueueMissing(np);
+          await notes.enqueueMissing(
+            notesProfile({
+              model: 'gemini-3.8-flash-high',
+              language: np.language,
+              runtime: np.runtime,
+              transcriptionSkill: skill,
+              notesSkill,
+            }),
+          );
+          assert.equal(
+            (await pool.query('SELECT count(*)::int AS n FROM notes_jobs'))
+              .rows[0].n,
+            1,
+          );
+          const job = await notes.claim();
+          assert.ok(job);
+          await notes.complete(job, validNotes);
+          await notes.enqueueMissing(np);
+          assert.equal(
+            (await pool.query('SELECT count(*)::int AS n FROM notes_jobs'))
+              .rows[0].n,
+            1,
+          );
+        },
+      );
       await t.test(
         'empty and paused selections never scan the entire archive; budgets resume within a page',
         async () => {
@@ -628,10 +838,7 @@ void test(
                 'five separate recordings/notes must reach ACP before any request finishes',
               );
               assert.equal(prompts.filter((e) => e.kind === 'audio').length, 4);
-              assert.equal(
-                prompts.filter((e) => e.kind === 'cleanup').length,
-                1,
-              );
+              assert.equal(prompts.filter((e) => e.kind === 'notes').length, 1);
               assert.equal(new Set(prompts.map((e) => e.workspace)).size, 5);
               if (finish === 'complete') {
                 await writeFile(marker + '.release', 'ready');
@@ -721,8 +928,8 @@ void test(
         async () => {
           await reset();
           await publish();
-          await notes.enqueueMissing(np);
-          await notes.enqueueMissing(np);
+          await notes.enqueueMissing(legacyNp);
+          await notes.enqueueMissing(legacyNp);
           assert.equal(
             (await pool.query('SELECT count(*)::int AS n FROM notes_jobs'))
               .rows[0].n,
@@ -803,7 +1010,7 @@ void test(
         async () => {
           await reset();
           await publish();
-          await notes.enqueueMissing(np);
+          await notes.enqueueMissing(legacyNp);
           const job = await notes.claim();
           assert.ok(job);
           const marker = join(root, 'retry.log');

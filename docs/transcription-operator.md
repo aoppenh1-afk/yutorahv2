@@ -20,6 +20,7 @@ main's typo and partial-word matching.
 
    Then open `http://127.0.0.1:8766` on your laptop. The collaborative preview can
    also use environment port 8766 when its connection to this VM supports it.
+
 2. The workspace opens directly. There is no operator password or login form;
    access uses your VM session or the SSH tunnel.
 3. Click **Connect Google**. The GUI pauses its worker first and shows a callback
@@ -28,8 +29,10 @@ main's typo and partial-word matching.
    the callback tunnel afterward. **Check saved sign-in** checks credentials
    without opening a new login flow.
 4. Select a model advertised by your account and save settings. Automatic notes
-   are enabled initially; you can disable them. The model and both complete skill
-   contracts are pinned when their respective jobs are queued.
+   are enabled initially; you can disable them. New installations default to
+   **Gemini 3.8 Flash medium**. Saving a different model moves compatible,
+   untouched selected jobs to that model. Started jobs keep their pinned model,
+   complete skill contracts, and reusable checkpoints.
 5. Search the teacher or series directory. A series can optionally be restricted
    to a specific teacher. Set a **total recording budget** (default 10). This is
    a cap on imported jobs for that selection, rather than 10 more every poll.
@@ -49,6 +52,41 @@ main's typo and partial-word matching.
    a real short recording for coverage, Hebrew/Aramaic spelling, and timestamps,
    then test a longer recording and a service restart. Retry a failed transcript
    or failed notes separately using its corresponding action.
+
+## Reducing usage
+
+Antigravity's five-hour allowance is a quota reset interval, not five hours of
+audio transcription. Google says quota consumption correlates with the work done
+by the agent; audio input, transcript output, reasoning, and notes all add work.
+See [Google's quota explanation](https://antigravity.google/docs/plans) and
+[Gemini's thinking controls](https://ai.google.dev/gemini-api/docs/thinking).
+Medium reduces reasoning effort; the actual savings and transcript quality need
+to be checked on representative shiurim after your quota resets.
+
+New notes jobs outline the complete native transcript directly using the full
+Lectern notes contract. A short, single-chunk shiur normally needs **two model
+requests** with notes enabled: transcription and notes, down from three. A notes
+repair can add one request. Previously queued notes retain their original cleanup
+workflow. Changing models or upgrading the notes pipeline does not automatically
+regenerate notes that already have a job; failed notes remain available for retry.
+Disabling automatic notes reduces new short-shiur work to one request.
+
+When Antigravity returns its `Usage Limit Reached` notice or a quota/rate-limit
+error, the worker stops every lane and requeues interrupted work. It resumes
+automatically **5 hours and 1 minute after detection**. The operator shows the
+scheduled time and saves it in PostgreSQL, so a service or VM restart preserves
+the original deadline. Changing model or notes settings during the wait also
+preserves that deadline. **Pause queue** cancels automatic resume; **Start queue**
+can resume immediately. If the provider is still exhausted on retry, the next
+5-hour-1-minute wait starts from that new detection. A started job keeps its model
+and saved chunks when it resumes.
+
+Worker logs include one `model_request` event per model call, with model, stage,
+audio duration/bytes, input/output text bytes, elapsed time, reasoning byte/chunk
+counts, and a safe failure code. These counts describe work rather than billed
+tokens or remaining provider quota. No audio, transcript text, or reasoning text
+is logged. Use the provider's usage panel to compare quota before and after a
+small batch; reducing concurrency changes pacing rather than total work.
 
 The suggested teacher is **Rabbi Aryeh Lebowitz (80714)**; YUTorah has a second,
 smaller **Rabbi Aryeh Leibowitz (81310)** entry. **Ten Minute Halacha (4233)**
@@ -82,13 +120,13 @@ copies the compiled code, static GUI, skills, and migrations into
 Node binary into its `bin/` directory. It creates dedicated Unix/PostgreSQL
 accounts, applies migrations, and sets the read-only role's grants.
 
-| Location | Purpose |
-| --- | --- |
-| `/opt/yutorah-operator` | Installed source-independent application |
-| `/opt/antigravity-acp/1.2.1` | Verified Google runtime pair |
-| `/etc/yutorah-operator.env` | Database/runtime settings |
-| `/etc/yutorah-search.env` | Read-only database settings and website token |
-| `/var/lib/yutorah-worker/profile` | Private Google credentials |
+| Location                          | Purpose                                        |
+| --------------------------------- | ---------------------------------------------- |
+| `/opt/yutorah-operator`           | Installed source-independent application       |
+| `/opt/antigravity-acp/1.2.1`      | Verified Google runtime pair                   |
+| `/etc/yutorah-operator.env`       | Database/runtime settings                      |
+| `/etc/yutorah-search.env`         | Read-only database settings and website token  |
+| `/var/lib/yutorah-worker/profile` | Private Google credentials                     |
 | `/var/lib/yutorah-worker/scratch` | Disposable in-flight audio/runtime directories |
 
 On a systemd VM, the installer starts **yutorah-operator** and
