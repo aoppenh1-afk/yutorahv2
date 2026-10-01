@@ -109,4 +109,6 @@ npm run test:live
 
 ## Publishing
 
+The Vercel project uses `vercel.json` and `npm run build:vercel` to generate Nitro server functions and static assets. Configure `CLOUDFLARE_ACCOUNT_ID`, `SEARCH_D1_DATABASE_ID`, and the secret `SEARCH_D1_API_TOKEN` in its Production and Preview environments. The token needs D1 Write permission for the database's Cloudflare account. Create a D1 database and apply both SQL migrations in `drizzle/` before deployment. Metadata search uses this database through Cloudflare's server-side API; local development keeps its native D1 binding. Verify the deployed homepage, assets, and `/api/search` after publishing.
+
 Sites is configured in `.openai/hosting.json`. Reuse that exact project ID. Push the exact source commit, save its built version, privately deploy it, and repeat the live checks against the returned deployment URL. Do not create a duplicate Site.

@@ -23,7 +23,7 @@ const snapshot = {
   ],
 };
 
-test('local HTTP control preserves scope and distinguishes notes actions', async () => {
+void test('local HTTP control preserves scope and distinguishes notes actions', async () => {
   const requests = [];
   const server = createServer(async (req, res) => {
     let body = '';
@@ -92,7 +92,7 @@ test('local HTTP control preserves scope and distinguishes notes actions', async
   }
 });
 
-test('invalid controls fail before queue mutations', async () => {
+void test('invalid controls fail before queue mutations', async () => {
   const writes = [];
   const request = async (path, data) => {
     if (data !== undefined) writes.push({ path, data });
@@ -116,7 +116,7 @@ test('invalid controls fail before queue mutations', async () => {
   assert.deepEqual(writes, []);
 });
 
-test('HTTP errors surface a non-success result', async () => {
+void test('HTTP errors surface a non-success result', async () => {
   const server = createServer((req, res) => {
     req.resume();
     res.writeHead(503, { 'Content-Type': 'application/json' });

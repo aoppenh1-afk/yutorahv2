@@ -2,6 +2,7 @@ import { sites } from '@openai/sites-vite-plugin';
 import tailwindcss from '@tailwindcss/postcss';
 import vinext from 'vinext';
 import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
 import hostingConfig from './.openai/hosting.json';
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
@@ -35,6 +36,36 @@ const localBindingConfig = {
 };
 
 export default defineConfig(async () => {
+  if (process.env.VERCEL || process.env.DEPLOY_TARGET === 'vercel') {
+    const { nitro } = await import('nitro/vite');
+    return {
+      css: { postcss: { plugins: [tailwindcss()] } },
+      resolve: {
+        alias: {
+          // Resolve stylesheet packages explicitly for the RSC build resolver.
+          tailwindcss: fileURLToPath(
+            import.meta.resolve('tailwindcss/index.css'),
+          ),
+          'tw-animate-css': fileURLToPath(
+            new URL(
+              './node_modules/tw-animate-css/dist/tw-animate.css',
+              import.meta.url,
+            ),
+          ),
+          'shadcn/tailwind.css': fileURLToPath(
+            import.meta.resolve('shadcn/tailwind.css'),
+          ),
+          'cloudflare:workers': fileURLToPath(
+            new URL('./lib/vercel-bindings.ts', import.meta.url),
+          ),
+        },
+      },
+      plugins: [
+        vinext(),
+        nitro({ preset: process.env.NITRO_PRESET || 'vercel' }),
+      ],
+    };
+  }
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= 'false';

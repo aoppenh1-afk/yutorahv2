@@ -9,7 +9,7 @@ import {
   type Shiur,
 } from './yutorah';
 import type { SearchResponse } from './api-types';
-import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
+import type { SearchDatabase, SearchStatement } from './search-storage';
 import { relevanceScore, searchText } from './search-discovery';
 import {
   librarySearchQuery,
@@ -51,7 +51,7 @@ function sourceParams(plan: SearchPlan, query: string, page: number) {
 
 /** Bounded, resumable passes. A database transaction commits each pass with its cursor. */
 export async function completeSearch(
-  db: D1Database,
+  db: SearchDatabase,
   query: string,
   options: Partial<SearchPlan>,
   page = 1,
@@ -195,7 +195,7 @@ export async function completeSearch(
             ];
           });
         });
-        const statements: D1PreparedStatement[] = [];
+        const statements: SearchStatement[] = [];
         for (let i = 0; i < rows.length; i += 8) {
           const group = rows.slice(i, i + 8);
           statements.push(

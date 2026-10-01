@@ -44,4 +44,5 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run lint
       - run: npm run build
+      - run: npm run build:vercel
       - run: npm run test:pipeline
