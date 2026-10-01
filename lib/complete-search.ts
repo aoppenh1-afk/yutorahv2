@@ -28,6 +28,8 @@ type Run = {
 const pageSize = 30;
 const sorts: Record<string, string> = {
   relevance: 'rank DESC, id DESC',
+  popular:
+    "COALESCE(json_extract(payload, '$.views'), 0) DESC, rank DESC, id DESC",
   new: 'date DESC, id DESC',
   old: 'date ASC, id ASC',
   short: 'CASE WHEN duration = 0 THEN 1 ELSE 0 END, duration ASC, id DESC',

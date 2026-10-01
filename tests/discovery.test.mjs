@@ -17,7 +17,7 @@ async function load(path) {
 }
 const { rankTrending, getDiscovery, getRelatedCandidates } =
   await load('lib/discovery.ts');
-const { normalize } = await load('lib/yutorah.ts');
+const { normalize, selectHomeFeature } = await load('lib/yutorah.ts');
 const { relatedShiurim, recommend, defaultLearning } =
   await load('lib/learning.ts');
 const context = { ...defaultLearning, saved: [], history: [] };
@@ -41,6 +41,30 @@ const shiur = (id, values = {}) => ({
   format: 'mp3',
   materials: [],
   ...values,
+});
+
+void test('homepage feature chooses a playable rabbi recording in editorial order', () => {
+  const home = {
+    featured: [
+      shiur(1, { teacher: 'Morah Example' }),
+      shiur(2, { teacher: 'Rabbi Example', audio: '' }),
+      shiur(3, { teacher: 'Rabbi Featured' }),
+      shiur(4, { teacher: 'Rabbi Another' }),
+    ],
+    recent: [shiur(5, { teacher: 'Rabbi Recent' })],
+    daily: [shiur(6, { teacher: 'Rabbi Daily' })],
+  };
+  assert.equal(selectHomeFeature(home).id, 3);
+  assert.equal(
+    selectHomeFeature({ ...home, featured: home.featured.slice(0, 2) }).id,
+    5,
+  );
+  assert.equal(selectHomeFeature({ ...home, featured: [], recent: [] }).id, 6);
+  assert.equal(
+    selectHomeFeature({ ...home, featured: [], recent: [], daily: [] }),
+    undefined,
+  );
+  assert.equal(selectHomeFeature(null), undefined);
 });
 
 void test('popularity uses genuine view counts, deduplicates, and excludes absent or zero counts', () => {

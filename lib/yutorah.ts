@@ -53,6 +53,13 @@ export type HomeData = {
   fetchedAt: string;
 };
 export const ORIGIN = 'https://yutorah.org';
+/** Preserve editorial order, with a playable rabbi-led recording for the hero. */
+export function selectHomeFeature(home: HomeData | null): Shiur | undefined {
+  if (!home) return undefined;
+  return [...home.featured, ...home.recent, ...home.daily].find(
+    (s) => /^Rabbi\b/i.test(s.teacher) && mediaKind(s) === 'audio' && !!s.audio,
+  );
+}
 export function plain(value: unknown): string {
   return (
     typeof value === 'string'
