@@ -14,7 +14,7 @@
     "format": "oxfmt",
     "test:learning": "node --test tests/learning.test.mjs tests/discovery.test.mjs",
     "test:live": "node --test tests/live-api.test.mjs",
-    "test:search": "node tests/search.test.mjs && node --test tests/complete-search.test.mjs",
+    "test:search": "node tests/search.test.mjs && node --test tests/complete-search.test.mjs tests/d1-http.test.mjs",
     "test:pipeline": "node --test scripts/pipeline.test.mjs",
     "db:migrate:local": "wrangler d1 migrations apply DB --local --config wrangler.search.jsonc",
     "worker:build": "tsc -p tsconfig.worker.json",
@@ -22,7 +22,8 @@
     "test:worker": "tsx --test apps/worker/test/*.test.ts",
     "operator": "node .worker-build/apps/worker/src/cli.js serve-operator",
     "transcription": "node scripts/transcription-control.mjs",
-    "test:transcription-control": "node --test scripts/transcription-control.test.mjs"
+    "test:transcription-control": "node --test scripts/transcription-control.test.mjs",
+    "build:vercel": "DEPLOY_TARGET=vercel NITRO_PRESET=vercel vinext build"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
@@ -60,6 +61,7 @@
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "^0.31.10",
+    "nitro": "3.0.260903-beta",
     "oxfmt": "0.61.0",
     "oxlint": "1.76.0",
     "oxlint-tsgolint": "7.0.2001",
