@@ -1,5 +1,11 @@
 # Verification record
 
+## Password-free VM operator, 2026-09-30
+
+- Removed the operator key, login form, and session-cookie flow. The loopback GUI now opens directly using the VM session or SSH tunnel. Host, Origin, proxy-header, and mutation-header checks still restrict requests to the local application.
+- All 58 worker/PostgreSQL checks pass, including direct unauthenticated workspace access, absence of the login form, rejected cross-origin/proxy/DNS-rebinding requests, and canonical source selection. TypeScript, lint, worker build, GUI JavaScript and installer shell syntax pass.
+- Updated the installed VM application, removed its old operator key from the environment and private key file, and verified direct HTTP workspace access without cookies. The user's connected Google profile, selected Ten Minute Halacha batch, and enabled worker setting were preserved; the batch resumed after the service update.
+
 ## Scoped transcription operator and Lectern notes, 2026-09-30
 
 - Merged current main into the transcription branch, preserving the typo/partial-word search implementation and its migration 003. Added migration 004 for bounded teacher/series selections, operator settings, and independent notes jobs.

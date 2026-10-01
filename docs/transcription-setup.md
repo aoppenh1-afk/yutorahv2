@@ -63,9 +63,8 @@ Open an SSH tunnel from your laptop:
 ssh -N -L 8766:127.0.0.1:8766 USER@VM
 ```
 
-Open `http://127.0.0.1:8766`. Read `OPERATOR_TOKEN` privately from
-`/etc/yutorah-operator.env` using sudo and use it to sign in. Click **Connect
-Google**, run the separate callback tunnel the GUI displays, and open its exact
+Open `http://127.0.0.1:8766`; the workspace opens without a password.
+Click **Connect Google**, run the separate callback tunnel the GUI displays, and open its exact
 Google URL. After sign-in, stop that callback tunnel and select an advertised
 model. **Check saved sign-in** verifies persisted credentials without a login URL.
 

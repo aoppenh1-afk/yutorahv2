@@ -36,10 +36,6 @@ async function api(path, data) {
     body: data === undefined ? undefined : JSON.stringify(data),
   });
   const result = await response.json();
-  if (response.status === 401) {
-    el('workspace').hidden = true;
-    el('login').hidden = false;
-  }
   if (!response.ok) throw new Error(result.error || 'The operation failed.');
   return result;
 }
@@ -125,9 +121,7 @@ async function refresh() {
   refreshing = true;
   try {
     snapshot = await api('status');
-    el('login').hidden = true;
     el('workspace').hidden = false;
-    el('login-error').textContent = '';
     const r = snapshot.runtime;
     el('run-state').textContent = names[r.state] || r.state;
     el('start').disabled =
@@ -345,16 +339,6 @@ function content() {
         .join('\n\n');
   el('download-content').disabled = viewingNotes && !viewed.notes?.markdown;
 }
-el('login-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  try {
-    await api('session', { token: el('operator-key').value });
-    el('operator-key').value = '';
-    await refresh();
-  } catch (error) {
-    el('login-error').textContent = error.message;
-  }
-});
 el('connect').addEventListener('click', () =>
   act('auth', { interactive: true }),
 );

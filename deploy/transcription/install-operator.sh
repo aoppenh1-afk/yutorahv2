@@ -41,7 +41,6 @@ if [ ! -f /etc/yutorah-operator.env ]; then
   {
     printf 'DATABASE_URL=postgresql:///yutorah_transcription?host=/var/run/postgresql\nWORKER_STATE_DIR=/var/lib/yutorah-worker\nACP_RUNTIME_DIR=/opt/antigravity-acp/1.2.1\nACP_CONCURRENCY=1\nCATALOG_POLL_MS=300000\nOPERATOR_PORT=8766\n'
     printf 'TRANSCRIPTION_SKILL_PATH=%s/packages/transcription/skills/lectern-transcription/SKILL.md\nNOTES_SKILL_PATH=%s/packages/transcription/skills/lectern-notes/SKILL.md\n' "$operator_root" "$operator_root"
-    printf 'OPERATOR_TOKEN=%s\n' "$(openssl rand -hex 32)"
   } > /etc/yutorah-operator.env
   chown root:yutorah-worker /etc/yutorah-operator.env; chmod 0640 /etc/yutorah-operator.env
 fi
@@ -65,4 +64,4 @@ else
   bash "$operator_root/deploy/transcription/start-operator.sh" "$operator_root"
   echo 'This VM has no systemd. Background services are running; use start-operator.sh again after a VM restart.'
 fi
-printf 'Installed operator at http://127.0.0.1:8766 and read-only content at http://127.0.0.1:8765\nOperator key: /etc/yutorah-operator.env (read privately with sudo).\n'
+printf 'Installed password-free VM operator at http://127.0.0.1:8766 and read-only content at http://127.0.0.1:8765\n'

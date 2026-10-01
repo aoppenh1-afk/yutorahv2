@@ -159,7 +159,6 @@ async function main() {
     await serveOperator(
       db,
       operator,
-      process.env.OPERATOR_TOKEN ?? '',
       resolve('apps/worker/public'),
       Number(process.env.OPERATOR_PORT ?? 8766),
       controller.signal,
