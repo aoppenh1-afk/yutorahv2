@@ -48,6 +48,11 @@ void test('production transfer resumes committed batches and audits titles and s
     total: 2,
     keys: entries.length,
   };
+  await target
+    .prepare(
+      "INSERT INTO search_runs (id,fingerprint,plan,total,created) VALUES ('empty','empty','{}',0,1),('pending','pending','{}',300,1)",
+    )
+    .run();
   await transfer.transferTitles(target, manifest);
   await assert.rejects(
     transfer.transferTitles(target, { operation: 'finish' }),
@@ -88,6 +93,15 @@ void test('production transfer resumes committed batches and audits titles and s
   });
   assert.ok(completed.titles.completed);
   assert.equal(completed.keys.next, entries.length);
+  assert.equal(
+    await target.prepare("SELECT id FROM search_runs WHERE id='empty'").first(),
+    null,
+  );
+  assert.ok(
+    await target
+      .prepare("SELECT id FROM search_runs WHERE id='pending'")
+      .first(),
+  );
   assert.deepEqual(
     await index.titleVocabulary(target, 'vocabulray'),
     await index.titleVocabulary(source, 'vocabulray'),

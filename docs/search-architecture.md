@@ -70,7 +70,10 @@ copies an immutable, completed local snapshot over HTTPS. Set the secret
 `SITES_API_TOKEN` only in the operator environment for the private site's access
 gate. Titles rebuild document frequencies through the same database triggers;
 unique spelling keys are copied separately in bounded batches. Both phases
-checkpoint transactionally and safely retry committed batches. Completion checks
+checkpoint transactionally and safely retry committed batches. Only keys for active
+vocabulary are transferred. Completion expires finished query caches so requests
+can immediately use the imported vocabulary, while pending searches retain their
+original expansion. Completion checks
 title coverage and spelling-key coverage before marking the archive complete.
 Remove the Sites transfer secret and redeploy after verification; this disables
 `/api/search-index`. The endpoint accepts only these bounded archive operations.

@@ -102,6 +102,15 @@ export async function transferTitles(db: SearchDatabase, input: unknown) {
           "UPDATE search_title_imports SET completed=? WHERE name='archive-keys'",
         )
         .bind(completed),
+      ...(!status.titles.completed
+        ? [
+            db
+              .prepare(
+                'DELETE FROM search_runs WHERE (next-1)*30 >= total AND lease < ?',
+              )
+              .bind(completed),
+          ]
+        : []),
     ]);
     return transferStatus(db);
   }
