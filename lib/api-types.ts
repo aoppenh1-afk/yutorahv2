@@ -20,6 +20,7 @@ export type RawSeries = {
 };
 export type RawTopic = {
   ID: number;
+  subCategoryID?: number;
   name: string;
   categoryShortName: string;
   shiurCount: number;
@@ -54,7 +55,9 @@ export type RawShiur = {
   teacherid?: number;
   PHOTO?: string;
   shiurSubcategoriesObj?: RawTopic[];
+  shiurSubcategories?: number[];
   subcategoryname?: string[];
+  subcategoryid?: number[];
   categoryname?: string[];
   shiurLength?: string;
   duration?: number;
@@ -74,15 +77,23 @@ export type RawShiur = {
   shiurPlayerURL?: string;
   shiurURL?: string;
   shiurMaterials?: RawMaterial[];
+  shiurvisitsnum?: number;
+  shiurdownloadsnum?: number;
 };
 export type HomeResponse = {
   editorsPicks: RawShiur[];
   recentlyUploaded: RawShiur[];
+  recentlyViewed?: RawShiur[];
   dailyShiurim: RawShiur[];
   featuredSeries: RawSeries[];
   totalShiurCount: number;
   hebrewDateString: string;
-  timelyData: { dafStr: string; mishnaYomiStr: string; nachYomiStr: string };
+  timelyData: {
+    dafStr: string;
+    mishnaYomiStr: string;
+    nachYomiStr: string;
+    parshaStr?: string;
+  };
 };
 export type SearchResponse = {
   response: { docs: RawShiur[]; start: number; numFound: number };

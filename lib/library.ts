@@ -63,7 +63,9 @@ export function readLibrary(): LibraryState {
               v &&
               valid(v.shiur) &&
               Number.isFinite(v.seconds) &&
-              Number.isFinite(v.duration),
+              v.seconds >= 0 &&
+              Number.isFinite(v.duration) &&
+              v.duration >= 0,
           )
         : [],
       playlists: Array.isArray(value.playlists)
@@ -200,8 +202,7 @@ export function useAudio(
       !el ||
       !s ||
       boundTrack.current !== s.id ||
-      !Number.isFinite(el.duration) ||
-      el.currentTime < 0.1
+      !Number.isFinite(el.duration)
     )
       return;
     const p: Progress = {
@@ -231,12 +232,16 @@ export function useAudio(
         ? Math.max(0, resume.current)
         : 0;
       const old = lib.current.history.find((h) => h.shiur.id === s.id);
-      if (seconds === undefined && old && old.duration - old.seconds < 15)
-        resume.current = 0;
+      const restart =
+        seconds === undefined &&
+        old &&
+        old.duration > 0 &&
+        old.duration - old.seconds < 15;
+      if (restart) resume.current = 0;
       wantsPlay.current = true;
       setLoading(true);
       if (activeRef.current?.id === s.id && audio.current) {
-        if (seconds !== undefined || audio.current.ended)
+        if (seconds !== undefined || audio.current.ended || restart)
           audio.current.currentTime = Math.min(
             resume.current || 0,
             Number.isFinite(audio.current.duration)
@@ -255,7 +260,19 @@ export function useAudio(
       setTime(resume.current || 0);
       setDuration(s.duration);
       setActive(s);
-      update((old) => ({ ...old, last: s }));
+      update((old) => ({
+        ...old,
+        last: s,
+        history: [
+          {
+            shiur: s,
+            seconds: resume.current || 0,
+            duration: s.duration,
+            updatedAt: new Date().toISOString(),
+          },
+          ...old.history.filter((h) => h.shiur.id !== s.id),
+        ].slice(0, 200),
+      }));
     },
     [persist, update],
   );

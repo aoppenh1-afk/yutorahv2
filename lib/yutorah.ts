@@ -19,6 +19,9 @@ export type Shiur = {
   duration: number;
   date: string;
   topics: string[];
+  topicIds?: number[];
+  views?: number;
+  downloads?: number;
   category: string;
   language: string;
   series: string;
@@ -37,6 +40,7 @@ export type Series = {
 export type HomeData = {
   featured: Shiur[];
   recent: Shiur[];
+  recentlyViewed?: Shiur[];
   daily: Shiur[];
   series: Series[];
   total: number;
@@ -44,6 +48,7 @@ export type HomeData = {
   daf: string;
   nach: string;
   mishna: string;
+  parsha?: string;
   fetchedAt: string;
 };
 export const ORIGIN = 'https://yutorah.org';
@@ -94,12 +99,30 @@ export function normalize(raw: RawShiur): Shiur {
     audio: safeUrl(raw.downloadURL || raw.shiurFileURL || raw.shiurdownloadurl),
     url: `${ORIGIN}/lectures/details?shiurID=${id}`,
     duration: raw.duration ? Number(raw.duration) * 60 : Math.round(seconds),
-    date: String(raw.shiurDate ?? raw.shiurdate ?? ''),
+    date: String(raw.shiurDate ?? raw.shiurdate ?? '').replace(
+      /^(\d{4}-\d{2}-\d{2}T[\d:.]+)$/,
+      '$1Z',
+    ),
     topics: (
       raw.shiurSubcategoriesObj?.map((s) => s.name) ??
       raw.subcategoryname ??
       []
     ).map(plain),
+    topicIds: (
+      raw.shiurSubcategoriesObj?.map((s) => s.subCategoryID) ??
+      raw.shiurSubcategories ??
+      raw.subcategoryid ??
+      []
+    ).filter((id): id is number => Number.isSafeInteger(id) && Number(id) > 0),
+    views:
+      Number.isFinite(raw.shiurvisitsnum) && Number(raw.shiurvisitsnum) >= 0
+        ? Number(raw.shiurvisitsnum)
+        : undefined,
+    downloads:
+      Number.isFinite(raw.shiurdownloadsnum) &&
+      Number(raw.shiurdownloadsnum) >= 0
+        ? Number(raw.shiurdownloadsnum)
+        : undefined,
     category: plain(
       raw.shiurSubcategoriesObj?.[0]?.categoryShortName ??
         raw.categoryname?.[0],
@@ -145,6 +168,7 @@ export async function getHome(): Promise<HomeData> {
   return {
     featured: j.editorsPicks.map(normalize),
     recent: j.recentlyUploaded.map(normalize),
+    recentlyViewed: (j.recentlyViewed || []).map(normalize),
     daily: j.dailyShiurim.map(normalize),
     series: j.featuredSeries
       .filter((s) => s.numShiurim > 0)
@@ -160,6 +184,10 @@ export async function getHome(): Promise<HomeData> {
     daf: j.timelyData?.dafStr,
     nach: j.timelyData?.nachYomiStr,
     mishna: j.timelyData?.mishnaYomiStr,
+    parsha:
+      j.timelyData?.parshaStr && j.timelyData.parshaStr !== 'None'
+        ? j.timelyData.parshaStr
+        : undefined,
     fetchedAt: new Date().toISOString(),
   };
 }

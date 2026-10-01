@@ -42,6 +42,9 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
 - Search the upstream index across titles and indexed metadata, with teacher, topic, series, format, language, and duration filters.
 - Parse searches such as “teshuva by Rabbi Hershel Schachter under 30 minutes”; show the interpreted filters. Common question phrasing maps to disclosed topics or keywords.
 - Browse teachers, series, topics, editor selections, recent additions, and daily learning.
+- Resume unfinished learning directly from Discover, or revisit each recording's progress in Learning history.
+- Explore trending recordings ranked by real public view counts across the latest 180 uploads. The interface discloses the sample and uses lifetime views rather than claiming a rolling archive-wide chart.
+- Follow teachers, topics, and series; filter recommendations to a time budget. Related learning fetches additional recordings from the current shiur's series, topics, and teacher, with a reason for each recommendation.
 - Play recordings while navigating; seek, change speed and volume, manage the queue, set a sleep timer, and resume listening.
 - Save shiurim, create and edit playlists, and keep timestamped notes on this device. Removal actions support undo.
 - Open available videos and original source materials. Copy links to a shiur or a playback timestamp.
@@ -65,7 +68,7 @@ This is an independent interface. It does not replace the existing yutorah.org d
 
 ## Design references
 
-The layout uses persistent navigation, restrained YU blue, white space, serif editorial headings, and compact learning controls. The research included [Linear's interface refresh](https://linear.app/now/behind-the-latest-design-refresh) for navigation and hierarchy, and [Spotify's listening controls](https://newsroom.spotify.com/2025-09-05/new-user-controls-personalize-listening/) for filtering and player continuity. No emojis or generated decorative imagery are used.
+The September 2026 redesign uses a white sidebar, cobalt navigation, larger typography, a Jerusalem image, authentic teacher portraits in their original colors, and colorful collection covers. A floating player keeps playback controls available. Spotify's library patterns, Apple Music's shelves and expandable MiniPlayer, TorahAnytime's follows, and OU Torah's daily series informed the navigation and discovery flows. [Research, implementation choices, and the generated image prompt](docs/redesign.md) are documented together.
 
 ## Validation
 

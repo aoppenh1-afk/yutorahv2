@@ -1,8 +1,14 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Geist, Geist_Mono, Lora } from 'next/font/google';
 import './globals.css';
+import './redesign.css';
 const sans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 const mono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
+const editorial = Lora({
+  variable: '--font-editorial',
+  subsets: ['latin'],
+  display: 'swap',
+});
 export const metadata: Metadata = {
   title: 'YUTorah | A world of Torah, within reach',
   description:
@@ -16,7 +22,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${sans.variable} ${mono.variable}`}>{children}</body>
+      <body
+        className={`${sans.variable} ${mono.variable} ${editorial.variable}`}
+      >
+        {children}
+      </body>
     </html>
   );
 }

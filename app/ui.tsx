@@ -49,7 +49,7 @@ export function Avatar({
   className?: string;
 }) {
   const [bad, setBad] = useState(false);
-  return src && !bad && !src.includes('_default.') ? (
+  return src && !bad && !/_default\.|missingpicture/i.test(src) ? (
     <img
       className={'avatar ' + className}
       src={src}
@@ -124,7 +124,7 @@ export function SeriesCover({ name, id }: { name: string; id: number }) {
         {name}
       </span>
       <span className="cover-rule" />
-      <span className="cover-caption">LEARN. RETURN. GROW.</span>
+      <span className="cover-caption">THE YUTORAH LIBRARY</span>
     </span>
   );
 }
@@ -159,7 +159,13 @@ export function ShiurCard({
             s.title
           }
         >
+          <span className="art-imprint">YUTORAH</span>
           <Avatar src={s.image} name={s.teacher} />
+          <span className="art-subject" dir="auto">
+            {(s.topics[0] || s.category || s.series || 'Torah learning')
+              .split('/')[0]
+              .trim()}
+          </span>
           <span className="art-teacher">{s.teacher}</span>
           <span className="art-play">
             {active ? (
@@ -191,6 +197,7 @@ export function ShiurCard({
             )}
           </button>
         </h3>
+        <p className="card-teacher-name">{s.teacher}</p>
         <div className="card-bottom">
           <span>
             {kind === 'text' ? (
@@ -221,6 +228,15 @@ export function ShiurCard({
             ) : (
               <Play size={14} fill="currentColor" />
             )}
+            <span>
+              {kind === 'text'
+                ? 'Read'
+                : kind === 'video'
+                  ? 'Watch'
+                  : active
+                    ? 'Pause'
+                    : 'Play'}
+            </span>
           </button>
         </div>
       </div>
@@ -524,6 +540,7 @@ export function Player({
                 {library.volume ? <Volume2 size={18} /> : <VolumeX size={18} />}
               </button>
               <Slider
+                key={expanded ? 'expanded-volume' : 'compact-volume'}
                 aria-label="Volume"
                 min={0}
                 max={1}

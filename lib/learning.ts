@@ -159,6 +159,9 @@ export function mergeShiurim(items: Shiur[]) {
             series: s.series || previous.series,
             seriesId: s.seriesId || previous.seriesId,
             category: s.category || previous.category,
+            topicIds: s.topicIds?.length ? s.topicIds : previous.topicIds,
+            views: s.views ?? previous.views,
+            downloads: s.downloads ?? previous.downloads,
           }
         : s,
     );
@@ -166,6 +169,15 @@ export function mergeShiurim(items: Shiur[]) {
   return [...unique.values()];
 }
 export type Recommendation = { shiur: Shiur; reason: string; score: number };
+function sharesSpecificSeries(a: Shiur, b: Shiur) {
+  return (
+    a.seriesId > 0 &&
+    a.seriesId === b.seriesId &&
+    !/^(daily shiur|daily shiurim|miscellaneous|general shiurim)$/.test(
+      searchText(a.series || b.series),
+    )
+  );
+}
 export function recommend(
   items: Shiur[],
   library: LearningContext,
@@ -173,6 +185,7 @@ export function recommend(
     followingOnly?: boolean;
     minutes?: number;
     includeCompleted?: boolean;
+    now?: number;
   } = {},
 ): Recommendation[] {
   const recent = library.history.slice(0, 12).map((h) => h.shiur);
@@ -201,11 +214,12 @@ export function recommend(
           : `You follow ${followed.name}`;
     }
     const sameSeries = interests.find(
-      (i) => i.id !== s.id && i.seriesId > 0 && i.seriesId === s.seriesId,
+      (i) => i.id !== s.id && sharesSpecificSeries(i, s),
     );
     if (sameSeries) {
       score += 45;
-      if (!followed) reason = `More in ${sameSeries.series}`;
+      if (!followed)
+        reason = `More in ${sameSeries.series || s.series || 'this series'}`;
     }
     if (interests.some((i) => i.teacherId === s.teacherId)) {
       score += 20;
@@ -222,7 +236,7 @@ export function recommend(
     }
     const age = Math.max(
       0,
-      (Date.now() - (Date.parse(s.date) || 0)) / 86400000,
+      ((options.now ?? Date.now()) - (Date.parse(s.date) || 0)) / 86400000,
     );
     score += Math.max(0, 12 - age / 7);
     if (s.duration > 0 && s.duration <= library.dailyGoal * 60) score += 5;
@@ -249,14 +263,47 @@ export function relatedShiurim(
     items.filter((s) => s.id !== source.id),
     library,
   )
-    .map((item) => ({
-      ...item,
-      score:
-        (source.seriesId && item.shiur.seriesId === source.seriesId ? 100 : 0) +
-        (item.shiur.teacherId === source.teacherId ? 15 : 0) +
-        item.shiur.topics.filter((t) => source.topics.includes(t)).length * 20,
-    }))
+    .map((item) => {
+      const s = item.shiur;
+      const series = sharesSpecificSeries(source, s);
+      const topics = s.topics.filter((t) =>
+        source.topics.some((v) => searchText(v) === searchText(t)),
+      );
+      const topicIds = (s.topicIds || []).filter((id) =>
+        source.topicIds?.includes(id),
+      );
+      const topicCount = Math.max(topics.length, topicIds.length);
+      const topicName =
+        topics[0] ||
+        s.topics[(s.topicIds || []).indexOf(topicIds[0])] ||
+        'this topic';
+      const teacher = source.teacherId > 0 && s.teacherId === source.teacherId;
+      const category =
+        !!source.category &&
+        searchText(source.category) === searchText(s.category);
+      const short =
+        source.duration > 0 &&
+        source.duration <= 12 * 60 &&
+        s.duration > 0 &&
+        s.duration <= 12 * 60;
+      const score =
+        (series ? 120 : 0) +
+        Math.min(2, topicCount) * 45 +
+        (teacher ? 30 : 0) +
+        (category ? 10 : 0) +
+        (short && (series || topicCount || teacher || category) ? 25 : 0);
+      const reason = series
+        ? `More in ${source.series || s.series || 'this series'}`
+        : topicCount
+          ? `More on ${topicName}${short ? ', in 12 minutes or less' : ''}`
+          : teacher
+            ? `More from ${source.teacher}`
+            : category
+              ? `More ${source.category}${short ? ', in 12 minutes or less' : ''}`
+              : '';
+      return { ...item, reason, score };
+    })
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 4);
+    .slice(0, 8);
 }

@@ -1,5 +1,20 @@
 # Verification record
 
+## Media library redesign, 2026-09-30
+
+- TypeScript, authored-source lint, and the production build pass. All 23 learning/discovery tests, 24 search checks, and nine live API tests pass. The live suite completed in about six minutes, including full candidate scans for broad queries.
+- The built Cloudflare Worker runs locally on port 3002. Its homepage, home API, discovery API, and related API return successful responses. Discovery returned 180 sampled recordings with genuine view counts and no partial-data flag; the Ten Minute Halacha related endpoint returned 87 unique candidates, including 29 other recordings in that series.
+- The T3 collaborative browser was used for desktop interaction and screenshots. Responsive same-origin frames exercised actual 768px, 390px, and 320px CSS viewports. Document width matched each viewport after correcting a 4px overflow at 320px. Home, saved-library, history, queue, and expanded player layouts were inspected. This is not a substitute for testing physical devices or Safari.
+- A real CDN recording played and advanced normally. Pausing at 73.849541 seconds saved that exact position; a fresh page restored the same position without autoplay. The unfinished recording appeared in Continue learning, and History showed 1:13 listened.
+- Keyboard seeking to the beginning saved a zero-second position; a fresh History page restored 0:00. Saved items, the note, and the playlist also survived that reload.
+- Saving the recording placed it in Saved shiurim. Adding it to the queue updated the queue and badge. The expanded phone player exposed seeking in both directions, the next action, notes, speed, and queue. Selecting 1.5× set both the saved preference and the audio element's playback rate to 1.5.
+- A note entered through the detail page was saved at 73 seconds and displayed as 1:13. Creating “Evening learning” from the playlist dialog added the recording. Following Morah Stacey Goldman populated the Following view with eight of her recordings.
+- The live Ten Minute Halacha detail page showed five recommendations with an explicit “More in Ten Minute Halacha” reason. Numeric topics from the sparse detail API are covered by regression tests. A separate regression ensures that a generic Daily Shiur series cannot elevate unrelated topics.
+- The Trending page rendered 12 recordings in descending genuine-view order and exposed working duration filters. The source text describes lifetime views within recent uploads; it does not claim a rolling global chart. Counts are not synthesized when the public API omits them.
+- The final browser snapshot reported no console entries, failed requests, or visible error alerts during the Following check. The generated editorial image and live portraits loaded successfully in the inspected views.
+- The built Worker homepage was also inspected in the collaborative browser. Its fonts and editorial image loaded, with no console entries, failed requests, or error alerts.
+- Research, design decisions, the image asset, and its generation prompt are in [docs/redesign.md](docs/redesign.md). Earlier verification entries below describe previous revisions and their original dates.
+
 Date: 2026-09-07. Production Worker served locally through Wrangler on port 3001.
 
 ## Automated
@@ -60,3 +75,13 @@ Live content and media availability depend on YUTorah and its CDNs. This record 
 - Cloudflare binding types are imported explicitly, preventing new Workers global declarations from replacing Node Buffer types in the shared TypeScript check. Node test registrations explicitly discard their returned promises for type-aware lint.
 - [Oracle setup notes](docs/transcription-oracle.md) cover shape/OS identification, current documented A1 free allowances, Oracle ingress and the Ubuntu host firewall, DNS, authentication and commissioning. Service account creation explicitly creates the groups required by the unit and environment-file permissions.
 - Automated ACP tests use a fixture. Authenticated short/long transcription, token persistence/renewal, account quota and native ARM64 execution still require the operator's VM and Google account. The pinned Google archive could not be downloaded in this review environment because the TLS connection failed; the VM's `probe` remains required. This review does not deploy Oracle infrastructure or publish the existing managed website.
+
+## Visual uplift and learning verification, 2026-09-30
+
+- Brought the completed discovery redesign into the current branch while retaining the transcription pipeline changes. The shared avatar, card portrait, and daily teacher styles no longer apply grayscale filters.
+- Updated the interface with a white sidebar, cobalt navigation, larger headings and teacher portraits, mint/coral/blue/lilac covers, labeled play buttons, and a floating player. The homepage provides direct listening and topic browsing actions; the teacher directory and library share the same visual system.
+- Native browser checks confirmed loaded CDN portraits with `filter: none`, and no horizontal overflow at 320, 390, 768, 1024, and 1440 CSS pixels. Mobile checks used fixed-width, same-origin frames because the collaborative preview's viewport resize operation timed out.
+- Played actual recording 1190295 from the new hero action. Pausing saved 72.439241 seconds; reload restored that exact position without autoplay. Resume continued from the saved position. Bookmarks and teacher follows also survived reload. Browser test data used a separate origin and was cleared afterward.
+- Expanded mobile controls fit at 320 and 390 pixels and expose seeking, speed, notes, volume, and queue actions. Remounting the controlled volume slider when expanding fixes its measurement after initially being hidden. A browser interaction changed both the audio element and persisted volume to 0.5.
+- Live discovery returned 180 sampled recordings and genuine view counts in descending order. Related discovery for a Ten Minute Halacha recording returned 87 candidates, including 29 in the same series, with no partial failures.
+- All 40 deterministic learning, discovery, and search checks passed, as did TypeScript, lint, and the website build using the repository's pinned React 19.2.8 and Vite 8.0.16 dependencies. No deployment was performed.
