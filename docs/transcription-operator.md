@@ -1,5 +1,9 @@
 # Transcription operator
 
+For an installed Grok bot or other VM automation, use the
+[local transcription command](transcription-bot.md) to inspect and manage the
+same queue from its terminal.
+
 The VM hosts a private operator GUI on **127.0.0.1:8766** and a read-only
 transcript, notes, and search endpoint on **127.0.0.1:8765**. The public website
 keeps its existing hosting and metadata search. Its shiur reader now displays the

@@ -6,6 +6,9 @@ A responsive reading and listening interface connected to YUTorah's public libra
 
 Start with [the VM transcription operator](docs/transcription-operator.md) to select teachers or series, set recording budgets, connect Google, and run the queue. Completed shiurim have a timestamped transcript reader and automatic Lectern study notes.
 
+VM bots such as Grok can use [`yutorah-queue`](docs/transcription-bot.md)
+to add batches and manage that queue from the terminal.
+
 The Linux Antigravity transcription worker is described in
 [the first-deployment checklist](docs/transcription-setup.md),
 [the architecture report](docs/transcription-architecture.md) and

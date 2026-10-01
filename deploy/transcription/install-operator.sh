@@ -33,6 +33,7 @@ cp -a apps/worker/public "$operator_root/apps/worker/"
 cp package.json package-lock.json "$operator_root/"
 install -m 0755 "$operator_node" "$operator_root/bin/node"
 install -m 0755 deploy/transcription/start-operator.sh "$operator_root/deploy/transcription/"
+install -m 0755 scripts/transcription-control.mjs /usr/local/bin/yutorah-queue
 # Only JS runtime dependencies are used by the operator; build/native install hooks are unnecessary here.
 PATH="$(dirname "$operator_node"):$PATH" npm ci --prefix "$operator_root" --omit=dev --ignore-scripts --no-audit --no-fund
 chmod -R a+rX "$operator_root"
