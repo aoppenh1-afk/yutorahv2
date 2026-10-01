@@ -91,6 +91,22 @@ recording with `run --unscoped`; the default worker accepts selected jobs only.
 
 ## 5. Connect and publish the existing website
 
+For a short pilot, install Cloudflare's `cloudflared` binary at
+`/opt/yutorah-operator/bin/cloudflared`, start the existing content service, then
+run `sudo bash deploy/transcription/start-content-tunnel.sh`. It runs as the
+read-only service user and forwards only `127.0.0.1:8765`. The operator on port
+8766 stays private. Requests still require the read-service token.
+
+Use the returned HTTPS address as `TRANSCRIPT_API_URL` and store
+`TRANSCRIPT_API_TOKEN` as a **secret** on the existing Sites project. Publish the
+merged website while preserving its current audience. The pilot tunnel's PID,
+address, and log are in `/run/yutorah-content-tunnel.pid`,
+`/run/yutorah-content-tunnel-url`, and `/var/log/yutorah-content-tunnel.log`.
+Running the script again preserves an active tunnel. A VM or tunnel restart
+changes the address: update the website setting and redeploy a saved version.
+Quick tunnels are temporary; use a named tunnel or the DNS/TLS setup below for
+a permanent connection.
+
 Point a DNS name at the VM and put the read-only endpoint behind HTTPS. For
 example, add this to the VM's existing Caddy configuration:
 
