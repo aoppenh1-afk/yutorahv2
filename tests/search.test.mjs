@@ -52,7 +52,7 @@ const directory = {
   groups: ['Halacha'],
 };
 
-test('name suggestions tolerate missing letters while preserving exact matches first', () => {
+void test('name suggestions tolerate missing letters while preserving exact matches first', () => {
   assert.equal(suggestSearch('Hershel Schacter', directory)[0].id, 1);
   assert.equal(suggestSearch('Rav Hershel Schachter', directory)[0].id, 1);
   assert.equal(suggestSearch('Shay Schachter', directory)[0].id, 2);
@@ -62,7 +62,7 @@ test('name suggestions tolerate missing letters while preserving exact matches f
   );
 });
 
-test('teacher, topic and series suggestions preserve their entity types', () => {
+void test('teacher, topic and series suggestions preserve their entity types', () => {
   assert.equal(suggestSearch('Shabbat', directory)[0].kind, 'topic');
   assert.equal(suggestSearch('Daf Yomi', directory)[0].kind, 'series');
   assert.equal(
@@ -72,7 +72,7 @@ test('teacher, topic and series suggestions preserve their entity types', () => 
   );
 });
 
-test('ambiguous surnames never silently select a teacher', () => {
+void test('ambiguous surnames never silently select a teacher', () => {
   assert.equal(
     parseSearch('teshuva by Rav Schachter', {}, directory).teacherId,
     0,
@@ -96,7 +96,7 @@ test('ambiguous surnames never silently select a teacher', () => {
   );
 });
 
-test('ordinary duration, media, and Hebrew topic phrasing produces disclosed filters', () => {
+void test('ordinary duration, media, and Hebrew topic phrasing produces disclosed filters', () => {
   const plan = parseSearch('20-minute shiur on Shabbat', {}, directory);
   assert.equal(plan.max, 20);
   assert.equal(plan.term, 'Shabbat');
@@ -109,7 +109,7 @@ test('ordinary duration, media, and Hebrew topic phrasing produces disclosed fil
   assert.ok(hebrew.labels.includes('תשובה → teshuva'));
 });
 
-test('text normalization and highlighting preserve safe visible text', () => {
+void test('text normalization and highlighting preserve safe visible text', () => {
   assert.equal(searchText('תְּפִלָּה'), searchText('תפלה'));
   assert.equal(searchText('  Hershel   Schachter  '), 'hershel schachter');
   const original = 'A <script> teshuva & tefillah';
@@ -121,7 +121,7 @@ test('text normalization and highlighting preserve safe visible text', () => {
   );
 });
 
-test('direct title matches rank ahead of incidental description matches', () => {
+void test('direct title matches rank ahead of incidental description matches', () => {
   const base = { topics: [], series: '', teacher: '', description: '' };
   assert.ok(
     relevanceScore({ ...base, title: 'Rambam Hilchos Teshuva' }, 'teshuva') >
@@ -144,7 +144,7 @@ test('direct title matches rank ahead of incidental description matches', () => 
   assert.ok(excerpt.length <= 232);
 });
 
-test('quoted phrases and excluded words become persistent filters', () => {
+void test('quoted phrases and excluded words become persistent filters', () => {
   const plan = parseSearch('"hilchos teshuva" -parsha -introduction');
   assert.equal(plan.phrase, 'hilchos teshuva');
   assert.equal(plan.exclude, 'parsha introduction');
@@ -167,7 +167,7 @@ const shiur = {
   audio: '',
 };
 
-test('advanced filters combine and date endpoints include the whole day', () => {
+void test('advanced filters combine and date endpoints include the whole day', () => {
   const plan = parseSearch('', {
     min: 20,
     max: 30,
@@ -192,7 +192,7 @@ test('advanced filters combine and date endpoints include the whole day', () => 
   }
 });
 
-test('phrase and exclusion filters use normalized whole words', () => {
+void test('phrase and exclusion filters use normalized whole words', () => {
   assert.equal(
     matchesPlan(shiur, parseSearch('', { phrase: 'HILCHOS, TESHUVA' })),
     true,
@@ -208,7 +208,7 @@ test('phrase and exclusion filters use normalized whole words', () => {
   );
 });
 
-test('title scope excludes incidental description matches', () => {
+void test('title scope excludes incidental description matches', () => {
   assert.equal(
     matchesPlan(shiur, parseSearch('discussion', { scope: 'title' })),
     false,
@@ -230,7 +230,7 @@ test('title scope excludes incidental description matches', () => {
   );
 });
 
-test('natural searching understands time budgets, ranges and ordering', () => {
+void test('natural searching understands time budgets, ranges and ordering', () => {
   let plan = parseSearch(
     'Show me the newest shiurim on teshuva under thirty minutes',
   );
@@ -255,7 +255,7 @@ test('natural searching understands time budgets, ranges and ordering', () => {
   assert.equal(plan.sort, 'short');
 });
 
-test('natural questions keep their specific subject instead of collapsing to a broad topic', () => {
+void test('natural questions keep their specific subject instead of collapsing to a broad topic', () => {
   const plan = parseSearch('How do I pray on Shabbat?');
   assert.match(plan.term, /tefillah/);
   assert.match(plan.term, /Shabbat/);
@@ -263,7 +263,7 @@ test('natural questions keep their specific subject instead of collapsing to a b
   assert.equal(parseSearch('"what is prayer"').phrase, 'what is prayer');
 });
 
-test('relative dates are deterministic and explicit filters win', async () => {
+void test('relative dates are deterministic and explicit filters win', async () => {
   const { naturalSearch } = await load('lib/natural-search.ts');
   const parsed = naturalSearch(
     'Find me shiurim on teshuva from last year',
@@ -278,7 +278,7 @@ test('relative dates are deterministic and explicit filters win', async () => {
   );
 });
 
-test('submitted teacher names support typos and incomplete words without guessing ambiguous surnames', () => {
+void test('submitted teacher names support typos and incomplete words without guessing ambiguous surnames', () => {
   const plan = parseSearch(
     'teshvu by Rabbi Hershl Schact under 30 minutes',
     {},
@@ -303,7 +303,7 @@ test('submitted teacher names support typos and incomplete words without guessin
   );
 });
 
-test('suggestions combine typos with partial words and transliteration aliases', () => {
+void test('suggestions combine typos with partial words and transliteration aliases', () => {
   assert.equal(suggestSearch('Hershl Schact', directory)[0].id, 1);
   assert.equal(suggestSearch('Hreshel Schachter', directory)[0].id, 1);
   assert.equal(suggestSearch('shabos', directory)[0].id, 10);
@@ -313,7 +313,7 @@ test('suggestions combine typos with partial words and transliteration aliases',
   assert.equal(series.term, '');
 });
 
-test('misspelled conversational subjects and filter words become useful, disclosed queries', () => {
+void test('misspelled conversational subjects and filter words become useful, disclosed queries', () => {
   const plan = parseSearch(
     'Plase show me shuirim about pryaer on Shabos undr thirty minuts',
     {},
@@ -328,7 +328,7 @@ test('misspelled conversational subjects and filter words become useful, disclos
   assert.equal(parseSearch('"pryaer on Shabos"').phrase, 'pryaer on Shabos');
 });
 
-test('fuzzy title matching, highlighting and excerpts use the same normalized words', () => {
+void test('fuzzy title matching, highlighting and excerpts use the same normalized words', () => {
   assert.equal(
     matchesPlan(shiur, parseSearch('rambm tesh', { scope: 'title' })),
     true,
@@ -360,7 +360,7 @@ test('fuzzy title matching, highlighting and excerpts use the same normalized wo
   );
 });
 
-test('relevance rewards literal title matches over fuzzy and incidental matches', () => {
+void test('relevance rewards literal title matches over fuzzy and incidental matches', () => {
   const base = { topics: [], series: '', teacher: '', description: '' };
   const exact = relevanceScore({ ...base, title: 'Prayer' }, 'prayer');
   const fuzzy = relevanceScore({ ...base, title: 'Prayers' }, 'prayer');
@@ -381,7 +381,7 @@ test('relevance rewards literal title matches over fuzzy and incidental matches'
 
 const { librarySearchQuery, searchVocabulary, wordMatch, typoBudget } =
   await load('lib/search-matching.ts');
-test('retrieval compiles bounded typo/prefix clauses, keeps all subjects, and never forwards query syntax', () => {
+void test('retrieval compiles bounded typo/prefix clauses, keeps all subjects, and never forwards query syntax', () => {
   const query = librarySearchQuery(
     'Schact rambm',
     searchVocabulary(['Hershel Schachter', 'Rambam']),

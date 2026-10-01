@@ -76,7 +76,7 @@ test.after(() => {
   globalThis.fetch = realFetch;
 });
 
-test('a match on the last upstream page ranks first; complete totals and pagination cover every candidate', async () => {
+void test('a match on the last upstream page ranks first; complete totals and pagination cover every candidate', async () => {
   const db = database();
   let result = await completeSearch(db, 'teshuva', { language: 'EN' });
   assert.equal(result.complete, false);
@@ -131,7 +131,7 @@ test('a match on the last upstream page ranks first; complete totals and paginat
   assert.equal(new Set(ids).size, 91);
 });
 
-test('a failed upstream page does not advance the cursor and retry finishes the same run', async () => {
+void test('a failed upstream page does not advance the cursor and retry finishes the same run', async () => {
   const db = database();
   failPage = 5;
   const first = await completeSearch(db, 'retry-test', {});
@@ -141,7 +141,7 @@ test('a failed upstream page does not advance the cursor and retry finishes the 
   assert.equal(retry.scanned, 181);
 });
 
-test('an exhausted search with no matching records reports exact zero', async () => {
+void test('an exhausted search with no matching records reports exact zero', async () => {
   const db = database();
   let result = await completeSearch(db, 'empty-test', {
     phrase: 'nonexistent',
@@ -159,7 +159,7 @@ test('an exhausted search with no matching records reports exact zero', async ()
   assert.deepEqual(result.items, []);
 });
 
-test('cached refinements enforce phrase, exclusion, title scope and date bounds with bound values', async () => {
+void test('cached refinements enforce phrase, exclusion, title scope and date bounds with bound values', async () => {
   const db = database();
   let ready = await completeSearch(db, 'refinement-test', {});
   while (!ready.complete)
@@ -189,7 +189,7 @@ test('cached refinements enforce phrase, exclusion, title scope and date bounds 
   assert.equal(injection.total, 0);
 });
 
-test('submitted partial misspellings retrieve real candidates and retain fuzzy title refinements across every page', async () => {
+void test('submitted partial misspellings retrieve real candidates and retain fuzzy title refinements across every page', async () => {
   // An isolated module has its own upstream cache, like a fresh worker isolate.
   const { completeSearch: smartSearch } = await import(
     'data:text/javascript;base64,' +

@@ -38,7 +38,16 @@ import {
   downloadAudio,
   resolveMedia,
 } from '../../../packages/yutorah-core/src/media.js';
-import { pollCatalog } from './catalog.js';
+import { pollSelections } from './selections.js';
+import {
+  NotesStore,
+  type NotesJob,
+} from '../../../packages/transcription/src/notes-store.js';
+import {
+  generateNotes,
+  notesProfile,
+  type NotesProfile,
+} from '../../../packages/transcription/src/notes.js';
 
 export type WorkerConfig = {
   runtime: RuntimeConfig;
@@ -46,6 +55,13 @@ export type WorkerConfig = {
   pollMs: number;
   model?: string;
   catalog?: { profile: Profile; intervalMs: number; deepIntervalMs: number };
+  selectedOnly?: boolean;
+  notes?: NotesProfile;
+  onReady?: (models: string[]) => void;
+  media?: {
+    resolveMedia: typeof resolveMedia;
+    downloadAudio: typeof downloadAudio;
+  };
 };
 export type Diagnostic = {
   event: string;
@@ -57,6 +73,7 @@ export type Diagnostic = {
   pages?: number;
   audio?: number;
   nextPage?: number;
+  accepted?: number;
 };
 export const log = (event: Diagnostic) =>
   process.stdout.write(JSON.stringify(event) + '\n');
@@ -69,7 +86,8 @@ export async function processJob(
   config: WorkerConfig,
   pool: SessionPool,
   signal: AbortSignal,
-  diagnostic = log,
+  diagnostic: (event: Diagnostic) => void = log,
+  media = { resolveMedia, downloadAudio },
 ): Promise<void> {
   if (
     digest(job.skill_text) !== job.skill_hash ||
@@ -81,8 +99,8 @@ export async function processJob(
   const source = join(root, 'source.audio');
   try {
     await store.stage(job, 'downloading');
-    const url = await resolveMedia(job.shiur_id, job.source_url, signal);
-    await downloadAudio(url, source, signal);
+    const url = await media.resolveMedia(job.shiur_id, job.source_url, signal);
+    await media.downloadAudio(url, source, signal);
     await store.stage(job, 'preparing');
     const info = await inspectAudio(source, signal);
     const audioHash = await hashFile(source, signal);
@@ -165,9 +183,12 @@ export async function processJob(
 }
 
 /** Heartbeat failure cancels owned work; losing a lease can never publish a transcript. */
-export async function runLeasedJob(
-  store: TranscriptionStore,
-  job: Job,
+export async function runLeasedJob<T>(
+  store: {
+    heartbeat: (job: T) => Promise<void>;
+    finishFailure: (job: T, code: string, shutdown: boolean) => Promise<void>;
+  },
+  job: T,
   signal: AbortSignal,
   work: (signal: AbortSignal) => Promise<void>,
   heartbeatMs = 20_000,
@@ -205,6 +226,38 @@ export async function runLeasedJob(
   }
 }
 
+export async function processNotesJob(
+  store: NotesStore,
+  job: NotesJob,
+  config: WorkerConfig,
+  signal: AbortSignal,
+) {
+  const p = notesProfile({
+    model: job.model,
+    language: job.language,
+    runtime: job.runtime,
+    transcriptionSkill: job.transcription_skill,
+    notesSkill: job.notes_skill,
+  });
+  if (p.id !== job.version_id || p.runtime !== runtimeIdentity())
+    throw new Failure('configuration');
+  const result = await generateNotes({
+    profile: p,
+    source: job.source,
+    cleaned: job.cleaned_text,
+    signal,
+    saveCleaned: (text) => store.saveCleaned(job, text),
+    request: (prompt) =>
+      withRuntime(config.runtime, signal, async (client, workspace) => {
+        await client.authenticate();
+        await client.session(workspace, job.model);
+        return client.textPrompt(prompt);
+      }),
+  });
+  await store.complete(job, result.markdown);
+  log({ event: 'notes_completed', job: job.id });
+}
+
 export async function runWorker(
   store: TranscriptionStore,
   config: WorkerConfig,
@@ -232,24 +285,51 @@ export async function runWorker(
         await rm(join(config.runtime.scratch, entry.name), { recursive: true });
     }
     const pool = new SessionPool(config.concurrency);
-    await withRuntime(config.runtime, combined, async (client, workspace) => {
-      await client.authenticate();
-      await client.session(workspace, config.model);
-    });
+    const models = await withRuntime(
+      config.runtime,
+      combined,
+      async (client, workspace) => {
+        await client.authenticate();
+        return client.session(workspace, config.model);
+      },
+    );
+    config.onReady?.(models);
     if (config.catalog) {
-      catalogTask = pollCatalog(
+      catalogTask = pollSelections(
         store,
         config.catalog.profile,
         AbortSignal.any([combined, catalogStop.signal]),
         config.catalog.intervalMs,
         log,
-        config.catalog.deepIntervalMs,
       );
     }
     while (!combined.aborted) {
       // A broken leadership connection cannot admit more jobs.
       await leader.query('SELECT 1');
-      const job = await store.claim();
+      if (config.notes) {
+        const notesStore = new NotesStore(store.pool);
+        await notesStore.enqueueMissing(config.notes, config.selectedOnly);
+        const notesJob = await notesStore.claim(config.selectedOnly);
+        if (notesJob) {
+          try {
+            await runLeasedJob(notesStore, notesJob, combined, (s) =>
+              processNotesJob(notesStore, notesJob, config, s),
+            );
+          } catch (error) {
+            const e = failure(error);
+            log({ event: 'notes_failed', job: notesJob.id, code: e.code });
+            if (
+              ['auth_required', 'configuration', 'lease_lost'].includes(
+                e.code,
+              ) &&
+              !signal.aborted
+            )
+              throw e;
+          }
+          continue;
+        }
+      }
+      const job = await store.claim(config.selectedOnly);
       if (!job) {
         await delay(config.pollMs, undefined, { signal: combined });
         continue;
@@ -257,7 +337,7 @@ export async function runWorker(
       log({ event: 'claimed', job: job.id, attempt: job.attempt });
       try {
         await runLeasedJob(store, job, combined, (s) =>
-          processJob(store, job, config, pool, s),
+          processJob(store, job, config, pool, s, log, config.media),
         );
       } catch (error) {
         const e = failure(error);

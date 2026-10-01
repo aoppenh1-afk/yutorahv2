@@ -12,6 +12,7 @@ import {
   History,
   Lightbulb,
   Loader2,
+  Pause,
   Play,
   Plus,
   RefreshCw,
@@ -485,6 +486,7 @@ export function LearningHome(props: Props) {
         </div>
         <button
           className="outline-button discover-preferences"
+          aria-label="Customize learning preferences"
           onClick={() => setPreferences(true)}
         >
           <Settings2 size={16} />
@@ -564,21 +566,44 @@ export function LearningHome(props: Props) {
                 THE YUTORAH LIBRARY
               </span>
               <h2>
-                A world of Torah.
+                Torah for life.
                 <br />
-                <em>A moment for you.</em>
+                <em>Time for you.</em>
               </h2>
               <p>
-                Find a shiur for the time you have.
+                A familiar voice. A fresh perspective.
                 <br />
-                Take something meaningful into your day.
+                Your next great shiur is waiting.
               </p>
-              <button
-                className="hero-action"
-                onClick={() => onNavigate('topics')}
-              >
-                Explore your interests <ArrowRight size={17} />
-              </button>
+              <div className="hero-actions">
+                {pick && (
+                  <button
+                    className="hero-action hero-action-primary"
+                    onClick={() =>
+                      mediaKind(pick) === 'audio'
+                        ? onPlay(pick)
+                        : onDetails(pick)
+                    }
+                  >
+                    {activeId === pick.id && playing ? (
+                      <Pause size={17} fill="currentColor" />
+                    ) : (
+                      <Play size={17} fill="currentColor" />
+                    )}
+                    {activeId === pick.id && playing
+                      ? 'Pause shiur'
+                      : mediaKind(pick) === 'audio'
+                        ? 'Start listening'
+                        : 'Open shiur'}
+                  </button>
+                )}
+                <button
+                  className="hero-action"
+                  onClick={() => onNavigate('topics')}
+                >
+                  Browse topics <ArrowRight size={17} />
+                </button>
+              </div>
             </div>
             <span className="hero-library-size">
               {home ? Math.floor(home.total / 1000) + 'k+' : ''}
@@ -596,8 +621,24 @@ export function LearningHome(props: Props) {
                     {pick.teacher} · {Math.round(pick.duration / 60)} min
                   </p>
                 </div>
-                <button className="hero-listen" onClick={() => onPlay(pick)}>
-                  <Play size={15} fill="currentColor" />
+                <button
+                  className="hero-listen"
+                  aria-label={
+                    (activeId === pick.id && playing
+                      ? 'Pause '
+                      : mediaKind(pick) === 'audio'
+                        ? 'Play '
+                        : 'Open ') + pick.title
+                  }
+                  onClick={() =>
+                    mediaKind(pick) === 'audio' ? onPlay(pick) : onDetails(pick)
+                  }
+                >
+                  {activeId === pick.id && playing ? (
+                    <Pause size={18} fill="currentColor" />
+                  ) : (
+                    <Play size={18} fill="currentColor" />
+                  )}
                   <span>
                     {activeId === pick.id && playing
                       ? 'Pause'
@@ -611,7 +652,7 @@ export function LearningHome(props: Props) {
           </section>
           <section className="discovery-section collections-section">
             {sectionHeading(
-              'A little time. A lot to discover.',
+              'Made for your day',
               undefined,
               () => onNavigate('topics'),
               'All topics',
@@ -859,7 +900,7 @@ export function LearningHome(props: Props) {
                 ? 'Recently added'
                 : hasInterests
                   ? 'Recommended for you'
-                  : 'Find something that speaks to you',
+                  : 'Discover something new',
             currentTab === 'following'
               ? 'A selection from your teachers, topics, and series.'
               : currentTab === 'latest'
@@ -1052,7 +1093,7 @@ export function LearningHome(props: Props) {
           {teachers.length > 0 && (
             <section className="discovery-section teacher-shelf-section">
               {sectionHeading(
-                'Learn from a familiar voice',
+                'Teachers to know',
                 'Meet the teachers of the YUTorah community.',
                 () => onNavigate('teachers'),
                 'All teachers',
@@ -1089,7 +1130,7 @@ export function LearningHome(props: Props) {
           {home && home.series.length > 0 && (
             <section className="discovery-section series-shelf-section">
               {sectionHeading(
-                'Go deeper, one shiur at a time',
+                'Go deeper with a series',
                 'Find a series to make part of your routine.',
                 () => onNavigate('series'),
                 'All series',

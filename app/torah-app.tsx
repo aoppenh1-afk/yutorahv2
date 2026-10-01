@@ -6,6 +6,7 @@ import { AdvancedSearch, type Filters, noFilters } from './advanced-search';
 import { SearchBox } from './search-box';
 import { SearchTools } from './search-tools';
 import { TranscriptSearch, type TranscriptHit } from './transcript-search';
+import { TranscriptReader } from './transcript-reader';
 import { Notebook } from './notebook';
 import { LearningHome, FollowButton } from './learning-home';
 import { isLearned, relatedShiurim, type Follow } from '@/lib/learning';
@@ -2314,6 +2315,7 @@ export default function TorahApp({
                   ))}
                 </section>
               )}
+              <TranscriptReader shiurId={detail.id} onSeek={seconds => player.start(detail,seconds)} />
               <section className="detail-section">
                 <div className="note-heading">
                   <h3>

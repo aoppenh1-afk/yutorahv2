@@ -42,6 +42,7 @@ void test(
     await pool.query(sql);
     await pool.query(await readFile('db/transcription/002_catalog_cursor.sql', 'utf8'));
     await pool.query(await readFile('db/transcription/003_tolerant_search.sql', 'utf8'));
+    await pool.query(await readFile('db/transcription/004_operator_notes.sql', 'utf8'));
     const skill = await readFile(
       'packages/transcription/skills/lectern-transcription/SKILL.md',
       'utf8',

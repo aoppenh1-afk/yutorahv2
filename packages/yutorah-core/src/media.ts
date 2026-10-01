@@ -155,14 +155,43 @@ export async function resolveMedia(
 export async function catalogPage(
   page: number,
   signal: AbortSignal,
+  selection?: {
+    kind: 'teacher' | 'series';
+    upstreamId: string;
+    teacherId?: string;
+  },
 ): Promise<{ total: number; docs: Record<string, unknown>[] }> {
   if (!Number.isSafeInteger(page) || page < 1 || page > 100_000)
     throw new Failure('configuration');
+  const params = new URLSearchParams({
+    searchTerm: '',
+    getFacets: 'false',
+    start: String(page),
+  });
+  if (selection) {
+    if (
+      !/^\d{1,12}$/.test(selection.upstreamId) ||
+      !['teacher', 'series'].includes(selection.kind)
+    )
+      throw new Failure('configuration');
+    params.set(
+      selection.kind === 'teacher' ? 'teacherID' : 'seriesID',
+      selection.upstreamId,
+    );
+    if (selection.teacherId) {
+      if (
+        selection.kind !== 'series' ||
+        !/^\d{1,12}$/.test(selection.teacherId)
+      )
+        throw new Failure('configuration');
+      params.set('teacherID', selection.teacherId);
+    }
+  }
   let data: unknown;
   try {
     data = JSON.parse(
       await boundedText(
-        `https://yutorah.org/api/search/get?searchTerm=&getFacets=false&start=${page}`,
+        `https://yutorah.org/api/search/get?${params}`,
         signal,
         8 * 1024 * 1024,
       ),
@@ -171,8 +200,9 @@ export async function catalogPage(
     checkAbort(signal);
     throw new Failure('download');
   }
-  const response = (data as { response?: { docs?: unknown; numFound?: unknown } })
-    ?.response;
+  const response = (
+    data as { response?: { docs?: unknown; numFound?: unknown } }
+  )?.response;
   if (
     !response ||
     !Number.isSafeInteger(response.numFound) ||
@@ -185,6 +215,49 @@ export async function catalogPage(
     total: response.numFound as number,
     docs: response.docs as Record<string, unknown>[],
   };
+}
+
+export async function catalogDirectory(signal: AbortSignal) {
+  const read = async (kind: 'teachers' | 'series') => {
+    const rows: unknown = JSON.parse(
+      await boundedText(
+        `https://yutorah.org/api/browse/${kind}`,
+        signal,
+        16 * 1024 * 1024,
+      ),
+    );
+    if (!Array.isArray(rows) || rows.length > 100_000)
+      throw new Failure('download');
+    const plain = (v: unknown) =>
+      (typeof v === 'string' || typeof v === 'number' ? String(v) : '')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return rows
+      .filter(
+        (r) =>
+          r &&
+          /^\d{1,12}$/.test(String(r.ID)) &&
+          !r.isHidden &&
+          Number(r.shiurCount) > 0,
+      )
+      .map((r) => ({
+        id: String(r.ID),
+        name: plain(
+          kind === 'teachers'
+            ? [r.title, r.firstName, r.lastName].filter(Boolean).join(' ')
+            : r.name,
+        ),
+        count: Number(r.shiurCount),
+      }))
+      .sort((a, b) => b.count - a.count);
+  };
+  const [teachers, series] = await Promise.all([
+    read('teachers'),
+    read('series'),
+  ]);
+  return { teachers, series };
 }
 
 export async function homepageRecent(

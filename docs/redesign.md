@@ -2,7 +2,9 @@
 
 September 30, 2026
 
-The redesign makes listening, returning to an unfinished recording, and choosing the next shiur the main actions. A warm canvas, navy typography, YU blue controls, serif editorial headings, and a cinematic Jerusalem image give the library a coherent visual identity. Real teacher portraits and live metadata remain the content's source of truth.
+The redesign makes listening, returning to an unfinished recording, and choosing the next shiur the main actions. A white sidebar, cobalt navigation, a pale canvas, larger sans-serif headings, and a Jerusalem image set the visual direction. Mint, coral, blue, and lilac collection covers help people browse. Teacher portraits retain their original colors and live metadata supplies the titles and counts.
+
+The visual update removes the shared grayscale filters, enlarges portraits, and adds teacher names and labeled play controls to recording cards. The hero has direct listening and topic browsing actions. The teacher directory, daily learning links, progress cards, and floating player share the same typography and spacing. Mobile covers prioritize the portrait; the player expands to expose seeking, playback speed, volume, notes, and queue controls.
 
 ## Research and decisions
 

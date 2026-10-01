@@ -4,13 +4,16 @@ A responsive reading and listening interface connected to YUTorah's public libra
 
 ## Run
 
+Start with [the VM transcription operator](docs/transcription-operator.md) to select teachers or series, set recording budgets, connect Google, and run the queue. Completed shiurim have a timestamped transcript reader and automatic Lectern study notes.
+
 The Linux Antigravity transcription worker is described in
 [the first-deployment checklist](docs/transcription-setup.md),
 [the architecture report](docs/transcription-architecture.md) and
 [the provisioning/operations guide](docs/transcription-operations.md).
+Oracle Cloud Free Tier setup starts with [the Oracle VM notes](docs/transcription-oracle.md).
 It uses the complete Lectern skill, PostgreSQL jobs/checkpoints, and native ACP audio.
 Build with `npm run worker:build`; test with `npm run test:worker`.
-Once deployed, the worker discovers new audio shiurim automatically and the search
+Once enabled, the worker discovers audio only from your selected teachers/series within their budgets, and the search
 view shows timestamped matches from completed transcripts. The website needs the
 server-side `TRANSCRIPT_API_URL` and `TRANSCRIPT_API_TOKEN` settings described in
 the operations guide.
@@ -79,16 +82,22 @@ This is an independent interface. It does not replace the existing yutorah.org d
 
 ## Design references
 
-The September 2026 redesign combines a warm editorial layout, navy and YU blue, a Jerusalem image, authentic teacher portraits, typographic collection covers, and a persistent player. Spotify's library patterns, Apple Music's editorial shelves and expandable MiniPlayer, TorahAnytime's follows, and OU Torah's daily series informed the navigation and discovery flows. [Research, implementation choices, and the generated image prompt](docs/redesign.md) are documented together.
+The September 2026 redesign uses a white sidebar, cobalt navigation, larger typography, a Jerusalem image, authentic teacher portraits in their original colors, and colorful collection covers. A floating player keeps playback controls available. Spotify's library patterns, Apple Music's shelves and expandable MiniPlayer, TorahAnytime's follows, and OU Torah's daily series informed the navigation and discovery flows. [Research, implementation choices, and the generated image prompt](docs/redesign.md) are documented together.
 
 ## Validation
 
 ```sh
 npx tsc --noEmit
 npm run lint
-npm run test:learning
+npm run audit
 npm run test:search
+npm run test:learning
+npm run worker:build
+# Use a disposable PostgreSQL database; runs the database/recovery tests:
+TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:worker
 npm run build
+# Checks the built website, compiled search service and PostgreSQL together:
+TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:pipeline
 # Start the production server in another terminal first:
 npm run test:live
 ```

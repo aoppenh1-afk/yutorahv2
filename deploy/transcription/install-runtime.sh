@@ -30,8 +30,12 @@ parent=$(dirname -- "$destination")
 mkdir -p -- "$parent"
 staging=$(mktemp -d "$parent/.acp-install.XXXXXXXX")
 trap 'rm -rf -- "$staging"' EXIT
-curl --fail --location --proto '=https' --proto-redir '=https' --max-time 600 --max-filesize 400000000 \
-  "https://dl.google.com/agy-extensions/releases/linux/$asset" -o "$staging/runtime.zip"
+if ! curl --fail --location --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 600 --max-filesize 400000000 \
+  "https://dl.google.com/agy-extensions/releases/linux/$asset" -o "$staging/runtime.zip"; then
+  # Google's edge mirror serves the identical archive; the same SHA-256 pin is mandatory.
+  curl --fail --location --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 600 --max-filesize 400000000 \
+    "https://edgedl.me.gvt1.com/agy-extensions/releases/linux/$asset" -o "$staging/runtime.zip"
+fi
 printf '%s  %s\n' "$checksum" "$staging/runtime.zip" | sha256sum --check --status
 printf '%s\n' agy_acp_server.par localharness_external > "$staging/expected"
 unzip -Z1 "$staging/runtime.zip" | sort > "$staging/members"

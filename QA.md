@@ -1,5 +1,17 @@
 # Verification record
 
+## Scoped transcription operator and Lectern notes, 2026-09-30
+
+- Merged current main into the transcription branch, preserving the typo/partial-word search implementation and its migration 003. Added migration 004 for bounded teacher/series selections, operator settings, and independent notes jobs.
+- 58 worker checks, 24 search checks, 23 learning/discovery checks, and two compiled pipeline checks pass with Node 24.20.0, PostgreSQL 17, and FFmpeg. TypeScript, lint, shell/GUI JavaScript syntax checks, worker build, and website production build pass. The dependency audit has zero high/critical findings; four previously recorded moderate findings remain in the development-only Drizzle Kit dependency chain.
+- Selection tests verify durable total budgets, overlapping-source deduplication, disabled-source ownership, teacher restrictions within series, and changing a restriction during an in-flight import without overwriting its reset cursor. An empty/paused selection set never scans the entire archive. GUI imports wait for Google sign-in and an advertised saved model.
+- Live filtered imports in an isolated test schema queued two Rabbi Aryeh Lebowitz recordings and two of his Ten Minute Halacha recordings. Repeating the scan added zero jobs. The exact directory entries are teacher 80714 and series 4233; the differently spelled teacher 81310 is a separate entry. No production audio or model request was made, and the installed database was not populated by this check.
+- Both Antigravity skills match Lectern commit `1b1032f96039aaac63261afc84a86cd20ce63867` byte for byte. Generation follows the inspected Swift cleanup/checkpoint/notes/normalization/validation/one-repair flow. Tests exercise independent notes leases, cancellation, retry without recleaning, the full inline skill contracts, and rejection of native tools. Real worker orchestration automatically publishes both artifacts through the ACP fixture.
+- Real downloaded-audio work using synthetic WAV files verifies deletion after success, provider failure, and a partial download failure. Existing cancellation and SIGKILL recovery checks remain passing. The scheduler test finishes transcription and notes with no owned audio/runtime scratch directories left.
+- The compiled website reads timestamped transcripts and completed notes from PostgreSQL through the authenticated read-only endpoint. English, Hebrew, and misspelled spoken-word queries pass through main's search. Missing content, invalid queries, and a stopped backend return the expected 404/400/503 responses, with no browser-exposed read token.
+- Installed the built GUI and read-only service at `/opt/yutorah-operator` on this VM. The pinned Google Linux x86-64 runtime downloaded successfully through Google's edge mirror and passed the native ACP handshake under the actual `yutorah-worker` account. Operator HTTP/login/directory and reader HTTP/auth checks pass. Both suggested selections are saved disabled with budgets of 10; the series is restricted to teacher 80714. The queue is paused, Google is unconnected, there are zero jobs, and scratch usage is zero.
+- This development VM has no systemd; installed background services use the restart instructions in [the operator guide](docs/transcription-operator.md). The collaborative preview repeatedly failed to navigate to the VM service, so this revision has HTTP/integration checks but no claimed GUI visual/browser interaction check. Google sign-in, real transcription/notes quality, account quota/renewal, ARM64 execution, and the existing website's deployed HTTPS connection remain commissioning steps. No main merge or website publication was performed.
+
 ## Media library redesign, 2026-09-30
 
 - TypeScript, authored-source lint, and the production build pass. All 23 learning/discovery tests, 24 search checks, and nine live API tests pass. The live suite completed in about six minutes, including full candidate scans for broad queries.
@@ -63,6 +75,19 @@ Live content and media availability depend on YUTorah and its CDNs. This record 
 - TypeScript, authored-source lint, and the Worker build pass. D1 migrations were generated and applied locally. The new UI has not received browser interaction or mobile visual testing in this revision.
 - The original Sites project still returns project_not_found. No replacement project was created and the new DB-backed revision has not been published.
 
+## Transcription pipeline and Oracle deployment review, 2026-09-30
+
+- PR #1 is already merged into main; its pull-request and main GitHub Actions runs passed. The follow-up adds learning tests, a dependency audit gate for high/critical findings, and a compiled pipeline smoke check to the same workflow.
+- Live discovery exposed a homepage feed ordered by upload, with September 29 recordings between September 30 recordings. The worker previously rejected it. Homepage ingestion now accepts upload order; paged archive ingestion retains publication-order validation. Regression tests reproduce the original failure and verify both paths.
+- Two real `sync-now` CLI scans in an isolated PostgreSQL schema queued 130 distinct recordings with no duplicate jobs. The homepage and paginated backstop both completed; no production account was used.
+- 45 worker checks passed with PostgreSQL 17 and FFmpeg, including queue/checkpoint persistence, lease fencing, SIGKILL recovery, startup policy, catalog ingestion and search. Seventeen deterministic search tests and twelve learning tests passed. TypeScript, lint, worker build and website build passed on Node 24.20.0.
+- After the dependency updates, the built homepage rendered successfully and all six live API checks passed against the restarted Cloudflare runtime: homepage, compound search, complete pagination, question interpretation, real audio/materials, and invalid requests.
+- The new `test:pipeline` command uses compiled modules and CLI commands, real WAV preparation, an ACP fixture that checks the full skill hash, persistent chunk/segment publication, database read-only grants, and the compiled search server. A built Cloudflare website with isolated migrated D1 state returns English/Hebrew timestamped results through that server; invalid queries return 400 and a stopped search backend returns 503. Missing `TEST_DATABASE_URL` fails instead of skipping.
+- React/React DOM/RSC are pinned to 19.2.8, Vite to 8.0.16, and Cloudflare tooling to compatible patched releases. Vinext's pinned image-size dependency is overridden with the 2.0.3 patch. `npm audit --omit=dev` reports zero vulnerabilities. The full audit has zero high/critical findings and four moderate findings in Drizzle Kit's legacy esbuild development dependency chain; a forced downgrade was not applied.
+- Cloudflare binding types are imported explicitly, preventing new Workers global declarations from replacing Node Buffer types in the shared TypeScript check. Node test registrations explicitly discard their returned promises for type-aware lint.
+- [Oracle setup notes](docs/transcription-oracle.md) cover shape/OS identification, current documented A1 free allowances, Oracle ingress and the Ubuntu host firewall, DNS, authentication and commissioning. Service account creation explicitly creates the groups required by the unit and environment-file permissions.
+- Automated ACP tests use a fixture. Authenticated short/long transcription, token persistence/renewal, account quota and native ARM64 execution still require the operator's VM and Google account. The pinned Google archive could not be downloaded in this review environment because the TLS connection failed; the VM's `probe` remains required. This review does not deploy Oracle infrastructure or publish the existing managed website.
+
 ## Typo and partial-word search, 2026-09-30
 
 - Researched Solr, PostgreSQL pg_trgm, MiniSearch, Typesense, and Meilisearch.
@@ -90,3 +115,12 @@ Live content and media availability depend on YUTorah and its CDNs. This record 
 - TypeScript, lint, the worker build, and the production website build passed.
   Apply the new PostgreSQL migration before restarting an existing transcript
   search service; metadata requires no new D1 schema migration.
+## Visual uplift and learning verification, 2026-09-30
+
+- Brought the completed discovery redesign into the current branch while retaining the transcription pipeline changes. The shared avatar, card portrait, and daily teacher styles no longer apply grayscale filters.
+- Updated the interface with a white sidebar, cobalt navigation, larger headings and teacher portraits, mint/coral/blue/lilac covers, labeled play buttons, and a floating player. The homepage provides direct listening and topic browsing actions; the teacher directory and library share the same visual system.
+- Native browser checks confirmed loaded CDN portraits with `filter: none`, and no horizontal overflow at 320, 390, 768, 1024, and 1440 CSS pixels. Mobile checks used fixed-width, same-origin frames because the collaborative preview's viewport resize operation timed out.
+- Played actual recording 1190295 from the new hero action. Pausing saved 72.439241 seconds; reload restored that exact position without autoplay. Resume continued from the saved position. Bookmarks and teacher follows also survived reload. Browser test data used a separate origin and was cleared afterward.
+- Expanded mobile controls fit at 320 and 390 pixels and expose seeking, speed, notes, volume, and queue actions. Remounting the controlled volume slider when expanding fixes its measurement after initially being hidden. A browser interaction changed both the audio element and persisted volume to 0.5.
+- Live discovery returned 180 sampled recordings and genuine view counts in descending order. Related discovery for a Ten Minute Halacha recording returned 87 candidates, including 29 in the same series, with no partial failures.
+- All 40 deterministic learning, discovery, and search checks passed, as did TypeScript, lint, and the website build using the repository's pinned React 19.2.8 and Vite 8.0.16 dependencies. No deployment was performed.

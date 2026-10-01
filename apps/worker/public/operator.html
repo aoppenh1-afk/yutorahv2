@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YUTorah · Transcription workspace</title>
+    <link rel="stylesheet" href="/operator.css" />
+    <script src="/operator.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">YU<span>Torah</span></a
+      ><span class="eyebrow">TRANSCRIPTION WORKSPACE</span>
+    </header>
+    <main>
+      <section id="login" class="card login">
+        <p class="eyebrow">OPERATOR ACCESS</p>
+        <h1>Your transcript library starts here.</h1>
+        <p>Sign in with the operator key saved on this VM.</p>
+        <form id="login-form">
+          <label for="operator-key">Operator key</label
+          ><input
+            id="operator-key"
+            type="password"
+            autocomplete="current-password"
+            required
+          /><button type="submit">Open workspace</button>
+        </form>
+      </section>
+      <div id="workspace" hidden>
+        <div class="hero">
+          <div>
+            <p class="eyebrow">A SMALL START. A SEARCHABLE LIBRARY.</p>
+            <h1>Build the transcript library.</h1>
+            <p>
+              Choose a few teachers or series. Set a recording budget, then turn
+              their shiurim into transcripts and study notes.
+            </p>
+          </div>
+          <div class="run-controls">
+            <span id="run-state" class="badge">Paused</span
+            ><button id="start">Start queue</button
+            ><button id="stop" class="secondary">Pause queue</button>
+          </div>
+        </div>
+        <div id="notice" role="status" aria-live="polite"></div>
+        <div class="stats">
+          <article>
+            <span>Enabled sources</span><strong id="selected-count">0</strong>
+          </article>
+          <article>
+            <span>Waiting</span><strong id="queued-count">0</strong>
+          </article>
+          <article>
+            <span>Transcribed</span><strong id="completed-count">0</strong>
+          </article>
+          <article>
+            <span>Temporary audio</span><strong id="audio-size">0 MB</strong>
+          </article>
+        </div>
+        <div class="columns">
+          <section class="card">
+            <div class="card-heading">
+              <span class="step">01</span>
+              <div>
+                <h2>Connect the transcription engine</h2>
+                <p id="connection-state">Checking the runtime…</p>
+              </div>
+            </div>
+            <div class="button-row">
+              <button id="connect" class="secondary">Connect Google</button
+              ><button id="check" class="text-button">
+                Check saved sign-in</button
+              ><button id="cancel-auth" class="text-button" hidden>
+                Cancel sign-in
+              </button>
+            </div>
+            <div id="auth-instructions" hidden>
+              <p>
+                Keep this page open. Forward the callback port from your laptop
+                to this VM:
+              </p>
+              <pre id="auth-tunnel"></pre>
+              <a id="auth-link" target="_blank" rel="noreferrer"
+                >Open Google sign-in ↗</a
+              >
+            </div>
+            <form id="settings-form">
+              <label for="model">Transcription and notes model</label
+              ><select id="model" required></select
+              ><label class="checkbox"
+                ><input id="notes-enabled" type="checkbox" checked />
+                Automatically generate study notes</label
+              >
+              <p class="hint">
+                Notes follow Lectern’s cleaned-transcript and outline workflow.
+                A notes retry keeps the completed transcript.
+              </p>
+              <button id="save-settings" class="secondary" type="submit">
+                Save settings
+              </button>
+            </form>
+          </section>
+          <section class="card">
+            <div class="card-heading">
+              <span class="step">02</span>
+              <div>
+                <h2>Choose what to transcribe</h2>
+                <p>Only your enabled selections enter this queue.</p>
+              </div>
+            </div>
+            <fieldset class="source-kind">
+              <legend>Source type</legend>
+              <label
+                ><input type="radio" name="kind" value="teacher" checked />
+                Teacher</label
+              ><label
+                ><input type="radio" name="kind" value="series" /> Series</label
+              >
+            </fieldset>
+            <form id="target-form">
+              <label for="source-search">Find a teacher or series</label
+              ><input
+                id="source-search"
+                type="search"
+                placeholder="Search by name…"
+                autocomplete="off"
+              />
+              <div id="choices" aria-label="Matching sources"></div>
+              <p id="chosen-source" class="hint">
+                Select a source from the results.
+              </p>
+              <div id="series-teacher-field" hidden>
+                <label for="series-teacher"
+                  >Teacher within this series (optional)</label
+                ><select id="series-teacher">
+                  <option value="">Every teacher in the series</option>
+                </select>
+              </div>
+              <label for="recording-limit"
+                >Total recording budget for this selection</label
+              ><input
+                id="recording-limit"
+                type="number"
+                min="1"
+                max="10000"
+                value="10"
+                required
+              />
+              <p class="hint">
+                Starts with the newest audio. Raise the budget to add more.
+                Video-only recordings are skipped.
+              </p>
+              <button type="submit" id="add-selection" disabled>
+                Add selection
+              </button>
+            </form>
+          </section>
+        </div>
+        <section class="card selections">
+          <div class="section-heading">
+            <div>
+              <h2>Your selections</h2>
+              <p>
+                Budgets count imported recordings. Overlapping teachers and
+                series share the same transcription job.
+              </p>
+            </div>
+            <button id="scan" class="secondary">Import next batch</button>
+          </div>
+          <div id="targets"></div>
+        </section>
+        <section class="card">
+          <div class="section-heading">
+            <div>
+              <h2>Recording queue</h2>
+              <p>
+                Transcripts become searchable as soon as they finish. Audio is
+                deleted after processing, including failed attempts.
+              </p>
+            </div>
+            <button id="refresh" class="text-button">Refresh</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Shiur</th>
+                  <th>Transcription</th>
+                  <th>Study notes</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="jobs"></tbody>
+            </table>
+          </div>
+          <p id="queue-empty" class="empty">
+            Select a teacher or series, then import a batch to begin.
+          </p>
+        </section>
+      </div>
+      <p id="login-error" role="alert"></p>
+    </main>
+    <footer>
+      YUTorah study library · Original recordings remain on YUTorah.
+    </footer>
+    <dialog id="content-dialog">
+      <button id="close-dialog" class="secondary">Close</button>
+      <h2 id="content-title"></h2>
+      <div class="button-row">
+        <button id="show-transcript" class="secondary">Transcript</button
+        ><button id="show-notes" class="secondary">Study notes</button
+        ><button id="download-content" class="text-button">Download</button>
+      </div>
+      <pre id="content-text" dir="auto"></pre>
+    </dialog>
+  </body>
+</html>

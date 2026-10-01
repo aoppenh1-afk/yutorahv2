@@ -23,7 +23,7 @@ async function json(path) {
   return result;
 }
 
-test('homepage has real, actionable content', async () => {
+void test('homepage has real, actionable content', async () => {
   const home = await json('/api/home');
   assert.ok(home.total > 400000);
   assert.ok(home.featured.length && home.recent.length && home.daily.length);
@@ -34,7 +34,7 @@ test('homepage has real, actionable content', async () => {
   }
 });
 
-test('compound search resolves teacher and duration beyond title text', async () => {
+void test('compound search resolves teacher and duration beyond title text', async () => {
   const result = await json(
     '/api/search?q=' +
       encodeURIComponent('teshuva by Rabbi Hershel Schachter under 30 minutes'),
@@ -54,7 +54,7 @@ test('compound search resolves teacher and duration beyond title text', async ()
   );
 });
 
-test('pagination advances through distinct live results', async () => {
+void test('pagination advances through distinct live results', async () => {
   const first = await json('/api/search?q=teshuva');
   assert.ok(first.nextPage > 1);
   const second = await json('/api/search?q=teshuva&page=' + first.nextPage);
@@ -65,7 +65,7 @@ test('pagination advances through distinct live results', async () => {
   );
 });
 
-test('question search resolves a disclosed topic', async () => {
+void test('question search resolves a disclosed topic', async () => {
   const result = await json(
     '/api/search?q=' + encodeURIComponent('How can I improve my prayer?'),
   );
@@ -74,7 +74,7 @@ test('question search resolves a disclosed topic', async () => {
   assert.ok(result.total > 0);
 });
 
-test('submitted misspellings and partial teacher names resolve real filtered results', async () => {
+void test('submitted misspellings and partial teacher names resolve real filtered results', async () => {
   const result = await json(
     '/api/search?q=' +
       encodeURIComponent('teshvu by Rabbi Hershl Schact under thirty minutes'),
@@ -96,7 +96,7 @@ test('submitted misspellings and partial teacher names resolve real filtered res
   );
 });
 
-test('multiple shortened or misspelled subject words preserve the compound query', async () => {
+void test('multiple shortened or misspelled subject words preserve the compound query', async () => {
   const result = await json(
     '/api/search?teacher=80153&q=' + encodeURIComponent('rambm hilch teshuv'),
   );
@@ -108,7 +108,7 @@ test('multiple shortened or misspelled subject words preserve the compound query
   assert.ok(result.items.every((shiur) => shiur.teacherId === 80153));
 });
 
-test('a transposed partial word outside the directory vocabulary retrieves archive content', async () => {
+void test('a transposed partial word outside the directory vocabulary retrieves archive content', async () => {
   const result = await json('/api/search?teacher=80153&q=donait');
   assert.equal(result.complete, true);
   assert.ok(result.total > 0);
@@ -119,7 +119,7 @@ test('a transposed partial word outside the directory vocabulary retrieves archi
   );
 });
 
-test('shiur details expose playable media, video, and real source materials', async () => {
+void test('shiur details expose playable media, video, and real source materials', async () => {
   const shiur = await json('/api/shiur?id=1187437');
   assert.equal(shiur.id, 1187437);
   assert.ok(shiur.duration > 0);
@@ -138,7 +138,7 @@ test('shiur details expose playable media, video, and real source materials', as
   await media.body?.cancel();
 });
 
-test('invalid requests return usable client errors', async () => {
+void test('invalid requests return usable client errors', async () => {
   for (const path of [
     '/api/shiur?id=invalid',
     '/api/shiur',

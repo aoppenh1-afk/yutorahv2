@@ -10,14 +10,17 @@
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json --persist-to .wrangler/state",
     "lint": "oxlint",
+    "audit": "npm audit --audit-level=high",
     "format": "oxfmt",
     "test:learning": "node --test tests/learning.test.mjs tests/discovery.test.mjs",
     "test:live": "node --test tests/live-api.test.mjs",
     "test:search": "node tests/search.test.mjs && node --test tests/complete-search.test.mjs",
+    "test:pipeline": "node --test scripts/pipeline.test.mjs",
     "db:migrate:local": "wrangler d1 migrations apply DB --local --config wrangler.search.jsonc",
     "worker:build": "tsc -p tsconfig.worker.json",
     "worker": "node .worker-build/apps/worker/src/cli.js",
-    "test:worker": "tsx --test apps/worker/test/*.test.ts"
+    "test:worker": "tsx --test apps/worker/test/*.test.ts",
+    "operator": "node .worker-build/apps/worker/src/cli.js serve-operator"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
@@ -31,11 +34,12 @@
     "input-otp": "1.4.2",
     "lucide-react": "1.31.0",
     "pg": "^8.23.0",
-    "react": "19.2.6",
+    "react": "19.2.8",
     "react-day-picker": "9.8.1",
-    "react-dom": "19.2.6",
+    "react-dom": "19.2.8",
+    "react-markdown": "10.1.0",
     "react-resizable-panels": "4.5.8",
-    "react-server-dom-webpack": "19.2.6",
+    "react-server-dom-webpack": "19.2.8",
     "recharts": "3.8.0",
     "shadcn": "4.18.0",
     "tailwind-merge": "3.6.0",
@@ -43,8 +47,8 @@
     "vinext": "1.0.0-beta.5"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.37.1",
-    "@cloudflare/workers-types": "4.20260515.1",
+    "@cloudflare/vite-plugin": "1.62.2",
+    "@cloudflare/workers-types": "5.20260926.1",
     "@openai/sites-vite-plugin": "0.2.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
@@ -60,8 +64,13 @@
     "tailwindcss": "4.2.1",
     "tsx": "^4.23.15",
     "typescript": "5.9.3",
-    "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "vite": "8.0.16",
+    "wrangler": "4.144.0"
+  },
+  "overrides": {
+    "vinext": {
+      "image-size": "2.0.3"
+    }
   },
   "type": "module"
 }

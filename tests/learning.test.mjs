@@ -52,13 +52,13 @@ const context = (overrides = {}) => ({
   ...overrides,
 });
 
-test('existing libraries migrate without inventing learning or follows', () => {
+void test('existing libraries migrate without inventing learning or follows', () => {
   const restored = restoreLearning({ saved: [shiur(1)] });
   assert.deepEqual(restored.following, []);
   assert.deepEqual(restored.learningDays, {});
   assert.equal(restored.dailyGoal, 20);
 });
-test('malformed persisted preferences are discarded without erasing valid entries', () => {
+void test('malformed persisted preferences are discarded without erasing valid entries', () => {
   const restored = restoreLearning({
     following: [
       null,
@@ -80,7 +80,7 @@ test('malformed persisted preferences are discarded without erasing valid entrie
   assert.equal(restored.savedSearches.length, 1);
   assert.deepEqual(restored.learningDays, { '2026-09-16': 60 });
 });
-test('followed teachers outrank unrelated teachers and carry an explanation', () => {
+void test('followed teachers outrank unrelated teachers and carry an explanation', () => {
   const output = recommend(
     [shiur(1), shiur(2)],
     context({ following: [{ kind: 'teacher', id: 2, name: 'Teacher 2' }] }),
@@ -88,7 +88,7 @@ test('followed teachers outrank unrelated teachers and carry an explanation', ()
   assert.equal(output[0].shiur.id, 2);
   assert.match(output[0].reason, /follow/);
 });
-test('following feed excludes non-followed records and supports topics and series', () => {
+void test('following feed excludes non-followed records and supports topics and series', () => {
   const library = context({
     following: [
       { kind: 'topic', id: 10, name: 'Shabbat' },
@@ -107,7 +107,7 @@ test('following feed excludes non-followed records and supports topics and serie
   assert.deepEqual(output.map((r) => r.shiur.id).sort(), [1, 2]);
   assert.equal(followsShiur(shiur(4), { kind: 'teacher', id: 9 }), false);
 });
-test('hidden, completed and almost-finished shiurim are removed; unknown duration never meets a time budget', () => {
+void test('hidden, completed and almost-finished shiurim are removed; unknown duration never meets a time budget', () => {
   const library = context({
     hidden: [1],
     completed: [2],
@@ -131,7 +131,7 @@ test('hidden, completed and almost-finished shiurim are removed; unknown duratio
   );
   assert.equal(isLearned(shiur(3), library), true);
 });
-test('recommendations deduplicate and retain richer metadata', () => {
+void test('recommendations deduplicate and retain richer metadata', () => {
   const items = [
     shiur(1, { seriesId: 88, series: 'Series' }),
     shiur(1, { duration: 0, audio: '', topics: [] }),
@@ -143,7 +143,7 @@ test('recommendations deduplicate and retain richer metadata', () => {
   assert.deepEqual(merged[0].topics, ['Shabbat']);
   assert.equal(recommend(items, context(), { minutes: 15 }).length, 1);
 });
-test('one teacher cannot occupy adjacent recommendations when alternatives exist', () => {
+void test('one teacher cannot occupy adjacent recommendations when alternatives exist', () => {
   const items = [
     shiur(1, { teacherId: 50 }),
     shiur(2, { teacherId: 50 }),
@@ -157,7 +157,7 @@ test('one teacher cannot occupy adjacent recommendations when alternatives exist
   );
   assert.notEqual(output[0].shiur.teacherId, output[1].shiur.teacherId);
 });
-test('related learning prioritizes the series and never recommends the current or hidden shiur', () => {
+void test('related learning prioritizes the series and never recommends the current or hidden shiur', () => {
   const source = shiur(1, { seriesId: 20 });
   const output = relatedShiurim(
     source,
@@ -167,7 +167,7 @@ test('related learning prioritizes the series and never recommends the current o
   assert.equal(output[0].shiur.id, 2);
   assert.ok(output.every((r) => ![1, 4].includes(r.shiur.id)));
 });
-test("weekly minutes and streak use calendar days and keep yesterday's streak before today starts", () => {
+void test("weekly minutes and streak use calendar days and keep yesterday's streak before today starts", () => {
   const today = new Date(2026, 8, 16, 12);
   const days = { '2026-09-15': 120, '2026-09-14': 180, '2026-09-13': 30 };
   assert.equal(dayKey(today), '2026-09-16');
@@ -180,7 +180,7 @@ test("weekly minutes and streak use calendar days and keep yesterday's streak be
 });
 
 const { GET } = await load('app/api/feed/route.ts');
-test('feed rejects invalid and excessive source requests before making upstream calls', async () => {
+void test('feed rejects invalid and excessive source requests before making upstream calls', async () => {
   for (const params of [
     'teacher=-1',
     'teacher=NaN',
@@ -194,12 +194,12 @@ test('feed rejects invalid and excessive source requests before making upstream 
     assert.equal(response.status, 400);
   }
 });
-test('an empty follow set is a successful empty feed', async () => {
+void test('an empty follow set is a successful empty feed', async () => {
   const response = await GET(new Request('http://localhost/api/feed'));
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).items, []);
 });
-test('feed fetches bounded sources, deduplicates records and reports partial upstream failure', async () => {
+void test('feed fetches bounded sources, deduplicates records and reports partial upstream failure', async () => {
   const originalFetch = globalThis.fetch;
   const paths = [];
   globalThis.fetch = async (url) => {
