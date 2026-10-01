@@ -30,7 +30,7 @@ export const versions = {
   merge: 'lectern-1',
 };
 export const defaultSettings: Settings = {
-  model: 'gemini-3.8-flash-high',
+  model: 'gemini-3.8-flash-medium',
   language: 'hebrewEnglish',
   speakers: true,
 };

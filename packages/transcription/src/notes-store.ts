@@ -39,7 +39,7 @@ export class NotesStore {
         `INSERT INTO notes_jobs(id,transcript_id,version_id)
          SELECT gen_random_uuid(),t.id,$1 FROM transcripts t JOIN transcription_shiurim h ON h.active_transcript_id=t.id
          WHERE (NOT $2 OR EXISTS (SELECT 1 FROM transcription_target_jobs tj JOIN transcription_targets s ON s.id=tj.target_id WHERE tj.job_id=t.job_id AND s.enabled))
-         AND NOT EXISTS(SELECT 1 FROM notes_jobs j WHERE j.transcript_id=t.id AND j.version_id=$1)
+         AND NOT EXISTS(SELECT 1 FROM notes_jobs j WHERE j.transcript_id=t.id)
          ON CONFLICT DO NOTHING`,
         [p.id, selectedOnly],
       );

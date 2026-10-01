@@ -34,6 +34,7 @@ export type OperatorSettings = {
   model: string;
   notes_enabled: boolean;
   worker_enabled: boolean;
+  quota_resume_at: Date | null;
 };
 export class SelectionStore {
   constructor(readonly pool: Pool) {}
@@ -103,11 +104,13 @@ export class SelectionStore {
   async settings(): Promise<OperatorSettings> {
     return (
       await this.pool.query<OperatorSettings>(
-        'SELECT model,notes_enabled,worker_enabled FROM transcription_operator_settings WHERE id=1',
+        'SELECT model,notes_enabled,worker_enabled,quota_resume_at FROM transcription_operator_settings WHERE id=1',
       )
     ).rows[0];
   }
-  async saveSettings(s: OperatorSettings) {
+  async saveSettings(
+    s: Pick<OperatorSettings, 'model' | 'notes_enabled' | 'worker_enabled'>,
+  ) {
     if (
       !/^[a-zA-Z0-9._:-]{1,120}$/.test(s.model) ||
       typeof s.notes_enabled !== 'boolean' ||
@@ -115,9 +118,17 @@ export class SelectionStore {
     )
       throw new Failure('configuration');
     await this.pool.query(
-      'UPDATE transcription_operator_settings SET model=$1,notes_enabled=$2,worker_enabled=$3 WHERE id=1',
+      'UPDATE transcription_operator_settings SET model=$1,notes_enabled=$2,worker_enabled=$3,quota_resume_at=CASE WHEN $3 THEN quota_resume_at ELSE NULL END WHERE id=1',
       [s.model, s.notes_enabled, s.worker_enabled],
     );
+  }
+  async setQuotaResume(at: Date | null): Promise<Date | null> {
+    return (
+      await this.pool.query<{ quota_resume_at: Date | null }>(
+        'UPDATE transcription_operator_settings SET quota_resume_at=CASE WHEN worker_enabled THEN $1::timestamptz ELSE NULL END WHERE id=1 RETURNING quota_resume_at',
+        [at],
+      )
+    ).rows[0].quota_resume_at;
   }
   async snapshot() {
     const [targets, settings, jobs, totals] = await Promise.all([

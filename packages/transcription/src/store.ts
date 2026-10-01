@@ -109,6 +109,46 @@ export class TranscriptionStore {
     readonly leaseSeconds = 90,
   ) {}
 
+  /** A model change can move untouched jobs without discarding paid checkpoints. */
+  async reconfigureQueued(p: Profile, selectedOnly = false): Promise<number> {
+    return transaction(this.pool, async (client) => {
+      await client.query(
+        `INSERT INTO transcription_versions(id,pipeline_version,skill_hash,skill_text,model,runtime,settings)
+         VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
+        [
+          p.id,
+          versions.pipeline,
+          p.skillHash,
+          p.skill,
+          p.settings.model,
+          p.runtime,
+          p.settings,
+        ],
+      );
+      const updated = await client.query(
+        `UPDATE transcription_jobs j SET transcription_version=$1,model=$2
+         FROM transcription_versions v WHERE v.id=j.transcription_version
+         AND j.status='queued' AND j.attempt=0 AND j.fingerprint IS NULL
+         AND NOT j.cancel_requested AND j.transcription_version<>$1
+         AND v.pipeline_version=$3 AND v.skill_hash=$4 AND v.runtime=$5
+         AND (v.settings-'model')=($6::jsonb-'model')
+         AND NOT EXISTS(SELECT 1 FROM transcription_chunks c WHERE c.job_id=j.id)
+         AND NOT EXISTS(SELECT 1 FROM transcription_jobs other WHERE other.shiur_id=j.shiur_id AND other.source_revision=j.source_revision AND other.transcription_version=$1)
+         AND (NOT $7 OR EXISTS(SELECT 1 FROM transcription_target_jobs tj JOIN transcription_targets t ON t.id=tj.target_id WHERE tj.job_id=j.id AND t.enabled))`,
+        [
+          p.id,
+          p.settings.model,
+          versions.pipeline,
+          p.skillHash,
+          p.runtime,
+          p.settings,
+          selectedOnly,
+        ],
+      );
+      return updated.rowCount ?? 0;
+    });
+  }
+
   /** Catalog ingestion and queue insertion are one transaction and idempotent. */
   async enqueue(
     shiur: {

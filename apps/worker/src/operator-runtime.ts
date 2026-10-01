@@ -26,6 +26,7 @@ export type OperatorConfig = {
   concurrency: number;
   intervalMs: number;
 };
+export const quotaResumeDelayMs = (5 * 60 + 1) * 60_000;
 export class OperatorRuntime {
   private work?: Promise<void>;
   private workAbort?: AbortController;
@@ -38,11 +39,15 @@ export class OperatorRuntime {
   private models: string[] = [];
   private connected = false;
   private changing = false;
+  private closed = false;
+  private resumeTimer?: NodeJS.Timeout;
+  private resumeAt: Date | null = null;
   private sessions?: SessionPool;
   private readonly selections: SelectionStore;
   constructor(
     private readonly store: TranscriptionStore,
     private readonly config: OperatorConfig,
+    private readonly worker: typeof runWorker = runWorker,
   ) {
     this.selections = new SelectionStore(store.pool);
   }
@@ -84,6 +89,7 @@ export class OperatorRuntime {
       conversationBytes,
       concurrency: this.config.concurrency,
       activeSessions: this.sessions?.activeCount ?? 0,
+      resumeAt: this.resumeAt?.toISOString() ?? null,
     };
   }
   async currentProfile() {
@@ -107,7 +113,50 @@ export class OperatorRuntime {
       throw new Failure('configuration');
     return scanSelections(this.store, p, AbortSignal.timeout(120_000), pages);
   }
+  /** Restore the user's running intent without retrying an exhausted quota early. */
+  async restore() {
+    const settings = await this.selections.settings();
+    if (!settings.worker_enabled) return;
+    if (
+      settings.quota_resume_at &&
+      settings.quota_resume_at.getTime() > Date.now()
+    ) {
+      this.resumeAt = settings.quota_resume_at;
+      this.state = 'waiting_quota';
+      this.error = 'quota_exhausted';
+      this.armQuotaResume();
+    } else {
+      await this.start();
+    }
+  }
+  private clearResumeTimer() {
+    if (this.resumeTimer) clearTimeout(this.resumeTimer);
+    this.resumeTimer = undefined;
+  }
+  private armQuotaResume(minimumDelayMs = 0) {
+    this.clearResumeTimer();
+    if (this.closed || !this.resumeAt) return;
+    this.resumeTimer = setTimeout(
+      () => {
+        this.resumeTimer = undefined;
+        if (this.closed || !this.resumeAt) return;
+        // A manual control operation owns the next state change. Check again
+        // after it finishes; pause or sign-in will cancel this timer entirely.
+        if (this.changing || this.authWork || this.work) {
+          this.armQuotaResume(1000);
+          return;
+        }
+        void this.change(() => this.start()).catch((error) => {
+          this.state = 'error';
+          this.error = failure(error).code;
+        });
+      },
+      Math.max(minimumDelayMs, this.resumeAt.getTime() - Date.now(), 0),
+    );
+    this.resumeTimer.unref();
+  }
   async start() {
+    if (this.closed) throw new Failure('configuration');
     if (this.work) return;
     if (this.authWork) throw new Failure('configuration');
     const targets = await this.selections.targets();
@@ -123,11 +172,15 @@ export class OperatorRuntime {
           notesSkill: await readFile(this.config.notesSkillPath, 'utf8'),
         })
       : undefined;
+    this.clearResumeTimer();
     await this.selections.saveSettings({ ...settings, worker_enabled: true });
+    await this.selections.setQuotaResume(null);
+    this.resumeAt = null;
     this.workAbort = new AbortController();
     this.error = null;
     this.state = 'starting';
-    this.work = runWorker(
+    let quotaDetectedAt: number | undefined;
+    this.work = this.worker(
       this.store,
       {
         runtime: this.config.runtime,
@@ -136,6 +189,9 @@ export class OperatorRuntime {
         model: settings.model,
         selectedOnly: true,
         notes,
+        onQuotaExhausted: () => {
+          quotaDetectedAt ??= Date.now();
+        },
         catalog: {
           profile: p,
           intervalMs: this.config.intervalMs,
@@ -150,26 +206,42 @@ export class OperatorRuntime {
       },
       this.workAbort.signal,
     )
-      .catch((error) => {
+      .catch(async (error) => {
         if (!this.workAbort?.signal.aborted) {
           this.state = 'error';
           this.error = failure(error).code;
           if (this.error === 'auth_required') this.connected = false;
+          if (this.error === 'quota_exhausted') {
+            const deadline = new Date(
+              (quotaDetectedAt ?? Date.now()) + quotaResumeDelayMs,
+            );
+            try {
+              this.resumeAt = await this.selections.setQuotaResume(deadline);
+              if (this.resumeAt) this.state = 'waiting_quota';
+            } catch (saveError) {
+              this.error = failure(saveError).code;
+            }
+          }
         }
       })
       .finally(() => {
         this.work = undefined;
-        if (this.state !== 'error') this.state = 'stopped';
+        if (this.state === 'waiting_quota') this.armQuotaResume();
+        else if (this.state !== 'error') this.state = 'stopped';
       });
   }
   async stop(persist = true) {
+    this.clearResumeTimer();
     this.workAbort?.abort(new Failure('cancelled'));
     await this.work;
+    this.clearResumeTimer();
     if (persist)
       await this.selections.saveSettings({
         ...(await this.selections.settings()),
         worker_enabled: false,
       });
+    this.resumeAt = null;
+    if (persist && this.error === 'quota_exhausted') this.error = null;
     if (!this.authWork) this.state = 'stopped';
   }
   async authenticate(interactive: boolean) {
@@ -224,6 +296,8 @@ export class OperatorRuntime {
     }
   }
   async close() {
+    this.closed = true;
+    this.clearResumeTimer();
     await this.cancelAuth();
     await this.stop(false);
   }

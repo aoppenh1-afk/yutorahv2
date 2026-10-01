@@ -4,16 +4,20 @@ import { objectDigest } from './fingerprint.js';
 
 export type NotesProfile = {
   id: string;
+  pipeline: 'notes-1' | 'notes-2';
   model: string;
   language: Settings['language'];
   runtime: string;
   transcriptionSkill: string;
   notesSkill: string;
 };
-export function notesProfile(input: Omit<NotesProfile, 'id'>): NotesProfile {
+export function notesProfile(
+  input: Omit<NotesProfile, 'id' | 'pipeline'>,
+  pipeline: NotesProfile['pipeline'] = 'notes-2',
+): NotesProfile {
   if (!input.transcriptionSkill.trim() || !input.notesSkill.trim())
     throw new Failure('configuration');
-  return { ...input, id: objectDigest({ ...input, pipeline: 'notes-1' }) };
+  return { ...input, pipeline, id: objectDigest({ ...input, pipeline }) };
 }
 const branch = (language: Settings['language']) =>
   language === 'hebrewEnglish' ? 'English-Hebrew shiur' : 'English lecture';
@@ -126,6 +130,14 @@ export async function generateNotes(input: {
   saveCleaned: (text: string) => Promise<void>;
 }): Promise<{ cleaned: string; markdown: string }> {
   let cleaned = input.cleaned;
+  // Native transcription already applied the complete Lectern contract. New
+  // jobs outline that complete source directly; pinned notes-1 jobs still clean.
+  if (!cleaned && input.profile.pipeline === 'notes-2') {
+    checkAbort(input.signal);
+    cleaned = input.source.trim();
+    if (!cleaned) throw new Failure('incomplete_output');
+    await input.saveCleaned(cleaned);
+  }
   if (!cleaned) {
     cleaned = (
       await input.request(cleanupPrompt(input.profile, input.source))

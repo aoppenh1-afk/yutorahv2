@@ -169,9 +169,18 @@ export function createOperatorServer(
           const status = await runtime.status();
           if (!status.models.includes(settings.model))
             throw new Failure('configuration');
+          const previous = await selections.settings();
           await runtime.stop();
           await selections.saveSettings(settings);
-          if (settings.worker_enabled) await runtime.start();
+          if (settings.model !== previous.model)
+            await store.reconfigureQueued(await runtime.currentProfile(), true);
+          if (settings.worker_enabled) {
+            // Saving a model/notes preference during a quota wait must retain
+            // the original deadline rather than spending the exhausted quota.
+            if (previous.quota_resume_at)
+              await selections.setQuotaResume(previous.quota_resume_at);
+            await runtime.restore();
+          }
         });
       } else if (url.pathname === '/api/operator/scan') {
         reply(200, await runtime.scan(Number(data.pages ?? 2)));
@@ -232,8 +241,7 @@ export async function serveOperator(
   server.listen(port, '127.0.0.1');
   await once(server, 'listening');
   try {
-    if ((await new SelectionStore(store.pool).settings()).worker_enabled)
-      await runtime.start();
+    await runtime.restore();
     await new Promise<void>((resolve) => {
       if (signal.aborted) resolve();
       else signal.addEventListener('abort', () => resolve(), { once: true });

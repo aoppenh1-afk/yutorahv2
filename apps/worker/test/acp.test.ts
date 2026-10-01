@@ -101,6 +101,8 @@ for (const [behavior, expected] of [
   ['oversized_line', 'output_limit'],
   ['crash', 'process_exit'],
   ['hang', 'timeout'],
+  ['usage_limit', 'quota_exhausted'],
+  ['quota_rpc', 'quota_exhausted'],
 ]) {
   void test(`ACP rejects ${behavior}`, async () => {
     const c = client(behavior);
@@ -122,6 +124,29 @@ for (const [behavior, expected] of [
     }
   });
 }
+void test('medium model also sets medium thinking explicitly', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'worker-model-'));
+  const marker = join(root, 'config.jsonl');
+  const c = client('model_config', new AbortController().signal, marker);
+  try {
+    await c.initialize();
+    await c.session(tmpdir(), 'gemini-3.8-flash-medium');
+    const changes = (await readFile(marker, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.deepEqual(
+      changes.map(({ configId, value }) => ({ configId, value })),
+      [
+        { configId: 'model', value: 'gemini-3.8-flash-medium' },
+        { configId: 'thought_level', value: 'medium' },
+      ],
+    );
+  } finally {
+    await c.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 void test('model and mode selection fail rather than silently changing settings', async () => {
   for (const behavior of ['normal', 'bad_mode']) {
     const c = client(behavior);

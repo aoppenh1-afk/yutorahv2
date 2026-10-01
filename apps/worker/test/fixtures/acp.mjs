@@ -5,7 +5,16 @@ import { writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 const [behavior = 'normal', marker = ''] = process.argv.slice(2);
 const parallel = behavior === 'pipeline_parallel';
-const record = (event, extra = {}) => appendFileSync(marker, JSON.stringify({ event, pid: process.pid, workspace: process.cwd(), ...extra }) + '\n');
+const record = (event, extra = {}) =>
+  appendFileSync(
+    marker,
+    JSON.stringify({
+      event,
+      pid: process.pid,
+      workspace: process.cwd(),
+      ...extra,
+    }) + '\n',
+  );
 if (parallel) {
   record('opened');
   process.once('exit', () => record('closed'));
@@ -19,6 +28,7 @@ if (behavior === 'ready_on_close') {
   });
 }
 const model = 'gemini-3.8-flash-high';
+const mediumModel = 'gemini-3.8-flash-medium';
 const send = (value) =>
   process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...value }) + '\n');
 const update = (kind, text = '', sessionId = 'fixture') =>
@@ -69,7 +79,19 @@ createInterface({ input: process.stdin }).on('line', (line) => {
           id: 'model',
           category: 'model',
           currentValue: model,
-          options: [{ value: model, name: model }],
+          options: [model, mediumModel].map((value) => ({
+            value,
+            name: value,
+          })),
+        },
+        {
+          id: 'thought_level',
+          category: 'thought_level',
+          currentValue: 'high',
+          options: ['low', 'medium', 'high'].map((value) => ({
+            value,
+            name: value,
+          })),
         },
       ],
     };
@@ -79,10 +101,21 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       mkdirSync(join(profile, 'conversations'), { recursive: true });
       mkdirSync(join(profile, 'brain', id), { recursive: true });
       for (const suffix of ['.db', '.db-wal', '.db-shm', '.meta'])
-        writeFileSync(join(profile, 'conversations', id + suffix), 'stored audio fixture');
-      writeFileSync(join(profile, 'brain', id, 'artifact'), 'stored session fixture');
+        writeFileSync(
+          join(profile, 'conversations', id + suffix),
+          'stored audio fixture',
+        );
+      writeFileSync(
+        join(profile, 'brain', id, 'artifact'),
+        'stored session fixture',
+      );
       result.sessionId = id;
     }
+  } else if (
+    req.method === 'session/set_config_option' &&
+    behavior === 'model_config'
+  ) {
+    appendFileSync(marker, JSON.stringify(req.params) + '\n');
   } else if (req.method === 'echo') {
     setTimeout(
       () => send({ id: req.id, result: { value: req.params.value } }),
@@ -90,6 +123,21 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     );
     return;
   } else if (req.method === 'session/prompt') {
+    if (behavior === 'quota_rpc') {
+      send({
+        id: req.id,
+        error: { code: 429, message: 'Resource exhausted: quota exceeded' },
+      });
+      return;
+    }
+    if (behavior === 'usage_limit') {
+      update(
+        'agent_message_chunk',
+        'Usage Limit Reached\n\nYou have reached your current quota for this period. Your limit will reset in 3 hours, 3 minutes.',
+      );
+      send({ id: req.id, result: { stopReason: 'end_turn' } });
+      return;
+    }
     if (behavior === 'crash') process.exit(23);
     if (behavior === 'child') {
       const c = spawn(
@@ -124,35 +172,65 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     const text = blocks.find((b) => b.type === 'text')?.text ?? '';
     const audio = blocks.find((b) => b.type === 'audio');
     if (parallel) {
-      record('prompt', { kind: audio ? 'audio' : text.includes('<transcription-contract>') ? 'cleanup' : 'notes' });
+      record('prompt', {
+        kind: audio
+          ? 'audio'
+          : text.includes('<transcription-contract>')
+            ? 'cleanup'
+            : 'notes',
+      });
       const respond = () => {
-        if (!existsSync(marker + '.release')) { setTimeout(respond, 20); return; }
-        update('agent_message_chunk', audio ? '[00:01] The גמ׳ asks on תוס׳.\n[00:04] Student: What about רש״י?' : text.includes('<transcription-contract>') ? 'The גמ׳ asks on תוס׳. The student asks about רש״י.' : '# The question on תוס׳\n\n## The גמ׳ and the student\n\n- **גמ׳:** asks on תוס׳\n    - **Student:** asks about רש״י');
+        if (!existsSync(marker + '.release')) {
+          setTimeout(respond, 20);
+          return;
+        }
+        update(
+          'agent_message_chunk',
+          audio
+            ? '[00:01] The גמ׳ asks on תוס׳.\n[00:04] Student: What about רש״י?'
+            : text.includes('<transcription-contract>')
+              ? 'The גמ׳ asks on תוס׳. The student asks about רש״י.'
+              : '# The question on תוס׳\n\n## The גמ׳ and the student\n\n- **גמ׳:** asks on תוס׳\n    - **Student:** asks about רש״י',
+        );
         send({ id: req.id, result: { stopReason: 'end_turn' } });
       };
       respond();
       return;
     }
-    if ((behavior.startsWith('generation') || behavior==='pipeline_all') && !audio) {
+    if (
+      (behavior.startsWith('generation') || behavior === 'pipeline_all') &&
+      !audio
+    ) {
       const cleanup = text.includes('<transcription-contract>');
       const repair = text.includes('<draft-notes>');
-      if(marker)appendFileSync(marker,`${cleanup?'cleanup':repair?'repair':'notes'}\n`);
-      if(behavior==='generation_tool')update('tool_call');
-      const output=cleanup?'The גמ׳ asks on תוס׳. The student asks about רש״י.':behavior==='generation_invalid'||behavior==='generation_repair'&&!repair?'# Notes\n\nToo short.':'# The question on תוס׳\n\n## The גמ׳ and the student\n\n- **גמ׳:** asks on תוס׳\n    - **Student:** asks about רש״י';
-      update('agent_message_chunk',output);
-      send({id:req.id,result:{stopReason:'end_turn'}});
+      if (marker)
+        appendFileSync(
+          marker,
+          `${cleanup ? 'cleanup' : repair ? 'repair' : 'notes'}\n`,
+        );
+      if (behavior === 'generation_tool') update('tool_call');
+      const output = cleanup
+        ? 'The גמ׳ asks on תוס׳. The student asks about רש״י.'
+        : behavior === 'generation_invalid' ||
+            (behavior === 'generation_repair' && !repair)
+          ? '# Notes\n\nToo short.'
+          : '# The question on תוס׳\n\n## The גמ׳ and the student\n\n- **גמ׳:** asks on תוס׳\n    - **Student:** asks about רש״י';
+      update('agent_message_chunk', output);
+      send({ id: req.id, result: { stopReason: 'end_turn' } });
       return;
     }
     const audioBytes = audio && Buffer.from(audio.data, 'base64');
     if (
       !audio ||
-      (['pipeline_audio','pipeline_all'].includes(behavior)
+      (['pipeline_audio', 'pipeline_all'].includes(behavior)
         ? audioBytes.toString('ascii', 0, 4) !== 'RIFF'
         : audioBytes.toString() !== 'fixture audio') ||
       !audio.mimeType.startsWith('audio/')
     )
       process.exit(51);
-    const skillHash = ['pipeline_audio','pipeline_all'].includes(behavior) ? marker : process.env.EXPECT_SKILL_HASH;
+    const skillHash = ['pipeline_audio', 'pipeline_all'].includes(behavior)
+      ? marker
+      : process.env.EXPECT_SKILL_HASH;
     if (skillHash) {
       const start =
         text.indexOf('Instructions from /lectern-transcription:\n') +
