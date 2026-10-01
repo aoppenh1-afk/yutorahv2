@@ -119,6 +119,62 @@ void test('a transposed partial word outside the directory vocabulary retrieves 
   );
 });
 
+void test('everyday intent retrieves related Torah terminology with explicit title and teacher filters', async () => {
+  const result = await json(
+    '/api/search?teacher=80153&scope=title&q=' +
+      encodeURIComponent('How can I stop gossiping?'),
+  );
+  assert.equal(result.plan.term, 'gossip');
+  assert.equal(result.complete, true);
+  assert.ok(result.total > 0);
+  assert.ok(
+    result.plan.labels.some((label) => label.startsWith('Related topics:')),
+  );
+  assert.ok(
+    result.items.every(
+      (shiur) =>
+        shiur.teacherId === 80153 && /lashon|loshon|gossip/i.test(shiur.title),
+    ),
+  );
+  assert.ok(result.items.some((shiur) => !/gossip/i.test(shiur.title)));
+});
+
+void test('joined topic words retrieve actual archive titles', async () => {
+  const result = await json(
+    '/api/search?teacher=80153&scope=title&q=roshhashana',
+  );
+  assert.equal(result.complete, true);
+  assert.equal(result.related, false);
+  assert.ok(result.total > 0);
+  assert.ok(
+    result.plan.labels.some((label) => label.includes('roshhashana →')),
+  );
+  assert.ok(result.items.some((shiur) => /rosh hashana/i.test(shiur.title)));
+  assert.ok(result.items.every((shiur) => shiur.teacherId === 80153));
+});
+
+void test('empty compound queries recover live results while keeping teacher and duration filters', async () => {
+  const result = await json(
+    '/api/search?teacher=80153&max=30&q=' +
+      encodeURIComponent('tefillah shabbat zzzxqvintentfallback'),
+  );
+  assert.equal(result.complete, true);
+  assert.equal(result.related, true);
+  assert.ok(result.sourceTotal > 0);
+  assert.ok(result.total > 0);
+  assert.ok(
+    result.plan.labels.some((label) => label.startsWith('Broadened search:')),
+  );
+  assert.ok(
+    result.items.every(
+      (shiur) =>
+        shiur.teacherId === 80153 &&
+        shiur.duration > 0 &&
+        shiur.duration <= 1800,
+    ),
+  );
+});
+
 void test('shiur details expose playable media, video, and real source materials', async () => {
   const shiur = await json('/api/shiur?id=1187437');
   assert.equal(shiur.id, 1187437);

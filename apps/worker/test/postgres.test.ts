@@ -276,11 +276,16 @@ void test(
           );
           const segments = [
             {
-              ...segment('Opening context. '.repeat(30) + 'The גמ׳ introduces חזרה with תוס׳, רש״י and מיגו. There are 613 mitzvos. ' + 'Closing context. '.repeat(30)),
+              ...segment(
+                'Opening context. '.repeat(30) +
+                  'The גמ׳ introduces חזרה with תוס׳, רש״י and מיגו. There are 613 mitzvos. Daf Yomi and building bitachon. Hachnasas Orchim, Sefiras HaOmer, Birkas Hamazon, and כיבוד הורים. ' +
+                  'Closing context. '.repeat(30) +
+                  'Lashon',
+              ),
               endMs: 4000,
             },
             {
-              ...segment('An exact phrase crosses'),
+              ...segment('hara. An exact phrase crosses'),
               startMs: 4000,
               endMs: 6000,
             },
@@ -307,27 +312,114 @@ void test(
             assert.equal(results[0].href, `/?shiur=${job.shiur_id}&t=1`);
           }
           assert.equal((await store.search('Rashi', false)).length, 0);
-          assert.equal((await store.search('חזרה', true, 20, 'terms')).length, 1);
+          assert.equal(
+            (await store.search('חזרה', true, 20, 'terms')).length,
+            1,
+          );
           const phrase = await store.search('phrase crosses a segment');
           assert.equal(phrase.length, 1);
           assert.equal(phrase[0].startMs, 4000);
-          for (const query of ['chazra', 'Tosf', 'introducs', 'intro', 'רשי', 'mitzvot', '613']) {
+          for (const query of [
+            'chazra',
+            'Tosf',
+            'introducs',
+            'intro',
+            'רשי',
+            'mitzvot',
+            '613',
+          ]) {
             const smart = await store.search(query, true, 20, 'smart');
             assert.equal(smart.length, 1, query);
             assert.equal(smart[0].startMs, 1000, query);
           }
-          const partialTypo = await store.search('segmnt boudn', true, 20, 'smart');
-          assert.ok((await store.search('introducs', true, 20, 'smart'))[0].text.includes('introduces'));
+          const partialTypo = await store.search(
+            'segmnt boudn',
+            true,
+            20,
+            'smart',
+          );
+          assert.ok(
+            (
+              await store.search('introducs', true, 20, 'smart')
+            )[0].text.includes('introduces'),
+          );
           assert.equal(partialTypo.length, 1);
           assert.equal(partialTypo[0].startMs, 6000);
-          const crossing = await store.search('phrsae crosses seg', true, 20, 'smart');
+          const crossing = await store.search(
+            'phrsae crosses seg',
+            true,
+            20,
+            'smart',
+          );
           assert.equal(crossing.length, 1);
           assert.equal(crossing[0].startMs, 4000);
-          assert.equal((await store.search('introducs', true, 20, 'phrase')).length, 0);
-          assert.equal((await store.search('introducs', true, 20, 'terms')).length, 0);
-          assert.equal((await store.search('614', true, 20, 'smart')).length, 0);
-          assert.equal((await store.search('chazra astronomy', true, 20, 'smart')).length, 0);
-          assert.ok((await pool.query('SELECT word FROM transcript_search_words WHERE word=$1', ['introduces'])).rowCount);
+          assert.equal(
+            (await store.search('introducs', true, 20, 'phrase')).length,
+            0,
+          );
+          assert.equal(
+            (await store.search('introducs', true, 20, 'terms')).length,
+            0,
+          );
+          assert.equal(
+            (await store.search('614', true, 20, 'smart')).length,
+            0,
+          );
+          assert.equal(
+            (await store.search('chazra astronomy', true, 20, 'smart')).length,
+            0,
+          );
+          for (const query of [
+            'daf ymi',
+            'daf ymo',
+            'dafyomi',
+            'anxiety',
+            'gossip',
+            'How can I welcome guests?',
+            'counting the omer',
+            'blessings after eating',
+            'honouring our parents',
+            'ובכיבוד הורים',
+          ]) {
+            const intent = await store.search(query, true, 20, 'smart');
+            assert.equal(intent.length, 1, query);
+            assert.equal(intent[0].startMs, 1000, query);
+          }
+          assert.equal(
+            (await store.search('anxiety', true, 20, 'phrase')).length,
+            0,
+          );
+          assert.equal(
+            (await store.search('dafyomi', true, 20, 'phrase')).length,
+            0,
+          );
+          assert.equal(
+            (await store.search('dafyomi', false, 20, 'smart')).length,
+            0,
+          );
+          assert.equal(
+            (
+              await store.search(
+                'How can I welcome guests?',
+                true,
+                20,
+                'phrase',
+              )
+            ).length,
+            0,
+          );
+          assert.equal(
+            (await store.search('counting the omer', true, 20, 'terms')).length,
+            0,
+          );
+          assert.ok(
+            (
+              await pool.query(
+                'SELECT word FROM transcript_search_words WHERE word=$1',
+                ['introduces'],
+              )
+            ).rowCount,
+          );
         },
       );
       await t.test(

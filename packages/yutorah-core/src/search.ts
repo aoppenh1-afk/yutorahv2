@@ -1,9 +1,14 @@
 /** Display text is preserved separately. This normalization is for search only. */
 import {
   interpretAliases,
+  interpretSpacing,
+  interpretSearchRequest,
+  relatedSearchTerms,
   searchAliases,
   searchText,
+  searchTerms,
   searchVocabulary,
+  searchWords,
   wordMatch,
 } from './search-matching.js';
 export function normalizeTranscriptSearch(text: string): string {
@@ -51,10 +56,18 @@ export function transcriptSearchClauses(
   expandAliases = true,
 ) {
   // Apply the same size/word validation as exact transcript search.
-  const normalized = searchVariants(query, false)[0];
-  let spellingExpanded = false;
-  let aliasesExpanded = false;
-  const clauses = normalized.split(' ').map((token) => {
+  const original = searchVariants(query, false)[0];
+  const spacing = expandAliases
+    ? interpretSpacing(original)
+    : { term: original, labels: [] };
+  const intent = expandAliases
+    ? interpretSearchRequest(spacing.term)
+    : { term: spacing.term, labels: [] };
+  const normalized = intent.term;
+  let spellingExpanded = spacing.labels.length > 0;
+  let aliasesExpanded = intent.labels.length > 0;
+  const anchors = new Set<string>();
+  const compileWord = (token: string) => {
     const words = new Set([token]);
     if (expandAliases) {
       const interpreted = interpretAliases(token);
@@ -94,10 +107,22 @@ export function transcriptSearchClauses(
         .join(' | ') +
       ')'
     );
+  };
+  const clauses = searchTerms(normalized).map((term) => {
+    const forms = expandAliases ? relatedSearchTerms(term) : [term];
+    aliasesExpanded ||= forms.length > 1;
+    const alternatives = forms.map((form) => {
+      const words = searchWords(form).map(compileWord);
+      for (const word of words) anchors.add(word);
+      return words.length === 1 ? words[0] : '(' + words.join(' & ') + ')';
+    });
+    return alternatives.length === 1
+      ? alternatives[0]
+      : '(' + alternatives.join(' | ') + ')';
   });
   return {
     all: clauses.join(' & '),
-    any: clauses.join(' | '),
+    any: [...anchors].join(' | '),
     spellingExpanded,
     aliasesExpanded,
   };

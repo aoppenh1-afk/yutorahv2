@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
 
 async function load(path) {
   const result = await build({
@@ -379,8 +380,397 @@ void test('relevance rewards literal title matches over fuzzy and incidental mat
   );
 });
 
-const { librarySearchQuery, searchVocabulary, wordMatch, typoBudget } =
-  await load('lib/search-matching.ts');
+const {
+  librarySearchQuery,
+  searchVocabulary,
+  wordMatch,
+  typoBudget,
+  interpretSpacing,
+  matchQuery,
+} = await load('lib/search-matching.ts');
+
+void test('ranking favors complete intent and nearby subjects over partial or scattered mentions', () => {
+  const base = { topics: [], series: '', teacher: '', description: '' };
+  const query = 'tefillah shabbat';
+  const near = { ...base, title: 'Tefillah Shabbos: Laws' };
+  const far = {
+    ...base,
+    title: 'Tefillah: laws, insights and practice for Shabbos',
+  };
+  assert.ok(relevanceScore(near, query) > relevanceScore(far, query));
+  assert.ok(
+    relevanceScore(near, query) >
+      relevanceScore(
+        {
+          ...base,
+          title: 'Tefillah',
+          topics: ['Prayer'],
+          series: 'Tefillah',
+          teacher: 'Tefillah',
+          description: 'Tefillah',
+        },
+        query,
+      ),
+  );
+  assert.ok(
+    relevanceScore({ ...base, title: 'Organ Donation' }, 'organ doan') >
+      relevanceScore(
+        { ...base, title: 'Loan Interest', description: 'organ' },
+        'organ doan',
+      ),
+  );
+  assert.ok(
+    relevanceScore({ ...base, title: 'Hilchos Shabbat' }, 'hilchos shabbat') >
+      relevanceScore(
+        { ...base, title: 'Hilchos Shabbaton' },
+        'hilchos shabbat',
+      ),
+  );
+});
+
+void test('ordinary question wording is removed while the specific subjects and constraints survive', () => {
+  for (const query of [
+    'What should I know about prayer on Shabbat?',
+    'Can you explain the laws of prayer on Shabbat?',
+    'I would like to learn more about prayer on Shabbat',
+    'Tell me about prayer on Shabbat',
+    'Explain prayer on Shabbat to me',
+    'Could you help me understand prayer on Shabbat',
+    'I need information about prayer on Shabbat',
+    'How does prayer on Shabbat work?',
+    'What are the rules for prayer on Shabbat?',
+    'Where can I learn about prayer on Shabbat?',
+  ]) {
+    const plan = parseSearch(query, { scope: 'title' });
+    assert.equal(
+      matchesPlan({ ...shiur, title: 'Tefillah on Shabbos' }, plan),
+      true,
+      `${query}: ${plan.term}`,
+    );
+    assert.equal(
+      matchesPlan({ ...shiur, title: 'Tefillah on Pesach' }, plan),
+      false,
+    );
+  }
+  const quote = parseSearch('"what should I know"');
+  assert.equal(quote.phrase, 'what should I know');
+  assert.match(
+    parseSearch('Can I work on Shabbat?').term,
+    /work/,
+    'The action in a question stays a subject',
+  );
+});
+
+void test('missing and extra spaces recover live directory entities without changing exact phrases', () => {
+  const names = {
+    ...directory,
+    topics: [
+      ...directory.topics,
+      { id: 40, name: 'Rosh Hashana', count: 1000, group: 'Holidays' },
+    ],
+  };
+  assert.equal(parseSearch('dafyomi', {}, names).seriesId, 20);
+  const holiday = parseSearch('roshhashana', { scope: 'title' }, names);
+  assert.equal(matchesPlan({ ...shiur, title: 'Rosh Hashana' }, holiday), true);
+  const teacher = parseSearch('HershelSchachter', {}, names);
+  assert.equal(teacher.teacherId, 1);
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Tefillah' },
+      parseSearch('te fillah', { scope: 'title' }, names),
+    ),
+    true,
+  );
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Daf Yomi' },
+      parseSearch('"dafyomi"', { scope: 'title' }, names),
+    ),
+    false,
+  );
+  assert.ok(holiday.labels.some((label) => label.includes('roshhashana →')));
+  assert.equal(suggestSearch('HershelSchachter', names)[0]?.id, 1);
+  assert.equal(suggestSearch('dafyomi', names)[0]?.id, 20);
+  assert.equal(
+    interpretSpacing('abc def', ['abc def', 'abcdef']).term,
+    'abc def',
+    'Ambiguous readings remain literal',
+  );
+  assert.equal(interpretSpacing('mycustomtopic').term, 'mycustomtopic');
+  assert.equal(matchQuery('Rabbi Hershel Schachter', 'HershelSchachter'), true);
+  assert.equal(matchQuery('Organ Donation', 'OrganDonation'), true);
+  assert.equal(matchQuery('Notebook', 'note book'), true);
+  assert.deepEqual(
+    highlightParts('Tefillah', 'te fillah')
+      .filter((part) => part.match)
+      .map((part) => part.text),
+    ['Tefillah'],
+  );
+});
+
+const { searchRetrieval } = await load('lib/search-matching.ts');
+void test('related retrieval keeps known subjects and numeric constraints and never becomes a broad OR search', () => {
+  const recovery = searchRetrieval('tefillah shabbat practical');
+  assert.ok(recovery.relatedQuery);
+  assert.equal(recovery.matches('Tefillah on Shabbos', true), true);
+  assert.equal(recovery.matches('Practical Tefillah', true), false);
+  assert.equal(recovery.matches('Practical Shabbos', true), false);
+  assert.equal(recovery.matches('Tefillah on Shabbos'), false);
+  const numbers = searchRetrieval('rambam 613 practical');
+  assert.equal(numbers.matches('Rambam 613', true), true);
+  assert.equal(numbers.matches('Rambam practical 614', true), false);
+  assert.equal(searchRetrieval('tefillah shabbat').relatedQuery, '');
+  assert.equal(searchRetrieval('shabbat pesach tefillah').relatedQuery, '');
+  assert.equal(searchRetrieval('word '.repeat(33)).relatedQuery, '');
+  assert.ok(recovery.relatedQuery.length < 4000);
+  assert.ok(
+    searchRetrieval('tefillah shabbat practical', ['practical']).relatedQuery,
+    'Generic modifiers may relax even when present in series names',
+  );
+});
+
+void test('short missing letters and transposed partial words find the intended title and series', () => {
+  const daf = { ...shiur, title: 'Daf Yomi' };
+  for (const query of ['daf ymi', 'daf ymo']) {
+    assert.equal(
+      matchesPlan(daf, parseSearch(query, { scope: 'title' })),
+      true,
+      query,
+    );
+    assert.equal(suggestSearch(query, directory)[0]?.id, 20, query);
+    assert.equal(parseSearch(query, {}, directory).seriesId, 20, query);
+  }
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Organ Donation' },
+      parseSearch('doan', { scope: 'title' }),
+    ),
+    true,
+  );
+  assert.equal(
+    wordMatch('daf', 'dav'),
+    0,
+    'Short unrelated words stay distinct',
+  );
+  assert.equal(wordMatch('on', 'in'), 0);
+  assert.equal(wordMatch('2026', '2025'), 0);
+  assert.equal(
+    matchesPlan(daf, parseSearch('"daf ymi"', { scope: 'title' })),
+    false,
+  );
+});
+
+void test('connecting words do not hide results while every requested subject remains required', () => {
+  const title = { ...shiur, title: 'Hilchos Shabbat' };
+  for (const query of [
+    'hilchos on shabbat',
+    'the hilchos of shabbat',
+    'hilchos and shabbat',
+  ])
+    assert.equal(
+      matchesPlan(title, parseSearch(query, { scope: 'title' })),
+      true,
+      query,
+    );
+  assert.equal(
+    matchesPlan(title, parseSearch('hilchos on pesach', { scope: 'title' })),
+    false,
+  );
+  assert.equal(
+    matchesPlan(title, parseSearch('"hilchos on shabbat"', { scope: 'title' })),
+    false,
+  );
+  assert.deepEqual(
+    highlightParts(title.title, 'the hilchos of shabbat')
+      .filter((part) => part.match)
+      .map((part) => part.text),
+    ['Hilchos', 'Shabbat'],
+  );
+  const base = { topics: [], series: '', teacher: '', description: '' };
+  assert.ok(
+    relevanceScore(
+      { ...base, title: 'Hilchos Shabbat' },
+      'hilchos on shabbat',
+    ) >
+      relevanceScore(
+        { ...base, title: 'A lecture on Shabbat' },
+        'hilchos on shabbat',
+      ),
+  );
+});
+
+void test('archive retrieval expands short typos and ignores connecting words without dropping subjects', () => {
+  const vocabulary = searchVocabulary(['Daf Yomi']);
+  for (const query of ['ymi', 'ymo'])
+    assert.match(librarySearchQuery(query, vocabulary), /\byomi\b/, query);
+  assert.match(librarySearchQuery('doan'), /dona\*/);
+  assert.doesNotMatch(librarySearchQuery('doan'), /do\?n\*/);
+  assert.equal(
+    librarySearchQuery('hilchos on shabbat'),
+    librarySearchQuery('hilchos shabbat'),
+  );
+  assert.equal(
+    librarySearchQuery('the hilchos of shabbat'),
+    librarySearchQuery('hilchos shabbat'),
+  );
+  assert.match(librarySearchQuery('hilchos on pesach'), / AND /);
+  assert.equal(
+    librarySearchQuery('on'),
+    'on',
+    'A query containing only connecting words stays literal',
+  );
+});
+
+const { transcriptSearchClauses, searchVariants } = await load(
+  'packages/yutorah-core/src/search.ts',
+);
+
+void test('intent search connects everyday questions to relevant Torah concepts', () => {
+  const examples = [
+    ['How can I control my temper?', 'Overcoming Kaas'],
+    ["I'm struggling with anxiety", 'Building Bitachon'],
+    ['How do I cope with losing a loved one?', 'Hilchos Aveilus'],
+    ['How can I stop gossiping?', 'The Laws of Lashon Hara'],
+    ['What does Judaism say about respecting my parents?', 'Kibbud Av Vaem'],
+    ['How can I be more grateful?', 'Hakaras Hatov'],
+    ['How can I have more peace at home?', 'Shalom Bayis'],
+    ['How can I control my tempre?', 'Overcoming Kaas'],
+    ['anxeity', 'Building Bitachon'],
+    ['How can I be a better person?', 'Mussar and Middos'],
+    ['Can I cook on Shabbat?', 'Bishul on Shabbos'],
+  ];
+  for (const [query, title] of examples) {
+    const plan = parseSearch(query, { scope: 'title' });
+    assert.equal(
+      matchesPlan({ ...shiur, title }, plan),
+      true,
+      `${query}: ${plan.term}`,
+    );
+    assert.ok(
+      plan.labels.some((label) => label.startsWith('Related topics:')),
+      query,
+    );
+    assert.equal(
+      matchesPlan({ ...shiur, title: 'Hilchos Eruvin' }, plan),
+      false,
+      query,
+    );
+  }
+});
+
+void test('intent search keeps specific subjects, teachers, time budgets and literal overrides', () => {
+  const plan = parseSearch(
+    'Find me English shiurim about dealing with anxiety on Shabbat by Rabbi Hershl Schact under twenty minutes',
+    {},
+    directory,
+  );
+  assert.equal(plan.teacherId, 1);
+  assert.equal(plan.max, 20);
+  assert.equal(plan.language, 'EN');
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Bitachon on Shabbos', duration: 900 },
+      { ...plan, scope: 'title' },
+    ),
+    true,
+  );
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Bitachon on Pesach', duration: 900 },
+      { ...plan, scope: 'title' },
+    ),
+    false,
+  );
+  const literal = parseSearch('"control my temper"');
+  assert.equal(literal.term, 'control my temper');
+  assert.equal(literal.phrase, 'control my temper');
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Overcoming Kaas', description: '' },
+      literal,
+    ),
+    false,
+  );
+  assert.doesNotMatch(
+    librarySearchQuery(plan.term),
+    /dealing|\banxiety~|\bon\b/,
+  );
+  assert.match(librarySearchQuery(plan.term), /bitachon/);
+  assert.match(librarySearchQuery(plan.term), / AND /);
+});
+
+void test('intent retrieval, suggestions, ranking and highlights share related concepts', () => {
+  const semanticDirectory = {
+    ...directory,
+    topics: [
+      ...directory.topics,
+      { id: 30, name: 'Bitachon', count: 300, group: 'Hashkafa' },
+      { id: 31, name: 'Lashon Hara', count: 400, group: 'Halacha' },
+    ],
+  };
+  assert.equal(
+    suggestSearch("I'm struggling with anxiety", semanticDirectory)[0]?.id,
+    30,
+  );
+  assert.equal(
+    suggestSearch('How can I stop gossiping?', semanticDirectory)[0]?.id,
+    31,
+  );
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Kol Lashon and Har Gerizim', description: '' },
+      parseSearch('gossip', { scope: 'title' }),
+    ),
+    false,
+  );
+  assert.match(librarySearchQuery('gossip'), /lashon/);
+  assert.match(librarySearchQuery('gossip'), /hara/);
+  assert.doesNotMatch(
+    librarySearchQuery('daf', searchVocabulary(['Daf Yomi'])),
+    /daven/,
+  );
+  assert.doesNotMatch(transcriptSearchClauses('daf').all, /daven|prayer/);
+  assert.match(
+    transcriptSearchClauses('gossip').all,
+    /'lashon':\*.* & .*'hara':\*/,
+  );
+  assert.deepEqual(
+    highlightParts('The Laws of Lashon Hara', 'gossip')
+      .filter((part) => part.match)
+      .map((part) => part.text),
+    ['Lashon', 'Hara'],
+  );
+  const base = { topics: [], series: '', teacher: '', description: '' };
+  assert.ok(
+    relevanceScore({ ...base, title: 'Dealing with Anxiety' }, 'anxiety') >
+      relevanceScore({ ...base, title: 'Building Bitachon' }, 'anxiety'),
+  );
+  assert.ok(
+    relevanceScore({ ...base, title: 'Building Bitachon' }, 'anxiety') >
+      relevanceScore({ ...base, title: 'Other Lecture' }, 'anxiety'),
+  );
+});
+
+void test('smart transcript clauses accept short spelling candidates and optional connecting words', () => {
+  const candidates = new Map([
+    ['ymi', ['yomi', 'ami']],
+    ['ymo', ['yomi']],
+  ]);
+  for (const query of ['daf ymi', 'daf ymo']) {
+    const clauses = transcriptSearchClauses(query, candidates);
+    assert.match(clauses.all, /'yomi':\*/);
+    assert.equal(clauses.spellingExpanded, true);
+    assert.doesNotMatch(clauses.all, /'ami'/);
+  }
+  assert.equal(
+    transcriptSearchClauses('hilchos on shabbat').all,
+    transcriptSearchClauses('hilchos shabbat').all,
+  );
+  assert.deepEqual(searchVariants('hilchos on shabbat', false), [
+    'hilchos on shabbat',
+  ]);
+});
+
 void test('retrieval compiles bounded typo/prefix clauses, keeps all subjects, and never forwards query syntax', () => {
   const query = librarySearchQuery(
     'Schact rambm',
@@ -421,4 +811,183 @@ void test('retrieval compiles bounded typo/prefix clauses, keeps all subjects, a
     ).join(' '),
   );
   assert.ok(long.length < 4000);
+});
+
+void test('a broader intent corpus recognizes rituals, ethics, life events, and Hebrew questions', () => {
+  const corpus = JSON.parse(
+    readFileSync(
+      new URL('./fixtures/search-intents.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const failures = [];
+  for (const { query, title, required } of corpus) {
+    const plan = parseSearch(query, { scope: 'title' });
+    if (!matchesPlan({ ...shiur, title }, plan))
+      failures.push(`${query} → ${plan.term} misses ${title}`);
+    assert.equal(
+      matchesPlan({ ...shiur, title: 'Astronomy and Eruvin' }, plan),
+      false,
+      query,
+    );
+    if (required)
+      assert.ok(
+        matchQuery(plan.term, required),
+        `${query} must retain ${required}`,
+      );
+  }
+  assert.deepEqual(failures, []);
+});
+
+void test('word families and Hebrew prefixes are recognized without treating unfamiliar words as known subjects', () => {
+  assert.ok(wordMatch('studies', 'studying') >= 0.9);
+  assert.ok(wordMatch('children', 'child') >= 0.9);
+  assert.ok(wordMatch('ולשבת', 'שבת') >= 0.9);
+  assert.ok(wordMatch('honoured', 'honouring') >= 0.9);
+  assert.equal(wordMatch('2026', '2025'), 0);
+  assert.equal(wordMatch('gas', 'ga'), 0);
+  assert.ok(
+    wordMatch('news', 'new') < 0.9,
+    'An unfamiliar suffix gets only ordinary spelling tolerance',
+  );
+  assert.ok(
+    wordMatch('ובהמצאהחדשה', 'המצאהחדשה') < 0.9,
+    'Unknown Hebrew words are not prefix-normalized',
+  );
+  assert.ok(librarySearchQuery('studies').includes('study'));
+  assert.ok(librarySearchQuery('ובשבת').includes('shabbos'));
+});
+
+void test('recognition preserves exact quotes, unknown qualifiers, and distinct adjacent concepts', () => {
+  const plan = parseSearch('hospitality and loan interest on Shabbat', {
+    scope: 'title',
+  });
+  assert.equal(
+    matchesPlan({ ...shiur, title: 'Hachnasas Orchim Ribbis Shabbos' }, plan),
+    true,
+  );
+  assert.equal(
+    matchesPlan({ ...shiur, title: 'Hachnasas Orchim Shabbos' }, plan),
+    false,
+  );
+  assert.equal(
+    matchesPlan({ ...shiur, title: 'Ribbis on Pesach' }, plan),
+    false,
+  );
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Birkat Hamazon' },
+      parseSearch('"grace after meals"'),
+    ),
+    false,
+  );
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Pikuach Nefesh' },
+      parseSearch('"saving a life"'),
+    ),
+    false,
+  );
+  assert.ok(parseSearch('hospitality astronomy').term.includes('astronomy'));
+  assert.equal(
+    searchRetrieval('not hospitality shabbat').relatedQuery,
+    '',
+    'Recovery cannot discard negation',
+  );
+  assert.doesNotMatch(librarySearchQuery('get'), /gittin|גט/);
+  assert.doesNotMatch(librarySearchQuery('interest'), /ribbis|ריבית/);
+});
+
+void test('teacher initials select a teacher only with a unique full surname', () => {
+  for (const query of ['Rabbi H. Schachter', 'Rav H Schachter', 'H. Schachter'])
+    assert.equal(parseSearch(query, {}, directory).teacherId, 1, query);
+  const ambiguous = {
+    ...directory,
+    teachers: [
+      ...directory.teachers,
+      {
+        id: 4,
+        firstName: 'Hillel',
+        lastName: 'Schachter',
+        name: 'Rabbi Hillel Schachter',
+        count: 100,
+      },
+    ],
+  };
+  assert.equal(parseSearch('Rabbi H Schachter', {}, ambiguous).teacherId, 0);
+  assert.equal(
+    parseSearch('Rabbi H Schach', {}, directory).teacherId,
+    0,
+    'An initial with an incomplete surname is insufficient',
+  );
+  assert.equal(suggestSearch('Rabbi H. Schachter', directory)[0]?.id, 1);
+  assert.deepEqual(
+    suggestSearch('H Schachter', ambiguous)
+      .map((entry) => entry.id)
+      .sort(),
+    [1, 4],
+  );
+});
+
+void test('recognized neighboring words do not become each other through typo correction', () => {
+  assert.equal(parseSearch('morning').term, 'morning');
+  assert.equal(wordMatch('morning', 'mourning'), 0);
+  assert.equal(wordMatch('eruv', 'erev'), 0);
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Mourning Prayer' },
+      parseSearch('morning prayer', { scope: 'title' }),
+    ),
+    false,
+  );
+  assert.doesNotMatch(librarySearchQuery('morning prayer'), /morning~/);
+  assert.ok(matchQuery('Children and Child', "children's"));
+});
+
+void test('questions share subject recognition across metadata, local search, and smart transcript retrieval', () => {
+  assert.equal(
+    matchQuery('Hachnasas Orchim', 'How can I welcome guests?'),
+    true,
+  );
+  assert.equal(
+    matchQuery('Shacharis', 'Can I learn about morning prayers?'),
+    true,
+  );
+  const question = transcriptSearchClauses('How can I welcome guests?');
+  assert.match(question.all, /hachnasas/);
+  assert.doesNotMatch(question.all, /'how'|'can'|'i'/);
+  assert.match(
+    transcriptSearchClauses('counting the omer').all,
+    /sefirat|sefiras/,
+  );
+  assert.match(transcriptSearchClauses('מברכים אחרי האוכל').all, /hamazon/);
+  assert.doesNotMatch(
+    transcriptSearchClauses('welcoming guests', new Map(), false).all,
+    /hachnasas/,
+  );
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Shacharis' },
+      parseSearch('Can I learn about morning prayers?', { scope: 'title' }),
+    ),
+    true,
+  );
+});
+
+void test('encoded archive queries stay within the upstream limit without dropping required subjects', () => {
+  for (const text of [
+    'כיבוד הורים',
+    'honoring parents on shabbat',
+    'candle lighting and loan interest and counting the omer',
+    'ברכת המזון צדקה תפילה שבת חינוך חסד',
+  ]) {
+    const query = librarySearchQuery(text);
+    assert.ok(
+      new URLSearchParams({ searchTerm: query }).toString().length <= 1800,
+      text,
+    );
+  }
+  const query = librarySearchQuery('hospitality loan interest 613 shabbat');
+  for (const word of ['hospitality', 'loan', 'interest', '613', 'shabbat'])
+    assert.ok(query.includes(word), word);
 });

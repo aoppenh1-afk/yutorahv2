@@ -163,7 +163,8 @@ export function SearchBox({
         </button>
       </form>
       <p id="search-matching-hint" className="search-matching-hint">
-        Try a question or start typing a name. Typos and partial words work too.
+        Ask in your own words, or search a topic, teacher, or series. Typos and
+        partial words work too.
       </p>
       {open && count > 0 && (
         <div className="search-suggestion-panel">

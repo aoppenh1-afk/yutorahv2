@@ -1206,12 +1206,18 @@ export default function TorahApp({
                 </div>
               )}
               {!!results?.plan.labels.filter((l) =>
-                /→|^Topic:|^Keywords:/.test(l),
+                /→|^Topic:|^Keywords:|^Related topics:|^Broadened search:/.test(
+                  l,
+                ),
               ).length && (
                 <p className="search-interpretation">
                   <Search size={14} />{' '}
                   {results.plan.labels
-                    .filter((l) => /→|^Topic:|^Keywords:/.test(l))
+                    .filter((l) =>
+                      /→|^Topic:|^Keywords:|^Related topics:|^Broadened search:/.test(
+                        l,
+                      ),
+                    )
                     .join(' · ')}
                 </p>
               )}

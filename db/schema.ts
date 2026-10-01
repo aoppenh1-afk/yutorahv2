@@ -45,3 +45,39 @@ export const searchHits = sqliteTable(
     index('search_hits_title').on(t.run, t.title),
   ],
 );
+
+export const searchTitleCatalog = sqliteTable('search_title_catalog', {
+  id: integer('id').primaryKey(),
+  title: text('title').notNull(),
+  terms: text('terms').notNull(),
+});
+export const searchTitleTerms = sqliteTable('search_title_terms', {
+  term: text('term').primaryKey(),
+  words: integer('words').notNull(),
+  documents: integer('documents').notNull().default(0),
+});
+export const searchTitleKeys = sqliteTable(
+  'search_title_keys',
+  {
+    key: text('key').notNull(),
+    term: text('term')
+      .notNull()
+      .references(() => searchTitleTerms.term),
+  },
+  (t) => [primaryKey({ columns: [t.key, t.term] })],
+);
+export const searchTitleCursors = sqliteTable('search_title_cursors', {
+  name: text('name').primaryKey(),
+  next: integer('next').notNull().default(1),
+});
+
+export const searchTitleImports = sqliteTable('search_title_imports', {
+  name: text('name').primaryKey(),
+  minimum: integer('minimum').notNull(),
+  maximum: integer('maximum').notNull(),
+  next: integer('next').notNull(),
+  total: integer('total').notNull(),
+  scanned: integer('scanned').notNull().default(0),
+  started: integer('started').notNull(),
+  completed: integer('completed').notNull().default(0),
+});

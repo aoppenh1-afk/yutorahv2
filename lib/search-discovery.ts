@@ -1,5 +1,13 @@
 import type { Directory } from './yutorah';
-import { searchText, wordMatch, matchingSpans } from './search-matching';
+import {
+  searchText,
+  searchTerms,
+  textMatchScore,
+  wordMatch,
+  matchingSpans,
+  interpretSpacing,
+} from './search-matching';
+import { naturalSearch } from './natural-search';
 export { searchText } from './search-matching';
 
 export type SearchSuggestion = {
@@ -14,7 +22,7 @@ const teacherTitle = /^(?:rabbi|rabi|rabby|rav|r)$/;
 
 /** Resolve only an unambiguous mention, keeping the actual span for removal. */
 export function teacherMention(term: string, directory: Directory) {
-  const tokens = [...term.matchAll(/[\p{L}\p{M}\p{N}'’״׳.-]+/gu)].map(
+  const tokens = [...term.matchAll(/[\p{L}\p{M}\p{N}'’״׳]+/gu)].map(
     (match) => ({
       word: searchText(match[0]),
       start: match.index,
@@ -43,10 +51,23 @@ export function teacherMention(term: string, directory: Directory) {
         if (!explicit && name.length < 2) continue;
         const fuzzy = explicit || (i === 0 && name.length === tokens.length);
         const scores: number[] = [];
+        const initial =
+          name === fullName && name.length >= 2 && tokens[i].word.length === 1;
+        if (
+          initial &&
+          !name.slice(1).every((word, j) => tokens[i + j + 1].word === word)
+        )
+          continue;
         for (let j = 0; j < name.length; j++) {
-          const score = fuzzy
-            ? wordMatch(tokens[i + j].word, name[j])
-            : Number(tokens[i + j].word === name[j]);
+          const score =
+            initial &&
+            j === 0 &&
+            (explicit || fuzzy) &&
+            name[0].startsWith(tokens[i].word)
+              ? 0.9
+              : fuzzy
+                ? wordMatch(tokens[i + j].word, name[j])
+                : Number(tokens[i + j].word === name[j]);
           if (!score) break;
           scores.push(score);
         }
@@ -88,9 +109,20 @@ export function suggestSearch(
   query: string,
   directory: Directory | null,
 ): SearchSuggestion[] {
-  const term = searchText(query).replace(/^(rabbi|rabi|rabby|rav|r)\s+/, '');
-  if (!directory || term.length < 2) return [];
-  const tokens = term.split(' ');
+  if (!directory) return [];
+  const spacing = interpretSpacing(naturalSearch(query).term, [
+    ...directory.teachers.map(
+      (teacher) => `${teacher.firstName} ${teacher.lastName}`,
+    ),
+    ...directory.topics.map((topic) => topic.name),
+    ...directory.series.map((series) => series.name),
+  ]);
+  const term = searchText(spacing.term).replace(
+    /^(rabbi|rabi|rabby|rav|r)\s+/,
+    '',
+  );
+  if (term.length < 2) return [];
+  const tokens = searchTerms(term);
   const entries: SearchSuggestion[] = [
     ...directory.teachers.map((t) => ({
       id: t.id,
@@ -128,11 +160,21 @@ export function suggestSearch(
               : 0;
       if (!score) {
         let total = 0;
-        for (const token of tokens) {
-          const match = words.reduce(
-            (best, word) => Math.max(best, wordMatch(token, word, 2)),
-            0,
-          );
+        const initial =
+          entry.kind === 'teacher' &&
+          tokens.length === words.length &&
+          tokens[0].length === 1 &&
+          tokens.slice(1).every((word, i) => word === words[i + 1]);
+        for (const [index, token] of tokens.entries()) {
+          const match =
+            initial && index === 0 && words[0].startsWith(token)
+              ? 0.9
+              : entry.kind === 'teacher'
+                ? words.reduce(
+                    (best, word) => Math.max(best, wordMatch(token, word, 2)),
+                    0,
+                  )
+                : textMatchScore(name, token, 2);
           if (!match) {
             total = 0;
             break;
@@ -166,49 +208,7 @@ export function highlightParts(
   return parts;
 }
 
-export function relevanceScore(
-  shiur: {
-    title: string;
-    topics: string[];
-    series: string;
-    description: string;
-    teacher: string;
-  },
-  query: string,
-): number {
-  const term = searchText(query);
-  if (!term) return 0;
-  const title = searchText(shiur.title);
-  const topics = searchText(shiur.topics.join(' '));
-  const series = searchText(shiur.series);
-  const description = searchText(shiur.description);
-  const teacher = searchText(shiur.teacher);
-  const tokens = term.split(' ').filter((t) => t.length > 1);
-  let score = title === term ? 100 : title.includes(term) ? 60 : 0;
-  if (topics.includes(term)) score += 35;
-  if (series.includes(term)) score += 25;
-  const fields = [
-    [title, 8],
-    [topics, 5],
-    [series, 3],
-    [teacher, 3],
-    [description, 1],
-  ] as const;
-  let covered = 0;
-  for (const token of tokens) {
-    let best = 0;
-    for (const [text, weight] of fields) {
-      const match = text
-        .split(' ')
-        .reduce((best, word) => Math.max(best, wordMatch(token, word)), 0);
-      score += match * weight;
-      best = Math.max(best, match);
-    }
-    covered += best;
-  }
-  score += tokens.length ? (20 * covered) / tokens.length : 0;
-  return score;
-}
+export { relevanceScore } from '../packages/yutorah-core/src/search-ranking.js';
 
 export function matchExcerpt(
   description: string,

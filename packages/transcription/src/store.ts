@@ -17,7 +17,11 @@ import {
 } from './types.js';
 import { validRanges } from './planning.js';
 import { validSegments } from './transcript.js';
-import { matchingSpans } from '../../yutorah-core/src/search-matching.js';
+import {
+  interpretSpacing,
+  interpretSearchRequest,
+  matchingSpans,
+} from '../../yutorah-core/src/search-matching.js';
 
 export type Profile = {
   id: string;
@@ -502,11 +506,14 @@ export class TranscriptionStore {
         await client.query(
           "SET LOCAL pg_trgm.word_similarity_threshold = '0.2'",
         );
-        const words = normalizeTranscriptSearch(query)
+        const smartQuery = expandAliases
+          ? interpretSearchRequest(interpretSpacing(query).term).term
+          : query;
+        const words = normalizeTranscriptSearch(smartQuery)
           .split(' ')
           .filter(
             (word) =>
-              word.length >= 4 && word.length <= 64 && !/\p{N}/u.test(word),
+              word.length >= 3 && word.length <= 64 && !/\p{N}/u.test(word),
           );
         const vocabulary = await client.query<{ term: string; word: string }>(
           `

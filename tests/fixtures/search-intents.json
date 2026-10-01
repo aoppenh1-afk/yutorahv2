@@ -1,0 +1,170 @@
+[
+  {
+    "query": "How do I welcome guests on Shabbat?",
+    "title": "Hachnasas Orchim on Shabbos",
+    "required": "shabbat"
+  },
+  {
+    "query": "How can I raise my children?",
+    "title": "Chinuch and Raising Children"
+  },
+  {
+    "query": "counting the omer",
+    "title": "Sefiras HaOmer"
+  },
+  {
+    "query": "blessings after eating",
+    "title": "Birkas Hamazon"
+  },
+  {
+    "query": "washing hands before bread",
+    "title": "Netilas Yadayim"
+  },
+  {
+    "query": "honouring our parents",
+    "title": "Kibbud Av Vaem"
+  },
+  {
+    "query": "saving a life on Shabbat",
+    "title": "Pikuach Nefesh on Shabbos",
+    "required": "shabbat"
+  },
+  {
+    "query": "loan interest",
+    "title": "Hilchos Ribbis"
+  },
+  {
+    "query": "returning lost objects",
+    "title": "Hashavas Aveidah"
+  },
+  {
+    "query": "being more humble",
+    "title": "Anavah"
+  },
+  {
+    "query": "dealing with jealousy",
+    "title": "Overcoming Kinah"
+  },
+  {
+    "query": "acts of kindness",
+    "title": "Gemilus Chasadim"
+  },
+  {
+    "query": "ethics in business",
+    "title": "Business Ethics and Choshen Mishpat"
+  },
+  {
+    "query": "forgiving other people",
+    "title": "Mechilah"
+  },
+  {
+    "query": "avoiding waste",
+    "title": "Bal Tashchis"
+  },
+  {
+    "query": "kindness to animals",
+    "title": "Tzaar Baalei Chaim"
+  },
+  {
+    "query": "grace after meals",
+    "title": "Birkat Hamazon"
+  },
+  {
+    "query": "Jewish divorce",
+    "title": "Hilchos Gittin"
+  },
+  {
+    "query": "ritual bath",
+    "title": "Mikveh"
+  },
+  {
+    "query": "circumcision",
+    "title": "Bris Milah"
+  },
+  {
+    "query": "prayer shawl fringes",
+    "title": "Tzitzis"
+  },
+  {
+    "query": "Jewish new year",
+    "title": "Rosh Hashanah"
+  },
+  {
+    "query": "day of atonement",
+    "title": "Yom Kippur"
+  },
+  {
+    "query": "ethics of our fathers",
+    "title": "Pirkei Avos"
+  },
+  {
+    "query": "morning prayers",
+    "title": "Shacharis"
+  },
+  {
+    "query": "afternoon prayers",
+    "title": "Mincha"
+  },
+  {
+    "query": "evening prayers",
+    "title": "Maariv"
+  },
+  {
+    "query": "lighting candles on Shabbat",
+    "title": "Hadlakas Neiros on Shabbos",
+    "required": "shabbat"
+  },
+  {
+    "query": "chag sameach purim",
+    "title": "Purim"
+  },
+  {
+    "query": "מקורות על כיבוד הורים",
+    "title": "Kibbud Av Vaem"
+  },
+  {
+    "query": "איך מכבדים את ההורים",
+    "title": "Honoring Parents"
+  },
+  {
+    "query": "מה מברכים אחרי האוכל",
+    "title": "Birkat Hamazon"
+  },
+  {
+    "query": "בתפילה ובשבת",
+    "title": "Prayer on Shabbos",
+    "required": "shabbat"
+  },
+  {
+    "query": "lashn haraa",
+    "title": "הלכות לשון הרע"
+  },
+  {
+    "query": "sefirt haomr",
+    "title": "Counting the Omer"
+  },
+  {
+    "query": "getting married",
+    "title": "The Chuppah"
+  },
+  {
+    "query": "getting divorced",
+    "title": "Gittin"
+  },
+  {
+    "query": "bas mitzvah",
+    "title": "Bat Mitzvah"
+  },
+  {
+    "query": "בר מצוה",
+    "title": "Bar Mitzvah"
+  },
+  {
+    "query": "Genesis",
+    "title": "Bereishis"
+  },
+  {
+    "query": "book of numbers",
+    "title": "Bamidbar"
+  }
+]

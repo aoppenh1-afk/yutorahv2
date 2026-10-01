@@ -1,6 +1,12 @@
 import { naturalSearch } from './natural-search';
 import { searchText, teacherMention } from './search-discovery';
-import { interpretAliases, matchQuery, wordMatch } from './search-matching';
+import {
+  intentLabels,
+  interpretAliases,
+  interpretSpacing,
+  matchQuery,
+  wordMatch,
+} from './search-matching';
 import type {
   RawShiur,
   RawTeacher,
@@ -313,6 +319,20 @@ export function parseSearch(
     excluded.push(word);
     return ' ';
   });
+  const spacing = interpretSpacing(
+    term,
+    directory
+      ? [
+          ...directory.teachers.map(
+            (teacher) => `${teacher.firstName} ${teacher.lastName}`,
+          ),
+          ...directory.topics.map((topic) => topic.name),
+          ...directory.series.map((series) => series.name),
+        ]
+      : [],
+  );
+  term = spacing.term;
+  labels.push(...spacing.labels);
   const exclude = [...new Set(excluded)].join(' ');
   const scope = options.scope === 'title' ? 'title' : '';
   let format = options.format || '';
@@ -414,6 +434,7 @@ export function parseSearch(
   const interpreted = interpretAliases(term);
   term = interpreted.term;
   labels.push(...interpreted.labels);
+  labels.push(...intentLabels(term));
   term = term.replace(/EXACTQUOTED(\d+)TOKEN/g, (_, i) => quoted[Number(i)]);
   if (directory) {
     teacherName =
@@ -502,6 +523,7 @@ export type SearchResult = {
   complete?: boolean;
   scanned?: number;
   sourceTotal?: number;
+  related?: boolean;
   run?: string;
   facets: {
     teachers: { id: number; name: string; count: number }[];

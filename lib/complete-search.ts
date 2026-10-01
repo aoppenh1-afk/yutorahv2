@@ -12,10 +12,15 @@ import type { SearchResponse } from './api-types';
 import type { SearchDatabase, SearchStatement } from './search-storage';
 import { relevanceScore, searchText } from './search-discovery';
 import {
-  librarySearchQuery,
-  matchQuery,
+  interpretSpacing,
+  searchRetrieval,
   searchVocabulary,
 } from './search-matching';
+import {
+  indexTitleStatements,
+  seedCachedTitles,
+  titleVocabulary,
+} from './title-index';
 
 type Run = {
   id: string;
@@ -63,19 +68,12 @@ export async function completeSearch(
   const plan = parseSearch(query, options, directory);
   if (plan.min && plan.max && plan.min > plan.max)
     throw new RangeError('Minimum duration must not exceed maximum duration.');
-  const sourceQuery = librarySearchQuery(
-    plan.term || plan.phrase || '',
-    searchVocabulary([
-      ...directory.teachers.map((teacher) => teacher.name),
-      ...directory.topics.map((topic) => topic.name),
-      ...directory.series.map((series) => series.name),
-    ]),
-  );
-  // Cache the actual expansion independently of refinements and sorting. A
-  // vocabulary change must never resume a pass using different candidates.
+  // The expansion is snapshotted on the run. Learning more titles must not
+  // change a pending scan's source query, title matching, or candidate counts.
   const criteria = {
-    version: 3,
-    term: sourceQuery,
+    version: 7,
+    term: plan.term || plan.phrase || '',
+    quoted: /"[^"]+"/.test(query),
     teacher: plan.teacherId,
     topic: plan.topicId,
     series: plan.seriesId,
@@ -104,21 +102,70 @@ export async function completeSearch(
       )
       .bind(fingerprint, cutoff, activeCutoff)
       .first<Run>();
+  let firstPage: SearchResponse | undefined;
+  type Expansion = {
+    sourceQuery: string;
+    related: boolean;
+    searchTerm: string;
+    vocabulary: string[];
+    corrections: string[];
+  };
+  let expansion = run ? (JSON.parse(run.plan) as Expansion) : null;
+  if (!expansion) {
+    await seedCachedTitles(db);
+    const learned = await titleVocabulary(db, plan.term);
+    const spacing = interpretSpacing(plan.term, learned.phrases);
+    expansion = {
+      sourceQuery: '',
+      related: false,
+      searchTerm: spacing.term,
+      corrections: spacing.labels,
+      vocabulary: [
+        ...new Set([
+          ...learned.words,
+          ...searchVocabulary([
+            ...directory.teachers.map((teacher) => teacher.name),
+            ...directory.topics.map((topic) => topic.name),
+            ...directory.series.map((series) => series.name),
+          ]),
+        ]),
+      ],
+    };
+  }
+  plan.labels.push(...expansion.corrections);
+  // Keep the parsed request in the public plan: the UI resumes with plan.term.
+  // The repaired retrieval term lives in the run snapshot independently.
+  const retrieval = searchRetrieval(
+    expansion.searchTerm || plan.phrase || '',
+    expansion.vocabulary,
+  );
+  const relatedQuery = criteria.quoted ? '' : retrieval.relatedQuery;
   if (!run) {
-    const first = await upstream<SearchResponse>(
-      sourceParams(plan, sourceQuery, 1),
-      0,
-    );
-    if (
-      !Array.isArray(first.response?.docs) ||
-      !Number.isSafeInteger(first.response.numFound) ||
-      first.response.numFound < 0
-    )
-      throw new Error('Search is unavailable.');
+    let sourceQuery = retrieval.strictQuery;
+    const fetchFirst = async () => {
+      const first = await upstream<SearchResponse>(
+        sourceParams(plan, sourceQuery, 1),
+        0,
+      );
+      if (
+        !Array.isArray(first.response?.docs) ||
+        !Number.isSafeInteger(first.response.numFound) ||
+        first.response.numFound < 0
+      )
+        throw new Error('Search is unavailable.');
+      return first;
+    };
+    firstPage = await fetchFirst();
+    let related = false;
+    if (firstPage.response.numFound === 0 && relatedQuery) {
+      sourceQuery = relatedQuery;
+      firstPage = await fetchFirst();
+      related = firstPage.response.numFound > 0;
+    }
     run = {
       id: crypto.randomUUID(),
-      plan: JSON.stringify(plan),
-      total: first.response.numFound,
+      plan: JSON.stringify({ ...plan, ...expansion, sourceQuery, related }),
+      total: firstPage.response.numFound,
       next: 1,
       created: Date.now(),
       lease: 0,
@@ -136,6 +183,15 @@ export async function completeSearch(
         .bind(run.id, fingerprint, run.plan, run.total, run.created),
     ]);
   }
+  const storedPlan = JSON.parse(run.plan) as {
+    sourceQuery: string;
+    related: boolean;
+  };
+  const { sourceQuery, related } = storedPlan;
+  if (related)
+    plan.labels.push(
+      'Broadened search: no full match; showing related shiurim while keeping recognized subjects.',
+    );
   const pages = Math.ceil(run.total / pageSize);
   if (run.next <= pages) {
     const lease = Date.now() + 30000;
@@ -150,10 +206,12 @@ export async function completeSearch(
         const end = Math.min(pages + 1, run.next + 4);
         const batches = await Promise.all(
           Array.from({ length: end - run.next }, (_, i) =>
-            upstream<SearchResponse>(
-              sourceParams(plan, sourceQuery, run!.next + i),
-              0,
-            ),
+            firstPage && run!.next + i === 1
+              ? Promise.resolve(firstPage)
+              : upstream<SearchResponse>(
+                  sourceParams(plan, sourceQuery, run!.next + i),
+                  0,
+                ),
           ),
         );
         if (
@@ -166,6 +224,7 @@ export async function completeSearch(
           throw new SearchChangedError(
             'The library changed during this search. Start the search again for a fresh count.',
           );
+        const learnedTitles: { id: number; title: string }[] = [];
         const rows = batches.flatMap((b, i) => {
           const expected = Math.min(
             pageSize,
@@ -177,11 +236,12 @@ export async function completeSearch(
             );
           return b.response.docs.map((raw, j) => {
             const s = normalize(raw);
+            learnedTitles.push({ id: s.id, title: s.title });
             return [
               run!.id,
               s.id,
               JSON.stringify(s),
-              matchQuery(s.title, plan.term) ? 1 : 0,
+              retrieval.matches(s.title, related) ? 1 : 0,
               searchText(
                 [s.title, s.teacher, s.series, ...s.topics, s.description].join(
                   ' ',
@@ -189,7 +249,7 @@ export async function completeSearch(
               ),
               s.language,
               mediaKind(s),
-              relevanceScore(s, plan.term || plan.phrase || ''),
+              relevanceScore(s, expansion!.searchTerm || plan.phrase || ''),
               Date.parse(s.date) || 0,
               s.duration,
               searchText(s.title),
@@ -197,7 +257,10 @@ export async function completeSearch(
             ];
           });
         });
-        const statements: SearchStatement[] = [];
+        const statements: SearchStatement[] = indexTitleStatements(
+          db,
+          learnedTitles,
+        );
         for (let i = 0; i < rows.length; i += 8) {
           const group = rows.slice(i, i + 8);
           statements.push(
@@ -297,6 +360,7 @@ export async function completeSearch(
     sourceTotal: run.total,
     scanned: counts!.scanned,
     complete,
+    related,
     run: run.id,
     plan,
     filtered: false,

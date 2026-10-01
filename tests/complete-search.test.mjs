@@ -77,6 +77,70 @@ test.after(() => {
   globalThis.fetch = realFetch;
 });
 
+void test('learning title vocabulary cannot change a resumed search expansion or its pagination', async () => {
+  const titleCompiled = await build({
+    entryPoints: ['lib/title-index.ts'],
+    bundle: true,
+    write: false,
+    platform: 'node',
+    format: 'esm',
+  });
+  const { indexTitleStatements } = await import(
+    'data:text/javascript;base64,' +
+      Buffer.from(titleCompiled.outputFiles[0].text).toString('base64')
+  );
+  const db = database();
+  const first = await completeSearch(db, 'cris pix', {});
+  const original = JSON.parse(
+    (
+      await db
+        .prepare('SELECT plan FROM search_runs WHERE id=?')
+        .bind(first.run)
+        .first()
+    ).plan,
+  );
+  await db.batch(
+    indexTitleStatements(db, [{ id: 999, title: 'The Beracha on Crispix' }]),
+  );
+  const resumed = await completeSearch(db, 'cris pix', {}, 1, first.run);
+  assert.equal(resumed.run, first.run);
+  assert.equal(resumed.complete, true);
+  assert.equal(resumed.plan.term, original.searchTerm);
+  const stored = JSON.parse(
+    (
+      await db
+        .prepare('SELECT plan FROM search_runs WHERE id=?')
+        .bind(first.run)
+        .first()
+    ).plan,
+  );
+  assert.deepEqual(stored.vocabulary, original.vocabulary);
+  assert.equal(stored.sourceQuery, original.sourceQuery);
+  assert.equal(resumed.sourceTotal, 181);
+  await db.prepare('DELETE FROM search_runs WHERE id=?').bind(first.run).run();
+  const fresh = await completeSearch(db, 'cris pix', {});
+  assert.equal(
+    fresh.plan.term,
+    'cris pix',
+    'The UI must resume with the same parsed request',
+  );
+  assert.ok(
+    fresh.plan.labels.some((label) => label.includes('cris pix → crispix')),
+  );
+  const repaired = JSON.parse(
+    (
+      await db
+        .prepare('SELECT plan FROM search_runs WHERE id=?')
+        .bind(fresh.run)
+        .first()
+    ).plan,
+  );
+  assert.equal(repaired.searchTerm, 'crispix');
+  const continued = await completeSearch(db, fresh.plan.term, {}, 1, fresh.run);
+  assert.equal(continued.run, fresh.run);
+  assert.equal(continued.complete, true);
+});
+
 void test('a match on the last upstream page ranks first; complete totals and pagination cover every candidate', async () => {
   const db = database();
   let result = await completeSearch(db, 'teshuva', { language: 'EN' });
@@ -326,6 +390,220 @@ void test('submitted partial misspellings retrieve real candidates and retain fu
         (item) => !result.items.some((first) => first.id === item.id),
       ),
     );
+  } finally {
+    globalThis.fetch = fixtureFetch;
+  }
+});
+
+void test('intent expansion retrieves and ranks related archive content, with strict filters still enforced', async () => {
+  const { completeSearch: intentSearch } = await import(
+    'data:text/javascript;base64,' +
+      Buffer.from(compiled.outputFiles[0].text).toString('base64') +
+      '#intent'
+  );
+  const fixtureFetch = globalThis.fetch;
+  const requests = [];
+  const candidates = [
+    {
+      ...records[0],
+      shiurid: 3000,
+      shiurtitle: 'Dealing with Anxiety',
+      shiurdescription: '',
+      duration: 15,
+    },
+    {
+      ...records[0],
+      shiurid: 3001,
+      shiurtitle: 'Building Bitachon',
+      shiurdescription: '',
+      duration: 15,
+    },
+    {
+      ...records[0],
+      shiurid: 3002,
+      shiurtitle: 'Other lecture',
+      shiurdescription: 'A discussion of bitachon',
+      duration: 15,
+    },
+    {
+      ...records[0],
+      shiurid: 3003,
+      shiurtitle: 'Bitachon',
+      shiurdescription: '',
+      duration: 45,
+    },
+  ];
+  globalThis.fetch = async (input) => {
+    const url = new URL(input);
+    if (url.pathname.includes('/browse/')) return Response.json([]);
+    const query = url.searchParams.get('searchTerm');
+    requests.push(query);
+    const hits = query.includes('bitachon') ? candidates : [];
+    return Response.json({ response: { numFound: hits.length, docs: hits } });
+  };
+  try {
+    const db = database();
+    const result = await intentSearch(db, "I'm struggling with anxiety", {
+      max: 20,
+    });
+    assert.equal(result.complete, true);
+    assert.equal(result.sourceTotal, 4);
+    assert.equal(result.total, 3);
+    assert.deepEqual(
+      result.items.map((item) => item.id),
+      [3000, 3001, 3002],
+    );
+    assert.ok(
+      result.plan.labels.some((label) => label.startsWith('Related topics:')),
+    );
+    assert.ok(
+      requests.every(
+        (query) => query.includes('anxiety') && query.includes('bitachon'),
+      ),
+    );
+    const calls = requests.length;
+    const title = await intentSearch(db, "I'm struggling with anxiety", {
+      max: 20,
+      scope: 'title',
+    });
+    assert.equal(title.run, result.run);
+    assert.deepEqual(
+      title.items.map((item) => item.id),
+      [3000, 3001],
+    );
+    const literal = await intentSearch(db, "I'm struggling with anxiety", {
+      max: 20,
+      phrase: 'anxiety',
+    });
+    assert.deepEqual(
+      literal.items.map((item) => item.id),
+      [3000],
+    );
+    assert.equal(requests.length, calls);
+  } finally {
+    globalThis.fetch = fixtureFetch;
+  }
+});
+
+void test('a zero-result query recovers related candidates and resumes the same strategy with strict refinements', async () => {
+  const { completeSearch: recoveredSearch } = await import(
+    'data:text/javascript;base64,' +
+      Buffer.from(compiled.outputFiles[0].text).toString('base64') +
+      '#recovery'
+  );
+  const fixtureFetch = globalThis.fetch;
+  const queries = [];
+  const candidates = records.map((record, i) => ({
+    ...record,
+    shiurid: 4000 + i,
+    shiurtitle: i === 180 ? 'Tefillah on Shabbos' : 'Tefillah',
+    shiurdescription: 'Shabbat',
+  }));
+  globalThis.fetch = async (input) => {
+    const url = new URL(input);
+    if (url.pathname.includes('/browse/')) return Response.json([]);
+    const query = url.searchParams.get('searchTerm');
+    queries.push(query);
+    assert.equal(url.searchParams.get('teacherID'), '1');
+    const hits = query.includes('practical') ? [] : candidates;
+    const page = Number(url.searchParams.get('start') || 1);
+    return Response.json({
+      response: {
+        numFound: hits.length,
+        docs: hits.slice((page - 1) * 30, page * 30),
+      },
+    });
+  };
+  try {
+    const db = database();
+    const query = 'practical tefillah shabbat';
+    const filters = { teacherId: 1, language: 'EN', max: 5, scope: 'title' };
+    let result = await recoveredSearch(db, query, filters);
+    assert.equal(result.related, true);
+    assert.equal(result.complete, false);
+    assert.equal(result.scanned, 120);
+    assert.equal(
+      queries.filter((term) => term.includes('practical')).length,
+      1,
+    );
+    const run = result.run;
+    result = await recoveredSearch(db, query, filters, 1, run);
+    assert.equal(result.related, true);
+    assert.equal(result.complete, true);
+    assert.equal(result.run, run);
+    assert.equal(result.sourceTotal, 181);
+    assert.equal(result.total, 1);
+    assert.equal(result.items[0].id, 4180);
+    assert.equal(result.plan.original, query);
+    assert.ok(
+      result.plan.labels.some((label) => label.startsWith('Broadened search:')),
+    );
+    const calls = queries.length;
+    const relaxedScope = await recoveredSearch(db, query, {
+      ...filters,
+      scope: '',
+    });
+    assert.equal(relaxedScope.run, run);
+    assert.equal(relaxedScope.total, 3);
+    assert.equal(
+      relaxedScope.items[0].id,
+      4180,
+      'Complete title coverage outranks partial titles',
+    );
+    const exact = await recoveredSearch(db, query, {
+      ...filters,
+      phrase: 'practical',
+    });
+    assert.equal(exact.total, 0);
+    assert.equal(exact.run, run);
+    assert.equal(queries.length, calls);
+    const quoted = await recoveredSearch(
+      db,
+      '"practical tefillah shabbat"',
+      filters,
+    );
+    assert.equal(quoted.related, false);
+    assert.equal(quoted.total, 0);
+  } finally {
+    globalThis.fetch = fixtureFetch;
+  }
+});
+
+void test('recovery never replaces source errors or broadens an existing candidate set after refinements', async () => {
+  const { completeSearch: guardedSearch } = await import(
+    'data:text/javascript;base64,' +
+      Buffer.from(compiled.outputFiles[0].text).toString('base64') +
+      '#guarded-recovery'
+  );
+  const fixtureFetch = globalThis.fetch;
+  const queries = [];
+  let fail = true;
+  globalThis.fetch = async (input) => {
+    const url = new URL(input);
+    if (url.pathname.includes('/browse/')) return Response.json([]);
+    queries.push(url.searchParams.get('searchTerm'));
+    if (fail) return new Response('Unavailable', { status: 503 });
+    return Response.json({ response: { numFound: 1, docs: [records[0]] } });
+  };
+  try {
+    const db = database();
+    await assert.rejects(guardedSearch(db, 'practical tefillah shabbat', {}));
+    assert.equal(queries.length, 1);
+    assert.ok(queries[0].includes('practical'));
+    fail = false;
+    queries.length = 0;
+    const result = await guardedSearch(db, 'practical tefillah shabbat', {
+      language: 'HE',
+    });
+    assert.equal(result.total, 0);
+    assert.equal(result.sourceTotal, 1);
+    assert.equal(result.related, false);
+    assert.equal(
+      queries.length,
+      1,
+      'The first source page is fetched once, with no fallback',
+    );
+    assert.ok(queries[0].includes('practical'));
   } finally {
     globalThis.fetch = fixtureFetch;
   }

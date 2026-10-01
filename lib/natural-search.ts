@@ -1,5 +1,9 @@
 import type { SearchPlan } from './yutorah';
-import { searchText, wordMatch } from './search-matching';
+import {
+  interpretSearchRequest,
+  searchText,
+  wordMatch,
+} from './search-matching';
 
 /** Deterministic, disclosed interpretation. Never generates religious answers. */
 export function naturalSearch(
@@ -37,6 +41,7 @@ export function naturalSearch(
     'hebrew',
     'improve',
     'understand',
+    'explain',
   ];
   term = term.replace(/[\p{L}\p{M}]+/gu, (word) => {
     const normalized = searchText(word);
@@ -201,46 +206,9 @@ export function naturalSearch(
       return ' ';
     },
   );
-  const conversational =
-    /\b(?:find|show|recommend|looking for|want|how|why|what|can i|teach me|help me)\b/i.test(
-      term,
-    );
-  term = term
-    .replace(
-      /\b(?:please|find(?: me)?|show(?: me)?|recommend(?: me)?|i(?:'m| am) looking for|i(?:'d| would) like|i want|i need|help me (?:understand|learn)(?: about)?|teach me about|what does judaism say about|i want to (?:learn|listen)(?: about| to)?)\b/gi,
-      ' ',
-    )
-    .replace(
-      /\b(?:a|an|some)\s+(?=shiur|lecture|class|lesson|audio|video)/gi,
-      '',
-    )
-    .replace(/\blessons?\s*(?:on|about)?\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (conversational) {
-    term = term
-      .replace(
-        /\b(?:how|what|why|can|is|does|when|where|do|i|my|the|a|an|to|me|you|your|we|our|of|should|could|would|improve|understand|learn|about)\b/gi,
-        ' ',
-      )
-      .replace(/[?]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const aliases: [RegExp, string][] = [
-      [/\b(?:pray|prayer|prayers|daven|davening)\b/gi, 'tefillah'],
-      [/\b(?:repent|repentance|forgiveness|forgive)\b/gi, 'teshuva'],
-      [/\b(?:faith|belief|believe)\b/gi, 'emunah'],
-      [/\b(?:shabbos|sabbath)\b/gi, 'Shabbat'],
-      [/\b(?:kosher|kashrus)\b/gi, 'kashrut'],
-    ];
-    for (const [pattern, replacement] of aliases)
-      term = term.replace(pattern, replacement);
-    if (term)
-      labels.push(
-        `${term.split(' ').length === 1 ? 'Topic' : 'Keywords'}: ${term}`,
-      );
-  }
-  term = term.replace(/^[.,;: ]+|[.,;: ]+$/g, '').trim();
+  const request = interpretSearchRequest(term);
+  term = request.term;
+  labels.push(...request.labels);
   term = term.replace(/QUOTED(\d+)TOKEN/g, (_, i) => quotes[Number(i)]);
   return { term: term.replace(/\s+/g, ' ').trim(), options, labels };
 }
