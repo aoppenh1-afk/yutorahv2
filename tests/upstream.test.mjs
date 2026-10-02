@@ -56,7 +56,7 @@ void test('search retries stop after three interruptions and a later call can re
   const path = 'search/get?searchTerm=teshuva';
   const pending = await Promise.allSettled([upstream(path), upstream(path)]);
   assert.ok(
-    pending.every((r) => r.status === 'rejected' && r.reason === failure),
+    pending.every((r) => r.status === 'rejected' && r.reason.cause === failure),
   );
   assert.equal(calls, 3);
   failing = false;
@@ -108,7 +108,7 @@ void test('search retries cannot extend the original eighteen-second deadline', 
     throw new DOMException('The operation timed out.', 'TimeoutError');
   });
   await assert.rejects(upstream('search/get?start=4', 0), {
-    name: 'TimeoutError',
+    name: 'SearchReadError',
   });
   assert.equal(calls, 2);
   assert.deepEqual(timeouts, [6000, 6000]);

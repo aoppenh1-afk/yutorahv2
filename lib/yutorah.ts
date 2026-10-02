@@ -246,16 +246,23 @@ async function fetchUpstream(path: string): Promise<unknown> {
   return data;
 }
 
-/** Retry interrupted GETs without changing the query or the total time budget.
- * A stalled page must not discard the other pages in a resumable search pass.
- */
+export class SearchReadError extends Error {
+  constructor(cause: unknown) {
+    super('YUTorah search read was interrupted.', { cause });
+    this.name = 'SearchReadError';
+  }
+}
+
+/** Retry interrupted GETs without changing the query or the total time budget. */
 async function readUpstream(path: string): Promise<unknown> {
   const attempts = path.startsWith('search/') ? 3 : 1;
   const deadline = performance.now() + 18000;
   for (let attempt = 0; ; attempt++) {
     const remaining = Math.floor(deadline - performance.now());
     if (remaining <= 0)
-      throw new DOMException('The search timed out.', 'TimeoutError');
+      throw new SearchReadError(
+        new DOMException('The search timed out.', 'TimeoutError'),
+      );
     const signal = AbortSignal.timeout(
       Math.min(attempts > 1 ? 6000 : 18000, remaining),
     );
@@ -289,12 +296,9 @@ async function readUpstream(path: string): Promise<unknown> {
               'UND_ERR_HEADERS_TIMEOUT',
               'UND_ERR_BODY_TIMEOUT',
             ].includes(code)));
-      if (
-        !interrupted ||
-        attempt + 1 >= attempts ||
-        performance.now() >= deadline
-      )
-        throw error;
+      if (!interrupted) throw error;
+      if (attempt + 1 >= attempts || performance.now() >= deadline)
+        throw attempts > 1 ? new SearchReadError(error) : error;
     }
   }
 }

@@ -11,13 +11,23 @@ async function json(path) {
   if (path.startsWith('/api/search')) {
     const url = new URL(path, origin);
     let passes = 0;
-    const maxPasses = Math.ceil((result.sourceTotal || 0) / 120) + 5;
+    // A pass may save fewer than four pages after an interrupted read.
+    const maxPasses = Math.ceil((result.sourceTotal || 0) / 30) + 5;
+    const run = result.run;
+    const sourceTotal = result.sourceTotal;
     while (result.complete === false) {
       assert.ok(++passes <= maxPasses, 'Search did not finish');
       url.searchParams.set('run', result.run);
       const next = await fetch(url, { signal: AbortSignal.timeout(45000) });
       assert.equal(next.status, 200);
-      result = await next.json();
+      const resumed = await next.json();
+      assert.equal(resumed.run, run);
+      assert.equal(resumed.sourceTotal, sourceTotal);
+      assert.ok(
+        resumed.scanned >= result.scanned,
+        'Search lost saved progress',
+      );
+      result = resumed;
     }
   }
   return result;

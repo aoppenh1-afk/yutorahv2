@@ -27,12 +27,32 @@ permit retrying idempotent requests after communication failures.
 bounds each attempt. A monotonic deadline also accounts for time spent between
 attempts, so retries cannot add another 18-second wait.
 
-The query compiler, aliases, typo recovery, filters, caching rules, and scan
-transactions remain the same. Failed reads never become empty or completed
-searches. Existing source-total and duplicate checks still validate every pass.
+Runtime logs from deployment `67UdPssSsiFbiKhd8JADXYeHe6We` confirmed remaining
+pagination, question-search, and fallback failures were upstream `TimeoutError`s.
+The prayer query retrieves 22,770 candidates: one exhausted page read could
+discard a four-page pass and stop the search. Both API hostnames stalled in
+alternating probes; single reads also stalled, so concurrency and redirects
+do not explain every failure.
+
+Search passes now wait for all page reads, validate every successful response,
+and transactionally save the contiguous verified pages before an interrupted
+read. The cursor stays at that gap, and the existing client resumes the same
+run and query. Three consecutive passes without progress still return an error;
+the saved run remains retryable. Permanent errors, changed totals, and incomplete
+pages still fail the pass. Successful pages after a gap are fetched again when
+the cursor reaches them.
+
+The query compiler, aliases, typo recovery, filters, and caching rules remain the
+same. Failed reads never become empty or completed searches. Existing
+source-total and duplicate checks still validate completion. The live harness
+allows partial passes and checks that the run, source total, and saved progress
+remain consistent.
 
 The regression test interrupts page four of a seven-page scan and verifies all
 181 candidates, filtered results, and the saved cursor. Reader tests cover
 interrupted bodies, exhaustion, shared requests, the total deadline, and
 permanent failures. Two direct live passes with the revised reader each returned
-97 distinct candidates across four pages in about 6.4 seconds.
+97 distinct candidates across four pages in about 6.4 seconds. Additional
+regressions exhaust a page's retries in strict and fallback scans, verify the
+saved prefix and unchanged filters, and ensure repeated stalls stop after three
+passes and can later recover.
