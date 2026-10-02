@@ -192,42 +192,45 @@ void test('a fixed ranking time keeps the initial feed deterministic across rend
     Date.now = original;
   }
 });
-void test('discovery keeps the sample for duration filters and discloses a failed page', async () => {
+void test('discovery starts a bounded upload-cohort scan without relying on unsupported view sorting', async () => {
   const original = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (url) => {
     const params = new URL(url).searchParams;
     requests.push(params);
-    const page = Number(params.get('start'));
-    if (page === 3) return new Response('Unavailable', { status: 503 });
     return Response.json({
       response: {
-        docs: Array.from({ length: 3 }, (_, i) => ({
-          shiurid: 30000 + page * 10 + i,
+        numFound: 5000,
+        docs: Array.from({ length: 30 }, (_, i) => ({
+          shiurid: 30000 - i,
           shiurtitle: 'Recording',
-          shiurvisitsnum: page * 10 - i,
-          duration: page === 1 ? 5 : 60,
+          shiurvisitsnum: 1000 - i,
+          shiurdate: '2026-09-30T00:00:00Z',
+          shiurdatesubmitted: '2026-09-30T00:00:00Z',
+          duration: 5,
         })),
       },
     });
   };
   try {
-    const result = await getDiscovery();
-    assert.equal(requests.length, 6);
-    assert.deepEqual(
-      requests.map((p) => p.get('start')).sort((a, b) => Number(a) - Number(b)),
-      ['1', '2', '3', '4', '5', '6'],
+    const result = await getDiscovery(
+      { period: 'week', minutes: 10 },
+      Date.parse('2026-10-02T12:00:00Z'),
     );
-    assert.equal(result.sampled, 15);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].get('page'), '1');
+    assert.match(requests[0].get('sort_by'), /^shiurid desc/);
+    assert.match(
+      requests[0].get('facet_query'),
+      /shiurdatesubmitted:\[2026-09-25T12:00:00.000Z TO 2026-10-02T12:00:00.000Z\]/,
+    );
+    assert.match(requests[0].get('facet_query'), /duration:\[1 TO 10\]/);
+    assert.equal(result.sampled, 30);
+    assert.equal(result.total, 5000);
     assert.equal(result.partial, true);
-    assert.deepEqual(
-      result.trending.map((s) => s.views),
-      [60, 59, 58, 50, 49, 48, 40, 39, 38, 20, 19, 18, 10, 9, 8],
-    );
-    assert.deepEqual(
-      result.trending.filter((s) => s.duration <= 600).map((s) => s.id),
-      [30010, 30011, 30012],
-    );
+    assert.equal(result.dateBasis, 'upload-date');
+    assert.equal(result.trending[0].views, 1000);
+    assert.equal(result.trending[29].views, 971);
   } finally {
     globalThis.fetch = original;
   }

@@ -154,6 +154,7 @@ export function mergeShiurim(items: Shiur[]) {
             audio: s.audio || previous.audio,
             image: s.image || previous.image,
             date: s.date || previous.date,
+            uploadedAt: s.uploadedAt || previous.uploadedAt,
             description: s.description || previous.description,
             topics: s.topics.length ? s.topics : previous.topics,
             series: s.series || previous.series,
