@@ -462,6 +462,10 @@ void test('mobile coverage and upload filtering survive a persistent server rest
     const first = await createTrendingService(config)(options);
     assert.equal(first.sampled, 120);
     assert.equal(first.total, 90);
+    assert.equal(
+      sqlite.prepare('SELECT total FROM search_runs').get().total,
+      150,
+    );
     now += 3500;
     const complete = await createTrendingService(config)(options);
     assert.equal(complete.sampled, 150);

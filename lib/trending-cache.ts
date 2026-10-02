@@ -195,7 +195,7 @@ export function createTrendingService({
                 snapshot: data,
                 lastComplete: completed.get(key),
               }),
-              data.total,
+              data.libraryTotal ?? data.total,
               Math.ceil(data.sampled / 30) + 1,
               Date.parse(data.fetchedAt),
               key,
