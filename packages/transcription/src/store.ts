@@ -17,6 +17,8 @@ import {
 } from './types.js';
 import { validRanges } from './planning.js';
 import { validSegments } from './transcript.js';
+import { cleanTranscript } from './cleanup.js';
+import { indexedSegments } from './search-index.js';
 import {
   interpretSpacing,
   interpretSearchRequest,
@@ -347,6 +349,7 @@ export class TranscriptionStore {
     };
   }
   async complete(job: Job, transcript: Transcript): Promise<void> {
+    transcript = cleanTranscript(transcript);
     if (
       !validSegments(transcript.segments, transcript.durationMs) ||
       !job.fingerprint
@@ -366,41 +369,7 @@ export class TranscriptionStore {
           job.fingerprint,
         ],
       );
-      const normalized = transcript.segments.map((s) =>
-        normalizeTranscriptSearch(s.text),
-      );
-      for (let offset = 0; offset < transcript.segments.length; offset += 250) {
-        const batch = transcript.segments
-          .slice(offset, offset + 250)
-          .map((s, i) => ({
-            segment_index: offset + i,
-            start_ms: s.startMs,
-            end_ms: s.endMs,
-            text: s.text,
-            speaker: s.speaker,
-            language: s.language,
-            search_text: normalized[offset + i],
-            // Up to 16 query words can span any number of short adjacent segments.
-            search_window: [
-              normalized[offset + i],
-              normalized
-                .slice(offset + i + 1, offset + i + 17)
-                .join(' ')
-                .split(/\s+/)
-                .filter(Boolean)
-                .slice(0, 15)
-                .join(' '),
-            ]
-              .join(' ')
-              .trim(),
-          }));
-        await client.query(
-          `INSERT INTO transcript_segments(transcript_id,shiur_id,segment_index,start_ms,end_ms,speaker,language,text,search_text,search_window)
-          SELECT $1,$2,x.segment_index,x.start_ms,x.end_ms,x.speaker,x.language,x.text,x.search_text,x.search_window
-          FROM jsonb_to_recordset($3::jsonb) AS x(segment_index int,start_ms bigint,end_ms bigint,speaker text,language text,text text,search_text text,search_window text)`,
-          [id, job.shiur_id, JSON.stringify(batch)],
-        );
-      }
+      await this.insertSegments(client, id, job.shiur_id, transcript.segments);
       await client.query(
         'UPDATE transcription_shiurim SET active_transcript_id=$2 WHERE id=$1 AND latest_job_id=$3',
         [job.shiur_id, id, job.id],
@@ -410,6 +379,139 @@ export class TranscriptionStore {
         [job.id],
       );
     });
+  }
+  private async insertSegments(
+    client: PoolClient,
+    id: string,
+    shiurId: string,
+    segments: Segment[],
+  ) {
+    const rows = indexedSegments(segments);
+    for (let offset = 0; offset < rows.length; offset += 250) {
+      await client.query(
+        `INSERT INTO transcript_segments(transcript_id,shiur_id,segment_index,start_ms,end_ms,speaker,language,text,search_text,search_window)
+         SELECT $1,$2,x.segment_index,x.start_ms,x.end_ms,x.speaker,x.language,x.text,x.search_text,x.search_window
+         FROM jsonb_to_recordset($3::jsonb) AS x(segment_index int,start_ms bigint,end_ms bigint,speaker text,language text,text text,search_text text,search_window text)`,
+        [id, shiurId, JSON.stringify(rows.slice(offset, offset + 250))],
+      );
+    }
+  }
+
+  /** Scan every version, keeping each text/segments/search replacement atomic. */
+  async cleanExistingTranscripts(
+    options: {
+      // Supplying a backup callback opts into writes; a failed backup aborts the row.
+      backup?: (original: {
+        transcript: Record<string, unknown> & { id: string };
+        segments: Record<string, unknown>[];
+      }) => Promise<void>;
+      signal?: AbortSignal;
+    } = {},
+  ) {
+    const report = {
+      scanned: 0,
+      changed: 0,
+      removedSegments: 0,
+      applied: Boolean(options.backup),
+    };
+    let cursor = '00000000-0000-0000-0000-000000000000';
+    type StoredSegment = Record<string, unknown> & {
+      start_ms: string | number;
+      end_ms: string | number;
+      text: string;
+      speaker: string | null;
+      language: string | null;
+    };
+    const inspect = (
+      original: { text: string; duration_ms: string | number },
+      rows: StoredSegment[],
+    ) => {
+      const segments: Segment[] = rows.map((s) => ({
+        startMs: Number(s.start_ms),
+        endMs: Number(s.end_ms),
+        text: s.text,
+        speaker: s.speaker,
+        language: s.language,
+      }));
+      const cleaned = cleanTranscript({
+        schemaVersion: 1,
+        durationMs: Number(original.duration_ms),
+        text: original.text,
+        segments,
+      });
+      if (!validSegments(cleaned.segments, cleaned.durationMs))
+        throw new Failure('invalid_transcript');
+      const changed =
+        original.text !== cleaned.text ||
+        segments.length !== cleaned.segments.length ||
+        segments.some((s, i) => s.text !== cleaned.segments[i]?.text);
+      return {
+        cleaned,
+        changed,
+        removed: segments.length - cleaned.segments.length,
+      };
+    };
+    while (true) {
+      options.signal?.throwIfAborted();
+      const page = await this.pool.query<{
+        id: string;
+        text: string;
+        duration_ms: string;
+        segments: StoredSegment[];
+      }>(
+        `SELECT t.id,t.text,t.duration_ms,
+         coalesce((SELECT jsonb_agg(to_jsonb(s) ORDER BY s.segment_index) FROM transcript_segments s WHERE s.transcript_id=t.id),'[]'::jsonb) AS segments
+         FROM transcripts t WHERE t.id>$1 ORDER BY t.id LIMIT 100`,
+        [cursor],
+      );
+      if (!page.rows.length) break;
+      for (const candidate of page.rows) {
+        const { id } = candidate;
+        options.signal?.throwIfAborted();
+        const preview = inspect(candidate, candidate.segments);
+        report.scanned++;
+        cursor = id;
+        if (!preview.changed) continue;
+        if (!options.backup) {
+          report.changed++;
+          report.removedSegments += preview.removed;
+          continue;
+        }
+        // Recheck changed candidates under locks before backing up or writing.
+        await transaction(this.pool, async (client) => {
+          const result = await client.query(
+            'SELECT * FROM transcripts WHERE id=$1 FOR UPDATE',
+            [id],
+          );
+          const original = result.rows[0];
+          if (!original) return;
+          const rows = await client.query(
+            'SELECT * FROM transcript_segments WHERE transcript_id=$1 ORDER BY segment_index FOR UPDATE',
+            [id],
+          );
+          const { cleaned, changed, removed } = inspect(original, rows.rows);
+          if (!changed) return;
+          report.changed++;
+          report.removedSegments += removed;
+          await options.backup!({ transcript: original, segments: rows.rows });
+          await client.query('UPDATE transcripts SET text=$2 WHERE id=$1', [
+            id,
+            cleaned.text,
+          ]);
+          await client.query(
+            'DELETE FROM transcript_segments WHERE transcript_id=$1',
+            [id],
+          );
+          await this.insertSegments(
+            client,
+            id,
+            original.shiur_id,
+            cleaned.segments,
+          );
+        });
+      }
+    }
+    return report;
   }
   async finishFailure(job: Job, code: string, shutdown = false): Promise<void> {
     await this.pool.query(
