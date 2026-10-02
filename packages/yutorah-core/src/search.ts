@@ -63,7 +63,8 @@ export function transcriptSearchClauses(
   const intent = expandAliases
     ? interpretSearchRequest(spacing.term)
     : { term: spacing.term, labels: [] };
-  const normalized = intent.term;
+  // Common spoken phrases can consist entirely of request words.
+  const normalized = intent.term || spacing.term;
   let spellingExpanded = spacing.labels.length > 0;
   let aliasesExpanded = intent.labels.length > 0;
   const anchors = new Set<string>();

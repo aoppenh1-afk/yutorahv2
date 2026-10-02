@@ -955,6 +955,18 @@ void test('recognized neighboring words do not become each other through typo co
   assert.ok(matchQuery('Children and Child', "children's"));
 });
 
+void test('smart transcript search preserves words when request cleanup removes the entire query', () => {
+  for (const [query, word] of [
+    ['what about', 'what'],
+    ['how', 'how'],
+    ['can', 'can'],
+  ]) {
+    const clauses = transcriptSearchClauses(query);
+    assert.ok(clauses.all.includes(`'${word}':*`), query);
+    assert.ok(clauses.any.includes(`'${word}':*`), query);
+  }
+});
+
 void test('questions share subject recognition across metadata, local search, and smart transcript retrieval', () => {
   assert.equal(
     matchQuery('Hachnasas Orchim', 'How can I welcome guests?'),

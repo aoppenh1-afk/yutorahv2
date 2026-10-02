@@ -506,8 +506,9 @@ export class TranscriptionStore {
         await client.query(
           "SET LOCAL pg_trgm.word_similarity_threshold = '0.2'",
         );
+        const spacedQuery = interpretSpacing(query).term;
         const smartQuery = expandAliases
-          ? interpretSearchRequest(interpretSpacing(query).term).term
+          ? interpretSearchRequest(spacedQuery).term || spacedQuery
           : query;
         const words = normalizeTranscriptSearch(smartQuery)
           .split(' ')

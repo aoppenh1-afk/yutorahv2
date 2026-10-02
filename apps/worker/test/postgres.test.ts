@@ -289,7 +289,12 @@ void test(
               startMs: 4000,
               endMs: 6000,
             },
-            { ...segment('a segment boundary.'), startMs: 6000 },
+            {
+              ...segment(
+                'a segment boundary. Whatever happens. What about this?',
+              ),
+              startMs: 6000,
+            },
           ];
           await store.complete(job, {
             ...transcript,
@@ -345,6 +350,11 @@ void test(
           );
           assert.equal(partialTypo.length, 1);
           assert.equal(partialTypo[0].startMs, 6000);
+          for (const query of ['what about', 'what']) {
+            const spoken = await store.search(query, true, 20, 'smart');
+            assert.equal(spoken.length, 1, query);
+            assert.equal(spoken[0].startMs, 6000, query);
+          }
           const crossing = await store.search(
             'phrsae crosses seg',
             true,

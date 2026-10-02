@@ -416,7 +416,7 @@ void test(
         assert.equal(response.status, 200, await response.clone().text());
         assert.equal(response.headers.get('cache-control'), 'no-store');
         const body = await response.json();
-        assert.equal(body.results.length, 1);
+        assert.equal(body.results.length, 1, `Transcript search: ${query}`);
         assert.equal(body.results[0].shiurId, '42');
         assert.equal(body.results[0].startMs, startMs);
         assert.equal(body.results[0].href, `/?shiur=42&t=${startMs / 1000}`);
