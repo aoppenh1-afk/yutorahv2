@@ -10,6 +10,7 @@ export type FailureCode =
   | 'quota_exhausted'
   | 'configuration'
   | 'provider'
+  | 'storage_exhausted'
   | 'invalid_transcript'
   | 'invalid_audio'
   | 'download'
@@ -24,6 +25,15 @@ export class Failure extends Error {
   }
 }
 export function failure(error: unknown): Failure {
+  // PostgreSQL disk_full also covers managed database storage caps. Do not
+  // persist its message, which can include connection or query details.
+  if (
+    error !== null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    error.code === '53100'
+  )
+    return new Failure('storage_exhausted');
   return error instanceof Failure ? error : new Failure('provider');
 }
 export function checkAbort(signal?: AbortSignal): void {

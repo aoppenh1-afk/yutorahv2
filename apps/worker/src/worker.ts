@@ -264,8 +264,11 @@ export async function runLeasedJob<T>(
       }
       try {
         await store.heartbeat(job);
-      } catch {
-        controller.abort(new Failure('lease_lost'));
+      } catch (error) {
+        const e = failure(error);
+        controller.abort(
+          e.code === 'storage_exhausted' ? e : new Failure('lease_lost'),
+        );
         break;
       }
     }
@@ -278,7 +281,12 @@ export async function runLeasedJob<T>(
         ? combined.reason.code
         : failure(error).code;
     await store
-      .finishFailure(job, code, signal.aborted || code === 'quota_exhausted')
+      .finishFailure(
+        job,
+        code,
+        signal.aborted ||
+          ['quota_exhausted', 'storage_exhausted'].includes(code),
+      )
       .catch(() => {});
     throw new Failure(code);
   } finally {
@@ -423,6 +431,7 @@ export async function runWorker(
                   'configuration',
                   'lease_lost',
                   'quota_exhausted',
+                  'storage_exhausted',
                 ].includes(e.code) &&
                 !combined.aborted
               )
@@ -451,6 +460,7 @@ export async function runWorker(
               'configuration',
               'lease_lost',
               'quota_exhausted',
+              'storage_exhausted',
             ].includes(e.code) &&
             !combined.aborted
           )

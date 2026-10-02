@@ -62,6 +62,28 @@ function checkpoints() {
     },
   };
 }
+void test('a full database while saving a chunk preserves the capacity failure', async () => {
+  await assert.rejects(
+    transcribeChunks({
+      ranges: ranges(1),
+      durationMs: 10_000,
+      settings: defaultSettings,
+      checkpoints: {
+        load: async () => null,
+        save: async () => {
+          throw Object.assign(new Error('project size limit exceeded'), {
+            code: '53100',
+          });
+        },
+      },
+      pool: new SessionPool(1),
+      signal: signal(),
+      transcribe: async () => '[00:01] Spoken text.',
+    }),
+    (error: unknown) =>
+      error instanceof Failure && error.code === 'storage_exhausted',
+  );
+});
 void test('size planning retains complete cores and five-second overlap', () => {
   const plan = planRanges(55_884_344, 3335.253333);
   assert.equal(plan.length, 4);

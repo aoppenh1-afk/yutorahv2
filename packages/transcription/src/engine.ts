@@ -103,7 +103,10 @@ export async function transcribeChunks(input: {
           try {
             await input.checkpoints.save(index, range, segments);
           } catch (error) {
-            throw error instanceof Failure ? error : new Failure('checkpoint');
+            const e = failure(error);
+            throw error instanceof Failure || e.code === 'storage_exhausted'
+              ? e
+              : new Failure('checkpoint');
           }
           results[index] = segments;
           break;

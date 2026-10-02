@@ -88,6 +88,19 @@ tokens or remaining provider quota. No audio, transcript text, or reasoning text
 is logged. Use the provider's usage panel to compare quota before and after a
 small batch; reducing concurrency changes pacing rather than total work.
 
+A `storage_exhausted` error means PostgreSQL rejected a write because its disk
+or managed storage allowance is full. The worker stops its lanes and attempts
+to requeue interrupted work; a database that cannot accept that update may leave
+expired leases for recovery when capacity is available. There is no automatic
+quota timer for this error. Free storage or increase the database allowance,
+then start the queue and check a short recording before retrying failed jobs.
+Google sign-in and model changes do not resolve database capacity failures.
+
+Operator upgrades must replace the installed compiled worker and GUI as well
+as apply migrations. A migrated database alone does not enable newer worker
+behavior. In particular, older workers can treat a plain-text Antigravity usage
+notice as `invalid_transcript` and cannot schedule quota resume.
+
 The suggested teacher is **Rabbi Aryeh Lebowitz (80714)**; YUTorah has a second,
 smaller **Rabbi Aryeh Leibowitz (81310)** entry. **Ten Minute Halacha (4233)**
 contains other teachers too, so use its teacher restriction for only Lebowitz's

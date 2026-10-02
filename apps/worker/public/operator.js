@@ -152,6 +152,8 @@ async function refresh() {
         'Antigravity usage limit reached. The queue resumes automatically 5 hours and 1 minute after detection. Pause queue cancels the scheduled resume.',
       provider:
         'The provider could not finish the request. Check the connection and account quota.',
+      storage_exhausted:
+        'The transcription database is full. Free database storage or increase its capacity, then start the queue. Retrying recordings or reconnecting Google will not fix this.',
       timeout: 'The provider timed out.',
       process_exit:
         'The transcription engine exited. Check the runtime and retry.',
