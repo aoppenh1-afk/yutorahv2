@@ -1737,6 +1737,15 @@ body {
   width: 54px;
   border-radius: 13px;
 }
+.player-controls .next-button {
+  position: static;
+}
+.player-controls {
+  gap: 16px;
+}
+.player-controls > button {
+  flex-shrink: 0;
+}
 .player-title {
   color: #2f4265;
   font-size: 13px;

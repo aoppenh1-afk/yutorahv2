@@ -110,6 +110,9 @@ npm run worker:build
 # Use a disposable PostgreSQL database; runs the database/recovery tests:
 TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:worker
 npm run build
+# Browser player regressions use the built website and an isolated local state directory:
+npx playwright install chromium
+npm run test:player
 # Checks the built website, compiled search service and PostgreSQL together:
 TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:pipeline
 # Start the production server in another terminal first:

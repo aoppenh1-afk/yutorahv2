@@ -292,6 +292,29 @@ export function useAudio(
       persist();
     }
   }, [persist]);
+  const stop = useCallback(() => {
+    persist();
+    wantsPlay.current = false;
+    resume.current = null;
+    boundTrack.current = null;
+    activeRef.current = null;
+    const el = audio.current;
+    if (el) {
+      el.pause();
+      el.removeAttribute('src');
+      el.load();
+    }
+    setActive(null);
+    setPlaying(false);
+    setLoading(false);
+    setTime(0);
+    setDuration(0);
+    setError('');
+    setSleepAt(0);
+    setSleepMinutes(0);
+    setSleepRemaining(0);
+    update((old) => ({ ...old, last: null }));
+  }, [persist, update]);
   const seek = useCallback(
     (seconds: number) => {
       const el = audio.current;
@@ -362,21 +385,26 @@ export function useAudio(
       ['seekforward', () => seek((audio.current?.currentTime || 0) + 15)],
       ['seekto', (e) => seek(e.seekTime || 0)],
       ['nexttrack', next],
+      ['stop', stop],
     ];
     actions.forEach(([name, handler]) => {
       try {
         navigator.mediaSession.setActionHandler(name, handler);
       } catch {}
     });
-    return () =>
+    return () => {
       actions.forEach(([name]) => {
         try {
           navigator.mediaSession.setActionHandler(name, null);
         } catch {}
       });
-  }, [active, next, persist, seek]);
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = 'none';
+    };
+  }, [active, next, persist, seek, stop]);
   const handlers = {
     onLoadedMetadata: () => {
+      if (!activeRef.current) return;
       const el = audio.current!;
       boundTrack.current = activeRef.current?.id ?? null;
       setDuration(el.duration);
@@ -394,6 +422,7 @@ export function useAudio(
       }
     },
     onTimeUpdate: () => {
+      if (!activeRef.current) return;
       const el = audio.current!;
       setTime(el.currentTime);
       if (Date.now() - lastSave.current > 5000) {
@@ -402,6 +431,10 @@ export function useAudio(
       }
     },
     onPlaying: () => {
+      if (!activeRef.current) {
+        audio.current?.pause();
+        return;
+      }
       setPlaying(true);
       setLoading(false);
       setError('');
@@ -413,11 +446,13 @@ export function useAudio(
       persist();
     },
     onWaiting: () => {
+      if (!activeRef.current) return;
       setLoading(true);
       setPlaying(false);
     },
     onCanPlay: () => setLoading(false),
     onError: () => {
+      if (!activeRef.current) return;
       setPlaying(false);
       setLoading(false);
       setError(
@@ -425,6 +460,7 @@ export function useAudio(
       );
     },
     onEnded: () => {
+      if (!activeRef.current) return;
       setPlaying(false);
       persist();
       const id = activeRef.current?.id;
@@ -445,6 +481,7 @@ export function useAudio(
     duration,
     error,
     play,
+    stop,
     start,
     seek,
     next,

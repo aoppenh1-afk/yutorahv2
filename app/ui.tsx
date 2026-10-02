@@ -25,6 +25,7 @@ import {
   Check,
   Plus,
   BookOpen,
+  X,
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -619,6 +620,17 @@ export function Player({
                 >
                   <SkipForward size={18} />
                 </button>
+                <button
+                  className="icon-button player-close"
+                  aria-label="Close player"
+                  title="Close player and stop playback"
+                  onClick={() => {
+                    setExpanded(false);
+                    p.stop();
+                  }}
+                >
+                  <X size={20} />
+                </button>
               </div>
               <div className="player-progress">
                 <time>{timeLabel(p.time)}</time>
@@ -879,6 +891,10 @@ function MobileAudioPlayer({
   if (!p.active) return null;
   const s = p.active;
   const saved = library.saved.some((v) => v.id === s.id);
+  const close = () => {
+    setExpanded(false);
+    p.stop();
+  };
   return (
     <>
       <section className="mobile-miniplayer player" aria-label="Audio player">
@@ -907,6 +923,14 @@ function MobileAudioPlayer({
             <Play size={21} fill="currentColor" />
           )}
         </button>
+        <button
+          className="mobile-miniplayer-close"
+          aria-label="Close player"
+          title="Close player and stop playback"
+          onClick={close}
+        >
+          <X size={21} />
+        </button>
         <progress
           value={p.time}
           max={p.duration || 1}
@@ -914,7 +938,10 @@ function MobileAudioPlayer({
         />
       </section>
       <Dialog open={expanded} onOpenChange={setExpanded}>
-        <DialogContent className="mobile-now-playing" showCloseButton={false}>
+        <DialogContent
+          className="mobile-now-playing top-0 left-0 translate-x-0 translate-y-0"
+          showCloseButton={false}
+        >
           <div className="now-playing-top">
             <button
               aria-label="Collapse player controls"
@@ -934,6 +961,13 @@ function MobileAudioPlayer({
               }}
             >
               <ListMusic size={24} />
+            </button>
+            <button
+              aria-label="Close player"
+              title="Close player and stop playback"
+              onClick={close}
+            >
+              <X size={24} />
             </button>
           </div>
           <div className="now-playing-portrait">
