@@ -22,6 +22,12 @@ import {
   postgresSearchDatabase,
 } from '../lib/search-postgres';
 import { migrateSourcesSchema } from '../scripts/migrate-search-schema';
+import { sourceRequest, sourceRetryDelay } from '../lib/source-request';
+import { cachedSourceText, sourceSnapshot } from '../lib/sources-cache';
+import { SourcesLeaseError } from '../lib/sources';
+import { sourceEditions } from '../lib/source-sheet';
+import { preparePublishedSources } from '../apps/worker/src/source-preparation';
+import { evaluateSourcesCorpus } from '../scripts/evaluate-sources';
 import type { SearchDatabase, SearchStatement } from '../lib/search-storage';
 
 function database() {
@@ -387,7 +393,7 @@ void test('HTTP uses only persisted transcript text; arbitrary text requests and
   assert.equal(uncited.status, 404);
   assert.ok(!mock.calls.some((url) => url.includes('/texts/')));
   const missing = await sourcesResponse(
-    new Request('https://example.org/api/sources?id=1'),
+    new Request('https://example.org/api/sources?id=1&refresh=1'),
     {
       ...dependencies,
       transcript: async () =>
@@ -648,3 +654,501 @@ void test(
     }
   },
 );
+
+void test('range endpoints need their own explicit daf and amud, including the correct side', async () => {
+  for (const [mention, accepted] of [
+    ['Shabbat 2a-3', false],
+    ['Shabbat 2-3a', false],
+    ['Shabbat 2b-3a', false],
+    ['Shabbat 2a-3a', true],
+    ['Shabbat 2a through 3a', true],
+    ['שבת ב ע״א עד ג', false],
+    ['שבת ב ע״א עד ג ע״א', true],
+  ] as const) {
+    const ref = 'Shabbat 2a-3a';
+    const mock = sefariaMock(
+      (body) => bodyResults(body, [{ mention, ref, category: 'Talmud' }]),
+      {
+        [ref]: metadata(ref, {
+          depth: 2,
+          address_types: ['Talmud', 'Integer'],
+          start_indexes: [3],
+          end_indexes: [5],
+          start_labels: ['2a'],
+          end_labels: ['3a'],
+        }),
+      },
+    );
+    const result = await finish(database(), transcript(mention), mock.fetcher);
+    assert.equal(result.sources.length, Number(accepted), mention);
+    if (!accepted) assert.ok(result.omitted > 0);
+  }
+});
+
+void test('partial commentary wording never turns a comment into a base Gemara link', async () => {
+  for (const prefix of [
+    "Tosfos's comment on ",
+    'Rashi says in ',
+    'Ramban writes on ',
+    'Rashba on ',
+    'Ritva in ',
+    'Ran on ',
+    'תוספות על ',
+    'רש״י על ',
+  ]) {
+    const mock = sefariaMock((body) =>
+      bodyResults(body, [
+        { mention: 'Shabbat 2b', ref: 'Shabbat 2b', category: 'Talmud' },
+      ]),
+    );
+    const result = await finish(
+      database(),
+      transcript(prefix + 'Shabbat 2b.'),
+      mock.fetcher,
+    );
+    assert.equal(result.sources.length, 0, prefix);
+    assert.equal(result.omissionCounts.partial_commentary, 1, prefix);
+    assert.equal(result.omissions[0].mention, 'Shabbat 2b');
+  }
+});
+
+void test('omissions expose evidence and reasons once across both language models', async () => {
+  const mock = sefariaMock((body) =>
+    bodyResults(body, [
+      { mention: 'Genesis 1', ref: 'Genesis 1' },
+      { mention: 'Shabbat 2', ref: 'Shabbat 2a', category: 'Talmud' },
+      { mention: 'Exodus 1:1', ref: 'Exodus 1:1', ambiguous: true },
+      {
+        mention: 'שם',
+        ref: 'Genesis 1:1',
+        debug: { ...rawDebug, context_ref: 'Genesis 1:1' },
+      },
+    ]),
+  );
+  const t = transcript('Genesis 1. Shabbat 2. Exodus 1:1. שם.');
+  const result = await finish(database(), t, mock.fetcher);
+  assert.deepEqual(result.omissionCounts, {
+    missing_location: 1,
+    missing_amud: 1,
+    ambiguous: 1,
+    inferred: 1,
+  });
+  assert.equal(result.omitted, 4);
+  assert.equal(result.omissions.length, 4);
+  assert.ok(result.omissions.every((o) => o.startMs === 0 && o.mention));
+});
+
+void test('Hebrew daf punctuation and numbered responsa preserve complete bibliographic locations', async () => {
+  const citations = [
+    { mention: 'ברכות דף מ.', ref: 'Berakhot 40a', category: 'Talmud' },
+    { mention: 'שבת דף קי״ז:', ref: 'Shabbat 117b', category: 'Talmud' },
+    {
+      mention: 'Rivash responsum 10',
+      ref: 'Teshuvot HaRivash 10',
+      category: 'Responsa',
+    },
+  ];
+  const mock = sefariaMock((body) => bodyResults(body, citations), {
+    'Berakhot 40a': metadata('Berakhot 40a', {
+      address_types: ['Talmud', 'Integer'],
+      start_indexes: [79],
+      end_indexes: [79],
+    }),
+    'Teshuvot HaRivash 10': metadata('Teshuvot HaRivash 10', {
+      address_types: ['Siman', 'Seif'],
+    }),
+  });
+  const result = await finish(
+    database(),
+    transcript(citations.map((c) => c.mention).join(' ')),
+    mock.fetcher,
+  );
+  assert.equal(result.sources.length, 3);
+});
+
+void test('a stale worker cannot report ready or release the new owner lease', async () => {
+  const db = database(),
+    t = transcript('Genesis 1:1.');
+  const mock = sefariaMock((body) =>
+    bodyResults(body, [{ mention: 'Genesis 1:1', ref: 'Genesis 1:1' }]),
+  );
+  await advanceSources(db, t, mock.fetcher);
+  const replacement = Date.now() + 120000;
+  const stolen: typeof fetch = async (...args) => {
+    await db
+      .prepare('UPDATE sources_runs SET lease = ?')
+      .bind(replacement)
+      .run();
+    return mock.fetcher(...args);
+  };
+  await assert.rejects(advanceSources(db, t, stolen), SourcesLeaseError);
+  const row = await db
+    .prepare('SELECT payload,lease FROM sources_runs')
+    .first<{ payload: string; lease: number }>();
+  assert.equal(row!.lease, replacement);
+  assert.deepEqual(JSON.parse(row!.payload).sources, []);
+  await db.prepare('UPDATE sources_runs SET lease = 0').run();
+  assert.equal((await finish(db, t, mock.fetcher)).sources.length, 1);
+});
+
+void test('lease expiry alone prevents a stale save even before a replacement worker arrives', async (context) => {
+  let now = Date.now();
+  context.mock.method(Date, 'now', () => now);
+  const db = database(),
+    t = transcript('Genesis 1:1.');
+  const mock = sefariaMock((body) =>
+    bodyResults(body, [{ mention: 'Genesis 1:1', ref: 'Genesis 1:1' }]),
+  );
+  await advanceSources(db, t, mock.fetcher);
+  await assert.rejects(
+    advanceSources(db, t, async (...args) => {
+      const response = await mock.fetcher(...args);
+      now += 61000;
+      return response;
+    }),
+    SourcesLeaseError,
+  );
+  assert.equal((await finish(db, t, mock.fetcher)).sources.length, 1);
+});
+
+void test('published snapshot caching checks changed revisions, corrected timings, and expiry', async (context) => {
+  let now = Date.now(),
+    reads = 0;
+  context.mock.method(Date, 'now', () => now);
+  const db = database();
+  let current = transcript('Genesis 1:1.');
+  const load = async () => {
+    reads++;
+    return structuredClone(current);
+  };
+  const first = await sourceSnapshot(db, '1', load);
+  assert.equal(await sourceSnapshot(db, '1', load), first);
+  assert.equal(reads, 1);
+  current = { ...current, transcriptId: 'new-revision' };
+  assert.equal(
+    (await sourceSnapshot(db, '1', load, 'new-revision')).transcriptId,
+    'new-revision',
+  );
+  assert.equal(reads, 2);
+  current.segments[0].startMs = 500;
+  assert.equal(
+    (await sourceSnapshot(db, '1', load, null, true)).segments[0].startMs,
+    500,
+  );
+  now += 61000;
+  await sourceSnapshot(db, '1', load);
+  assert.equal(reads, 4);
+});
+
+void test('source texts are durably cached by exact ref and extent; failures do not poison retries', async () => {
+  const db = database();
+  let calls = 0;
+  const fetcher: typeof fetch = async () => {
+    calls++;
+    return Response.json({
+      ref: 'Genesis 1:1',
+      categories: ['Tanakh'],
+      versions: [
+        {
+          versionTitle: 'Edition',
+          language: 'en',
+          text: Array.from({ length: 12 }, (_, i) => `Line ${i}`),
+        },
+      ],
+    });
+  };
+  const excerpt = await cachedSourceText(db, 'Genesis 1:1', fetcher);
+  assert.equal(excerpt.editions[0].text.length, 8);
+  assert.deepEqual(await cachedSourceText(db, 'Genesis 1:1', fetcher), excerpt);
+  const full = await cachedSourceText(db, 'Genesis 1:1', fetcher, 'full');
+  assert.equal(full.editions[0].text.length, 12);
+  assert.equal(calls, 2);
+  await assert.rejects(
+    cachedSourceText(db, 'Exodus 1:1', async () =>
+      Response.json({ error: 'failure' }, { status: 503 }),
+    ),
+  );
+  await assert.rejects(
+    cachedSourceText(db, 'Exodus 1:1', fetcher),
+    /different reference/,
+  );
+});
+
+void test('HTTP polling and allowed source-text requests share one trusted transcript snapshot', async () => {
+  let reads = 0;
+  const mock = sefariaMock((body) =>
+    bodyResults(body, [{ mention: 'Genesis 1:1', ref: 'Genesis 1:1' }]),
+  );
+  const dependencies = {
+    db: database(),
+    transcript: async () => {
+      reads++;
+      return Response.json(transcript('Genesis 1:1.'));
+    },
+    fetcher: mock.fetcher,
+  };
+  await sourcesResponse(
+    new Request('https://example.org/api/sources?id=1'),
+    dependencies,
+  );
+  await sourcesResponse(
+    new Request('https://example.org/api/sources?id=1'),
+    dependencies,
+  );
+  await sourcesResponse(
+    new Request('https://example.org/api/source-text?id=1&ref=Exodus%201:1'),
+    dependencies,
+    true,
+  );
+  assert.equal(reads, 1);
+  const changed = await sourcesResponse(
+    new Request('https://example.org/api/sources?id=1&revision=stale'),
+    dependencies,
+  );
+  assert.equal(changed.status, 409);
+  assert.equal(reads, 2);
+});
+
+void test('automatic recovery backs off, respects Retry-After, and does not retry permanent errors', async () => {
+  const waits: number[] = [];
+  let calls = 0;
+  const response = await sourceRequest(
+    '/api/sources',
+    new AbortController().signal,
+    {
+      fetcher: async () =>
+        ++calls === 1
+          ? Response.json({}, { status: 429, headers: { 'Retry-After': '7' } })
+          : calls === 2
+            ? Promise.reject(new Error('network'))
+            : Response.json({}),
+      wait: async (ms) => {
+        waits.push(ms);
+      },
+    },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(waits, [7000, 2000]);
+  calls = 0;
+  await assert.rejects(
+    sourceRequest('/api/sources', new AbortController().signal, {
+      fetcher: async () => {
+        calls++;
+        return Response.json({ error: 'changed' }, { status: 409 });
+      },
+      wait: async () => {},
+    }),
+    /changed/,
+  );
+  assert.equal(calls, 1);
+  calls = 0;
+  await assert.rejects(
+    sourceRequest('/api/sources', new AbortController().signal, {
+      fetcher: async () => {
+        calls++;
+        return Response.json({}, { status: 503 });
+      },
+      wait: async () => {},
+    }),
+  );
+  assert.equal(calls, 5);
+  assert.equal(
+    sourceRetryDelay(
+      'Fri, 02 Oct 2026 12:00:10 GMT',
+      0,
+      Date.parse('2026-10-02T12:00:00Z'),
+    ),
+    10000,
+  );
+});
+
+void test('aborting recovery cancels the pending retry and makes no additional request', async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  await assert.rejects(
+    sourceRequest('/api/sources', controller.signal, {
+      fetcher: async () => {
+        calls++;
+        return Response.json({}, { status: 503 });
+      },
+      onRetry: () => controller.abort(new Error('cancelled')),
+    }),
+    /cancelled/,
+  );
+  assert.equal(calls, 1);
+});
+
+void test('server preserves Sefaria Retry-After without exposing upstream details', async () => {
+  const response = await sourcesResponse(
+    new Request('https://example.org/api/sources?id=1'),
+    {
+      db: database(),
+      transcript: async () => Response.json(transcript('Genesis 1:1.')),
+      fetcher: async () =>
+        Response.json({}, { status: 429, headers: { 'Retry-After': '23' } }),
+    },
+  );
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get('Retry-After'), '23');
+});
+
+void test('sheet language choices affect both preview editions and the exported document', async () => {
+  const text = {
+    ref: 'Genesis 1:1',
+    categories: ['Tanakh'],
+    editions: [
+      {
+        language: 'he',
+        direction: 'rtl' as const,
+        title: 'Hebrew edition',
+        license: 'Public Domain',
+        versionSource: null,
+        text: ['Hebrew line'],
+        truncated: false,
+      },
+      {
+        language: 'en',
+        direction: 'ltr' as const,
+        title: 'English edition',
+        license: 'CC-BY',
+        versionSource: null,
+        text: ['English line'],
+        truncated: false,
+      },
+    ],
+  };
+  assert.equal(sourceEditions(text, 'both').length, 2);
+  assert.equal(sourceEditions(text, 'he')[0].language, 'he');
+  const mock = sefariaMock((body) =>
+    bodyResults(body, [{ mention: 'Genesis 1:1', ref: 'Genesis 1:1' }]),
+  );
+  const sources = (
+    await finish(database(), transcript('Genesis 1:1'), mock.fetcher)
+  ).sources;
+  const html = renderSourceSheet({
+    shiurId: 1,
+    title: 'Sheet',
+    teacher: 'Teacher',
+    origin: 'https://example.org',
+    sources,
+    texts: { 'Genesis 1:1': text },
+    limited: false,
+    language: 'en',
+  });
+  assert.ok(html.includes('English line'));
+  assert.ok(!html.includes('Hebrew line'));
+  assert.ok(html.includes('English edition'));
+  assert.ok(!html.includes('Hebrew edition'));
+});
+
+void test('post-publication preparation polls the shared endpoint and never fails a published transcript', async () => {
+  let calls = 0;
+  const events: string[] = [];
+  await preparePublishedSources('1', new AbortController().signal, {
+    url: 'https://example.org/api/sources/prepare',
+    token: 'fixture-token',
+    fetcher: async (_input, init) => {
+      assert.equal(
+        (init!.headers as Record<string, string>).Authorization,
+        'Bearer fixture-token',
+      );
+      assert.deepEqual(JSON.parse(init!.body as string), { shiurId: '1' });
+      return Response.json(
+        { status: 'ready', transcriptId: 'fixture' },
+        { status: ++calls === 1 ? 202 : 200 },
+      );
+    },
+    wait: async () => {},
+    report: (event) => events.push(event.event),
+  });
+  assert.deepEqual(events, ['sources_prepared']);
+  await preparePublishedSources('1', new AbortController().signal, {
+    url: 'https://example.org/api/sources/prepare',
+    token: 'fixture-token',
+    fetcher: async () => {
+      throw new Error('network');
+    },
+    wait: async () => {},
+    report: (event) => events.push(event.event),
+  });
+  assert.equal(events.at(-1), 'sources_preparation_deferred');
+});
+
+void test('30 published-transcript excerpts preserve precision and report measured coverage gaps', async () => {
+  const report = await evaluateSourcesCorpus();
+  assert.equal(report.sampleCount, 30);
+  assert.equal(report.expected, 18);
+  assert.equal(
+    report.incorrect,
+    0,
+    'no source absent from the reviewed excerpt may appear',
+  );
+  assert.ok(
+    report.accepted >= 10,
+    'accepted complete citations must not regress',
+  );
+  assert.ok(report.missed <= 8);
+  assert.equal(
+    report.failedSamples,
+    1,
+    'recorded Sefaria metadata failure remains visible',
+  );
+  assert.match(report.reviewedBy, /human review pending/);
+});
+
+void test('source text download limits cancel oversized upstream responses before parsing', async () => {
+  let cancelled = false;
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(4_000_001));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }),
+  );
+  await assert.rejects(
+    sourceText('Genesis 1:1', async () => response),
+    /too much data/,
+  );
+  assert.equal(cancelled, true);
+});
+
+void test('repeat occurrence limits remain visible without duplicating or guessing citations', async () => {
+  const mock = sefariaMock((body) =>
+    bodyResults(body, [{ mention: 'Genesis 1:1', ref: 'Genesis 1:1' }]),
+  );
+  const result = await finish(
+    database(),
+    transcript('Genesis 1:1. '.repeat(60)),
+    mock.fetcher,
+  );
+  assert.equal(result.sources.length, 1);
+  assert.equal(result.sources[0].occurrences.length, 50);
+  assert.equal(result.limited, true);
+  assert.equal(result.omissionCounts.limit, 10);
+});
+
+void test('a failed model parse is not shown as an omission when the other model verifies those words', async () => {
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = input instanceof Request ? input.url : input.toString();
+    if (url.includes('/find-refs')) {
+      const { text, lang } = JSON.parse(init!.body as string);
+      return Response.json({
+        body: bodyResults(text.body, [
+          { mention: 'Genesis 1:1', ref: 'Genesis 1:1', failed: lang === 'he' },
+        ]),
+      });
+    }
+    return Response.json(metadata('Genesis 1:1'));
+  };
+  const result = await finish(
+    database(),
+    transcript('Genesis 1:1. שלום.'),
+    fetcher,
+  );
+  assert.equal(result.sources.length, 1);
+  assert.equal(result.omitted, 0);
+  assert.deepEqual(result.omissions, []);
+});

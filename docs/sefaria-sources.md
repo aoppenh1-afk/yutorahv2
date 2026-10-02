@@ -8,6 +8,9 @@ from generated notes, the shiur title, related texts, or uploaded source sheets.
 
 The optional **Preview source sheet** button adds source text, Hebrew citations,
 category paths, edition attribution, and Download sheet / Print / Save PDF.
+Choose Hebrew/original, English, or both; short excerpts or complete cited text;
+first-mention or category order; and which accepted sources to include. Changing
+language reuses loaded editions. Retry fetches only missing texts.
 Download produces a standalone HTML document; print uses the same document in an
 isolated frame, excluding site navigation and the player. Browser print can save
 it as a PDF. The preview can be removed without changing extraction or the tab.
@@ -57,12 +60,17 @@ specific location:
 | Ibid. / שם / inferred references                         | Omit, even if Sefaria resolves them                           |
 | Multiple matches or disagreement between language models | Omit                                                          |
 
-Talmud citations require an explicit amud in the detected wording. A Talmud
+Talmud citations require an explicit amud in the detected wording, including
+Hebrew daf-dot/daf-colon notation. Ranges across dapim require explicit, matching
+daf/amud endpoints; a side elsewhere in the citation is insufficient. A Talmud
 commentary also needs an entry below the daf. Tosafot's schema can have a third
 dimension for paragraphs within that entry, so `2b:1` is accepted without
 inventing `:1:1`. Other works require all address levels: verse, mishnah, halacha,
-individual non-Talmud commentary, etc. A partially recognized Gemara citation
-immediately following a Tosfos/Rashi prefix is suppressed.
+individual non-Talmud commentary, etc. A numbered responsum is a complete
+bibliographic source even when Sefaria adds paragraph dimensions beneath it. A partially recognized Gemara citation
+immediately following a Tosfos/Rashi/Ramban/Rashba/Ritva/Ran/Rosh/Maharsha prefix
+is suppressed, including possessive and spoken phrases such as “Tosfos’s comment
+on” and “Rashi says in”.
 
 ## Pipeline and storage
 
@@ -84,9 +92,27 @@ the **search database**, not the read-only transcription database. A lease preve
 simultaneous visitors from submitting the same pending chunk twice. The key
 includes policy version, transcript ID, text, and segment timings. Cold servers
 can resume; corrected transcripts produce fresh runs. Completed runs last seven
-days, and expired source-cache rows are removed on access. A crashed request's
+days. A short published-transcript snapshot is cached for 60 seconds in SQL
+and reused by polls and text requests, so corrected or removed transcripts are
+rechecked within a minute. A requested revision mismatch forces an immediate
+gateway check and returns HTTP 409 if the client is stale. Explicit refresh also
+bypasses snapshots. Immutable in-memory snapshots reuse their Unicode offsets and
+hash. Accepted source texts are cached for one day by canonical ref and excerpt/
+full extent. No failed text response is cached. Expired cache rows are pruned at
+most once a minute per warm adapter. A crashed request's
 lease expires after a minute; an expired five-minute Sefaria task can be restarted
-via Retry. The UI polls every two seconds and can resume after its poll budget.
+automatically on retry. Every save checks both the lease owner and expiry; a
+stale request cannot publish unsaved results or release a replacement owner’s
+lease. The UI polls every two seconds and can resume after its poll budget.
+Transient network errors and HTTP 429/5xx are retried up to four times with
+exponential backoff and Retry-After (seconds or HTTP dates), bounded to one minute.
+Changing shiur or hiding the reader cancels waits and requests.
+
+Omissions retain counts by reason and up to 50 timestamped transcript examples.
+Examples explain missing locations/comments, incomplete ranges, ambiguity,
+inferred locations, partial commentary recognition and invalid matches. They
+never enter the accepted source list or a source sheet. Model/overlap duplicates
+are counted once for the first 2,000 distinct omission keys.
 
 ## Remaining gaps and intentional limits
 
@@ -107,12 +133,17 @@ via Retry. The UI polls every two seconds and can resume after its poll budget.
   versions, for example, report CC-BY-NC. The preview preserves these terms rather
   than assigning one license to all content.
 - Sheet text is limited to eight nonempty segments and 12,000 characters per edition,
-  with an explicit excerpt label and complete citation link. Extraction accepts
+  in excerpt mode. Complete mode allows up to 500 segments and 200,000 characters
+per edition, still labeling any shortened text and linking its complete citation.
+Upstream JSON downloads are capped at four million bytes before parsing. Extraction accepts
   transcripts up to two million UTF-16 characters and displays up to 100 unique
-  sources, with a notice when that source limit is reached.
+  sources, 50 occurrences per source and 300 total occurrences, with a notice when
+limits are reached. Per-model candidate queues and metadata caches are bounded;
+SQL payloads cannot exceed 900,000 bytes.
 - Opening Sources sends transcript chunks to Sefaria. No tracking metadata,
   credentials, generated notes, or shiur title is sent. Opening the sheet sends
-  only accepted canonical refs. The external API must be available; retries
+  only accepted canonical refs. Text requests share the published-transcript
+snapshot and accepted whitelist. The external API must be available; retries
   preserve progress and upstream errors stay server-side.
 
 ## Deployment
@@ -127,6 +158,28 @@ used. Apply the additive cache migration before deploying:
   installations with another app role must grant it the same four table privileges.
   The build verifies the table and can create it only when its search connection
   already has DDL privileges. Transcript reader permissions do not change.
+
+The production `yutorah-titles` main branch cache migration was applied through
+Neon’s owner SQL editor on 2026-10-02. Verification showed `sources_runs` exists,
+`yutorah_search_app` has the four table privileges, and it still lacks schema
+CREATE. The prior Vercel migration failure is resolved; new code still requires
+a successful preview deployment before merge.
+
+### Optional preparation after publication
+
+The worker can prepare sources immediately after `store.complete` publishes a
+transcript and its job heartbeat has stopped. Configure the same private `SOURCES_PREPARE_TOKEN` on the website and
+worker, and set the worker’s `SOURCES_PREPARE_URL` to the deployed
+`https://YOUR_SITE/api/sources/prepare`. The authenticated POST accepts only a
+shiur ID and drives the same published-transcript pipeline; it cannot submit
+prose or add refs. It checkpoints one bounded pass per request. Preparation
+polls for at most five minutes/120 passes with bounded retries and cancellation.
+A failure emits `sources_preparation_deferred`; it never retries/fails an already
+published transcription. The normal Sources tab resumes any unfinished run.
+Preparation occupies the worker slot after publication, so leave it disabled if
+transcription throughput matters more than a warm Sources tab. This integration
+is implemented but is not enabled on the installed VM or production website;
+the new worker build and matching secrets must be deployed together.
 
 ## Verification
 
@@ -145,3 +198,36 @@ sources**, as expected. The positive fixture linked Shabbat 2b, Genesis 1:1, and
 Tosafot on Shabbat 2b:1 while omitting unspecified Tosfos. Browser checks exercised
 the links tab, repeated timestamps, inline transcript links, bilingual text,
 HTML download, and the identical print document.
+
+## Real-transcript evaluation
+
+The [evaluation report](sefaria-sources-evaluation.json) replays live Sefaria
+responses recorded on 2026-10-02 through the same extraction interface. The
+[review set](../tests/fixtures/sources-corpus.json) contains 30 bounded excerpts
+from 30 already published shiurim, with source URL, transcript revision, original
+segment/character position, timings, agent-annotated expected refs,
+excluded/unavailable references and review notes. Excerpts were chosen by citation
+keywords. All 30 happen to be Rabbi Aryeh Lebowitz; this is not a random or
+representative estimate for the archive. Review was performed by the Codex agent;
+independent human review is pending.
+
+The baseline accepts 10 of 18 complete citations whose canonical works are in
+Sefaria, with zero incorrect links relative to these annotations (precision 100%,
+recall 55.6%). Eight citations are missed. One sample fails because
+`/api/ref/Teshuvot haRashba part I 24` consistently returns HTTP 500; this also
+blocks its otherwise recognized Rivash citation. Other misses are unrecognized
+wording or refs that Sefaria resolved using context despite a complete citation
+in the excerpt. Four additional fully named citations were unavailable in the
+library lookup and are reported separately from recall. These figures describe
+this reviewed excerpt set, not a guarantee for arbitrary transcripts or audio
+accuracy. No uncited source was added to improve coverage.
+
+Run `npm run sources:evaluate` to reproduce the report offline. Run
+`npm run sources:evaluate -- --record --output REPORT.json` to collect missing
+live responses with at most three concurrent transcripts. Recording checkpoints
+successful responses and preserves status codes for failed metadata lookups.
+Delete `tests/fixtures/sources-corpus-sefaria.json` first to refresh every response;
+review and commit changes deliberately. The CI source suite checks that this
+sample keeps zero incorrect links and at least its baseline accepted citations.
+Expand the set to more teachers, languages and longer transcripts before using
+these metrics as a release-wide accuracy claim.

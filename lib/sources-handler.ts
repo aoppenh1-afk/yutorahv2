@@ -4,7 +4,12 @@ import {
   SourcesLimitError,
   type SourceTranscript,
 } from './sources';
-import { sourceText, type SefariaFetch } from './sefaria';
+import { SefariaUnavailableError, type SefariaFetch } from './sefaria';
+import {
+  cachedSourceText,
+  sourceSnapshot,
+  pruneSourceCache,
+} from './sources-cache';
 
 /** The same transcript reader and extraction path serve both tabs. No client-supplied prose or refs are trusted. */
 export async function sourcesResponse(
@@ -18,29 +23,51 @@ export async function sourcesResponse(
 ) {
   const params = new URL(request.url).searchParams;
   const id = params.get('id') ?? '';
-  const reply = (body: unknown, status = 200) =>
+  const reply = (body: unknown, status = 200, retryMs = 2000) =>
     Response.json(body, {
       status,
       headers: {
         'Cache-Control': 'no-store',
-        ...(status === 202 ? { 'Retry-After': '2' } : {}),
+        ...([202, 503].includes(status)
+          ? { 'Retry-After': String(Math.ceil(retryMs / 1000)) }
+          : {}),
       },
     });
   if (!/^[1-9]\d{0,11}$/.test(id))
     return reply({ error: 'Choose a valid shiur.' }, 400);
   try {
-    const response = await dependencies.transcript(id);
-    if (!response.ok)
+    await pruneSourceCache(dependencies.db);
+    const transcript = await sourceSnapshot(
+      dependencies.db,
+      id,
+      async () => {
+        const response = await dependencies.transcript(id);
+        if (!response.ok) throw new TranscriptUnavailable(response.status);
+        const data = (await response.json()) as SourceTranscript;
+        // Store only published text and timings, never notes or client-provided text.
+        return {
+          transcriptId: data.transcriptId,
+          segments: data.segments.map((s) => ({
+            text: s.text,
+            startMs: s.startMs,
+            endMs: s.endMs,
+          })),
+        };
+      },
+      params.get('revision'),
+      params.get('refresh') === '1',
+    );
+    if (
+      params.get('revision') &&
+      params.get('revision') !== transcript.transcriptId
+    )
       return reply(
         {
           error:
-            response.status === 404
-              ? 'A transcript has not been completed for this shiur yet.'
-              : 'The transcript is temporarily unavailable.',
+            'The transcript has changed. Refresh the transcript to check its sources.',
         },
-        response.status,
+        409,
       );
-    const transcript = (await response.json()) as SourceTranscript;
     const result = await advanceSources(
       dependencies.db,
       transcript,
@@ -54,8 +81,26 @@ export async function sourcesResponse(
         { error: 'This source is not cited in this transcript.' },
         404,
       );
-    return reply(await sourceText(ref, dependencies.fetcher));
+    const extent = params.get('extent') === 'full' ? 'full' : 'excerpt';
+    return reply(
+      await cachedSourceText(
+        dependencies.db,
+        ref,
+        dependencies.fetcher,
+        extent,
+      ),
+    );
   } catch (error) {
+    if (error instanceof TranscriptUnavailable)
+      return reply(
+        {
+          error:
+            error.status === 404
+              ? 'A transcript has not been completed for this shiur yet.'
+              : 'The transcript is temporarily unavailable.',
+        },
+        error.status,
+      );
     return reply(
       {
         error:
@@ -64,6 +109,12 @@ export async function sourcesResponse(
             : 'Sources are temporarily unavailable. Please retry.',
       },
       error instanceof SourcesLimitError ? 413 : 503,
+      error instanceof SefariaUnavailableError ? error.retryAfterMs : 2000,
     );
+  }
+}
+class TranscriptUnavailable extends Error {
+  constructor(public status: number) {
+    super('The transcript is temporarily unavailable.');
   }
 }

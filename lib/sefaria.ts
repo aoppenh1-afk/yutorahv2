@@ -1,6 +1,11 @@
 /** Server-only access to Sefaria. References and URLs always come from its APIs. */
 const origin = 'https://www.sefaria.org';
 export class SefariaTaskError extends Error {}
+export class SefariaUnavailableError extends Error {
+  constructor(public retryAfterMs = 2000) {
+    super('Sefaria is temporarily unavailable.');
+  }
+}
 export type SefariaFetch = typeof fetch;
 export type LinkerDebug = {
   context_ref: string | null;
@@ -63,8 +68,41 @@ async function request(
   });
   if (allowInvalidRef && response.status === 404)
     return { status: 404, data: { is_ref: false } };
-  if (!response.ok) throw new Error('Sefaria is temporarily unavailable.');
-  const data = await response.json();
+  if (!response.ok) {
+    const retry = response.headers.get('Retry-After');
+    const delay =
+      retry && /^\d+$/.test(retry)
+        ? Number(retry) * 1000
+        : retry
+          ? Date.parse(retry) - Date.now()
+          : 2000;
+    throw new SefariaUnavailableError(
+      Math.min(60000, Math.max(2000, Number.isFinite(delay) ? delay : 2000)),
+    );
+  }
+  // Bound the download before parsing; truncating editions alone does not bound an upstream response.
+  const reader = response.body?.getReader();
+  let json = '';
+  if (reader) {
+    const decoder = new TextDecoder();
+    let bytes = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > 4_000_000) {
+          await reader.cancel();
+          throw new Error('Sefaria returned too much data for this source.');
+        }
+        json += decoder.decode(value, { stream: true });
+      }
+      json += decoder.decode();
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const data = JSON.parse(json);
   if (data?.state === 'FAILURE')
     throw new SefariaTaskError('Sefaria could not process this transcript.');
   if (!data || typeof data !== 'object' || data.error)
@@ -143,10 +181,31 @@ export async function refMetadata(
     !Array.isArray(data.address_types) ||
     !Array.isArray(data.start_labels) ||
     !Array.isArray(data.end_labels) ||
-    !Number.isInteger(data.depth)
+    !Number.isInteger(data.depth) ||
+    data.depth < 1 ||
+    data.depth > 10 ||
+    [data.start_indexes, data.end_indexes].some((values) =>
+      values.some((n: unknown) => !Number.isSafeInteger(n) || Number(n) < 0),
+    ) ||
+    [data.address_types, data.start_labels, data.end_labels].some((values) =>
+      values.some((s: unknown) => typeof s !== 'string'),
+    )
   )
     throw new Error('Sefaria returned unsupported reference metadata.');
-  return data as RefMetadata;
+  // Persist only validation fields, not arbitrary additional upstream payload.
+  return {
+    is_ref: true,
+    normalized: data.normalized,
+    hebrew: data.hebrew,
+    url_ref: data.url_ref,
+    node_type: data.node_type,
+    depth: data.depth,
+    address_types: data.address_types,
+    start_indexes: data.start_indexes,
+    end_indexes: data.end_indexes,
+    start_labels: data.start_labels,
+    end_labels: data.end_labels,
+  };
 }
 
 export function sefariaUrl(path: string): string | null {
@@ -180,6 +239,7 @@ function publicUrl(value: unknown): string | null {
 export async function sourceText(
   ref: string,
   fetcher: SefariaFetch = fetch,
+  extent: 'excerpt' | 'full' = 'excerpt',
 ): Promise<SourceText> {
   const { data } = await request(
     `/api/v3/texts/${encodeURIComponent(ref)}?version=primary&version=english&return_format=text_only`,
@@ -209,13 +269,15 @@ export async function sourceText(
         return;
       }
       if (typeof value !== 'string' || !value.trim()) return;
-      if (lines.length >= 8 || characters >= 12000) {
+      const maxLines = extent === 'full' ? 500 : 8;
+      const maxCharacters = extent === 'full' ? 200000 : 12000;
+      if (lines.length >= maxLines || characters >= maxCharacters) {
         truncated = true;
         return;
       }
       // React and the sheet exporter escape this text; no upstream HTML is executed.
       const plain = value.replace(/<[^>]*>/g, '').trim();
-      const room = 12000 - characters;
+      const room = maxCharacters - characters;
       if (plain.length > room) truncated = true;
       lines.push(plain.slice(0, room));
       characters += Math.min(plain.length, room);

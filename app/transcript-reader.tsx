@@ -221,6 +221,7 @@ export function TranscriptReader({
           teacher={content.teacher}
           result={sources.result}
           error={sources.error}
+          recovering={sources.recovering}
           onRetry={sources.retry}
           onSeek={onSeek}
         />

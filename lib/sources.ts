@@ -34,7 +34,26 @@ export type SourcesResult = {
   progress: number;
   sources: TranscriptSource[];
   omitted: number;
+  omissionCounts: Partial<Record<OmissionReason, number>>;
+  omissions: SourceOmission[];
   limited: boolean;
+};
+export type OmissionReason =
+  | 'unresolved'
+  | 'ambiguous'
+  | 'inferred'
+  | 'missing_location'
+  | 'missing_amud'
+  | 'missing_comment'
+  | 'incomplete_range'
+  | 'partial_commentary'
+  | 'invalid_match'
+  | 'limit';
+export type SourceOmission = {
+  reason: OmissionReason;
+  mention: string;
+  offset: number;
+  startMs: number;
 };
 type Candidate = {
   ref: string;
@@ -48,19 +67,84 @@ type State = {
   task: { id: string; started: number } | null;
   candidates: Candidate[];
   proposals: Candidate[];
+  proposedOmissions: SourceOmission[];
   metadata: Record<string, RefMetadata | null>;
   sources: TranscriptSource[];
   omitted: number;
+  omissionCounts: SourcesResult['omissionCounts'];
+  omissions: SourceOmission[];
+  omissionKeys: string[];
   limited: boolean;
   done: boolean;
 };
 type Row = { payload: string; lease: number; expires: number };
-const policyVersion = 2;
+const policyVersion = 4;
 const chunkSize = 12000;
 const overlap = 256;
 const cacheDuration = 7 * 24 * 60 * 60 * 1000;
 
 export class SourcesLimitError extends Error {}
+export class SourcesLeaseError extends Error {}
+
+type Prepared = { key: string; chars: string[]; segmentOffsets: number[] };
+const prepared = new WeakMap<SourceTranscript, Promise<Prepared>>();
+async function prepare(transcript: SourceTranscript): Promise<Prepared> {
+  const previous = prepared.get(transcript);
+  if (previous) return previous;
+  const work = (async () => {
+    validateSourceTranscript(transcript);
+    const chars = Array.from(
+      transcript.segments.map((s) => s.text).join('\n\n'),
+    );
+    const hash = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(
+        JSON.stringify({
+          policyVersion,
+          transcriptId: transcript.transcriptId,
+          segments: transcript.segments,
+        }),
+      ),
+    );
+    let offset = 0;
+    const segmentOffsets = transcript.segments.map((s) => {
+      const start = offset;
+      offset += Array.from(s.text).length + 2;
+      return start;
+    });
+    return {
+      chars,
+      segmentOffsets,
+      key: Array.from(new Uint8Array(hash), (n) =>
+        n.toString(16).padStart(2, '0'),
+      ).join(''),
+    };
+  })();
+  prepared.set(transcript, work);
+  return work;
+}
+export function validateSourceTranscript(transcript: SourceTranscript) {
+  if (
+    !transcript?.transcriptId ||
+    !Array.isArray(transcript.segments) ||
+    transcript.segments.some(
+      (s) =>
+        typeof s.text !== 'string' ||
+        !Number.isSafeInteger(s.startMs) ||
+        !Number.isSafeInteger(s.endMs) ||
+        s.startMs < 0 ||
+        s.endMs < s.startMs,
+    )
+  )
+    throw new Error('The transcript is not ready for sources.');
+  if (
+    transcript.segments.length > 100000 ||
+    transcript.segments.reduce((n, s) => n + s.text.length + 2, 0) > 2_000_000
+  )
+    throw new SourcesLimitError(
+      'This transcript is too large to check for sources.',
+    );
+}
 
 /** All progress lives in SQL. Each call completes one bounded pass, never a background promise. */
 export async function advanceSources(
@@ -68,36 +152,7 @@ export async function advanceSources(
   transcript: SourceTranscript,
   fetcher: SefariaFetch = fetch,
 ): Promise<SourcesResult> {
-  if (
-    !transcript.transcriptId ||
-    !Array.isArray(transcript.segments) ||
-    transcript.segments.some(
-      (s) =>
-        typeof s.text !== 'string' ||
-        !Number.isSafeInteger(s.startMs) ||
-        !Number.isSafeInteger(s.endMs),
-    )
-  )
-    throw new Error('The transcript is not ready for sources.');
-  const text = transcript.segments.map((s) => s.text).join('\n\n');
-  if (text.length > 2_000_000 || transcript.segments.length > 100000)
-    throw new SourcesLimitError(
-      'This transcript is too large to check for sources.',
-    );
-  const chars = Array.from(text); // Sefaria uses Python Unicode character offsets, not UTF-16.
-  const hash = await crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(
-      JSON.stringify({
-        policyVersion,
-        transcriptId: transcript.transcriptId,
-        segments: transcript.segments,
-      }),
-    ),
-  );
-  const key = Array.from(new Uint8Array(hash), (n) =>
-    n.toString(16).padStart(2, '0'),
-  ).join('');
+  const { key, chars, segmentOffsets } = await prepare(transcript);
   const now = Date.now();
   const initial: State = {
     cursor: 0,
@@ -105,22 +160,36 @@ export async function advanceSources(
     task: null,
     candidates: [],
     proposals: [],
+    proposedOmissions: [],
     metadata: {},
     sources: [],
     omitted: 0,
+    omissionCounts: {},
+    omissions: [],
+    omissionKeys: [],
     limited: false,
-    done: !text.trim(),
+    done: transcript.segments.every((s) => !s.text.trim()),
   };
-  await db
-    .prepare('DELETE FROM sources_runs WHERE expires < ? AND lease < ?')
-    .bind(now, now)
-    .run();
-  await db
+  const existing = await db
     .prepare(
-      'INSERT INTO sources_runs (id,payload,lease,expires) VALUES (?,?,0,?) ON CONFLICT(id) DO NOTHING',
+      'SELECT payload,lease,expires FROM sources_runs WHERE id = ? AND expires > ?',
     )
-    .bind(key, JSON.stringify(initial), now + cacheDuration)
-    .run();
+    .bind(key, now)
+    .first<Row>();
+  if (!existing) {
+    await db
+      .prepare(
+        'DELETE FROM sources_runs WHERE id = ? AND expires < ? AND lease < ?',
+      )
+      .bind(key, now, now)
+      .run();
+    await db
+      .prepare(
+        'INSERT INTO sources_runs (id,payload,lease,expires) VALUES (?,?,0,?) ON CONFLICT(id) DO NOTHING',
+      )
+      .bind(key, JSON.stringify(initial), now + cacheDuration)
+      .run();
+  }
   const read = async () => {
     const row = await db
       .prepare('SELECT payload,lease,expires FROM sources_runs WHERE id = ?')
@@ -140,9 +209,13 @@ export async function advanceSources(
         ),
     sources: state.sources,
     omitted: state.omitted,
+    omissionCounts: state.omissionCounts,
+    omissions: state.omissions,
     limited: state.limited,
   });
-  const cached = await read();
+  const cached = existing
+    ? (JSON.parse(existing.payload) as State)
+    : await read();
   if (cached.done) return reply(cached);
   const lease = now + 60000;
   const claimed = await db
@@ -168,21 +241,26 @@ export async function advanceSources(
         meta: checkedRefs.find((item) => item.ref === c.ref)!.meta,
       }));
       for (const { c, meta } of checked) {
+        if (
+          !Object.hasOwn(state.metadata, c.ref) &&
+          Object.keys(state.metadata).length >= 200
+        )
+          delete state.metadata[Object.keys(state.metadata)[0]];
         state.metadata[c.ref] = meta;
         const url = meta && sefariaUrl(meta.url_ref);
-        if (
-          !meta ||
-          !url ||
-          !specificEnough(meta, c.category, c.occurrence.mention)
-        ) {
-          state.omitted++;
+        const reason =
+          !meta || !url
+            ? 'unresolved'
+            : specificityReason(meta, c.category, c.occurrence.mention);
+        if (reason || !meta || !url) {
+          omit(state, { ...c.occurrence, reason: reason || 'unresolved' });
           continue;
         }
         let source = state.sources.find((s) => s.ref === meta.normalized);
         if (!source) {
           if (state.sources.length >= 100) {
             state.limited = true;
-            state.omitted++;
+            omit(state, { ...c.occurrence, reason: 'limit' });
             continue;
           }
           source = {
@@ -194,7 +272,15 @@ export async function advanceSources(
           };
           state.sources.push(source);
         }
-        if (!source.occurrences.some((o) => o.offset === c.occurrence.offset))
+        if (
+          source.occurrences.length >= 50 ||
+          state.sources.reduce((n, s) => n + s.occurrences.length, 0) >= 300
+        ) {
+          state.limited = true;
+          omit(state, { ...c.occurrence, reason: 'limit' });
+        } else if (
+          !source.occurrences.some((o) => o.offset === c.occurrence.offset)
+        )
           source.occurrences.push(c.occurrence);
       }
       state.candidates.splice(0, candidates.length);
@@ -234,11 +320,18 @@ export async function advanceSources(
         body = found.body;
       }
       if (body) {
-        const found = candidatesFrom(body, chars, start, end, transcript);
+        const found = candidatesFrom(
+          body,
+          chars,
+          start,
+          end,
+          transcript,
+          segmentOffsets,
+        );
         for (const candidate of found.candidates)
           candidate.language = languages[state.language];
         state.proposals.push(...found.candidates);
-        state.omitted += found.omitted;
+        state.proposedOmissions.push(...found.omissions);
         state.task = null;
         state.language++;
         if (state.language >= languages.length) {
@@ -257,7 +350,7 @@ export async function advanceSources(
                     Array.from(other.occurrence.mention).length,
             );
             if (conflicted) {
-              state.omitted++;
+              omit(state, { ...candidate.occurrence, reason: 'ambiguous' });
               return false;
             }
             return !proposals
@@ -268,6 +361,21 @@ export async function advanceSources(
                   other.occurrence.offset === candidate.occurrence.offset,
               );
           });
+          // A failed parse in one model is not an omission when the other model verified the same words.
+          for (const omission of state.proposedOmissions) {
+            if (
+              !proposals.some(
+                (candidate) =>
+                  candidate.occurrence.offset <
+                    omission.offset + Array.from(omission.mention).length &&
+                  omission.offset <
+                    candidate.occurrence.offset +
+                      Array.from(candidate.occurrence.mention).length,
+              )
+            )
+              omit(state, omission);
+          }
+          state.proposedOmissions = [];
           state.proposals = [];
           state.language = 0;
           state.cursor = end === chars.length ? end : end - overlap;
@@ -290,41 +398,101 @@ export async function advanceSources(
       .run();
   }
   async function save(state: State) {
-    await db
+    const payload = JSON.stringify(state);
+    if (new TextEncoder().encode(payload).length > 900000)
+      throw new SourcesLimitError(
+        'Too many citations to save. This transcript needs a smaller sources run.',
+      );
+    const saved = await db
       .prepare(
-        'UPDATE sources_runs SET payload = ?, expires = ? WHERE id = ? AND lease = ?',
+        'UPDATE sources_runs SET payload = ?, expires = ? WHERE id = ? AND lease = ? AND lease > ?',
       )
-      .bind(JSON.stringify(state), Date.now() + cacheDuration, key, lease)
+      .bind(payload, Date.now() + cacheDuration, key, lease, Date.now())
       .run();
+    if (!saved.meta.changes)
+      throw new SourcesLeaseError(
+        'Sources processing ownership changed. Retry to continue.',
+      );
   }
 }
 
-function specificEnough(meta: RefMetadata, category: string, mention: string) {
-  if (meta.node_type !== 'JaggedArrayNode') return false;
+function omit(state: State, omission: SourceOmission) {
+  const key = `${omission.offset}:${omission.reason}`;
+  if (state.omissionKeys.includes(key)) return;
+  if (state.omissionKeys.length < 2000) state.omissionKeys.push(key);
+  if (omission.reason === 'limit') state.limited = true;
+  state.omitted++;
+  state.omissionCounts[omission.reason] =
+    (state.omissionCounts[omission.reason] || 0) + 1;
+  if (state.omissions.length < 50)
+    state.omissions.push({
+      reason: omission.reason,
+      offset: omission.offset,
+      mention: omission.mention.slice(0, 160),
+      startMs: omission.startMs,
+    });
+}
+
+function specificityReason(
+  meta: RefMetadata,
+  category: string,
+  mention: string,
+): OmissionReason | null {
+  if (meta.node_type !== 'JaggedArrayNode') return 'unresolved';
   const talmud = meta.address_types[0] === 'Talmud';
-  // A daf+amud is useful. Commentary additionally needs an individual entry;
-  // Tosafot's third dimension can be paragraphs inside the cited comment.
+  const commentary = category === 'Commentary';
+  // A numbered responsum is a complete bibliographic source; extra dimensions may be paragraphs.
   const required = talmud
-    ? category === 'Commentary'
+    ? commentary
       ? Math.max(2, meta.depth - 1)
       : 1
-    : meta.depth;
+    : category === 'Responsa' && meta.address_types[0] === 'Siman'
+      ? 1
+      : meta.depth;
   if (
     required < 1 ||
     meta.start_indexes.length < required ||
     meta.end_indexes.length < required
   )
-    return false;
-  if (
-    talmud &&
-    (!/(?:\d+\s*[ab]\b|(?:עמוד\s*|ע[״"'׳’]?\s*)[אב]|amud\s+(?:[ab]\b|aleph|alef|beis|bet|bais))/iu.test(
-      mention,
-    ) ||
+    return commentary ? 'missing_comment' : 'missing_location';
+  if (talmud) {
+    const markers = [
+      ...mention.matchAll(
+        /(?:\d+\s*([ab])\b|(?:עמוד\s*|ע[״"'׳’]?\s*)([אב])|amud\s+(a\b|b\b|aleph|alef|beis|bet|bais)|דף\s+[0-9א-ת״"'׳]+\s*([:.]))/giu,
+      ),
+    ];
+    if (
+      !markers.length ||
       !/^\d+[ab]$/.test(meta.start_labels[0]) ||
-      !/^\d+[ab]$/.test(meta.end_labels[0]))
-  )
-    return false;
-  return true;
+      !/^\d+[ab]$/.test(meta.end_labels[0])
+    )
+      return 'missing_amud';
+    const sides = markers.map((m) => {
+      const side = (
+        m[1] ||
+        m[2] ||
+        m[3] ||
+        (m[4] === '.' ? 'a' : 'b')
+      ).toLowerCase();
+      return ['a', 'א', 'aleph', 'alef'].includes(side) ? 'a' : 'b';
+    });
+    const ranged = meta.start_labels[0] !== meta.end_labels[0];
+    if (ranged && markers.length < 2) return 'incomplete_range';
+    if (
+      sides[0] !== meta.start_labels[0].slice(-1) ||
+      sides.at(-1) !== meta.end_labels[0].slice(-1)
+    )
+      return ranged ? 'incomplete_range' : 'invalid_match';
+    // Numeric shorthand must also name the same daf as the canonical endpoint.
+    const numeric = [...mention.matchAll(/(\d+)\s*([ab])\b/giu)].map(
+      (m) => m[1] + m[2].toLowerCase(),
+    );
+    if (numeric.length && numeric[0] !== meta.start_labels[0])
+      return 'invalid_match';
+    if (ranged && numeric.length && numeric.at(-1) !== meta.end_labels[0])
+      return 'incomplete_range';
+  }
+  return null;
 }
 
 function candidatesFrom(
@@ -333,74 +501,132 @@ function candidatesFrom(
   start: number,
   end: number,
   transcript: SourceTranscript,
+  segmentOffsets: number[],
 ) {
   const candidates: Candidate[] = [];
-  let omitted = 0;
-  const segmentOffsets: number[] = [];
-  let offset = 0;
-  for (const s of transcript.segments) {
-    segmentOffsets.push(offset);
-    offset += Array.from(s.text).length + 2;
-  }
+  const omissions: SourceOmission[] = [];
+  const segmentAt = (offset: number) => {
+    let left = 0,
+      right = segmentOffsets.length;
+    while (left < right) {
+      const middle = (left + right) >>> 1;
+      if (segmentOffsets[middle] <= offset) left = middle + 1;
+      else right = middle;
+    }
+    return Math.max(0, left - 1);
+  };
   for (const [index, result] of body.results.entries()) {
     const debug = body.debugData[index];
+    const validSpan =
+      result &&
+      Number.isSafeInteger(result.startChar) &&
+      Number.isSafeInteger(result.endChar) &&
+      result.startChar >= 0 &&
+      result.endChar > result.startChar &&
+      result.endChar <= end - start &&
+      result.endChar - result.startChar <= 500;
+    const from = validSpan ? start + result.startChar : start;
+    const to = validSpan ? start + result.endChar : start;
+    const mention = validSpan ? chars.slice(from, to).join('') : '';
+    const reject = (reason: OmissionReason) =>
+      omissions.push({
+        reason,
+        mention,
+        offset: from,
+        startMs: transcript.segments[segmentAt(from)]?.startMs || 0,
+      });
+    if (!validSpan || mention !== result.text) {
+      reject('invalid_match');
+      continue;
+    }
     if (
-      !result ||
       result.linkFailed !== false ||
       !Array.isArray(result.refs) ||
-      result.refs.length !== 1 ||
+      !result.refs.length
+    ) {
+      reject('unresolved');
+      continue;
+    }
+    if (result.refs.length !== 1) {
+      reject('ambiguous');
+      continue;
+    }
+    if (
       !Array.isArray(debug) ||
       !debug.length ||
       debug.some(
         (d) =>
           !d ||
-          d.context_ref !== null ||
-          d.context_type !== null ||
           !Array.isArray(d.resolved_part_classes) ||
-          d.resolved_part_classes.some((c) => c !== 'RawRefPart') ||
-          !Array.isArray(d.orig_part_types) ||
-          d.orig_part_types.includes('IBID'),
-      ) ||
-      !Number.isSafeInteger(result.startChar) ||
-      !Number.isSafeInteger(result.endChar) ||
-      result.startChar < 0 ||
-      result.endChar <= result.startChar ||
-      result.endChar > end - start ||
-      result.endChar - result.startChar > 500
+          !d.resolved_part_classes.length ||
+          !Array.isArray(d.orig_part_types),
+      )
     ) {
-      omitted++;
+      reject('invalid_match');
       continue;
     }
-    const from = start + result.startChar;
-    const to = start + result.endChar;
-    const mention = chars.slice(from, to).join('');
+    if (
+      debug.some(
+        (d) =>
+          d.context_ref !== null ||
+          d.context_type !== null ||
+          d.resolved_part_classes.some((c) => c !== 'RawRefPart') ||
+          d.orig_part_types.includes('IBID'),
+      )
+    ) {
+      reject('inferred');
+      continue;
+    }
+    if (
+      debug.some(
+        (d) =>
+          !d.orig_part_types.includes('NAMED') ||
+          !d.orig_part_types.includes('NUMBERED'),
+      )
+    ) {
+      reject('invalid_match');
+      continue;
+    }
     const ref = result.refs[0];
     const data = body.refData[ref];
     if (
       typeof ref !== 'string' ||
       !data ||
-      typeof data.primaryCategory !== 'string' ||
-      mention !== result.text
+      typeof data.primaryCategory !== 'string'
     ) {
-      omitted++;
+      reject('invalid_match');
       continue;
     }
-    // Don't turn a partially recognized "Tosfos on Shabbat 2b" into a Gemara link.
-    const prefix = chars.slice(Math.max(start, from - 60), from).join('');
+    const prefix = chars.slice(Math.max(start, from - 100), from).join('');
+    // Only inspect the immediately preceding phrase, not an earlier sentence's commentator.
+    const phrase = prefix.split(/[.!?;\n]/u).at(-1)!;
     if (
       data.primaryCategory !== 'Commentary' &&
-      /(?:\b(?:tos(?:afot|afos|fos|fot)|rashi|ramban)|תוספות|תוס׳|רש[״"]י)\s+(?:on\s+|על\s+)?$/iu.test(
-        prefix,
+      /(?:\b(?:tos(?:afot|afos|fos|fot)|rashi|ramban|rashba|ritva|ran|rosh|maharsha)|תוספות|תוס[׳״']|רש[״"׳']י|רמב[״"׳']ן|רשב[״"׳']א|ריטב[״"׳']א)(?:[’']s)?(?:\s+(?:comment(?:ary)?|comments|explanation|says|writes|on|in|the|gemara|of)|\s+(?:על|אומר|אומרים|בגמרא|במסכת))*[\s,:—-]*$/iu.test(
+        phrase,
       )
     ) {
-      omitted++;
+      reject('partial_commentary');
+      continue;
+    }
+    if (candidates.length >= 128) {
+      reject('limit');
       continue;
     }
     const spans: SourceOccurrence['spans'] = [];
     let startMs = 0,
       endMs = 0;
-    for (const [segmentIndex, segment] of transcript.segments.entries()) {
-      const points = Array.from(segment.text);
+    for (
+      let segmentIndex = segmentAt(from);
+      segmentIndex < transcript.segments.length &&
+      segmentOffsets[segmentIndex] < to;
+      segmentIndex++
+    ) {
+      const segment = transcript.segments[segmentIndex];
+      const points = chars.slice(
+        segmentOffsets[segmentIndex],
+        segmentOffsets[segmentIndex] + Array.from(segment.text).length,
+      );
       const base = segmentOffsets[segmentIndex];
       const left = Math.max(from, base),
         right = Math.min(to, base + points.length);
@@ -414,7 +640,7 @@ function candidatesFrom(
       });
     }
     if (!spans.length) {
-      omitted++;
+      reject('invalid_match');
       continue;
     }
     candidates.push({
@@ -423,5 +649,5 @@ function candidatesFrom(
       occurrence: { offset: from, startMs, endMs, mention, spans },
     });
   }
-  return { candidates, omitted };
+  return { candidates, omissions };
 }

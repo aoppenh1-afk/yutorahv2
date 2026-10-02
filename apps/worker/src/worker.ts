@@ -44,6 +44,7 @@ import {
   resolveMedia,
 } from '../../../packages/yutorah-core/src/media.js';
 import { pollSelections } from './selections.js';
+import { preparePublishedSources } from './source-preparation.js';
 import {
   NotesStore,
   type NotesJob,
@@ -451,6 +452,10 @@ export async function runWorker(
           await runLeasedJob(store, job, combined, (s) =>
             processJob(store, job, config, pool, s, log, config.media),
           );
+          // Publication is complete and its heartbeat has stopped before warming website caches.
+          await preparePublishedSources(job.shiur_id, combined, {
+            report: (event) => log({ ...event, job: job.id }),
+          });
         } catch (error) {
           const e = failure(error);
           log({ event: 'job_failed', job: job.id, code: e.code });

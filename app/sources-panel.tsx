@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Download,
   ExternalLink,
@@ -8,9 +8,30 @@ import {
   Printer,
 } from 'lucide-react';
 import { timeLabel } from '@/lib/library';
-import type { SourcesResult, TranscriptSource } from '@/lib/sources';
+import type {
+  SourcesResult,
+  TranscriptSource,
+  OmissionReason,
+} from '@/lib/sources';
 import type { SourceText } from '@/lib/sefaria';
-import { renderSourceSheet } from '@/lib/source-sheet';
+import {
+  renderSourceSheet,
+  sourceEditions,
+  type SheetLanguage,
+} from '@/lib/source-sheet';
+import { sourceRequest, sourceRetryDelay } from '@/lib/source-request';
+const omissionLabels: Record<OmissionReason, string> = {
+  unresolved: 'Not resolved by Sefaria',
+  ambiguous: 'Ambiguous reference',
+  inferred: 'Requires an inferred location',
+  missing_location: 'Missing a complete location',
+  missing_amud: 'Missing an explicit amud',
+  missing_comment: 'Missing an individual comment',
+  incomplete_range: 'Incomplete range endpoints',
+  partial_commentary: 'Only part of a commentary citation was recognized',
+  invalid_match: 'Citation could not be verified',
+  limit: 'Sources limit reached',
+};
 
 export function useTranscriptSources(
   shiurId: number,
@@ -20,18 +41,26 @@ export function useTranscriptSources(
   const [result, setResult] = useState<SourcesResult | null>(null);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
+  const [recovering, setRecovering] = useState(false);
   useEffect(() => {
     setResult(null);
     setError('');
+    setRecovering(false);
     if (!enabled || !transcriptId) return;
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let polls = 0;
     const read = async () => {
       try {
-        const response = await fetch(`/api/sources?id=${shiurId}`, {
-          signal: abort.signal,
-        });
+        const response = await sourceRequest(
+          `/api/sources?id=${shiurId}&revision=${encodeURIComponent(transcriptId)}`,
+          abort.signal,
+          {
+            onRetry: () => {
+              if (!abort.signal.aborted) setRecovering(true);
+            },
+          },
+        );
         const data = (await response.json()) as SourcesResult & {
           error?: string;
         };
@@ -43,12 +72,16 @@ export function useTranscriptSources(
           );
         if (abort.signal.aborted) return;
         setResult(data);
+        setRecovering(false);
         if (data.status === 'pending') {
           if (++polls >= 300)
             throw new Error(
               'Sources are still being checked. Retry to continue.',
             );
-          timer = setTimeout(() => void read(), 2000);
+          timer = setTimeout(
+            () => void read(),
+            sourceRetryDelay(response.headers.get('Retry-After')),
+          );
         }
       } catch (error) {
         if (!abort.signal.aborted)
@@ -65,7 +98,7 @@ export function useTranscriptSources(
       clearTimeout(timer);
     };
   }, [shiurId, transcriptId, enabled, retry]);
-  return { result, error, retry: () => setRetry((n) => n + 1) };
+  return { result, error, recovering, retry: () => setRetry((n) => n + 1) };
 }
 
 export function SourcesPanel({
@@ -76,6 +109,7 @@ export function SourcesPanel({
   error,
   onRetry,
   onSeek,
+  recovering = false,
 }: {
   shiurId: number;
   title: string;
@@ -84,6 +118,7 @@ export function SourcesPanel({
   error: string;
   onRetry: () => void;
   onSeek: (seconds: number) => void;
+  recovering?: boolean;
 }) {
   const [sheet, setSheet] = useState(false);
   return (
@@ -91,7 +126,8 @@ export function SourcesPanel({
       <p className="study-note-label">
         Explicit transcript citations linked through Sefaria. Incomplete,
         ambiguous, and context-filled references are omitted. Timestamps mark
-        the start of the transcript segment.
+        the start of the transcript segment. Quoted passages without a complete
+        citation are not identified.
       </p>
       {error ? (
         <output className="study-state">
@@ -107,6 +143,11 @@ export function SourcesPanel({
             Sefaria…{result ? ` ${result.progress}%` : ''}
           </output>
         )
+      )}
+      {recovering && !error && (
+        <output className="study-state">
+          Connection interrupted. Retrying automatically…
+        </output>
       )}
       {result?.sources.length ? (
         <>
@@ -164,14 +205,40 @@ export function SourcesPanel({
       )}
       {result?.limited && (
         <p className="study-state">
-          Showing the first 100 sources. This list is incomplete.
+          Some sources or repeated timestamps were omitted because this
+          transcript reached processing limits.
         </p>
       )}
       {!!result?.omitted && (
-        <p className="study-note-label">
-          Some detected references were omitted because they could not be linked
-          safely.
-        </p>
+        <details className="source-omissions">
+          <summary>Why references were omitted ({result.omitted})</summary>
+          <ul>
+            {Object.entries(result.omissionCounts).map(([reason, count]) => (
+              <li key={reason}>
+                {omissionLabels[reason as OmissionReason]}: {count}
+              </li>
+            ))}
+          </ul>
+          <p className="study-note-label">
+            Examples from the transcript. These are excluded from sources and
+            source sheets.
+          </p>
+          <ol>
+            {result.omissions.map((omission, i) => (
+              <li key={`${omission.offset}-${omission.reason}-${i}`}>
+                <span>{omissionLabels[omission.reason]}</span>
+                {omission.mention && <q dir="auto">{omission.mention}</q>}
+                <button
+                  className="study-time"
+                  type="button"
+                  onClick={() => onSeek(omission.startMs / 1000)}
+                >
+                  {timeLabel(omission.startMs / 1000)}
+                </button>
+              </li>
+            ))}
+          </ol>
+        </details>
       )}
       {sheet && result?.status === 'ready' && (
         <SourceSheetPreview
@@ -180,6 +247,8 @@ export function SourcesPanel({
           teacher={teacher}
           sources={result.sources}
           limited={result.limited}
+          transcriptId={result.transcriptId}
+          onSeek={onSeek}
         />
       )}
       <p className="sefaria-credit">
@@ -193,41 +262,68 @@ export function SourcesPanel({
 
 function SourceSheetPreview({
   shiurId,
+  transcriptId,
   title,
   teacher,
   sources,
   limited,
+  onSeek,
 }: {
   shiurId: number;
+  transcriptId: string;
   title: string;
   teacher: string;
   sources: TranscriptSource[];
   limited: boolean;
+  onSeek: (seconds: number) => void;
 }) {
-  const [texts, setTexts] = useState<Record<string, SourceText>>({});
+  const [cache, setCache] = useState<Record<string, SourceText>>({});
+  const cacheRef = useRef(cache);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
-  const refs = sources.map((s) => s.ref).join('\0');
+  const [language, setLanguage] = useState<SheetLanguage>('both');
+  const [extent, setExtent] = useState<'excerpt' | 'full'>('excerpt');
+  const [order, setOrder] = useState('time');
+  const [selected, setSelected] = useState(
+    () => new Set(sources.map((s) => s.ref)),
+  );
+  const chosen = sources.filter((s) => selected.has(s.ref));
+  if (order === 'category')
+    chosen.sort(
+      (a, b) =>
+        a.category.localeCompare(b.category) || a.ref.localeCompare(b.ref),
+    );
+  const refs = chosen.map((s) => s.ref).join('\0');
+  const texts = Object.fromEntries(
+    chosen
+      .map((s) => [s.ref, cache[`${extent}:${s.ref}`]])
+      .filter(([, text]) => text),
+  ) as Record<string, SourceText>;
   useEffect(() => {
     const abort = new AbortController();
     setLoading(true);
     setFailed(false);
-    setTexts({});
-    const remaining = refs.split('\0');
+    const remaining = refs
+      ? refs.split('\0').filter((ref) => !cacheRef.current[`${extent}:${ref}`])
+      : [];
     const read = async () => {
       while (remaining.length && !abort.signal.aborted) {
         const ref = remaining.shift()!;
         try {
-          const response = await fetch(
-            `/api/source-text?id=${shiurId}&ref=${encodeURIComponent(ref)}`,
-            { signal: abort.signal },
+          const response = await sourceRequest(
+            `/api/source-text?id=${shiurId}&revision=${encodeURIComponent(transcriptId)}&extent=${extent}&ref=${encodeURIComponent(ref)}`,
+            abort.signal,
           );
-          if (!response.ok) throw new Error('Text unavailable');
           const text = (await response.json()) as SourceText;
           if (text.ref !== ref) throw new Error('Different source');
-          if (!abort.signal.aborted)
-            setTexts((old) => ({ ...old, [ref]: text }));
+          if (!abort.signal.aborted) {
+            cacheRef.current = {
+              ...cacheRef.current,
+              [`${extent}:${ref}`]: text,
+            };
+            setCache(cacheRef.current);
+          }
         } catch {
           if (!abort.signal.aborted) setFailed(true);
         }
@@ -237,16 +333,18 @@ function SourceSheetPreview({
       if (!abort.signal.aborted) setLoading(false);
     });
     return () => abort.abort();
-  }, [shiurId, refs, retry]);
+  }, [shiurId, transcriptId, refs, extent, retry]);
   const documentHtml = () =>
     renderSourceSheet({
       shiurId,
       title,
       teacher,
       origin: window.location.origin,
-      sources,
+      sources: chosen,
       texts,
       limited,
+      language,
+      extent,
     });
   const download = () => {
     const url = URL.createObjectURL(
@@ -262,17 +360,30 @@ function SourceSheetPreview({
     const frame = document.createElement('iframe');
     frame.title = 'Print source sheet';
     frame.className = 'source-print-frame';
+    const cleanup = () => frame.remove();
+    const timeout = setTimeout(cleanup, 120000);
     frame.onload = () => {
       const target = frame.contentWindow;
       if (!target) {
-        frame.remove();
+        clearTimeout(timeout);
+        cleanup();
         return;
       }
-      target.addEventListener('afterprint', () => frame.remove(), {
-        once: true,
-      });
-      target.focus();
-      target.print();
+      target.addEventListener(
+        'afterprint',
+        () => {
+          clearTimeout(timeout);
+          cleanup();
+        },
+        { once: true },
+      );
+      try {
+        target.focus();
+        target.print();
+      } catch {
+        clearTimeout(timeout);
+        cleanup();
+      }
     };
     frame.srcdoc = documentHtml();
     document.body.append(frame);
@@ -280,16 +391,94 @@ function SourceSheetPreview({
   return (
     <section className="source-sheet-preview" aria-label="Source sheet preview">
       <div className="source-sheet-tools">
-        <span>Source sheet preview</span>
-        <button type="button" disabled={loading} onClick={download}>
+        <span>Source sheet preview · {chosen.length} selected</span>
+        <button
+          type="button"
+          disabled={loading || !chosen.length}
+          onClick={download}
+        >
           <Download size={14} />
           Download sheet
         </button>
-        <button type="button" disabled={loading} onClick={print}>
+        <button
+          type="button"
+          disabled={loading || !chosen.length}
+          onClick={print}
+        >
           <Printer size={14} />
           Print / Save PDF
         </button>
       </div>
+      <fieldset className="source-sheet-options">
+        <legend>Customize sheet</legend>
+        <label>
+          Language
+          <select
+            aria-label="Language"
+            value={language}
+            onChange={(e) => setLanguage(e.target.value as SheetLanguage)}
+          >
+            <option value="both">Hebrew / original and English</option>
+            <option value="he">Hebrew / original</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+        <label>
+          Source text
+          <select
+            aria-label="Source text"
+            value={extent}
+            onChange={(e) => setExtent(e.target.value as 'excerpt' | 'full')}
+          >
+            <option value="excerpt">Short excerpts</option>
+            <option value="full">Complete cited text</option>
+          </select>
+        </label>
+        <label>
+          Order
+          <select
+            aria-label="Order"
+            value={order}
+            onChange={(e) => setOrder(e.target.value)}
+          >
+            <option value="time">First mention</option>
+            <option value="category">Category</option>
+          </select>
+        </label>
+        <details>
+          <summary>
+            Choose sources ({chosen.length} of {sources.length})
+          </summary>
+          <div className="source-selection-actions">
+            <button
+              type="button"
+              onClick={() => setSelected(new Set(sources.map((s) => s.ref)))}
+            >
+              Select all
+            </button>
+            <button type="button" onClick={() => setSelected(new Set())}>
+              Clear selection
+            </button>
+          </div>
+          {sources.map((source) => (
+            <label key={source.ref} className="source-selection">
+              <input
+                type="checkbox"
+                checked={selected.has(source.ref)}
+                onChange={(e) =>
+                  setSelected((old) => {
+                    const next = new Set(old);
+                    if (e.target.checked) next.add(source.ref);
+                    else next.delete(source.ref);
+                    return next;
+                  })
+                }
+              />
+              {source.ref}
+            </label>
+          ))}
+        </details>
+      </fieldset>
       <header>
         <p className="source-sheet-eyebrow">YUTorah Study · Cited sources</p>
         <h4>{title}</h4>
@@ -302,7 +491,7 @@ function SourceSheetPreview({
       {loading && (
         <output className="feed-loading">
           <Loader2 size={14} className="spin" />
-          Loading source text from Sefaria…
+          Loading selected source text from Sefaria…
         </output>
       )}
       {failed && (
@@ -310,11 +499,16 @@ function SourceSheetPreview({
           Some source text is unavailable. Its citation links remain in the
           sheet.{' '}
           <button type="button" onClick={() => setRetry((n) => n + 1)}>
-            Retry source text
+            Retry missing source text
           </button>
         </output>
       )}
-      {sources.map((source, index) => (
+      {!chosen.length && (
+        <p className="study-state">
+          Choose at least one source to download or print.
+        </p>
+      )}
+      {chosen.map((source, index) => (
         <article key={source.ref}>
           <p className="source-sheet-eyebrow">
             {index + 1} ·{' '}
@@ -329,15 +523,22 @@ function SourceSheetPreview({
           <p className="source-he-ref" dir="rtl">
             {source.heRef}
           </p>
-          <p className="study-note-label">
+          <div className="source-times">
             Mentioned at{' '}
-            {Array.from(
-              new Set(
-                source.occurrences.map((o) => timeLabel(o.startMs / 1000)),
+            {Array.from(new Set(source.occurrences.map((o) => o.startMs))).map(
+              (ms) => (
+                <button
+                  key={ms}
+                  type="button"
+                  className="study-time"
+                  onClick={() => onSeek(ms / 1000)}
+                >
+                  {timeLabel(ms / 1000)}
+                </button>
               ),
-            ).join(', ')}
-          </p>
-          {texts[source.ref]?.editions.map((edition, i) => (
+            )}
+          </div>
+          {sourceEditions(texts[source.ref], language).map((edition, i) => (
             <div key={edition.title + i}>
               <div className="source-edition-text" dir={edition.direction}>
                 {edition.text.map((line, j) => (
@@ -346,7 +547,10 @@ function SourceSheetPreview({
               </div>
               {edition.truncated && (
                 <p className="study-note-label">
-                  Excerpt; open Sefaria for the complete cited text.
+                  {extent === 'excerpt'
+                    ? 'Excerpt'
+                    : 'Long text shortened for this sheet'}
+                  ; open Sefaria for the complete cited text.
                 </p>
               )}
               <p className="source-attribution">
@@ -371,9 +575,10 @@ function SourceSheetPreview({
               </p>
             </div>
           ))}
-          {!loading && !texts[source.ref]?.editions.length && (
+          {!loading && !sourceEditions(texts[source.ref], language).length && (
             <p className="study-state">
-              Source text is unavailable. Read this source on Sefaria.
+              Text in the selected language is unavailable. Read this source on
+              Sefaria.
             </p>
           )}
         </article>

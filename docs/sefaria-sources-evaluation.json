@@ -1,0 +1,376 @@
+{
+  "scope": "30 citation-bearing excerpts from 30 published transcripts; selected by citation keywords, not a random sample. All sampled shiurim are Rabbi Aryeh Lebowitz. Expected references were annotated before replaying Linker output.",
+  "reviewedBy": "Codex agent; independent human review pending",
+  "recordedAt": "2026-10-02T21:01:18.100Z",
+  "sampleCount": 30,
+  "expected": 18,
+  "accepted": 10,
+  "incorrect": 0,
+  "missed": 8,
+  "precision": 1,
+  "recall": 0.5555555555555556,
+  "unavailableCitations": 4,
+  "failedSamples": 1,
+  "cases": [
+    {
+      "shiurId": "1005067",
+      "expected": [
+        "Eruvin 40a"
+      ],
+      "accepted": [
+        "Eruvin 40a"
+      ],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {}
+    },
+    {
+      "shiurId": "1055211",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 4
+      }
+    },
+    {
+      "shiurId": "1096193",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 1
+      }
+    },
+    {
+      "shiurId": "1102552",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 3
+      }
+    },
+    {
+      "shiurId": "1110548",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 1
+      }
+    },
+    {
+      "shiurId": "1119184",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {}
+    },
+    {
+      "shiurId": "1132407",
+      "expected": [
+        "Yevamot 33a"
+      ],
+      "accepted": [
+        "Yevamot 33a"
+      ],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {}
+    },
+    {
+      "shiurId": "1136111",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 7
+      }
+    },
+    {
+      "shiurId": "1140331",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 2,
+        "inferred": 1
+      }
+    },
+    {
+      "shiurId": "1140474",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 3
+      }
+    },
+    {
+      "shiurId": "1151241",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 2
+      }
+    },
+    {
+      "shiurId": "1168944",
+      "expected": [
+        "Teshuvot haRashba part I 24",
+        "Teshuvot HaRivash 10"
+      ],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [
+        "Teshuvot haRashba part I 24",
+        "Teshuvot HaRivash 10"
+      ],
+      "error": "Sefaria is temporarily unavailable."
+    },
+    {
+      "shiurId": "1172454",
+      "expected": [
+        "Mishneh Torah, Circumcision 1:2"
+      ],
+      "accepted": [
+        "Mishneh Torah, Circumcision 1:2"
+      ],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {}
+    },
+    {
+      "shiurId": "1173273",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 3,
+        "partial_commentary": 1
+      }
+    },
+    {
+      "shiurId": "1180522",
+      "expected": [
+        "Avodah Zarah 31b"
+      ],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [
+        "Avodah Zarah 31b"
+      ],
+      "omissionCounts": {
+        "unresolved": 2,
+        "inferred": 1,
+        "missing_location": 1
+      }
+    },
+    {
+      "shiurId": "1180975",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 1,
+        "missing_amud": 2,
+        "missing_location": 1
+      }
+    },
+    {
+      "shiurId": "1181153",
+      "expected": [
+        "Turei Zahav on Shulchan Arukh, Orach Chayim 634:2"
+      ],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [
+        "Turei Zahav on Shulchan Arukh, Orach Chayim 634:2"
+      ],
+      "omissionCounts": {
+        "unresolved": 3
+      }
+    },
+    {
+      "shiurId": "1181377",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 4,
+        "inferred": 1
+      }
+    },
+    {
+      "shiurId": "1189252",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {}
+    },
+    {
+      "shiurId": "873935",
+      "expected": [
+        "Mishneh Torah, Fringes 1:6"
+      ],
+      "accepted": [
+        "Mishneh Torah, Fringes 1:6"
+      ],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 2
+      }
+    },
+    {
+      "shiurId": "876238",
+      "expected": [
+        "Responsa Chatam Sofer, Orach Chayim 115"
+      ],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [
+        "Responsa Chatam Sofer, Orach Chayim 115"
+      ],
+      "omissionCounts": {
+        "unresolved": 6,
+        "missing_location": 1
+      }
+    },
+    {
+      "shiurId": "909946",
+      "expected": [
+        "Keritot 21b"
+      ],
+      "accepted": [
+        "Keritot 21b"
+      ],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {}
+    },
+    {
+      "shiurId": "929649",
+      "expected": [],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 1
+      }
+    },
+    {
+      "shiurId": "936169",
+      "expected": [
+        "Shabbat 119b"
+      ],
+      "accepted": [
+        "Shabbat 119b"
+      ],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {}
+    },
+    {
+      "shiurId": "938071",
+      "expected": [
+        "Berakhot 39b",
+        "Shabbat 117b"
+      ],
+      "accepted": [
+        "Berakhot 39b",
+        "Shabbat 117b"
+      ],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 4
+      }
+    },
+    {
+      "shiurId": "938870",
+      "expected": [
+        "Shulchan Arukh, Even HaEzer 62:12"
+      ],
+      "accepted": [
+        "Shulchan Arukh, Even HaEzer 62:12"
+      ],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 8
+      }
+    },
+    {
+      "shiurId": "945677",
+      "expected": [
+        "Berakhot 40a"
+      ],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [
+        "Berakhot 40a"
+      ],
+      "omissionCounts": {
+        "inferred": 1
+      }
+    },
+    {
+      "shiurId": "954761",
+      "expected": [
+        "Ketubot 64b"
+      ],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [
+        "Ketubot 64b"
+      ],
+      "omissionCounts": {
+        "unresolved": 10
+      }
+    },
+    {
+      "shiurId": "966038",
+      "expected": [
+        "Mishneh Torah, Blessings 5:8"
+      ],
+      "accepted": [
+        "Mishneh Torah, Blessings 5:8"
+      ],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 3
+      }
+    },
+    {
+      "shiurId": "968391",
+      "expected": [
+        "Mishneh Torah, Marriage 10:12"
+      ],
+      "accepted": [],
+      "incorrect": [],
+      "missed": [
+        "Mishneh Torah, Marriage 10:12"
+      ],
+      "omissionCounts": {
+        "unresolved": 5
+      }
+    }
+  ]
+}
