@@ -16,7 +16,8 @@ not reliably prevent the problem. This evidence supports interrupted upstream
 reads; it does not establish the underlying network or server cause.
 
 The search reader now allows three attempts within the original 18-second
-budget. Each attempt gets at most six seconds, including response-body reads.
+budget. The first two attempts get at most three and five seconds; the last
+attempt uses the remaining budget, including response-body reads.
 Retries repeat the exact GET URL after a timeout or recognized connection
 interruption. HTTP errors, invalid JSON, and other failures still propagate.
 Directory and detail reads retain their existing behavior.
@@ -51,8 +52,13 @@ remain consistent.
 The regression test interrupts page four of a seven-page scan and verifies all
 181 candidates, filtered results, and the saved cursor. Reader tests cover
 interrupted bodies, exhaustion, shared requests, the total deadline, and
-permanent failures. Two direct live passes with the revised reader each returned
-97 distinct candidates across four pages in about 6.4 seconds. Additional
+permanent failures. Two direct live passes with the original retry reader each
+returned 97 distinct candidates across four pages in about 6.4 seconds. In two
+alternating four-page probes, the six-second waits took 13 and 17 seconds, while
+three/five-second waits with the remainder reserved for the final read took
+3.6 and 3.7 seconds. All probes returned the same totals and complete pages;
+these samples do not guarantee future latency. A regression verifies a
+seven-second final response can finish within the total deadline. Additional
 regressions exhaust a page's retries in strict and fallback scans, verify the
 saved prefix and unchanged filters, and ensure repeated stalls stop after three
 passes and can later recover.

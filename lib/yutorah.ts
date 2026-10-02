@@ -263,9 +263,11 @@ async function readUpstream(path: string): Promise<unknown> {
       throw new SearchReadError(
         new DOMException('The search timed out.', 'TimeoutError'),
       );
-    const signal = AbortSignal.timeout(
-      Math.min(attempts > 1 ? 6000 : 18000, remaining),
-    );
+    // Recover quickly from stalled connections while leaving the final read
+    // enough time for a slow but healthy response.
+    const attemptBudget =
+      attempts === 1 || attempt >= 2 ? remaining : attempt === 0 ? 3000 : 5000;
+    const signal = AbortSignal.timeout(Math.min(attemptBudget, remaining));
     try {
       const response = await fetch(`${ORIGIN}/api/${path}`, {
         headers: { Accept: 'application/json' },
