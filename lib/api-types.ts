@@ -51,9 +51,10 @@ export type RawShiur = {
     teacherID: number;
     teacherPhotoURL: string;
   }[];
-  teacherfullname?: string;
-  teacherid?: number;
+  teacherfullname?: string | string[];
+  teacherid?: number | number[];
   PHOTO?: string;
+  photo?: string | string[];
   shiurSubcategoriesObj?: RawTopic[];
   shiurSubcategories?: number[];
   subcategoryname?: string[];
@@ -63,6 +64,8 @@ export type RawShiur = {
   duration?: number;
   shiurDate?: string;
   shiurdate?: string;
+  shiurDateSubmitted?: string | null;
+  shiurdatesubmitted?: string;
   shiurSeriesName?: string | null;
   seriesname?: string[];
   shiurSeries?: number | null;

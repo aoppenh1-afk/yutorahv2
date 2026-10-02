@@ -188,7 +188,7 @@ export async function completeSearch(
     await db.batch([
       db
         .prepare(
-          'DELETE FROM search_runs WHERE id IN (SELECT id FROM search_runs WHERE created < ? AND ((next - 1) * 30 >= total OR created < ?) LIMIT 5)',
+          "DELETE FROM search_runs WHERE id IN (SELECT id FROM search_runs WHERE fingerprint NOT LIKE 'trending:v1:%' AND created < ? AND ((next - 1) * 30 >= total OR created < ?) LIMIT 5)",
         )
         .bind(cutoff, activeCutoff),
       db
