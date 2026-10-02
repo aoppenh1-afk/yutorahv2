@@ -1,7 +1,7 @@
 /* oxlint-disable next/no-img-element -- CDN-hosted YUTorah portraits are rendered at reserved dimensions. */
 /* oxlint-disable jsx-a11y/media-has-caption -- No caption tracks are supplied by the upstream audio library. */
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Bookmark,
   ExternalLink,
@@ -20,7 +20,26 @@ import {
   ChevronUp,
   NotebookPen,
   Video,
+  MoreHorizontal,
+  ChevronDown,
+  Check,
+  Plus,
+  BookOpen,
 } from 'lucide-react';
+import { useIsMobile } from '@/hooks/use-mobile';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -48,14 +67,44 @@ export function Avatar({
   name: string;
   className?: string;
 }) {
-  const [bad, setBad] = useState(false);
-  return src && !bad && !/_default\.|missingpicture/i.test(src) ? (
+  return <Portrait key={src} src={src} name={name} className={className} />;
+}
+function Portrait({
+  src,
+  name,
+  className,
+}: {
+  src: string;
+  name: string;
+  className: string;
+}) {
+  const [failures, setFailures] = useState(0);
+  const image = useRef<HTMLImageElement>(null);
+  // YUTorah publishes the original 240×280 portraits with its `_lp` suffix.
+  // Older API responses expose the 50px thumbnails. Fall back if the original is absent.
+  const original =
+    /^https:\/\/cdnyutorah\.cachefly\.net\/_images\/roshei_yeshiva\/[^?#]+\.(jpe?g|png)$/i.test(
+      src,
+    ) && !/_lp\.|_default\.|missingpicture/i.test(src)
+      ? src.replace(/(\.[^.]+)$/, '_lp$1')
+      : src;
+  const upgraded = original !== src;
+  const imageSource = upgraded && failures === 0 ? original : src;
+  const available = failures < (upgraded ? 2 : 1);
+  useEffect(() => {
+    // A server-rendered image can fail before React attaches its error handler.
+    if (image.current?.complete && image.current.naturalWidth === 0)
+      setFailures(failures + 1);
+  }, [imageSource, failures]);
+  return src && available && !/_default\.|missingpicture/i.test(src) ? (
     <img
+      ref={image}
       className={'avatar ' + className}
-      src={src}
+      src={imageSource}
       alt=""
       loading="lazy"
-      onError={() => setBad(true)}
+      decoding="async"
+      onError={() => setFailures(failures + 1)}
     />
   ) : (
     <span className={'avatar initials ' + className} aria-hidden="true">
@@ -119,6 +168,7 @@ export function FilterSelect({
 export function SeriesCover({ name, id }: { name: string; id: number }) {
   return (
     <span className={'series-cover cover-tone-' + (id % 4)} aria-hidden="true">
+      <BookOpen className="mobile-series-symbol" size={23} />
       <span className="cover-imprint">YUTORAH / SERIES</span>
       <span className="cover-title" dir="auto">
         {name}
@@ -128,6 +178,78 @@ export function SeriesCover({ name, id }: { name: string; id: number }) {
     </span>
   );
 }
+export function MobileRecordingCard({
+  shiur: s,
+  onPlay,
+  onDetails,
+  onSave,
+  saved,
+  active = false,
+}: {
+  shiur: Shiur;
+  onPlay: (s: Shiur) => void;
+  onDetails: (s: Shiur) => void;
+  onSave: (s: Shiur) => void;
+  saved: boolean;
+  active?: boolean;
+}) {
+  const kind = mediaKind(s);
+  return (
+    <article
+      className={'mobile-recording-card' + (active ? ' is-playing' : '')}
+    >
+      <button
+        className="recording-portrait"
+        onClick={() => (kind === 'audio' ? onPlay(s) : onDetails(s))}
+        aria-label={
+          (kind === 'audio' ? (active ? 'Pause ' : 'Play ') : 'Open ') + s.title
+        }
+      >
+        <Avatar src={s.image} name={s.teacher} />
+        <span>
+          {active ? (
+            <Pause size={12} fill="currentColor" />
+          ) : kind === 'text' ? (
+            <FileText size={12} />
+          ) : kind === 'video' ? (
+            <Video size={12} />
+          ) : (
+            <Play size={12} fill="currentColor" />
+          )}
+        </span>
+      </button>
+      <div className="recording-copy">
+        <h3>
+          <button onClick={() => onDetails(s)}>
+            <span dir="auto">{s.title}</span>
+            <span className="recording-teacher">{s.teacher}</span>
+          </button>
+        </h3>
+        <div className="recording-meta">
+          <span>
+            {s.duration
+              ? Math.round(s.duration / 60) + ' min'
+              : kind === 'text'
+                ? 'Article'
+                : 'Recording'}
+          </span>
+          {(s.category || s.topics[0]) && (
+            <span dir="auto">{s.category || s.topics[0]}</span>
+          )}
+        </div>
+      </div>
+      <button
+        className="recording-save"
+        aria-label={(saved ? 'Unsave ' : 'Save ') + s.title}
+        aria-pressed={saved}
+        onClick={() => onSave(s)}
+      >
+        <Bookmark size={18} fill={saved ? 'currentColor' : 'none'} />
+      </button>
+    </article>
+  );
+}
+
 export function ShiurCard({
   shiur: s,
   onPlay,
@@ -146,98 +268,88 @@ export function ShiurCard({
   query?: string;
 }) {
   const kind = mediaKind(s);
+  const isMobile = useIsMobile();
+  if (isMobile)
+    return (
+      <MobileRecordingCard
+        shiur={s}
+        onPlay={onPlay}
+        onDetails={onDetails}
+        onSave={onSave}
+        saved={saved}
+        active={active}
+      />
+    );
   const open = () => (kind === 'audio' ? onPlay(s) : onDetails(s));
   return (
-    <article className={'shiur-card ' + (active ? 'is-playing' : '')}>
-      <div className={'shiur-art cover-tone-' + (s.teacherId % 4)}>
+    <article
+      className={
+        'shiur-card archive-recording-tile ' + (active ? 'is-playing' : '')
+      }
+    >
+      <div className="recording-tile-identity">
+        <Avatar src={s.image} name={s.teacher} />
+        <div>
+          <p>{s.teacher}</p>
+          <span dir="auto">{s.category || s.topics[0] || s.format}</span>
+        </div>
         <button
-          className="art-open"
-          onClick={open}
-          aria-label={
-            (kind === 'audio' ? (active ? 'Pause ' : 'Play ') : 'Open ') +
-            s.title
-          }
-        >
-          <span className="art-imprint">YUTORAH</span>
-          <Avatar src={s.image} name={s.teacher} />
-          <span className="art-subject" dir="auto">
-            {(s.topics[0] || s.category || s.series || 'Torah learning')
-              .split('/')[0]
-              .trim()}
-          </span>
-          <span className="art-teacher">{s.teacher}</span>
-          <span className="art-play">
-            {active ? (
-              <Pause size={19} fill="currentColor" />
-            ) : kind === 'text' ? (
-              <FileText size={19} />
-            ) : (
-              <Play size={19} fill="currentColor" />
-            )}
-          </span>
-        </button>
-        <button
-          className="art-save"
+          className="recording-tile-save"
           aria-label={(saved ? 'Unsave ' : 'Save ') + s.title}
           aria-pressed={saved}
           onClick={() => onSave(s)}
         >
-          <Bookmark size={17} fill={saved ? 'currentColor' : 'none'} />
+          <Bookmark size={18} fill={saved ? 'currentColor' : 'none'} />
         </button>
       </div>
-      <div className="shiur-card-copy">
-        <button className="category-label" onClick={() => onDetails(s)}>
-          {s.topics[0] || s.category || s.format}
-        </button>
-        <h3 dir="auto">
-          <button onClick={() => onDetails(s)}>{s.title}</button>
-        </h3>
-        <p className="card-teacher-name">{s.teacher}</p>
-        <div className="card-bottom">
+      <h3 dir="auto">
+        <button onClick={() => onDetails(s)}>{s.title}</button>
+      </h3>
+      <div className="card-bottom">
+        <span>
+          {kind === 'text' ? (
+            <FileText size={14} />
+          ) : kind === 'video' ? (
+            <Video size={14} />
+          ) : (
+            <Headphones size={14} />
+          )}
+          {s.duration
+            ? Math.round(s.duration / 60) + ' min'
+            : kind === 'text'
+              ? 'Article'
+              : 'Recording'}
+        </span>
+        <button
+          className="card-play"
+          aria-label={
+            (kind === 'audio' ? (active ? 'Pause ' : 'Play ') : 'Open ') +
+            s.title
+          }
+          onClick={open}
+        >
+          {kind === 'text' ? (
+            <FileText size={15} />
+          ) : active ? (
+            <Pause size={14} fill="currentColor" />
+          ) : (
+            <Play size={14} fill="currentColor" />
+          )}
           <span>
-            {kind === 'text' ? (
-              <FileText size={14} />
-            ) : kind === 'video' ? (
-              <Video size={14} />
-            ) : (
-              <Headphones size={14} />
-            )}
-            {s.duration
-              ? `${Math.round(s.duration / 60)} min`
-              : kind === 'text'
-                ? 'Article'
-                : 'Recording'}
+            {kind === 'text'
+              ? 'Read'
+              : kind === 'video'
+                ? 'Watch'
+                : active
+                  ? 'Pause'
+                  : 'Play'}
           </span>
-          <button
-            className="card-play"
-            aria-label={
-              (kind === 'audio' ? (active ? 'Pause ' : 'Play ') : 'Open ') +
-              s.title
-            }
-            onClick={open}
-          >
-            {kind === 'text' ? (
-              <FileText size={15} />
-            ) : active ? (
-              <Pause size={14} fill="currentColor" />
-            ) : (
-              <Play size={14} fill="currentColor" />
-            )}
-            <span>
-              {kind === 'text'
-                ? 'Read'
-                : kind === 'video'
-                  ? 'Watch'
-                  : active
-                    ? 'Pause'
-                    : 'Play'}
-            </span>
-          </button>
-        </div>
+        </button>
       </div>
     </article>
   );
 }
+
 export function ShiurRow({
   shiur: s,
   onPlay,
@@ -249,6 +361,9 @@ export function ShiurRow({
   learned = false,
   extra,
   query = '',
+  onPlaylist,
+  onLearned,
+  active = false,
 }: {
   shiur: Shiur;
   onPlay: (s: Shiur) => void;
@@ -260,8 +375,29 @@ export function ShiurRow({
   learned?: boolean;
   extra?: React.ReactNode;
   query?: string;
+  onPlaylist?: () => void;
+  onLearned?: () => void;
+  active?: boolean;
 }) {
+  const isMobile = useIsMobile();
   const kind = mediaKind(s);
+  if (isMobile)
+    return (
+      <MobileShiurRow
+        shiur={s}
+        onPlay={onPlay}
+        onDetails={onDetails}
+        onSave={onSave}
+        onQueue={onQueue}
+        saved={saved}
+        progress={progress}
+        learned={learned}
+        query={query}
+        onPlaylist={onPlaylist}
+        onLearned={onLearned}
+        active={active}
+      />
+    );
   return (
     <article className="shiur-row">
       <button
@@ -375,6 +511,7 @@ export function Player({
   onSave: (s: Shiur) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const isMobile = useIsMobile();
   return (
     <>
       <audio
@@ -383,177 +520,552 @@ export function Player({
         preload="metadata"
         {...p.handlers}
       />
-      {p.active && (
-        <section
-          className={'player ' + (expanded ? 'player-expanded' : '')}
-          aria-label="Audio player"
-        >
-          <button
-            className="player-expand icon-button"
-            aria-label={
-              expanded ? 'Collapse player controls' : 'Expand player controls'
-            }
-            aria-expanded={expanded}
-            onClick={() => setExpanded(!expanded)}
+      {isMobile ? (
+        <MobileAudioPlayer
+          player={p}
+          library={library}
+          update={update}
+          onDetails={onDetails}
+          onQueue={onQueue}
+          onSave={onSave}
+        />
+      ) : (
+        p.active && (
+          <section
+            className={'player ' + (expanded ? 'player-expanded' : '')}
+            aria-label="Audio player"
           >
-            <ChevronUp size={18} />
-          </button>
-          <div className="player-track">
+            <span className="player-eyebrow">NOW PLAYING</span>
             <button
-              className="player-art"
-              onClick={() => onDetails(p.active!)}
-              aria-label="Open playing shiur"
+              className="player-expand icon-button"
+              aria-label={
+                expanded ? 'Collapse player controls' : 'Expand player controls'
+              }
+              aria-expanded={expanded}
+              onClick={() => setExpanded(!expanded)}
             >
-              <Avatar src={p.active.image} name={p.active.teacher} />
+              <ChevronUp size={18} />
             </button>
-            <div>
+            <div className="player-track">
               <button
-                className="player-title"
+                className="player-art"
                 onClick={() => onDetails(p.active!)}
-                dir="auto"
+                aria-label="Open playing shiur"
               >
-                {p.active.title}
+                <Avatar src={p.active.image} name={p.active.teacher} />
               </button>
-              <p>{p.active.teacher}</p>
+              <div>
+                <button
+                  className="player-title"
+                  onClick={() => onDetails(p.active!)}
+                  dir="auto"
+                >
+                  {p.active.title}
+                </button>
+                <p>{p.active.teacher}</p>
+              </div>
+              <button
+                className="icon-button player-save"
+                aria-label="Save playing shiur"
+                aria-pressed={library.saved.some((s) => s.id === p.active?.id)}
+                onClick={() => onSave(p.active!)}
+              >
+                <Bookmark
+                  size={17}
+                  fill={
+                    library.saved.some((s) => s.id === p.active?.id)
+                      ? 'currentColor'
+                      : 'none'
+                  }
+                />
+              </button>
             </div>
-            <button
-              className="icon-button player-save"
-              aria-label="Save playing shiur"
-              aria-pressed={library.saved.some((s) => s.id === p.active?.id)}
-              onClick={() => onSave(p.active!)}
-            >
-              <Bookmark
-                size={17}
-                fill={
-                  library.saved.some((s) => s.id === p.active?.id)
-                    ? 'currentColor'
-                    : 'none'
-                }
-              />
-            </button>
-          </div>
-          <div className="player-main">
-            <div className="player-controls">
+            <div className="player-main">
+              <div className="player-controls">
+                <button
+                  className="seek-button"
+                  onClick={() => p.seek(p.time - 15)}
+                  aria-label="Rewind 15 seconds"
+                >
+                  <RotateCcw size={20} />
+                  <span>15</span>
+                </button>
+                <button
+                  className="main-play"
+                  onClick={p.play}
+                  aria-label={p.playing ? 'Pause' : 'Play'}
+                >
+                  {p.loading ? (
+                    <Loader2 size={21} className="spin" />
+                  ) : p.playing ? (
+                    <Pause size={19} fill="currentColor" />
+                  ) : (
+                    <Play size={19} fill="currentColor" />
+                  )}
+                </button>
+                <button
+                  className="seek-button"
+                  onClick={() => p.seek(p.time + 15)}
+                  aria-label="Forward 15 seconds"
+                >
+                  <RotateCw size={20} />
+                  <span>15</span>
+                </button>
+                <button
+                  className="icon-button next-button"
+                  disabled={!library.queue.length}
+                  onClick={p.next}
+                  aria-label="Play next in queue"
+                >
+                  <SkipForward size={18} />
+                </button>
+              </div>
+              <div className="player-progress">
+                <time>{timeLabel(p.time)}</time>
+                <Slider
+                  aria-label="Playback position"
+                  min={0}
+                  max={p.duration || 1}
+                  step={1}
+                  value={[p.time]}
+                  onValueChange={(v) => p.seek(Array.isArray(v) ? v[0] : v)}
+                />
+                <time>{timeLabel(p.duration)}</time>
+              </div>
+            </div>
+            <div className="player-options">
               <button
-                className="seek-button"
-                onClick={() => p.seek(p.time - 15)}
-                aria-label="Rewind 15 seconds"
+                className="icon-button player-notes"
+                onClick={() => onDetails(p.active!)}
+                aria-label="Open shiur details and notes"
               >
-                <RotateCcw size={20} />
-                <span>15</span>
+                <NotebookPen size={18} />
               </button>
+              <FilterSelect
+                label="Playback speed"
+                value={String(library.speed)}
+                onChange={(v) =>
+                  update((old) => ({ ...old, speed: Number(v) }))
+                }
+                options={[0.75, 1, 1.25, 1.5, 1.75, 2].map((v) => ({
+                  value: String(v),
+                  label: `${v}×`,
+                }))}
+              />
+              <div className="volume-control">
+                <button
+                  className="icon-button"
+                  onClick={() =>
+                    update((old) => ({ ...old, volume: old.volume ? 0 : 1 }))
+                  }
+                  aria-label={library.volume ? 'Mute' : 'Unmute'}
+                >
+                  {library.volume ? (
+                    <Volume2 size={18} />
+                  ) : (
+                    <VolumeX size={18} />
+                  )}
+                </button>
+                <Slider
+                  key={expanded ? 'expanded-volume' : 'compact-volume'}
+                  aria-label="Volume"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={[library.volume]}
+                  onValueChange={(v) =>
+                    update((old) => ({
+                      ...old,
+                      volume: Array.isArray(v) ? v[0] : v,
+                    }))
+                  }
+                />
+              </div>
               <button
-                className="main-play"
-                onClick={p.play}
-                aria-label={p.playing ? 'Pause' : 'Play'}
+                className="icon-button queue-button"
+                onClick={onQueue}
+                aria-label={`Open queue, ${library.queue.length} shiurim`}
               >
-                {p.loading ? (
-                  <Loader2 size={21} className="spin" />
-                ) : p.playing ? (
-                  <Pause size={19} fill="currentColor" />
-                ) : (
-                  <Play size={19} fill="currentColor" />
+                <ListMusic size={20} />
+                {library.queue.length > 0 && (
+                  <span>{library.queue.length}</span>
                 )}
               </button>
-              <button
-                className="seek-button"
-                onClick={() => p.seek(p.time + 15)}
-                aria-label="Forward 15 seconds"
-              >
-                <RotateCw size={20} />
-                <span>15</span>
-              </button>
-              <button
-                className="icon-button next-button"
-                disabled={!library.queue.length}
-                onClick={p.next}
-                aria-label="Play next in queue"
-              >
-                <SkipForward size={18} />
-              </button>
             </div>
-            <div className="player-progress">
+            {p.error && (
+              <div className="player-error" role="alert">
+                {p.error}
+                <a href={p.active.url} target="_blank" rel="noreferrer">
+                  Open on YUTorah <ExternalLink size={13} />
+                </a>
+                <button
+                  onClick={() => {
+                    p.audio.current?.load();
+                    p.audio.current?.play().catch(() => {});
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+          </section>
+        )
+      )}
+    </>
+  );
+}
+
+function MobileShiurRow({
+  shiur: s,
+  onPlay,
+  onDetails,
+  onSave,
+  onQueue,
+  onPlaylist,
+  onLearned,
+  saved,
+  progress,
+  learned,
+  query = '',
+  active,
+}: {
+  shiur: Shiur;
+  onPlay: (s: Shiur) => void;
+  onDetails: (s: Shiur) => void;
+  onSave: (s: Shiur) => void;
+  onQueue: (s: Shiur) => void;
+  onPlaylist?: () => void;
+  onLearned?: () => void;
+  saved: boolean;
+  progress?: { seconds: number; duration: number };
+  learned?: boolean;
+  query?: string;
+  active?: boolean;
+}) {
+  const [actions, setActions] = useState(false);
+  const kind = mediaKind(s);
+  const doAction = (action: () => void) => {
+    setActions(false);
+    action();
+  };
+  return (
+    <>
+      <article
+        className={'mobile-shiur-row shiur-row ' + (active ? 'is-playing' : '')}
+      >
+        <button
+          className={'mobile-row-art listening-tone-' + (s.teacherId % 4)}
+          onClick={() => onDetails(s)}
+          aria-label={'Open ' + s.title}
+        >
+          <Avatar src={s.image} name={s.teacher} />
+          {active && <span className="mobile-playing-dot" />}
+        </button>
+        <div className="mobile-row-copy">
+          <h3>
+            <button dir="auto" onClick={() => onDetails(s)}>
+              {s.title}
+            </button>
+          </h3>
+          <p>{s.teacher}</p>
+          <div>
+            <span>
+              {s.duration
+                ? `${Math.round(s.duration / 60)} min`
+                : kind === 'text'
+                  ? 'Article'
+                  : 'Recording'}
+            </span>
+            {saved && (
+              <Bookmark size={12} fill="currentColor" aria-label="Saved" />
+            )}
+            {learned && <Check size={13} aria-label="Learned" />}
+          </div>
+          {progress && (
+            <progress
+              value={progress.seconds}
+              max={progress.duration || 1}
+              aria-label={'Listening progress for ' + s.title}
+            />
+          )}{' '}
+          {query && s.description && (
+            <p className="mobile-row-excerpt">
+              {matchExcerpt(s.description, query)}
+            </p>
+          )}
+        </div>
+        <div className="mobile-row-controls">
+          <button
+            className="mobile-row-play"
+            onClick={() => (kind === 'audio' ? onPlay(s) : onDetails(s))}
+            aria-label={
+              (kind === 'audio' ? (active ? 'Pause ' : 'Play ') : 'Open ') +
+              s.title
+            }
+          >
+            {kind === 'text' ? (
+              <FileText size={18} />
+            ) : active ? (
+              <Pause size={17} fill="currentColor" />
+            ) : (
+              <Play size={17} fill="currentColor" />
+            )}
+          </button>
+          <button
+            className="mobile-row-more"
+            aria-label={'More options: ' + s.title}
+            onClick={() => setActions(true)}
+          >
+            <MoreHorizontal size={21} />
+          </button>
+        </div>
+      </article>
+      <Sheet open={actions} onOpenChange={setActions}>
+        <SheetContent side="bottom" className="mobile-actions-sheet">
+          <SheetHeader>
+            <SheetTitle dir="auto">{s.title}</SheetTitle>
+            <SheetDescription>{s.teacher}</SheetDescription>
+          </SheetHeader>
+          <div className="mobile-actions-list">
+            <button onClick={() => doAction(() => onDetails(s))}>
+              <BookOpen size={20} />
+              Shiur details & notes
+            </button>
+            <button onClick={() => doAction(() => onSave(s))}>
+              <Bookmark size={20} fill={saved ? 'currentColor' : 'none'} />
+              {saved ? 'Remove from saved' : 'Save for later'}
+            </button>
+            {kind === 'audio' && (
+              <button onClick={() => doAction(() => onQueue(s))}>
+                <ListPlus size={20} />
+                Add to listening queue
+              </button>
+            )}
+            {onPlaylist && (
+              <button onClick={() => doAction(onPlaylist)}>
+                <Plus size={20} />
+                Add to a playlist
+              </button>
+            )}
+            {onLearned && (
+              <button onClick={() => doAction(onLearned)}>
+                <Check size={20} />
+                {learned ? 'Mark as not learned' : 'Mark as learned'}
+              </button>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
+
+function MobileAudioPlayer({
+  player: p,
+  library,
+  update,
+  onDetails,
+  onQueue,
+  onSave,
+}: {
+  player: ReturnType<typeof useAudio>;
+  library: LibraryState;
+  update: (fn: (old: LibraryState) => LibraryState) => void;
+  onDetails: (s: Shiur) => void;
+  onQueue: () => void;
+  onSave: (s: Shiur) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (!p.active) return null;
+  const s = p.active;
+  const saved = library.saved.some((v) => v.id === s.id);
+  return (
+    <>
+      <section className="mobile-miniplayer player" aria-label="Audio player">
+        <button
+          className="mobile-miniplayer-open"
+          onClick={() => setExpanded(true)}
+          aria-label="Expand player controls"
+        >
+          <Avatar src={s.image} name={s.teacher} />
+          <span>
+            <strong dir="auto">{s.title}</strong>
+            <small>{s.teacher}</small>
+          </span>
+          <ChevronUp size={16} />
+        </button>
+        <button
+          className="mobile-miniplayer-play"
+          aria-label={p.playing ? 'Pause' : 'Play'}
+          onClick={p.play}
+        >
+          {p.loading ? (
+            <Loader2 size={22} className="spin" />
+          ) : p.playing ? (
+            <Pause size={21} fill="currentColor" />
+          ) : (
+            <Play size={21} fill="currentColor" />
+          )}
+        </button>
+        <progress
+          value={p.time}
+          max={p.duration || 1}
+          aria-label="Listening progress"
+        />
+      </section>
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="mobile-now-playing" showCloseButton={false}>
+          <div className="now-playing-top">
+            <button
+              aria-label="Collapse player controls"
+              onClick={() => setExpanded(false)}
+            >
+              <ChevronDown size={25} />
+            </button>
+            <div>
+              <span>NOW PLAYING</span>
+              <p>{s.series || 'The YUTorah library'}</p>
+            </div>
+            <button
+              aria-label={`Open queue, ${library.queue.length} shiurim`}
+              onClick={() => {
+                setExpanded(false);
+                onQueue();
+              }}
+            >
+              <ListMusic size={24} />
+            </button>
+          </div>
+          <div className="now-playing-portrait">
+            <Avatar src={s.image} name={s.teacher} />
+          </div>
+          <div className="now-playing-title">
+            <div>
+              <DialogTitle dir="auto">{s.title}</DialogTitle>
+              <DialogDescription>{s.teacher}</DialogDescription>
+            </div>
+            <button
+              aria-label={saved ? 'Unsave playing shiur' : 'Save playing shiur'}
+              aria-pressed={saved}
+              onClick={() => onSave(s)}
+            >
+              <Bookmark size={24} fill={saved ? 'currentColor' : 'none'} />
+            </button>
+          </div>
+          <div className="now-playing-seek">
+            <Slider
+              aria-label="Playback position"
+              min={0}
+              max={p.duration || 1}
+              step={1}
+              value={[p.time]}
+              onValueChange={(v) => p.seek(Array.isArray(v) ? v[0] : v)}
+            />
+            <div>
               <time>{timeLabel(p.time)}</time>
-              <Slider
-                aria-label="Playback position"
-                min={0}
-                max={p.duration || 1}
-                step={1}
-                value={[p.time]}
-                onValueChange={(v) => p.seek(Array.isArray(v) ? v[0] : v)}
-              />
               <time>{timeLabel(p.duration)}</time>
             </div>
           </div>
-          <div className="player-options">
+          <div className="now-playing-transport">
             <button
-              className="icon-button player-notes"
-              onClick={() => onDetails(p.active!)}
-              aria-label="Open shiur details and notes"
+              className="now-playing-skip"
+              aria-label="Rewind 15 seconds"
+              onClick={() => p.seek(p.time - 15)}
             >
-              <NotebookPen size={18} />
+              <RotateCcw size={29} />
+              <span>15</span>
             </button>
+            <button
+              className="now-playing-main"
+              aria-label={p.playing ? 'Pause' : 'Play'}
+              onClick={p.play}
+            >
+              {p.loading ? (
+                <Loader2 size={31} className="spin" />
+              ) : p.playing ? (
+                <Pause size={30} fill="currentColor" />
+              ) : (
+                <Play size={30} fill="currentColor" />
+              )}
+            </button>
+            <button
+              className="now-playing-skip"
+              aria-label="Forward 15 seconds"
+              onClick={() => p.seek(p.time + 15)}
+            >
+              <RotateCw size={29} />
+              <span>15</span>
+            </button>
+          </div>
+          <div className="now-playing-actions">
             <FilterSelect
               label="Playback speed"
               value={String(library.speed)}
               onChange={(v) => update((old) => ({ ...old, speed: Number(v) }))}
               options={[0.75, 1, 1.25, 1.5, 1.75, 2].map((v) => ({
                 value: String(v),
-                label: `${v}×`,
+                label: `${v}× speed`,
               }))}
             />
-            <div className="volume-control">
-              <button
-                className="icon-button"
-                onClick={() =>
-                  update((old) => ({ ...old, volume: old.volume ? 0 : 1 }))
-                }
-                aria-label={library.volume ? 'Mute' : 'Unmute'}
-              >
-                {library.volume ? <Volume2 size={18} /> : <VolumeX size={18} />}
-              </button>
-              <Slider
-                key={expanded ? 'expanded-volume' : 'compact-volume'}
-                aria-label="Volume"
-                min={0}
-                max={1}
-                step={0.05}
-                value={[library.volume]}
-                onValueChange={(v) =>
-                  update((old) => ({
-                    ...old,
-                    volume: Array.isArray(v) ? v[0] : v,
-                  }))
-                }
-              />
-            </div>
             <button
-              className="icon-button queue-button"
-              onClick={onQueue}
-              aria-label={`Open queue, ${library.queue.length} shiurim`}
+              onClick={() => {
+                setExpanded(false);
+                onDetails(s);
+              }}
+              aria-label="Open shiur details and notes"
             >
-              <ListMusic size={20} />
-              {library.queue.length > 0 && <span>{library.queue.length}</span>}
+              <NotebookPen size={19} />
+              Study notes
+            </button>
+            <button
+              aria-label="Play next in queue"
+              disabled={!library.queue.length}
+              onClick={p.next}
+            >
+              <SkipForward size={21} />
             </button>
           </div>
+          <div className="now-playing-volume">
+            <button
+              aria-label={library.volume ? 'Mute' : 'Unmute'}
+              onClick={() =>
+                update((old) => ({ ...old, volume: old.volume ? 0 : 1 }))
+              }
+            >
+              {library.volume ? <Volume2 size={20} /> : <VolumeX size={20} />}
+            </button>
+            <Slider
+              aria-label="Volume"
+              min={0}
+              max={1}
+              step={0.05}
+              value={[library.volume]}
+              onValueChange={(v) =>
+                update((old) => ({
+                  ...old,
+                  volume: Array.isArray(v) ? v[0] : v,
+                }))
+              }
+            />
+          </div>
           {p.error && (
-            <div className="player-error" role="alert">
-              {p.error}
-              <a href={p.active.url} target="_blank" rel="noreferrer">
-                Open on YUTorah <ExternalLink size={13} />
-              </a>
+            <div className="now-playing-error" role="alert">
+              <p>{p.error}</p>
               <button
                 onClick={() => {
                   p.audio.current?.load();
                   p.audio.current?.play().catch(() => {});
                 }}
               >
-                Retry
+                Retry playback
               </button>
+              <a href={s.url} target="_blank" rel="noreferrer">
+                Open on YUTorah <ExternalLink size={14} />
+              </a>
             </div>
           )}
-        </section>
-      )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

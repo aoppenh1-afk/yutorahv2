@@ -96,6 +96,8 @@ This is an independent interface. It does not replace the existing yutorah.org d
 
 The September 2026 redesign uses a white sidebar, cobalt navigation, larger typography, a Jerusalem image, authentic teacher portraits in their original colors, and colorful collection covers. A floating player keeps playback controls available. Spotify's library patterns, Apple Music's shelves and expandable MiniPlayer, TorahAnytime's follows, and OU Torah's daily series informed the navigation and discovery flows. [Research, implementation choices, and the generated image prompt](docs/redesign.md) are documented together.
 
+The October redesign adds a dedicated mobile Torah library with YUTorah’s original wordmark, prominent search and archive totals, genuine teacher portraits, readable shiur lists, native view tabs, and a full-screen player. The wider layout shares its navy palette and editorial hierarchy. [Mobile research, implementation, and validation](docs/mobile-redesign.md) records the changes and independent review.
+
 ## Validation
 
 ```sh

@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/dialog';
 import { Avatar, SeriesCover, ShiurCard, ShiurRow, StatePanel } from './ui';
 import { noFilters, type Filters } from './advanced-search';
+import { MobileDiscover } from './mobile-discover';
 import type { Directory, HomeData, Shiur } from '@/lib/yutorah';
 import { mediaKind, selectHomeFeature } from '@/lib/yutorah';
 import type { LibraryState } from '@/lib/library';
@@ -464,23 +465,43 @@ export function LearningHome(props: Props) {
   );
 
   return (
-    <div className="listening-home">
+    <div className={'listening-home ' + (isHome ? 'has-mobile-home' : '')}>
+      {isHome && (
+        <MobileDiscover
+          home={home}
+          directory={directory}
+          library={library}
+          pick={pick}
+          items={items.map(({ shiur }) => shiur)}
+          continuing={continuing}
+          activeId={activeId}
+          playing={playing}
+          refreshing={refreshing}
+          onPlay={onPlay}
+          onDetails={onDetails}
+          onSave={onSave}
+          onSearch={onSearch}
+          onNavigate={onNavigate}
+          onPreferences={() => setPreferences(true)}
+          onRefresh={refreshAll}
+        />
+      )}
       <div className="discover-heading">
         <div>
           <span className="eyebrow">LEARNING, WHEREVER YOU ARE</span>
           <h1>
             {followingPage
-              ? 'Your circle of learning.'
+              ? 'Following'
               : trendingPage
                 ? 'Trending in the library.'
-                : 'Find your next shiur.'}
+                : 'The Torah library.'}
           </h1>
           <p>
             {followingPage
               ? 'New learning from the teachers and subjects you follow.'
               : trendingPage
                 ? 'Discover the recordings listeners are exploring.'
-                : 'Bring a little Torah into your day.'}
+                : 'Shiurim from Yeshiva University’s roshei yeshiva and Torah educators around the world.'}
           </p>
         </div>
         <button
@@ -489,7 +510,7 @@ export function LearningHome(props: Props) {
           onClick={() => setPreferences(true)}
         >
           <Settings2 size={16} />
-          <span>Make it yours</span>
+          <span>Learning preferences</span>
         </button>
       </div>
       {!followingPage && !trendingPage && (
@@ -558,100 +579,80 @@ export function LearningHome(props: Props) {
       )}
       {isHome && (
         <>
-          <section className="editorial-hero" aria-label="Featured learning">
-            <div className="hero-copy">
-              <span className="hero-eyebrow">
-                <span />
-                THE YUTORAH LIBRARY
+          <section
+            className="desktop-archive-feature"
+            aria-label="Featured shiur"
+          >
+            <div className="desktop-feature-heading">
+              <span>
+                FEATURED SHIUR
+                {pick?.category ? ' · ' + pick.category.toUpperCase() : ''}
               </span>
-              <h2>
-                Torah for life.
-                <br />
-                <em>Time for you.</em>
-              </h2>
-              <p>
-                A familiar voice. A fresh perspective.
-                <br />
-                Your next great shiur is waiting.
-              </p>
-              <div className="hero-actions">
-                {pick && (
-                  <button
-                    className="hero-action hero-action-primary"
-                    onClick={() =>
-                      mediaKind(pick) === 'audio'
-                        ? onPlay(pick)
-                        : onDetails(pick)
-                    }
-                  >
-                    {activeId === pick.id && playing ? (
-                      <Pause size={17} fill="currentColor" />
-                    ) : (
-                      <Play size={17} fill="currentColor" />
-                    )}
-                    {activeId === pick.id && playing
-                      ? 'Pause shiur'
-                      : mediaKind(pick) === 'audio'
-                        ? 'Start listening'
-                        : 'Open shiur'}
-                  </button>
-                )}
-                <button
-                  className="hero-action"
-                  onClick={() => onNavigate('topics')}
-                >
-                  Browse topics <ArrowRight size={17} />
-                </button>
-              </div>
+              {home && (
+                <span>
+                  <strong>{home.total.toLocaleString()}</strong> shiurim in the
+                  library
+                </span>
+              )}
             </div>
-            <span className="hero-library-size">
-              {home ? Math.floor(home.total / 1000) + 'k+' : ''}
-              <small>shiurim to discover</small>
-            </span>
-            {pick && (
-              <div className="hero-feature">
-                <Avatar src={pick.image} name={pick.teacher} />
-                <div>
-                  <span>FROM THE EDITORS</span>
-                  <button onClick={() => onDetails(pick)} dir="auto">
-                    {pick.title}
-                  </button>
-                  <p>
-                    {pick.teacher} · {Math.round(pick.duration / 60)} min
-                  </p>
-                </div>
-                <button
-                  className="hero-listen"
-                  aria-label={
-                    (activeId === pick.id && playing
-                      ? 'Pause '
-                      : mediaKind(pick) === 'audio'
-                        ? 'Play '
-                        : 'Open ') + pick.title
-                  }
-                  onClick={() =>
-                    mediaKind(pick) === 'audio' ? onPlay(pick) : onDetails(pick)
-                  }
-                >
-                  {activeId === pick.id && playing ? (
-                    <Pause size={18} fill="currentColor" />
+            <div className="desktop-feature-main">
+              <div>
+                <h2>
+                  {pick ? (
+                    <button dir="auto" onClick={() => onDetails(pick)}>
+                      {pick.title}
+                    </button>
                   ) : (
-                    <Play size={18} fill="currentColor" />
+                    'Explore the Torah library'
                   )}
-                  <span>
-                    {activeId === pick.id && playing
-                      ? 'Pause'
-                      : mediaKind(pick) === 'audio'
-                        ? 'Listen now'
-                        : 'Open shiur'}
-                  </span>
-                </button>
+                </h2>
+                {pick && <p>{pick.teacher}</p>}
+                <div className="desktop-feature-actions">
+                  {pick && (
+                    <button
+                      className="desktop-feature-play"
+                      onClick={() =>
+                        mediaKind(pick) === 'audio'
+                          ? onPlay(pick)
+                          : onDetails(pick)
+                      }
+                      aria-label={
+                        (activeId === pick.id && playing ? 'Pause ' : 'Play ') +
+                        pick.title
+                      }
+                    >
+                      {activeId === pick.id && playing ? (
+                        <Pause size={16} fill="currentColor" />
+                      ) : (
+                        <Play size={16} fill="currentColor" />
+                      )}
+                      {activeId === pick.id && playing ? 'Pause' : 'Listen'}
+                      {pick.duration > 0 && (
+                        <span>{Math.round(pick.duration / 60)} min</span>
+                      )}
+                    </button>
+                  )}
+                  <button
+                    className="desktop-feature-browse"
+                    onClick={() => onNavigate('search')}
+                  >
+                    Search the library <ArrowRight size={17} />
+                  </button>
+                </div>
               </div>
-            )}
+              {pick && (
+                <Avatar
+                  className="desktop-feature-portrait"
+                  src={pick.image}
+                  name={pick.teacher}
+                />
+              )}
+            </div>
           </section>
+
           <section className="discovery-section collections-section">
             {sectionHeading(
-              'Made for your day',
+              'Explore the library',
               undefined,
               () => onNavigate('topics'),
               'All topics',
@@ -670,7 +671,7 @@ export function LearningHome(props: Props) {
               >
                 <div className="collection-top">
                   <Timer size={20} />
-                  <span>FIT TORAH INTO YOUR DAY</span>
+                  <span>PRACTICAL HALACHA</span>
                 </div>
                 <h3>
                   Ten Minute
@@ -695,7 +696,7 @@ export function LearningHome(props: Props) {
               >
                 <div className="collection-top">
                   <BookOpen size={20} />
-                  <span>A FRESH PERSPECTIVE</span>
+                  <span>THE WEEKLY TORAH PORTION</span>
                 </div>
                 <h3>
                   Parsha
@@ -703,7 +704,7 @@ export function LearningHome(props: Props) {
                   perspectives
                 </h3>
                 <div className="collection-bottom">
-                  <span>{home?.parsha || 'Make the weekly parsha yours'}</span>
+                  <span>{home?.parsha || 'Shiurim on the weekly parsha'}</span>
                   <ArrowRight size={18} />
                 </div>
                 <span className="collection-letter" lang="he">
@@ -716,7 +717,7 @@ export function LearningHome(props: Props) {
               >
                 <div className="collection-top">
                   <CalendarDays size={20} />
-                  <span>ONE DAF, EVERY DAY</span>
+                  <span>DAILY TALMUD STUDY</span>
                 </div>
                 <h3>
                   Your daily
@@ -724,7 +725,7 @@ export function LearningHome(props: Props) {
                   Daf Yomi
                 </h3>
                 <div className="collection-bottom">
-                  <span>{home?.daf || 'Keep your learning moving'}</span>
+                  <span>{home?.daf || 'Daily learning'}</span>
                   <ArrowRight size={18} />
                 </div>
                 <span className="collection-letter" lang="he">
@@ -737,7 +738,7 @@ export function LearningHome(props: Props) {
               >
                 <div className="collection-top">
                   <Lightbulb size={20} />
-                  <span>ROOM TO THINK</span>
+                  <span>JEWISH THOUGHT</span>
                 </div>
                 <h3>
                   Jewish
@@ -936,34 +937,36 @@ export function LearningHome(props: Props) {
               ))}
             </div>
           )}
-          <div className="discovery-toolbar">
-            <div className="time-chips" aria-label="Time available">
-              <Timer size={15} />
-              {['all', '10', '20', '30'].map((v) => (
-                <button
-                  key={v}
-                  aria-pressed={minutes === v}
-                  onClick={() => {
-                    setMinutes(v);
-                    setLimit(8);
-                  }}
-                >
-                  {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
-                </button>
-              ))}
+          {(!followingPage || library.following.length > 0) && (
+            <div className="discovery-toolbar">
+              <div className="time-chips" aria-label="Time available">
+                <Timer size={15} />
+                {['all', '10', '20', '30'].map((v) => (
+                  <button
+                    key={v}
+                    aria-pressed={minutes === v}
+                    onClick={() => {
+                      setMinutes(v);
+                      setLimit(8);
+                    }}
+                  >
+                    {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="icon-button"
+                aria-label="Refresh recommendations"
+                onClick={refreshAll}
+                disabled={feedLoading || refreshing}
+              >
+                <RefreshCw
+                  size={16}
+                  className={feedLoading || refreshing ? 'spin' : ''}
+                />
+              </button>
             </div>
-            <button
-              className="icon-button"
-              aria-label="Refresh recommendations"
-              onClick={refreshAll}
-              disabled={feedLoading || refreshing}
-            >
-              <RefreshCw
-                size={16}
-                className={feedLoading || refreshing ? 'spin' : ''}
-              />
-            </button>
-          </div>
+          )}
           {feedLoading && (
             <output className="feed-loading">
               <Loader2 size={14} className="spin" />
@@ -978,7 +981,7 @@ export function LearningHome(props: Props) {
           )}
           {currentTab === 'following' && !library.following.length ? (
             <StatePanel
-              title="Keep your favorite teachers close."
+              title="Follow teachers and subjects"
               description="Follow a teacher, topic, or series. Their latest shiurim will appear here."
             >
               <button
@@ -1149,7 +1152,13 @@ export function LearningHome(props: Props) {
                     >
                       <SeriesCover name={s.name} id={s.id} />
                       <h3 dir="auto">{s.name}</h3>
-                      <p>{s.count.toLocaleString()} shiurim</p>
+                      <p>
+                        {(
+                          directory?.series.find((series) => series.id === s.id)
+                            ?.count ?? s.count
+                        ).toLocaleString()}{' '}
+                        shiurim
+                      </p>
                     </button>
                     <FollowButton
                       compact

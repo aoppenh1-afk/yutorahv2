@@ -130,7 +130,7 @@ export function SearchBox({
               );
             }
           }}
-          placeholder="Topic, teacher, series, or a question…"
+          placeholder="Topic, teacher, or series"
           aria-label="Search YUTorah"
           aria-autocomplete="list"
           aria-expanded={open && count > 0}

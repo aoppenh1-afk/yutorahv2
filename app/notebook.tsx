@@ -22,6 +22,7 @@ export function Notebook({
   onPlay,
   onRemove,
   onExplore,
+  nested = false,
 }: {
   library: LibraryState;
   items: Shiur[];
@@ -29,8 +30,10 @@ export function Notebook({
   onPlay: (id: number, seconds: number) => void;
   onRemove: (note: Note) => void;
   onExplore: () => void;
+  nested?: boolean;
 }) {
   const [query, setQuery] = useState('');
+  const Heading = nested ? 'h2' : 'h1';
   const titleFor = (note: Note) =>
     note.shiur || items.find((s) => s.id === note.shiurId);
   const notes = [...library.notes]
@@ -63,7 +66,7 @@ export function Notebook({
     <section className="notebook-view">
       <div className="view-heading">
         <div className="eyebrow">YOUR LEARNING</div>
-        <h1>Your notebook</h1>
+        <Heading>{nested ? 'Study notes' : 'Your notebook'}</Heading>
         <p>Questions, sources, and thoughts worth coming back to.</p>
       </div>
       <div className="notebook-toolbar">
