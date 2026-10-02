@@ -268,7 +268,10 @@ void test('feed fetches bounded sources, deduplicates records and reports partia
     );
     const feed = await response.json();
     assert.equal(feed.sources, 3);
-    assert.equal(paths.length, 3);
+    assert.equal(paths.length, 5);
+    const failed = paths.filter((p) => p.searchParams.get('seriesID'));
+    assert.equal(failed.length, 3);
+    assert.equal(new Set(failed.map((p) => p.href)).size, 1);
     assert.equal(feed.items.length, 1);
     assert.equal(feed.partial, true);
     assert.ok(paths.every((p) => p.searchParams.get('start') === '1'));

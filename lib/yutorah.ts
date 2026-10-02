@@ -275,7 +275,26 @@ async function readUpstream(path: string): Promise<unknown> {
       });
       if (!response.ok) {
         await response.body?.cancel();
-        throw new Error(`YUTorah returned ${response.status}`);
+        const error = new Error(`YUTorah returned ${response.status}`);
+        if (attempts === 1 || ![500, 502, 503, 504].includes(response.status))
+          throw error;
+        const header = response.headers.get('Retry-After');
+        const advertisedWait = header
+          ? /^\d+$/.test(header)
+            ? Number(header) * 1000
+            : Date.parse(header) - Date.now()
+          : 0;
+        const retryAfter = Number.isFinite(advertisedWait)
+          ? Math.max(0, advertisedWait)
+          : 0;
+        if (attempt + 1 >= attempts)
+          throw retryAfter > 0 ? error : new SearchReadError(error);
+        const delay = Math.max(250 * 2 ** attempt, retryAfter);
+        // A requested wait beyond this pass's budget must stop recovery rather
+        // than cause an immediate resume that ignores Retry-After.
+        if (delay >= deadline - performance.now()) throw error;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
       }
       return await response.json();
     } catch (error) {
