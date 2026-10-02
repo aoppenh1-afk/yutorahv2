@@ -71,7 +71,7 @@ export async function completeSearch(
   // The expansion is snapshotted on the run. Learning more titles must not
   // change a pending scan's source query, title matching, or candidate counts.
   const criteria = {
-    version: 8,
+    version: 9,
     term: plan.term || plan.phrase || '',
     quoted: /"[^"]+"/.test(query),
     teacher: plan.teacherId,

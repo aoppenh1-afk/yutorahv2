@@ -865,19 +865,35 @@ export default function TorahApp({
     : [];
   const matchLibrary = (s: Shiur) =>
     matchQuery(s.title + ' ' + s.teacher + ' ' + s.series, libraryQuery);
-  const listedTeachers =
-    directory?.teachers.filter((t) => matchQuery(t.name, directoryQuery, 2)) ||
-    [];
-  const listedSeries =
-    directory?.series.filter((s) =>
-      matchQuery(s.name + ' ' + s.description, directoryQuery, 2),
-    ) || [];
-  const listedTopics =
-    directory?.topics.filter(
-      (t) =>
-        (topicGroup === 'all' || t.group === topicGroup) &&
-        matchQuery(t.name + ' ' + t.group, directoryQuery, 2),
-    ) || [];
+  const listedTeachers = useMemo(
+    () =>
+      view === 'teachers'
+        ? directory?.teachers.filter((t) =>
+            matchQuery(t.name, directoryQuery, 2),
+          ) || []
+        : [],
+    [directory, directoryQuery, view],
+  );
+  const listedSeries = useMemo(
+    () =>
+      view === 'series'
+        ? directory?.series.filter((s) =>
+            matchQuery(s.name + ' ' + s.description, directoryQuery, 2),
+          ) || []
+        : [],
+    [directory, directoryQuery, view],
+  );
+  const listedTopics = useMemo(
+    () =>
+      view === 'topics'
+        ? directory?.topics.filter(
+            (t) =>
+              (topicGroup === 'all' || t.group === topicGroup) &&
+              matchQuery(t.name + ' ' + t.group, directoryQuery, 2),
+          ) || []
+        : [],
+    [directory, directoryQuery, topicGroup, view],
+  );
   const videoSource =
     detail?.video ||
     (['youtube', 'video', 'mp4'].includes(detail?.format || '')

@@ -30,6 +30,26 @@ const [index, catalog, matching, migration, transfer, schema] =
     ),
   );
 
+void test('title evidence recovers a transposition plus missing letter in Shmini aztret', async () => {
+  const db = database();
+  await db.batch(
+    index.indexTitleStatements(db, [
+      { id: 1, title: 'Understanding Shemini Atzeret' },
+      { id: 2, title: 'Shmini Atzeret: Bringing It All Together' },
+    ]),
+  );
+  const learned = await index.titleVocabulary(db, 'Shmini aztret');
+  assert.ok(learned.words.includes('atzeret'));
+  const retrieval = matching.searchRetrieval('Shmini aztret', learned.words);
+  assert.match(retrieval.strictQuery, /atzeret/);
+  assert.equal(retrieval.matches('Shmini Atzeret'), true);
+  assert.equal(retrieval.matches('Shemini Atzeret'), true);
+  assert.equal(retrieval.matches('Shemini: the eighth day'), false);
+  assert.equal(matching.wordMatch('eruv', 'erev'), 0);
+  assert.equal(matching.wordMatch('123', '124'), 0);
+  assert.equal(matching.wordMatch('cat', 'charity'), 0);
+});
+
 void test('Vercel schema setup survives partial application and preserves indexed titles on redeployment', async () => {
   const db = database();
   await db.batch(

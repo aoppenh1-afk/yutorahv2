@@ -431,13 +431,41 @@ export function interpretSpacing(
   term: string;
   labels: string[];
 } {
+  const readings = names.length ? spacingReadings(names) : null;
+  const tokens = [...term.matchAll(/"[^"]*"|[\p{L}\p{M}\p{N}'’״׳]+/gu)];
+  const labels: string[] = [];
+  let result = '',
+    end = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i][0].startsWith('"')) continue;
+    for (let count = Math.min(3, tokens.length - i); count >= 1; count--) {
+      const span = tokens.slice(i, i + count);
+      if (span.some((token) => token[0].startsWith('"'))) continue;
+      const start = span[0].index;
+      const next = span.at(-1)!.index + span.at(-1)![0].length;
+      const typed = term.slice(start, next);
+      if (!/^[\p{L}\p{M}\p{N}'’״׳\s]+$/u.test(typed)) continue;
+      const compact = searchText(typed).replaceAll(' ', '');
+      const forms = new Set([
+        ...(baseSpacingReadings.get(compact) ?? []),
+        ...(readings?.get(compact) ?? []),
+      ]);
+      if (forms.size !== 1) continue;
+      const reading = [...forms][0];
+      if (searchText(typed) === reading) break;
+      result += term.slice(end, start) + reading;
+      labels.push(`${typed} → ${reading}`);
+      end = next;
+      i += count - 1;
+      break;
+    }
+  }
+  return { term: result + term.slice(end), labels: [...new Set(labels)] };
+}
+
+function spacingReadings(names: string[]) {
   const readings = new Map<string, Set<string>>();
-  for (const name of [
-    ...aliases.keys(),
-    ...conceptForms.keys(),
-    ...spacingPhrases,
-    ...names,
-  ]) {
+  for (const name of names) {
     const normalized = searchText(name);
     const words = normalized.split(' ');
     const compact = words.join('');
@@ -452,32 +480,16 @@ export function interpretSpacing(
     forms.add(normalized);
     readings.set(compact, forms);
   }
-  const tokens = [...term.matchAll(/"[^"]*"|[\p{L}\p{M}\p{N}'’״׳]+/gu)];
-  const labels: string[] = [];
-  let result = '',
-    end = 0;
-  for (let i = 0; i < tokens.length; i++) {
-    if (tokens[i][0].startsWith('"')) continue;
-    for (let count = Math.min(3, tokens.length - i); count >= 1; count--) {
-      const span = tokens.slice(i, i + count);
-      if (span.some((token) => token[0].startsWith('"'))) continue;
-      const start = span[0].index;
-      const next = span.at(-1)!.index + span.at(-1)![0].length;
-      const typed = term.slice(start, next);
-      if (!/^[\p{L}\p{M}\p{N}'’״׳\s]+$/u.test(typed)) continue;
-      const forms = readings.get(searchText(typed).replaceAll(' ', ''));
-      if (forms?.size !== 1) continue;
-      const reading = [...forms][0];
-      if (searchText(typed) === reading) break;
-      result += term.slice(end, start) + reading;
-      labels.push(`${typed} → ${reading}`);
-      end = next;
-      i += count - 1;
-      break;
-    }
-  }
-  return { term: result + term.slice(end), labels: [...new Set(labels)] };
+  return readings;
 }
+
+// Shared language data is immutable. Rebuilding it for every directory row
+// turned even an empty filter into a long browser task.
+const baseSpacingReadings = spacingReadings([
+  ...aliases.keys(),
+  ...conceptForms.keys(),
+  ...spacingPhrases,
+]);
 
 /** A bounded tolerance, with exact numbers and no fuzzy two-letter words. */
 export function typoBudget(word: string): number {
@@ -561,10 +573,14 @@ function wordMatchScore(
   if (!budget || query.length > 64) return 0;
   const fuzzyForms =
     query.length === 3 ? forms.filter((form) => form.length === 4) : forms;
+  // A missing letter can shorten a seven-letter word below the two-edit
+  // threshold. Allow two edits for that full word, using actual candidate
+  // evidence; incomplete prefixes keep the original, narrower budget.
+  const fullBudget = query.length >= 6 && word.length >= 7 ? 2 : budget;
   const distance = Math.min(
-    ...fuzzyForms.map((form) => editDistance(query, form, budget, false)),
+    ...fuzzyForms.map((form) => editDistance(query, form, fullBudget, false)),
   );
-  if (distance <= budget) return 0.75 - distance * 0.1;
+  if (distance <= fullBudget) return 0.75 - distance * 0.1;
   if (query.length >= minPrefix && (query.length >= 4 || word.length >= 4)) {
     const prefixDistance = Math.min(
       ...fuzzyForms.map((form) => editDistance(query, form, budget, true)),
@@ -579,11 +595,19 @@ export function matchQuery(
   query: string,
   minPrefix = 3,
 ): boolean {
-  return searchTerms(
-    interpretSearchRequest(interpretSpacing(query, spacingNames(text)).term)
-      .term,
-  ).every((term) => textMatchScore(text, term, minPrefix) > 0);
+  if (!query.trim()) return true;
+  const spaced = interpretSpacing(query, spacingNames(text)).term;
+  let terms = interpretedQueryTerms.get(spaced);
+  if (!terms) {
+    terms = searchTerms(interpretSearchRequest(spaced).term);
+    if (interpretedQueryTerms.size >= 100)
+      interpretedQueryTerms.delete(interpretedQueryTerms.keys().next().value!);
+    interpretedQueryTerms.set(spaced, terms);
+  }
+  return terms.every((term) => textMatchScore(text, term, minPrefix) > 0);
 }
+
+const interpretedQueryTerms = new Map<string, string[]>();
 
 /** Candidate text supplies a bounded vocabulary for searches within a collection. */
 function spacingNames(text: string): string[] {
@@ -691,7 +715,9 @@ export function interpretAliases(term: string): {
             ...group.words.map((alias) => wordMatch(normalized, alias)),
           ),
         }))
-        .filter(({ score }) => score >= 0.55 && score < 0.85)
+        // Two-edit candidates expand retrieval from indexed titles, but must
+        // not replace an existing literal spelling during request parsing.
+        .filter(({ score }) => score > 0.55 && score < 0.85)
         .sort((a, b) => b.score - a.score);
       if (matches[0] && (!matches[1] || matches[0].score > matches[1].score))
         canonical = matches[0].canonical;

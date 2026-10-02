@@ -24,6 +24,17 @@ const {
   matchExcerpt,
 } = await load('lib/search-discovery.ts');
 const { parseSearch } = await load('lib/yutorah.ts');
+const { matchQuery: directoryMatch } = await load('lib/search-matching.ts');
+
+void test('an empty directory filter stays responsive across thousands of entries', () => {
+  const start = performance.now();
+  for (let i = 0; i < 4000; i++)
+    assert.equal(directoryMatch(`Rabbi Teacher ${i}`, ''), true);
+  assert.ok(
+    performance.now() - start < 150,
+    'Empty filters must not perform spelling analysis for each entry',
+  );
+});
 const directory = {
   teachers: [
     {
