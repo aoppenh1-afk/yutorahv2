@@ -191,19 +191,37 @@ export function recommend(
 ): Recommendation[] {
   const recent = library.history.slice(0, 12).map((h) => h.shiur);
   const interests = [...recent, ...library.saved.slice(0, 12)];
-  const seen = new Set<number>();
+  const hidden = new Set(library.hidden);
+  const learned = new Set(library.completed);
+  for (const h of library.history)
+    if (h.duration > 0 && h.seconds / h.duration >= 0.95)
+      learned.add(h.shiur.id);
+  const saved = new Set(library.saved.map((s) => s.id));
+  const teachers = new Set(interests.map((s) => s.teacherId));
+  const topics = new Set(interests.flatMap((s) => s.topics.map(searchText)));
+  const following = library.following.map((follow) => ({
+    follow,
+    topic: follow.kind === 'topic' ? searchText(follow.name) : '',
+  }));
+  const now = options.now ?? Date.now();
   const ranked: Recommendation[] = [];
   for (const s of mergeShiurim(items)) {
-    if (
-      seen.has(s.id) ||
-      library.hidden.includes(s.id) ||
-      (!options.includeCompleted && isLearned(s, library))
-    )
+    if (hidden.has(s.id) || (!options.includeCompleted && learned.has(s.id)))
       continue;
-    seen.add(s.id);
     if (options.minutes && (!s.duration || s.duration > options.minutes * 60))
       continue;
-    const followed = library.following.find((f) => followsShiur(s, f));
+    const normalizedTopics = s.topics.map(searchText);
+    const followedTopics = new Set([
+      ...normalizedTopics,
+      searchText(s.category),
+    ]);
+    const followed = following.find(({ follow, topic }) =>
+      follow.kind === 'teacher'
+        ? s.teacherId === follow.id
+        : follow.kind === 'series'
+          ? s.seriesId === follow.id
+          : followedTopics.has(topic),
+    )?.follow;
     if (options.followingOnly && !followed) continue;
     let score = 0;
     let reason = 'From the YUTorah library';
@@ -222,26 +240,21 @@ export function recommend(
       if (!followed)
         reason = `More in ${sameSeries.series || s.series || 'this series'}`;
     }
-    if (interests.some((i) => i.teacherId === s.teacherId)) {
+    if (teachers.has(s.teacherId)) {
       score += 20;
       if (!followed && !sameSeries) reason = 'From a teacher you learn with';
     }
-    const topic = s.topics.find((t) =>
-      interests.some((i) =>
-        i.topics.some((v) => searchText(v) === searchText(t)),
-      ),
+    const topic = s.topics.find((_, index) =>
+      topics.has(normalizedTopics[index]),
     );
     if (topic) {
       score += 16;
       if (!followed && !sameSeries) reason = `Because you explore ${topic}`;
     }
-    const age = Math.max(
-      0,
-      ((options.now ?? Date.now()) - (Date.parse(s.date) || 0)) / 86400000,
-    );
+    const age = Math.max(0, (now - (Date.parse(s.date) || 0)) / 86400000);
     score += Math.max(0, 12 - age / 7);
     if (s.duration > 0 && s.duration <= library.dailyGoal * 60) score += 5;
-    if (library.saved.some((v) => v.id === s.id)) score -= 8;
+    if (saved.has(s.id)) score -= 8;
     ranked.push({ shiur: s, reason, score });
   }
   // Interleave teachers so one prolific uploader cannot fill the whole feed.

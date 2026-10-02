@@ -348,14 +348,14 @@ export async function completeSearch(
     );
   if (plan.scope === 'title' && plan.term) predicates.push('matched = 1');
   const where = predicates.join(' AND ');
+  const refinements = predicates.slice(1).join(' AND ') || '1 = 1';
+  // Count candidates and refined matches in one pass and one database read.
   const counts = await db
-    .prepare('SELECT COUNT(*) AS scanned FROM search_hits WHERE run = ?')
-    .bind(run.id)
-    .first<{ scanned: number }>();
-  const matched = await db
-    .prepare(`SELECT COUNT(*) AS matches FROM search_hits WHERE ${where}`)
-    .bind(...args)
-    .first<{ matches: number }>();
+    .prepare(
+      `SELECT COUNT(*) AS scanned, COUNT(CASE WHEN ${refinements} THEN 1 END) AS matches FROM search_hits WHERE run = ?`,
+    )
+    .bind(...args.slice(1), run.id)
+    .first<{ scanned: number; matches: number }>();
   if (complete && counts!.scanned !== run.total) {
     await db.prepare('DELETE FROM search_runs WHERE id = ?').bind(run.id).run();
     throw new SearchChangedError(
@@ -371,7 +371,7 @@ export async function completeSearch(
     .all<{ payload: string }>();
   return {
     items: data.results.map((r) => JSON.parse(r.payload) as Shiur),
-    total: matched!.matches,
+    total: counts!.matches,
     sourceTotal: run.total,
     scanned: counts!.scanned,
     complete,
@@ -379,7 +379,7 @@ export async function completeSearch(
     run: run.id,
     plan,
     filtered: false,
-    nextPage: complete && page * pageSize < matched!.matches ? page + 1 : null,
+    nextPage: complete && page * pageSize < counts!.matches ? page + 1 : null,
     facets: { teachers: [], topics: [], series: [] },
   };
 }

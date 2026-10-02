@@ -338,9 +338,13 @@ export function LearningHome(props: Props) {
     (h) => h.seconds > 0 && !isLearned(h.shiur, library),
   );
   const stats = learningStats(library.learningDays);
-  const followups = anchor
-    ? relatedShiurim(anchor, [...relatedItems, ...allItems], library)
-    : [];
+  const followups = useMemo(
+    () =>
+      anchor
+        ? relatedShiurim(anchor, [...relatedItems, ...allItems], library)
+        : [],
+    [anchor, relatedItems, allItems, library],
+  );
   const teachers = (directory?.teachers || []).slice(0, 6);
   const suggestedTopics = [
     ...new Map(
