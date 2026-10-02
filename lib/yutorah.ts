@@ -210,7 +210,10 @@ export async function upstream<T>(path: string, ttl = 120): Promise<T> {
     headers: { Accept: 'application/json' },
     signal: AbortSignal.timeout(18000),
   });
-  if (!response.ok) throw new Error(`YUTorah returned ${response.status}`);
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`YUTorah returned ${response.status}`);
+  }
   let data: unknown = await response.json();
   if (path.startsWith('search/')) {
     const search = data as SearchResponse;

@@ -42,6 +42,23 @@ export function trendingWindow(period: TrendingPeriod, now: number) {
   };
 }
 
+export function inTrendingWindow(
+  item: Shiur,
+  options: TrendingOptions,
+  now: number,
+) {
+  const after = trendingWindow(options.period, now).after;
+  const submitted = Date.parse(item.uploadedAt || '');
+  return (
+    (!after ||
+      (Number.isFinite(submitted) &&
+        submitted >= Date.parse(after) &&
+        submitted <= now)) &&
+    (!options.minutes ||
+      (item.duration > 0 && item.duration <= options.minutes * 60))
+  );
+}
+
 /** Lifetime views within a dated cohort. No inferred rolling view counts. */
 export function rankTrending(
   items: Shiur[],
@@ -49,7 +66,6 @@ export function rankTrending(
   options?: TrendingOptions,
   now = Date.now(),
 ): Shiur[] {
-  const after = options ? trendingWindow(options.period, now).after : null;
   return mergeShiurim(items)
     .filter(
       (s) =>
@@ -57,12 +73,7 @@ export function rankTrending(
         s.id > 0 &&
         Number.isFinite(s.views) &&
         s.views! > 0 &&
-        (!after ||
-          (Number.isFinite(Date.parse(s.uploadedAt || '')) &&
-            Date.parse(s.uploadedAt || '') >= Date.parse(after) &&
-            Date.parse(s.uploadedAt || '') <= now)) &&
-        (!options?.minutes ||
-          (s.duration > 0 && s.duration <= options.minutes * 60)),
+        (!options || inTrendingWindow(s, options, now)),
     )
     .sort(
       (a, b) =>
@@ -79,6 +90,11 @@ export type DiscoveryData = {
   trending: Shiur[];
   sampled: number;
   nextId?: number;
+  source?: 'website' | 'mobile';
+  libraryTotal?: number;
+  nextPage?: number;
+  /** Server-only coverage bitmap. Never serialized by the API route. */
+  seen?: string;
   total: number;
   partial: boolean;
   fetchedAt: string;

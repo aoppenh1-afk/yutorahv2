@@ -462,14 +462,20 @@ export function LearningHome(props: Props) {
           </span>
           <button
             className="trending-cover"
-            aria-label={'Play ' + s.title}
+            aria-label={
+              (mediaKind(s) === 'audio' ? 'Play ' : 'Open ') + s.title
+            }
             onClick={() =>
               mediaKind(s) === 'audio' ? onPlay(s) : onDetails(s)
             }
           >
             <Avatar src={s.image} name={s.teacher} />
             <span>
-              <Play size={16} fill="currentColor" />
+              {mediaKind(s) === 'audio' ? (
+                <Play size={16} fill="currentColor" />
+              ) : (
+                <ArrowRight size={16} />
+              )}
             </span>
           </button>
           <div className="trending-copy">
@@ -885,7 +891,7 @@ export function LearningHome(props: Props) {
           {sectionHeading(
             'What listeners are exploring',
             discovery?.partial
-              ? `Indexing ${discovery.sampled.toLocaleString()} of ${discovery.total.toLocaleString()} matching shiurim. Rankings may change.`
+              ? `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
               : discovery
                 ? `Most viewed among ${discovery.total.toLocaleString()} matching shiurim${trendingPeriod === 'all' ? ' across the library' : ' in this date range'}.`
                 : 'View counts come directly from YUTorah.',
@@ -1203,7 +1209,7 @@ export function LearningHome(props: Props) {
               <p className="trending-source">
                 <Eye size={12} />
                 {discovery.partial ? (
-                  `Indexing ${discovery.sampled.toLocaleString()} of ${discovery.total.toLocaleString()} matching shiurim. Rankings may change.`
+                  `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
                 ) : (
                   <>
                     Most viewed among {discovery.total.toLocaleString()}{' '}

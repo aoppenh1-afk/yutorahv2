@@ -1,4 +1,4 @@
-import { getDiscovery } from './discovery';
+import { createDiscoveryReader, type getDiscovery } from './discovery';
 import {
   TrendingChangedError,
   type DiscoveryData,
@@ -17,7 +17,8 @@ const freshFor = (options: TrendingOptions) =>
   60 *
   1000;
 const staleFor = 24 * 60 * 60 * 1000;
-const leaseFor = 30 * 1000;
+const leaseFor = 60 * 1000;
+const retryFor = 30 * 1000;
 const progressFor = 3 * 1000;
 
 export { TrendingChangedError } from './trending';
@@ -30,7 +31,7 @@ export class TrendingBusyError extends Error {}
  */
 export function createTrendingService({
   database,
-  read = getDiscovery,
+  read = createDiscoveryReader(),
   now = Date.now,
 }: {
   database?: () => SearchDatabase;
@@ -85,7 +86,7 @@ export function createTrendingService({
               Array.isArray(last.trending) &&
               last.trending.length <= 30 &&
               Number.isSafeInteger(last.total) &&
-              last.sampled === last.total &&
+              last.sampled === (last.libraryTotal ?? last.total) &&
               last.total >= last.trending.length &&
               Number.isFinite(Date.parse(last.fetchedAt))
             )
@@ -101,11 +102,18 @@ export function createTrendingService({
               snapshot.total >= snapshot.trending.length &&
               Number.isSafeInteger(snapshot.sampled) &&
               snapshot.sampled >= snapshot.trending.length &&
-              snapshot.sampled <= snapshot.total &&
-              snapshot.partial === snapshot.sampled < snapshot.total &&
+              snapshot.sampled <= (snapshot.libraryTotal ?? snapshot.total) &&
+              snapshot.partial ===
+                snapshot.sampled < (snapshot.libraryTotal ?? snapshot.total) &&
               (!snapshot.partial ||
-                (Number.isSafeInteger(snapshot.nextId) &&
-                  snapshot.nextId! > 0)) &&
+                (snapshot.source === 'mobile'
+                  ? Number.isSafeInteger(snapshot.nextPage) &&
+                    snapshot.nextPage! > 0 &&
+                    typeof snapshot.seen === 'string' &&
+                    snapshot.seen.length <= 1400000 &&
+                    Number.isSafeInteger(snapshot.libraryTotal)
+                  : Number.isSafeInteger(snapshot.nextId) &&
+                    snapshot.nextId! > 0)) &&
               snapshot.trending.length <= 30 &&
               Number.isFinite(Date.parse(snapshot.fetchedAt)) &&
               (!previous ||
@@ -169,7 +177,7 @@ export function createTrendingService({
       const data = await read(
         options,
         now(),
-        previous?.partial && usable(previous, staleFor) ? previous : undefined,
+        usable(previous, staleFor) ? previous : undefined,
       );
       memory.set(key, data);
       if (!data.partial) completed.set(key, data);
@@ -237,7 +245,7 @@ export function createTrendingService({
             .bind(key, lease)
             .run();
         } catch {
-          /* An abandoned lease expires after thirty seconds. */
+          /* An abandoned lease expires after sixty seconds. */
         }
       }
     }
@@ -262,13 +270,13 @@ export function createTrendingService({
       const data = await request;
       if (data.stale) {
         cooldowns.set(key, {
-          until: now() + leaseFor,
+          until: now() + retryFor,
           error: new TrendingBusyError('This chart is refreshing.'),
         });
       } else cooldowns.delete(key);
       return data;
     } catch (error) {
-      cooldowns.set(key, { until: now() + leaseFor, error });
+      cooldowns.set(key, { until: now() + retryFor, error });
       throw error;
     } finally {
       pending.delete(key);

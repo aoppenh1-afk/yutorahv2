@@ -8,7 +8,8 @@ export async function GET(request: Request) {
   try {
     const options = parseTrendingOptions(new URL(request.url).searchParams);
     const data = await discover(options);
-    return Response.json(data, {
+    const { seen: _coverage, ...publicData } = data;
+    return Response.json(publicData, {
       headers: {
         'Cache-Control':
           data.stale || data.partial
@@ -34,6 +35,10 @@ export async function GET(request: Request) {
           },
         },
       );
+    console.warn(
+      'Trending refresh failed:',
+      error instanceof Error ? error.message : 'Unknown source failure.',
+    );
     return Response.json(
       { error: 'Trending shiurim could not load. Please try again.' },
       { status: 502, headers: { 'Cache-Control': 'no-store' } },

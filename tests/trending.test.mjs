@@ -20,7 +20,7 @@ async function load(path, plugins = []) {
 }
 const { trendingPeriods, trendingWindow, rankTrending, parseTrendingOptions } =
   await load('lib/trending.ts');
-const { getDiscovery } = await load('lib/discovery.ts');
+const { getDiscovery, createDiscoveryReader } = await load('lib/discovery.ts');
 const { createTrendingService, TrendingBusyError, TrendingChangedError } =
   await load('lib/trending-cache.ts');
 const initial = Date.parse('2026-10-02T12:00:00Z');
@@ -160,8 +160,8 @@ void test('source queries use upload cutoffs and duration before scanning every 
       const filters = target.searchParams.get('facet_query');
       assert.match(filters, /teacherishidden:0/);
       assert.match(filters, /duration:\[1 TO 10\]/);
-      assert.ok(filters.includes('shiurdatesubmitted:'));
-      assert.ok(filters.includes(result.before));
+      assert.equal(filters.includes('shiurdatesubmitted:'), value !== 'all');
+      if (value !== 'all') assert.ok(filters.includes(result.before));
       assert.equal(result.period, value);
       assert.equal(result.trending[0].views, 10);
     }
@@ -203,6 +203,28 @@ void test('empty cohorts and zero views are valid; malformed pages, ignored filt
     );
     globalThis.fetch = async () => new Response('Unavailable', { status: 503 });
     await assert.rejects(getDiscovery(options, initial), /503/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('all-time ranking includes viewed archival shiurim with missing upload dates', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    Response.json({
+      response: {
+        numFound: 1,
+        docs: [raw(1, { shiurdatesubmitted: undefined })],
+      },
+    });
+  try {
+    const result = await getDiscovery({ ...options, period: 'all' }, initial);
+    assert.equal(result.partial, false);
+    assert.equal(result.trending[0].id, 1);
+    await assert.rejects(
+      getDiscovery(options, initial),
+      /invalid trending data/,
+    );
   } finally {
     globalThis.fetch = original;
   }
@@ -254,6 +276,205 @@ void test('resuming a complete cohort finds winners beyond the first page and fr
 });
 
 const { normalize, uploadDate } = await load('lib/yutorah.ts');
+void test('a Cloudflare-blocked website falls back to complete mobile indexing without duplicate coverage', async () => {
+  const original = globalThis.fetch;
+  let websiteCalls = 0,
+    mobileCalls = 0;
+  globalThis.fetch = async (url) => {
+    const u = new URL(url);
+    if (u.pathname === '/Search/GetSearchResults') {
+      websiteCalls++;
+      return new Response('challenge', { status: 403 });
+    }
+    mobileCalls++;
+    const page = Number(u.searchParams.get('start'));
+    const maximum = 150 - (page - 1) * 30 + (mobileCalls === 2 ? 1 : 0);
+    return Response.json({
+      response: {
+        numFound: 150,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(maximum - i, { shiurvisitsnum: page === 5 ? 1000 - i : 1 }),
+        ),
+      },
+    });
+  };
+  try {
+    const first = await getDiscovery(options, initial);
+    assert.equal(first.source, 'mobile');
+    assert.equal(first.partial, true);
+    assert.equal(first.sampled, 119);
+    assert.equal(first.libraryTotal, 150);
+    assert.ok(first.seen.length > 0);
+    const second = await getDiscovery(options, initial + 10000, first);
+    assert.equal(second.sampled, 149);
+    assert.equal(second.partial, true);
+    assert.equal(second.nextPage, 1);
+    const complete = await getDiscovery(options, initial + 20000, second);
+    assert.equal(complete.sampled, 150);
+    assert.equal(complete.total, 150);
+    assert.equal(complete.partial, false);
+    assert.equal(complete.seen, undefined);
+    assert.equal(complete.before, first.before);
+    assert.equal(complete.trending[0].id, 30);
+    assert.equal(websiteCalls, 1);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('ignored website date filters use the independently validated mobile cohort', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = new URL(url);
+    if (u.pathname === '/Search/GetSearchResults')
+      return Response.json({
+        response: {
+          numFound: 1,
+          docs: [raw(1, { shiurdatesubmitted: '2000-01-01T12:00:00Z' })],
+        },
+      });
+    return Response.json({
+      response: {
+        numFound: 1,
+        docs: u.searchParams.get('start') === '1' ? [raw(2)] : [],
+      },
+    });
+  };
+  try {
+    const result = await getDiscovery(options, initial);
+    assert.equal(result.source, 'mobile');
+    assert.equal(result.partial, false);
+    assert.deepEqual(
+      result.trending.map((s) => s.id),
+      [2],
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('period switches share cached source pages and concurrent variants coalesce mobile requests', async () => {
+  const original = globalThis.fetch;
+  let now = initial,
+    calls = 0;
+  globalThis.fetch = async (url) => {
+    const u = new URL(url);
+    if (u.pathname === '/Search/GetSearchResults')
+      return new Response('', { status: 403 });
+    calls++;
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const page = Number(u.searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: 120,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(120 - (page - 1) * 30 - i, {
+            shiurdatesubmitted: new Date(initial - 3600000).toISOString(),
+          }),
+        ),
+      },
+    });
+  };
+  try {
+    const read = createDiscoveryReader(() => now);
+    const results = await Promise.all([
+      read({ period: 'day', minutes: 0 }, now),
+      read(options, now),
+    ]);
+    assert.equal(calls, 4);
+    assert.equal(results[0].period, 'day');
+    assert.equal(results[1].period, 'week');
+    await read({ period: 'month', minutes: 0 }, now);
+    assert.equal(calls, 4);
+    now += 60000;
+    await read({ period: 'all', minutes: 0 }, now);
+    assert.equal(calls, 8);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('failed mobile pages preserve successful progress and are revisited before completion', async () => {
+  const original = globalThis.fetch;
+  let failed = false;
+  globalThis.fetch = async (url) => {
+    const u = new URL(url);
+    if (u.pathname === '/Search/GetSearchResults')
+      return new Response('', { status: 403 });
+    const page = Number(u.searchParams.get('start'));
+    if (page === 2 && !failed) {
+      failed = true;
+      throw new Error('temporary page failure');
+    }
+    return Response.json({
+      response: {
+        numFound: 150,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(150 - (page - 1) * 30 - i, {
+            shiurvisitsnum: page === 2 ? 1000 - i : 1,
+          }),
+        ),
+      },
+    });
+  };
+  try {
+    const first = await getDiscovery(options, initial);
+    assert.equal(first.sampled, 90);
+    assert.equal(first.partial, true);
+    const second = await getDiscovery(options, initial + 10000, first);
+    assert.equal(second.sampled, 120);
+    assert.equal(second.partial, true);
+    const complete = await getDiscovery(options, initial + 20000, second);
+    assert.equal(complete.sampled, 150);
+    assert.equal(complete.partial, false);
+    assert.equal(complete.trending[0].id, 120);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('mobile coverage and upload filtering survive a persistent server restart', async () => {
+  const original = globalThis.fetch;
+  const { db, sqlite } = database();
+  let now = initial,
+    websiteCalls = 0;
+  globalThis.fetch = async (url) => {
+    const u = new URL(url);
+    if (u.pathname === '/Search/GetSearchResults') {
+      websiteCalls++;
+      return new Response('', { status: 403 });
+    }
+    const page = Number(u.searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: 150,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(150 - (page - 1) * 30 - i, {
+            shiurdatesubmitted:
+              page === 1 ? '2000-01-01T12:00:00Z' : '2026-10-01T12:00:00Z',
+          }),
+        ),
+      },
+    });
+  };
+  try {
+    const config = { database: () => db, now: () => now, read: getDiscovery };
+    const first = await createTrendingService(config)(options);
+    assert.equal(first.sampled, 120);
+    assert.equal(first.total, 90);
+    now += 3500;
+    const complete = await createTrendingService(config)(options);
+    assert.equal(complete.sampled, 150);
+    assert.equal(complete.total, 120);
+    assert.equal(complete.partial, false);
+    assert.equal(websiteCalls, 1);
+    assert.equal((await createTrendingService(config)(options)).total, 120);
+  } finally {
+    globalThis.fetch = original;
+    sqlite.close();
+  }
+});
+
 void test('upload timestamps remain separate from recorded dates and preserve Eastern offsets and milliseconds', () => {
   assert.equal(
     uploadDate('2026-10-02T14:01:11.56'),
@@ -564,6 +785,39 @@ void test('endpoint rejects bad period and duration values before any upstream o
         400,
       );
     assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('the public endpoint strips the internal library coverage bitmap', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = new URL(url);
+    if (u.pathname === '/Search/GetSearchResults')
+      return new Response('', { status: 403 });
+    const page = Number(u.searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: 150,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(150 - (page - 1) * 30 - i, {
+            shiurdatesubmitted: new Date(Date.now() - 3600000).toISOString(),
+          }),
+        ),
+      },
+    });
+  };
+  try {
+    const response = await GET(
+      new Request('http://localhost/api/discover?period=day'),
+    );
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.seen, undefined);
+    assert.equal(data.source, 'mobile');
+    assert.equal(data.sampled, 120);
+    assert.equal(response.headers.get('Cache-Control'), 'no-store');
   } finally {
     globalThis.fetch = original;
   }

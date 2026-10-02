@@ -34,7 +34,7 @@ for (const period of periods) {
   let complete = false;
   while (passes < maxPasses) {
     passes++;
-    const response = await fetch(url, { signal: AbortSignal.timeout(25000) });
+    const response = await fetch(url, { signal: AbortSignal.timeout(60000) });
     if (response.status === 503) {
       const seconds = Number(response.headers.get('Retry-After')) || 5;
       await new Promise((resolve) =>
@@ -54,7 +54,7 @@ for (const period of periods) {
         `${period}: upstream unavailable; the cached chart was preserved.`,
       );
     console.log(
-      `${period}: ${data.sampled}/${data.total} indexed${data.partial ? '' : ', complete'}`,
+      `${period}: ${data.sampled}/${data.libraryTotal ?? data.total} indexed${data.partial ? '' : ', complete'}`,
     );
     if (!data.partial) {
       complete = true;
