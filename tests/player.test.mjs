@@ -228,6 +228,38 @@ void test('player controls stop playback and the phone dialog stays inside the b
       await t.test(`${viewport.width}x${viewport.height}`, async () => {
         const { context, page } = await openPlayer(viewport);
         try {
+          if (viewport.width >= 768) {
+            for (const name of ['Rewind 15 seconds', 'Forward 15 seconds']) {
+              const alignment = await page
+                .getByRole('button', { name })
+                .evaluate((button) => {
+                  const icon = button
+                    .querySelector('svg')
+                    .getBoundingClientRect();
+                  const label = button
+                    .querySelector('span')
+                    .getBoundingClientRect();
+                  return {
+                    contained:
+                      label.left >= icon.left &&
+                      label.right <= icon.right &&
+                      label.top >= icon.top &&
+                      label.bottom <= icon.bottom,
+                    centerOffset: Math.abs(
+                      label.left + label.width / 2 - icon.left - icon.width / 2,
+                    ),
+                  };
+                });
+              assert.ok(
+                alignment.contained,
+                `${name}: 15 fits inside the arrow icon`,
+              );
+              assert.ok(
+                alignment.centerOffset < 1,
+                `${name}: 15 is horizontally centered`,
+              );
+            }
+          }
           await assertInViewport(
             page.getByRole('button', { name: 'Close player', exact: true }),
             viewport,
