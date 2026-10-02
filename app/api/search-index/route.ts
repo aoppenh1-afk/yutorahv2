@@ -22,8 +22,17 @@ async function handle(request: Request) {
   )
     return Response.json({ error: 'Not found.' }, { status: 404, headers });
   try {
-    if (request.method === 'GET')
-      return Response.json(await transferStatus(searchDatabase()), { headers });
+    if (request.method === 'GET') {
+      const db = searchDatabase();
+      const status = await transferStatus(db);
+      const info = (await db.prepare('SELECT 1').all()) as {
+        meta?: { size_after?: number };
+      };
+      return Response.json(
+        { ...status, storageBytes: info.meta?.size_after },
+        { headers },
+      );
+    }
     if (Number(request.headers.get('Content-Length')) > 1048576)
       throw new RangeError('Use a smaller transfer batch.');
     const raw = await request.text();

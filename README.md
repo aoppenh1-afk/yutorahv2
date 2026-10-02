@@ -17,9 +17,12 @@ Oracle Cloud Free Tier setup starts with [the Oracle VM notes](docs/transcriptio
 It uses the complete Lectern skill, PostgreSQL jobs/checkpoints, and native ACP audio.
 Build with `npm run worker:build`; test with `npm run test:worker`.
 Once enabled, the worker discovers audio only from your selected teachers/series within their budgets, and the search
-view shows timestamped matches from completed transcripts. The website needs the
-server-side `TRANSCRIPT_API_URL` and `TRANSCRIPT_API_TOKEN` settings described in
-the operations guide.
+view shows timestamped matches from completed transcripts. The Vercel website
+reads the managed PostgreSQL database through a server-side
+`TRANSCRIPT_DATABASE_URL` using a read-only role. The transcription computer uses
+its separate write connection. Completed transcripts remain available when that
+computer is offline. Hosts that use the HTTP reader can instead configure
+`TRANSCRIPT_API_URL` and `TRANSCRIPT_API_TOKEN` as described in the operations guide.
 
 Requires Node 22.13 or newer.
 

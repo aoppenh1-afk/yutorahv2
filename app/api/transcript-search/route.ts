@@ -1,5 +1,5 @@
 import { transcriptGateway } from '../../../lib/transcript-gateway';
-/** Same-origin bridge to the VM's read-only PostgreSQL search endpoint. */
+/** Same-origin access to the configured read-only transcript storage. */
 export async function GET(request: Request) {
   const p = new URL(request.url).searchParams;
   const q = p.get('q') || '';

@@ -111,3 +111,20 @@ void test('storage rejects failed HTTP responses without exposing credentials', 
     TypeError,
   );
 });
+
+void test('database capacity errors are actionable without logging upstream secrets', async (t) => {
+  const db = d1HttpDatabase(config);
+  t.mock.method(globalThis, 'fetch', async () =>
+    Response.json(
+      {
+        errors: [
+          { message: `SQLITE_FULL: database or disk is full ${config.token}` },
+        ],
+      },
+      { status: 400 },
+    ),
+  );
+  await assert.rejects(db.prepare('SELECT 1').all(), {
+    message: 'Search storage request failed (400). database size limit.',
+  });
+});

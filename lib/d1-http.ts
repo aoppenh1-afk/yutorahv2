@@ -34,8 +34,33 @@ export function d1HttpDatabase(config: {
       signal: AbortSignal.timeout(15000),
       cache: 'no-store',
     });
-    if (!response.ok)
-      throw new Error(`Search storage request failed (${response.status}).`);
+    if (!response.ok) {
+      // Classify known database failures without echoing upstream text, SQL,
+      // bound values, or credentials into application logs.
+      const failure = (await response.json().catch(() => null)) as {
+        errors?: { message?: string }[];
+      } | null;
+      const message = (failure?.errors ?? [])
+        .map((e) => e.message ?? '')
+        .join(' ');
+      const category =
+        /SQLITE_FULL|database or disk is full|maximum database size|database.*size.*limit/i.test(
+          message,
+        )
+          ? 'database size limit'
+          : /quota|daily.*limit|read.*limit|write.*limit/i.test(message)
+            ? 'database quota limit'
+            : /too many.*variables|statement.*too long|bound.*parameter.*limit/i.test(
+                  message,
+                )
+              ? 'query size limit'
+              : /foreign key constraint/i.test(message)
+                ? 'foreign key constraint'
+                : '';
+      throw new Error(
+        `Search storage request failed (${response.status}).${category ? ` ${category}.` : ''}`,
+      );
+    }
     const body = (await response.json()) as {
       success: boolean;
       result?: Result[];

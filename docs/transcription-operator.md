@@ -154,6 +154,26 @@ and database. Database migrations are append-only.
 
 ## Connect the website
 
+For the Vercel website, configure `TRANSCRIPT_DATABASE_URL` as a server-side
+secret with a pooled connection to the managed PostgreSQL database. Use a
+dedicated role with SELECT on `transcription_shiurim`, `transcripts`,
+`transcript_segments`, `transcript_search_words`, `notes_jobs`, and
+`transcript_notes`, and set its default transactions to read-only. Use
+`sslmode=verify-full`. The website reuses the worker's content and search
+implementation and reads only published transcripts and their corresponding
+notes. It does not need an HTTP tunnel to the transcription computer.
+
+The operator's `DATABASE_URL` uses its separate write connection to the same
+database. Before changing it, pause the queue, back up PostgreSQL, restore into
+the empty managed database, and compare all table counts and content hashes
+with both connections set to UTC. Preserve the local database, Google profile,
+and original environment files for rollback. Restart the operator after
+changing its connection; preserve its paused/running intent. New audio processing
+still depends on the transcription computer, while completed content can be
+read independently. Database connection strings are credentials.
+
+The HTTP reader remains available for hosts using the API connection:
+
 Put the read-only endpoint behind HTTPS (for example the existing Caddy
 configuration), and configure the existing website with server-side
 `TRANSCRIPT_API_URL` and `TRANSCRIPT_API_TOKEN` from the search environment.

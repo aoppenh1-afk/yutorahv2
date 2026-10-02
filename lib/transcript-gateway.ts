@@ -3,6 +3,10 @@ export async function transcriptGateway(
   path: string,
   params: URLSearchParams,
 ): Promise<Response> {
+  if (process.env.TRANSCRIPT_DATABASE_URL) {
+    const { transcriptDatabaseGateway } = await import('./transcript-database');
+    return transcriptDatabaseGateway(path, params);
+  }
   const base = process.env.TRANSCRIPT_API_URL;
   const token = process.env.TRANSCRIPT_API_TOKEN;
   const unavailable = (message: string, status = 503) =>
