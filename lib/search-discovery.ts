@@ -18,6 +18,24 @@ export type SearchSuggestion = {
   context: string;
 };
 
+export type ShiurSuggestion = {
+  id: number;
+  kind: 'shiur';
+  name: string;
+  context: string;
+};
+
+export function combineSearchSuggestions(
+  directory: SearchSuggestion[],
+  shiurim: ShiurSuggestion[],
+): (SearchSuggestion | ShiurSuggestion)[] {
+  // Directory matches require the whole query. Reserve space for five titles.
+  return [
+    ...directory.slice(0, shiurim.length ? 3 : 8),
+    ...shiurim.slice(0, 5),
+  ];
+}
+
 const teacherTitle = /^(?:rabbi|rabi|rabby|rav|r)$/;
 
 /** Resolve only an unambiguous mention, keeping the actual span for removal. */

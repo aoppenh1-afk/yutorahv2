@@ -44,6 +44,10 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
 
 ## What works
 
+- Search autocomplete shows up to five matching shiur titles while typing,
+  alongside teacher, topic, and series suggestions. Strong directory matches
+  come first. Selecting a title opens its shiur; Enter still submits a full search.
+  [Implementation, research, and database setup](docs/search-autocomplete.md).
 - Submitted searches and live suggestions understand typos, transposed letters,
   incomplete words, missing/extra spaces, and common English/Hebrew/transliteration aliases. Teacher
   names resolve only when unambiguous. Ranking, highlights, directory browsing,

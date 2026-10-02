@@ -7,6 +7,7 @@ export interface SearchStatement {
 }
 
 export interface SearchDatabase {
+  readonly dialect?: 'sqlite' | 'postgres';
   prepare(sql: string): SearchStatement;
   batch(statements: SearchStatement[]): Promise<unknown[]>;
 }
