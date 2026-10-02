@@ -1,7 +1,7 @@
 /* oxlint-disable next/no-img-element -- CDN-hosted YUTorah portraits are rendered at reserved dimensions. */
 /* oxlint-disable jsx-a11y/media-has-caption -- No caption tracks are supplied by the upstream audio library. */
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Bookmark,
   ExternalLink,
@@ -63,33 +63,21 @@ export function Avatar({
   src,
   name,
   className = '',
-  onImageLoad,
 }: {
   src: string;
   name: string;
   className?: string;
-  onImageLoad?: (image: HTMLImageElement) => void;
 }) {
-  return (
-    <Portrait
-      key={src}
-      src={src}
-      name={name}
-      className={className}
-      onImageLoad={onImageLoad}
-    />
-  );
+  return <Portrait key={src} src={src} name={name} className={className} />;
 }
 function Portrait({
   src,
   name,
   className,
-  onImageLoad,
 }: {
   src: string;
   name: string;
   className: string;
-  onImageLoad?: (image: HTMLImageElement) => void;
 }) {
   const [failures, setFailures] = useState(0);
   const image = useRef<HTMLImageElement>(null);
@@ -108,9 +96,8 @@ function Portrait({
     // A server-rendered image can fail before React attaches its error handler.
     if (image.current?.complete) {
       if (image.current.naturalWidth === 0) setFailures(failures + 1);
-      else onImageLoad?.(image.current);
     }
-  }, [imageSource, failures, onImageLoad]);
+  }, [imageSource, failures]);
   return src && available && !/_default\.|missingpicture/i.test(src) ? (
     <img
       ref={image}
@@ -119,7 +106,6 @@ function Portrait({
       alt=""
       loading="lazy"
       decoding="async"
-      onLoad={(event) => onImageLoad?.(event.currentTarget)}
       onError={() => setFailures(failures + 1)}
     />
   ) : (
@@ -134,27 +120,35 @@ function Portrait({
     </span>
   );
 }
-function PlayerPortrait({ src, name }: { src: string; name: string }) {
-  const [maxWidth, setMaxWidth] = useState<number>();
-  const image = useRef<HTMLImageElement | null>(null);
-  const fit = useCallback((portrait: HTMLImageElement) => {
-    image.current = portrait;
-    // The portrait frame is 6:7. Neither axis should stretch the source pixels.
-    setMaxWidth(
-      Math.min(portrait.naturalWidth, (portrait.naturalHeight * 6) / 7) /
-        (window.devicePixelRatio || 1),
-    );
-  }, []);
-  useEffect(() => {
-    const resize = () => {
-      if (image.current) fit(image.current);
-    };
-    window.addEventListener('resize', resize);
-    return () => window.removeEventListener('resize', resize);
-  }, [fit]);
+// Verified original photographs; provenance is in public/images/teachers/README.md.
+const playerPortraits: Record<number, string> = {
+  80714: '/images/teachers/aryeh-lebowitz.jpg',
+};
+function PlayerPortrait({
+  src,
+  name,
+  teacherId,
+}: {
+  src: string;
+  name: string;
+  teacherId: number;
+}) {
+  const [failed, setFailed] = useState(false);
+  const original = playerPortraits[teacherId];
   return (
-    <div className="now-playing-portrait" style={{ maxWidth }}>
-      <Avatar src={src} name={name} onImageLoad={fit} />
+    <div className="now-playing-portrait">
+      {original && !failed ? (
+        <img
+          className="avatar"
+          src={original}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <Avatar src={src} name={name} />
+      )}
     </div>
   );
 }
@@ -1009,7 +1003,12 @@ function MobileAudioPlayer({
               <X size={24} />
             </button>
           </div>
-          <PlayerPortrait key={s.image} src={s.image} name={s.teacher} />
+          <PlayerPortrait
+            key={`${s.teacherId}:${s.image}`}
+            src={s.image}
+            name={s.teacher}
+            teacherId={s.teacherId}
+          />
           <div className="now-playing-title">
             <div>
               <DialogTitle dir="auto">{s.title}</DialogTitle>

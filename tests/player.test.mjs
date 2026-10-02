@@ -95,7 +95,12 @@ async function openPlayer(viewport, stalled = false, options = {}) {
     viewport,
     deviceScaleFactor: options.pixelRatio || 1,
   });
-  const recording = { ...shiur, image: options.image || '' };
+  const recording = {
+    ...shiur,
+    image: options.image || '',
+    teacherId: options.teacherId || shiur.teacherId,
+    teacher: options.teacher || shiur.teacher,
+  };
   await context.addInitScript((s) => {
     if (!localStorage.getItem('yutorah-learning-v1'))
       localStorage.setItem(
@@ -110,6 +115,10 @@ async function openPlayer(viewport, stalled = false, options = {}) {
   await context.route('**/api/shiur?id=900001', (route) =>
     route.fulfill({ json: recording }),
   );
+  if (options.missingHighResolution)
+    await context.route('**/images/teachers/aryeh-lebowitz.jpg', (route) =>
+      route.fulfill({ status: 404, body: '' }),
+    );
   await context.route(
     'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/player-fixture*.jpg',
     (route) => {
@@ -337,7 +346,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
     for (const pixelRatio of [1, 2, 3]) {
       for (const missingOriginal of [false, true]) {
         await t.test(
-          `portrait avoids upscaling at ${pixelRatio}x density, original missing=${missingOriginal}`,
+          `portrait stays large at ${pixelRatio}x density, original missing=${missingOriginal}`,
           async () => {
             const { context, page } = await openPlayer(
               { width: 390, height: 844 },
@@ -361,19 +370,19 @@ void test('player controls stop playback and the phone dialog stays inside the b
                     ?.naturalWidth > 0,
               );
               const pixels = await portrait.evaluate((img) => ({
-                width: img.getBoundingClientRect().width * devicePixelRatio,
-                height: img.getBoundingClientRect().height * devicePixelRatio,
+                width: img.getBoundingClientRect().width,
+                height: img.getBoundingClientRect().height,
                 naturalWidth: img.naturalWidth,
                 naturalHeight: img.naturalHeight,
                 source: img.currentSrc,
               }));
               assert.equal(pixels.naturalWidth, missingOriginal ? 50 : 240);
               assert.ok(
-                pixels.width <= pixels.naturalWidth + 1,
+                pixels.width >= 220 && pixels.width <= 230,
                 JSON.stringify(pixels),
               );
               assert.ok(
-                pixels.height <= pixels.naturalHeight + 1,
+                pixels.height >= 255 && pixels.height <= 269,
                 JSON.stringify(pixels),
               );
               assert.equal(pixels.source.includes('_lp.jpg'), !missingOriginal);
@@ -383,6 +392,58 @@ void test('player controls stop playback and the phone dialog stays inside the b
           },
         );
       }
+    }
+    for (const missingHighResolution of [false, true]) {
+      await t.test(
+        `Lebowitz portrait is large and uses the verified original, missing=${missingHighResolution}`,
+        async () => {
+          const { context, page } = await openPlayer(
+            { width: 390, height: 844 },
+            false,
+            {
+              pixelRatio: 3,
+              teacherId: 80714,
+              teacher: 'Rabbi Aryeh Lebowitz',
+              missingHighResolution,
+              image:
+                'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/player-fixture.jpg',
+            },
+          );
+          try {
+            await page
+              .getByRole('button', { name: 'Expand player controls' })
+              .click();
+            await page.waitForFunction(() => {
+              const img = document.querySelector('.now-playing-portrait img');
+              return img?.complete && img.naturalWidth > 0;
+            });
+            const pixels = await page
+              .locator('.now-playing-portrait img')
+              .evaluate((img) => ({
+                width: img.getBoundingClientRect().width,
+                height: img.getBoundingClientRect().height,
+                naturalWidth: img.naturalWidth,
+                naturalHeight: img.naturalHeight,
+                source: img.currentSrc,
+              }));
+            assert.ok(pixels.width >= 220 && pixels.width <= 230);
+            if (missingHighResolution) {
+              assert.ok(pixels.source.endsWith('player-fixture_lp.jpg'));
+              assert.equal(pixels.naturalWidth, 240);
+            } else {
+              assert.ok(
+                pixels.source.endsWith('/images/teachers/aryeh-lebowitz.jpg'),
+              );
+              assert.equal(pixels.naturalWidth, 5602);
+              assert.equal(pixels.naturalHeight, 3735);
+              assert.ok(pixels.width * 3 <= pixels.naturalWidth);
+              assert.ok(pixels.height * 3 <= pixels.naturalHeight);
+            }
+          } finally {
+            await context.close();
+          }
+        },
+      );
     }
   } finally {
     await browser.close();
