@@ -25,6 +25,7 @@ export type Shiur = {
   url: string;
   duration: number;
   date: string;
+  uploadedAt?: string;
   topics: string[];
   topicIds?: number[];
   views?: number;
@@ -93,22 +94,73 @@ export function safeUrl(value: unknown): string {
     return '';
   }
 }
+/** The legacy website serializes Eastern wall time; the mobile API includes Z. */
+export function uploadDate(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  let input = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}T[\d:.]+$/.test(input)) {
+    const wall = Date.parse(input + 'Z');
+    if (!Number.isFinite(wall)) return undefined;
+    const eastern = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    });
+    let instant = wall;
+    for (let pass = 0; pass < 2; pass++) {
+      const parts = Object.fromEntries(
+        eastern.formatToParts(instant).map((p) => [p.type, p.value]),
+      );
+      const local = Date.UTC(
+        Number(parts.year),
+        Number(parts.month) - 1,
+        Number(parts.day),
+        Number(parts.hour),
+        Number(parts.minute),
+        Number(parts.second),
+      );
+      instant = wall - (local - Math.floor(instant / 1000) * 1000);
+    }
+    input = new Date(instant).toISOString();
+  }
+  // A date without a time or offset cannot establish a 24-hour cutoff.
+  if (!/T.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(input)) return undefined;
+  const timestamp = Date.parse(input);
+  return Number.isFinite(timestamp)
+    ? new Date(timestamp).toISOString()
+    : undefined;
+}
 export function normalize(raw: RawShiur): Shiur {
   const teacher = raw.shiurTeachers?.[0];
   const seconds = String(raw.shiurLength ?? '0:0:0')
     .split(':')
     .reduce((s: number, n: string) => s * 60 + Number(n), 0);
+  const legacyPhoto =
+    raw.PHOTO || (Array.isArray(raw.photo) ? raw.photo[0] : raw.photo);
   const photo =
     teacher?.teacherPhotoURL ||
-    (raw.PHOTO
-      ? 'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/' + raw.PHOTO
+    (legacyPhoto
+      ? 'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/' + legacyPhoto
       : '');
   const id = Number(raw.shiurID ?? raw.shiurid);
   return {
     id,
     title: plain(raw.shiurTitle ?? raw.shiurtitle),
-    teacher: plain(teacher?.teacherName ?? raw.teacherfullname),
-    teacherId: Number(teacher?.teacherID ?? raw.teacherid),
+    teacher: plain(
+      teacher?.teacherName ??
+        (Array.isArray(raw.teacherfullname)
+          ? raw.teacherfullname[0]
+          : raw.teacherfullname),
+    ),
+    teacherId: Number(
+      teacher?.teacherID ??
+        (Array.isArray(raw.teacherid) ? raw.teacherid[0] : raw.teacherid),
+    ),
     image: safeUrl(photo),
     audio: safeUrl(raw.downloadURL || raw.shiurFileURL || raw.shiurdownloadurl),
     url: `${ORIGIN}/lectures/details?shiurID=${id}`,
@@ -117,6 +169,7 @@ export function normalize(raw: RawShiur): Shiur {
       /^(\d{4}-\d{2}-\d{2}T[\d:.]+)$/,
       '$1Z',
     ),
+    uploadedAt: uploadDate(raw.shiurDateSubmitted ?? raw.shiurdatesubmitted),
     topics: (
       raw.shiurSubcategoriesObj?.map((s) => s.name) ??
       raw.subcategoryname ??
@@ -179,7 +232,10 @@ async function fetchUpstream(path: string): Promise<unknown> {
     headers: { Accept: 'application/json' },
     signal: AbortSignal.timeout(18000),
   });
-  if (!response.ok) throw new Error(`YUTorah returned ${response.status}`);
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`YUTorah returned ${response.status}`);
+  }
   let data: unknown = await response.json();
   if (path.startsWith('search/')) {
     const search = data as SearchResponse;

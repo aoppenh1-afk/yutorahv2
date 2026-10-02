@@ -1112,6 +1112,36 @@ body {
   column-gap: 35px;
   gap: 12px 16px;
 }
+.trending-periods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 16px 0;
+}
+.trending-periods button {
+  min-height: 44px;
+  padding: 9px 16px;
+  border: 1px solid #dce3ed;
+  border-radius: 10px;
+  background: #fff;
+  color: #546582;
+  font-size: 13px;
+  font-weight: 600;
+}
+.trending-periods button[aria-pressed='true'] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.trending-periods button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.trending-freshness {
+  margin: 7px 0 18px;
+  color: #6e83a7;
+  font-size: 12px;
+}
 .trending-item {
   display: flex;
   align-items: center;

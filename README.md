@@ -63,7 +63,7 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
   happens. Ranking favors complete subject coverage and nearby title matches.
 - Browse teachers, series, topics, editor selections, recent additions, and daily learning.
 - Resume unfinished learning directly from Discover, or revisit each recording's progress in Learning history.
-- Explore trending recordings ranked by real public view counts across the latest 180 uploads. The interface discloses the sample and uses lifetime views rather than claiming a rolling archive-wide chart.
+- Explore trending shiurim for 24 hours, week, month, year or all time, ranked by public lifetime views within each upload cohort. Resumable indexing reports incomplete coverage and caches completed charts. See [trending behavior and warm-up](docs/trending.md).
 - Follow teachers, topics, and series; filter recommendations to a time budget. Related learning fetches additional recordings from the current shiur's series, topics, and teacher, with a reason for each recommendation.
 - Play recordings while navigating; seek, change speed and volume, manage the queue, set a sleep timer, and resume listening.
 - Save shiurim, create and edit playlists, and keep timestamped notes on this device. Removal actions support undo.

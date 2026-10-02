@@ -36,7 +36,11 @@ import { MobileDiscover } from './mobile-discover';
 import type { Directory, HomeData, Shiur } from '@/lib/yutorah';
 import { mediaKind, selectHomeFeature } from '@/lib/yutorah';
 import type { LibraryState } from '@/lib/library';
-import type { DiscoveryData } from '@/lib/discovery';
+import {
+  trendingPeriods,
+  type DiscoveryData,
+  type TrendingPeriod,
+} from '@/lib/trending';
 import {
   isLearned,
   learningStats,
@@ -136,18 +140,37 @@ export function LearningHome(props: Props) {
   const [feedItems, setFeedItems] = useState<Shiur[]>([]);
   const [feedLoading, setFeedLoading] = useState(false);
   const [feedError, setFeedError] = useState(false);
-  const [discovery, setDiscovery] = useState<DiscoveryData | null>(null);
+  const [trendingPeriod, setTrendingPeriod] = useState<TrendingPeriod>('week');
+  const [trendingLimit, setTrendingLimit] = useState(12);
+  const [discoveryCharts, setDiscoveryCharts] = useState<
+    Record<string, DiscoveryData>
+  >({});
+  const trendingMinutes = minutes === 'all' ? 0 : Number(minutes);
+  const discoveryKey = `${trendingPeriod}:${trendingMinutes}`;
+  const discovery = discoveryCharts[discoveryKey] ?? null;
   const [discoveryError, setDiscoveryError] = useState(false);
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
   const [relatedItems, setRelatedItems] = useState<Shiur[]>([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [relatedError, setRelatedError] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const [discoveryPass, setDiscoveryPass] = useState(0);
+  const [discoveryRetry, setDiscoveryRetry] = useState(0);
   const currentTab = followingPage
     ? 'following'
     : trendingPage
       ? 'trending'
       : tab;
+  useEffect(() => {
+    if (currentTab !== 'trending' || discoveryLoading) return;
+    const indexing = discovery?.partial && !discovery.stale && !discoveryError;
+    if (!indexing && !discoveryRetry) return;
+    const timer = window.setTimeout(
+      () => setDiscoveryPass((n) => n + 1),
+      discoveryRetry ? discoveryRetry * 1000 : 3500,
+    );
+    return () => window.clearTimeout(timer);
+  }, [currentTab, discovery, discoveryLoading, discoveryError, discoveryRetry]);
   const anchor = library.history[0]?.shiur || library.saved[0];
   const anchorId = anchor?.id;
 
@@ -216,11 +239,28 @@ export function LearningHome(props: Props) {
     const abort = new AbortController();
     setDiscoveryLoading(true);
     setDiscoveryError(false);
-    fetch('/api/discover', { signal: abort.signal })
+    setDiscoveryRetry(0);
+    const query = new URLSearchParams({
+      period: trendingPeriod,
+      minutes: String(trendingMinutes),
+    });
+    fetch('/api/discover?' + query, { signal: abort.signal })
       .then(async (res) => {
-        if (!res.ok) throw new Error('Discovery unavailable');
+        if (!res.ok) {
+          if (res.status === 503 && !abort.signal.aborted)
+            setDiscoveryRetry(
+              Math.min(
+                30,
+                Math.max(5, Number(res.headers.get('Retry-After')) || 5),
+              ),
+            );
+          throw new Error('Discovery unavailable');
+        }
         const data = (await res.json()) as DiscoveryData;
-        if (!abort.signal.aborted) setDiscovery(data);
+        if (data.period !== trendingPeriod || data.minutes !== trendingMinutes)
+          throw new Error('Discovery returned a different chart');
+        if (!abort.signal.aborted)
+          setDiscoveryCharts((old) => ({ ...old, [discoveryKey]: data }));
       })
       .catch(() => {
         if (!abort.signal.aborted) setDiscoveryError(true);
@@ -229,7 +269,7 @@ export function LearningHome(props: Props) {
         if (!abort.signal.aborted) setDiscoveryLoading(false);
       });
     return () => abort.abort();
-  }, [refresh]);
+  }, [refresh, discoveryPass, trendingPeriod, trendingMinutes, discoveryKey]);
 
   useEffect(() => {
     setRelatedItems([]);
@@ -426,12 +466,20 @@ export function LearningHome(props: Props) {
           </span>
           <button
             className="trending-cover"
-            aria-label={'Play ' + s.title}
-            onClick={() => onPlay(s)}
+            aria-label={
+              (mediaKind(s) === 'audio' ? 'Play ' : 'Open ') + s.title
+            }
+            onClick={() =>
+              mediaKind(s) === 'audio' ? onPlay(s) : onDetails(s)
+            }
           >
             <Avatar src={s.image} name={s.teacher} />
             <span>
-              <Play size={16} fill="currentColor" />
+              {mediaKind(s) === 'audio' ? (
+                <Play size={16} fill="currentColor" />
+              ) : (
+                <ArrowRight size={16} />
+              )}
             </span>
           </button>
           <div className="trending-copy">
@@ -441,7 +489,7 @@ export function LearningHome(props: Props) {
             <p>{s.teacher}</p>
             <small>
               <Eye size={12} />
-              {s.views?.toLocaleString()} views<span>·</span>
+              {s.views?.toLocaleString()} total views<span>·</span>
               {s.duration ? Math.round(s.duration / 60) + ' min' : mediaKind(s)}
             </small>
           </div>
@@ -846,23 +894,42 @@ export function LearningHome(props: Props) {
         <section className="discovery-section">
           {sectionHeading(
             'What listeners are exploring',
-            discovery
-              ? `Ranked by total YUTorah views across ${discovery.sampled} recent recordings.${discovery.partial ? ' Some recordings could not load.' : ''}`
-              : 'View counts come directly from YUTorah.',
+            discovery?.partial
+              ? `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
+              : discovery
+                ? `Most viewed among ${discovery.total.toLocaleString()} matching shiurim${trendingPeriod === 'all' ? ' across the library' : ' in this date range'}.`
+                : 'View counts come directly from YUTorah.',
           )}
+          <fieldset className="trending-periods" aria-label="Trending period">
+            {trendingPeriods.map(({ value, label }) => (
+              <button
+                key={value}
+                aria-pressed={trendingPeriod === value}
+                onClick={() => {
+                  setTrendingPeriod(value);
+                  setTrendingLimit(12);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </fieldset>
           <div className="discovery-toolbar">
-            <div className="time-chips">
+            <fieldset className="time-chips" aria-label="Trending length">
               <Timer size={15} />
               {['all', '10', '20', '30'].map((v) => (
                 <button
                   key={v}
                   aria-pressed={minutes === v}
-                  onClick={() => setMinutes(v)}
+                  onClick={() => {
+                    setMinutes(v);
+                    setTrendingLimit(12);
+                  }}
                 >
                   {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
                 </button>
               ))}
-            </div>
+            </fieldset>
             <button
               className="icon-button"
               aria-label="Refresh trending"
@@ -873,16 +940,42 @@ export function LearningHome(props: Props) {
             </button>
           </div>
           <p className="trending-source">
-            YUTorah supplies total views for these recordings. Views for the
-            past 24 hours, week, month, or year are unavailable from the public
-            API, so this chart uses lifetime views.
+            {trendingPeriod === 'all'
+              ? 'Ranked by total YUTorah views across the library.'
+              : `Ranked by total YUTorah views for shiurim uploaded in the past ${
+                  trendingPeriods.find((p) => p.value === trendingPeriod)!
+                    .days === 1
+                    ? '24 hours'
+                    : trendingPeriods.find((p) => p.value === trendingPeriod)!
+                        .days + ' days'
+                }.`}{' '}
+            Dates use YUTorah&apos;s upload date. View counts are lifetime
+            totals. Some source dates have day precision.
           </p>
+          {discovery && (
+            <p className="trending-freshness">
+              {discovery.stale
+                ? 'Showing cached results while YUTorah is unavailable. '
+                : 'Updated '}
+              <time dateTime={discovery.fetchedAt}>
+                {new Date(discovery.fetchedAt).toLocaleString()}
+              </time>
+              {discoveryLoading && ' · Refreshing…'}
+              <span>
+                {' '}
+                · Upload window ends{' '}
+                <time dateTime={discovery.before}>
+                  {new Date(discovery.before).toLocaleString()}
+                </time>
+              </span>
+            </p>
+          )}
           {discoveryLoading && !discovery ? (
             <div className="discovery-loading">
               <Loader2 size={18} className="spin" />
               Finding trending shiurim…
             </div>
-          ) : discoveryError ? (
+          ) : discoveryError && !discovery ? (
             <StatePanel
               title="Trending couldn't load."
               description="YUTorah's popularity data is temporarily unavailable."
@@ -892,11 +985,35 @@ export function LearningHome(props: Props) {
               </button>
             </StatePanel>
           ) : trending.length ? (
-            trendingList(12)
+            <>
+              {discoveryError && (
+                <output className="feed-notice">
+                  Refresh couldn&apos;t load. Showing the last chart for this
+                  range. <button onClick={refreshAll}>Try again</button>
+                </output>
+              )}
+              {trendingList(trendingLimit)}
+              {trending.length > trendingLimit && (
+                <button
+                  className="outline-button discovery-more"
+                  onClick={() => setTrendingLimit((n) => n + 12)}
+                >
+                  Show more <ArrowRight size={15} />
+                </button>
+              )}
+            </>
           ) : (
             <StatePanel
-              title="No recordings match this length."
-              description="Choose a longer time budget to see more trending shiurim."
+              title={
+                discovery?.partial
+                  ? 'Indexing this range…'
+                  : 'No viewed shiurim match this range.'
+              }
+              description={
+                discovery?.partial
+                  ? 'The chart will update as more shiurim are indexed.'
+                  : 'Choose another period or length to see more shiurim.'
+              }
             />
           )}
         </section>
@@ -1073,7 +1190,7 @@ export function LearningHome(props: Props) {
           <section className="discovery-section trending-section">
             {sectionHeading(
               'Trending in the library',
-              'Popular recordings from a sample of recent shiurim.',
+              'Most viewed shiurim in the selected date range.',
               () => onNavigate('trending'),
               'Explore trending',
             )}
@@ -1095,9 +1212,19 @@ export function LearningHome(props: Props) {
             {discovery && (
               <p className="trending-source">
                 <Eye size={12} />
-                Total YUTorah views across {discovery.sampled} recent
-                recordings.{' '}
-                {discovery.partial && 'Some recordings could not load.'}
+                {discovery.partial ? (
+                  `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
+                ) : (
+                  <>
+                    Most viewed among {discovery.total.toLocaleString()}{' '}
+                    matching shiurim
+                    {discovery.period === 'all'
+                      ? ' across the library'
+                      : ' in this date range'}
+                    , using YUTorah&apos;s upload date.
+                  </>
+                )}
+                {discovery.stale && ' Showing cached results.'}
               </p>
             )}
           </section>

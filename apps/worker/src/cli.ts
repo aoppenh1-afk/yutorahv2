@@ -1,4 +1,5 @@
-import { readFile, mkdir, readdir } from 'node:fs/promises';
+import { readFile, mkdir, readdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { resolve, join } from 'node:path';
 import { Pool } from 'pg';
 import {
@@ -143,6 +144,33 @@ async function main() {
       await client.query('SELECT pg_advisory_unlock(891733,2)').catch(() => {});
       client.release();
     }
+  } else if (command === 'clean-transcripts') {
+    const apply = args.includes('--apply');
+    if (apply && !option('--backup-dir')) throw new Failure('configuration');
+    const backupDirectory = apply
+      ? join(resolve(option('--backup-dir')), `filler-cleanup-${randomUUID()}`)
+      : undefined;
+    if (backupDirectory)
+      await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
+    const report = await db.cleanExistingTranscripts({
+      signal: controller.signal,
+      backup: backupDirectory
+        ? async (original) => {
+            await writeFile(
+              join(backupDirectory, `${original.transcript.id}.json`),
+              JSON.stringify(original) + '\n',
+              { flag: 'wx', mode: 0o600, flush: true },
+            );
+          }
+        : undefined,
+    });
+    process.stdout.write(
+      JSON.stringify({
+        event: 'transcripts_cleaned',
+        ...report,
+        backupDirectory,
+      }) + '\n',
+    );
   } else if (command === 'serve-operator') {
     const operator = new OperatorRuntime(db, {
       runtime,

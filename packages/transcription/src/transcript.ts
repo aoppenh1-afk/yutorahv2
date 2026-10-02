@@ -1,5 +1,6 @@
 import { Failure } from '../../antigravity-acp/src/errors.js';
 import type { Range, Segment, Settings, Transcript } from './types.js';
+import { cleanTranscript } from './cleanup.js';
 
 export function parseTranscript(
   output: string,
@@ -179,12 +180,13 @@ export function mergeChunks(
       Math.round((range.coreStart - range.start) * 1000),
     );
   }
-  if (!validSegments(segments, durationMs))
-    throw new Failure('invalid_transcript');
-  return {
+  const transcript = cleanTranscript({
     schemaVersion: 1,
     durationMs,
     segments,
     text: segments.map((s) => s.text).join('\n\n'),
-  };
+  });
+  if (!validSegments(transcript.segments, durationMs))
+    throw new Failure('invalid_transcript');
+  return transcript;
 }
