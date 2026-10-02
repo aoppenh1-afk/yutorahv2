@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AdvancedSearch, type Filters, noFilters } from './advanced-search';
 import { SearchBox } from './search-box';
 import { SearchTools } from './search-tools';
+import { MobileSearchSummary } from './mobile-search-summary';
 import { TranscriptSearch, type TranscriptHit } from './transcript-search';
 import { TranscriptReader } from './transcript-reader';
 import { Notebook } from './notebook';
@@ -85,6 +86,7 @@ import {
   StatePanel,
 } from './ui';
 import { useLibrary, useAudio, timeLabel } from '@/lib/library';
+import { useIsMobile } from '@/hooks/use-mobile';
 import type { HomeData, Shiur, Directory, SearchResult } from '@/lib/yutorah';
 import { mediaKind } from '@/lib/yutorah';
 type View =
@@ -118,6 +120,27 @@ async function requestJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   if (!r.ok)
     throw new Error(j.error || 'Something went wrong. Please try again.');
   return j;
+}
+function SearchOptions({
+  collapsed,
+  label,
+  children,
+}: {
+  collapsed: boolean;
+  label: string;
+  children: React.ReactNode;
+}) {
+  if (!collapsed) return <>{children}</>;
+  return (
+    <details className="mobile-search-options">
+      <summary>
+        <SlidersHorizontal size={18} />
+        <span>{label}</span>
+        <ChevronDown size={16} />
+      </summary>
+      <div className="mobile-search-options-body">{children}</div>
+    </details>
+  );
 }
 function NavItem({
   icon: Icon,
@@ -158,6 +181,7 @@ export default function TorahApp({
 }: {
   initialHome: HomeData | null;
 }) {
+  const isMobile = useIsMobile();
   const [home, setHome] = useState(initialHome);
   const [homeLoading, setHomeLoading] = useState(false);
   const [view, setView] = useState<View>('discover');
@@ -202,15 +226,21 @@ export default function TorahApp({
   const detailAbort = useRef<AbortController | null>(null);
   const initialized = useRef(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const notify = useCallback((text: string) => {
-    setToast(text);
-    setUndoAction(null);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => {
-      setToast('');
+  const notify = useCallback(
+    (text: string) => {
+      setToast(text);
       setUndoAction(null);
-    }, 6500);
-  }, []);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      toastTimer.current = setTimeout(
+        () => {
+          setToast('');
+          setUndoAction(null);
+        },
+        isMobile && text.length < 120 ? 4000 : 6500,
+      );
+    },
+    [isMobile],
+  );
   const { library, update, ready } = useLibrary(notify);
   const player = useAudio(library, update, ready, notify);
   const detailId = detail?.id;
@@ -691,6 +721,31 @@ export default function TorahApp({
       ...filters,
       [key]: value === 'all' ? '' : value,
     });
+  const toggleLearned = (s: Shiur) => {
+    const learned = isLearned(s, library);
+    update((old) => ({
+      ...old,
+      completed: learned
+        ? old.completed.filter((id) => id !== s.id)
+        : [...new Set([...old.completed, s.id])],
+      history: learned
+        ? old.history.map((h) =>
+            h.shiur.id === s.id ? { ...h, seconds: 0 } : h,
+          )
+        : old.history.some((h) => h.shiur.id === s.id)
+          ? old.history
+          : [
+              {
+                shiur: s,
+                seconds: 0,
+                duration: s.duration,
+                updatedAt: new Date().toISOString(),
+              },
+              ...old.history,
+            ].slice(0, 200),
+    }));
+    notify(learned ? 'Marked as not learned.' : 'Marked as learned.');
+  };
   const rows = (items: Shiur[], history = false) =>
     items.map((s) => (
       <ShiurRow
@@ -701,6 +756,9 @@ export default function TorahApp({
         onDetails={showDetail}
         onSave={save}
         onQueue={enqueue}
+        onPlaylist={() => addToPlaylist(s)}
+        onLearned={() => toggleLearned(s)}
+        active={player.active?.id === s.id && player.playing}
         saved={savedIds.has(s.id)}
         learned={isLearned(s, library)}
         progress={
@@ -716,33 +774,7 @@ export default function TorahApp({
                   : 'Mark as learned: ') + s.title
               }
               aria-pressed={isLearned(s, library)}
-              onClick={() => {
-                const learned = isLearned(s, library);
-                update((old) => ({
-                  ...old,
-                  completed: learned
-                    ? old.completed.filter((id) => id !== s.id)
-                    : [...new Set([...old.completed, s.id])],
-                  history: learned
-                    ? old.history.map((h) =>
-                        h.shiur.id === s.id ? { ...h, seconds: 0 } : h,
-                      )
-                    : old.history.some((h) => h.shiur.id === s.id)
-                      ? old.history
-                      : [
-                          {
-                            shiur: s,
-                            seconds: 0,
-                            duration: s.duration,
-                            updatedAt: new Date().toISOString(),
-                          },
-                          ...old.history,
-                        ].slice(0, 200),
-                }));
-                notify(
-                  learned ? 'Marked as not learned.' : 'Marked as learned.',
-                );
-              }}
+              onClick={() => toggleLearned(s)}
             >
               <Check size={17} />
             </button>
@@ -855,6 +887,41 @@ export default function TorahApp({
     /(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/,
   )?.[1];
   const playlist = library.playlists.find((p) => p.id === selectedPlaylist);
+  const resultViewControls = (
+    <div className="result-view-controls">
+      <FilterSelect
+        label="Sort all results"
+        value={resultOrder}
+        onChange={(sort) => void runSearch(submitted, { ...filters, sort })}
+        options={[
+          { value: 'relevance', label: 'Best matches' },
+          { value: 'popular', label: 'Most popular' },
+          { value: 'library', label: 'Library order' },
+          { value: 'new', label: 'Newest first' },
+          { value: 'old', label: 'Oldest first' },
+          { value: 'long', label: 'Longest first' },
+          { value: 'short', label: 'Shortest first' },
+          { value: 'title', label: 'Title A–Z' },
+        ]}
+      />
+      <div className="view-switch">
+        <button
+          aria-label="List view"
+          aria-pressed={!grid}
+          onClick={() => setGrid(false)}
+        >
+          <List size={17} />
+        </button>
+        <button
+          aria-label="Grid view"
+          aria-pressed={grid}
+          onClick={() => setGrid(true)}
+        >
+          <LayoutGrid size={17} />
+        </button>
+      </div>
+    </div>
+  );
   return (
     <SidebarProvider
       style={{ '--sidebar-width': '232px' } as React.CSSProperties}
@@ -873,11 +940,12 @@ export default function TorahApp({
               navigate('discover');
             }}
           >
-            <span className="brand-mark">YU</span>
-            <span>
-              Torah
-              <span className="brand-caption">TORAH. EVERY DAY.</span>
-            </span>
+            <img
+              src="/images/yutorah-wordmark.png"
+              width={298}
+              height={69}
+              alt="The Marcos and Adina Katz YUTorah Online. A project of Yeshiva University–RIETS."
+            />
           </Link>
         </SidebarHeader>
         <SidebarContent>
@@ -968,33 +1036,69 @@ export default function TorahApp({
       <nav className="mobile-nav" aria-label="Main navigation">
         {(
           [
-            { icon: Compass, view: 'discover' },
-            { icon: Search, view: 'search' },
-            { icon: Users, view: 'teachers' },
-            { icon: Bookmark, view: 'saved' },
+            {
+              icon: Compass,
+              view: 'discover',
+              label: 'Home',
+              active: view === 'discover' || view === 'trending',
+            },
+            {
+              icon: Search,
+              view: 'search',
+              label: 'Search',
+              active: view === 'search',
+            },
+            {
+              icon: LayoutGrid,
+              view: 'topics',
+              label: 'Browse',
+              active: ['topics', 'teachers', 'series'].includes(view),
+            },
+            {
+              icon: Users,
+              view: 'following',
+              label: 'Following',
+              active: view === 'following',
+            },
+            {
+              icon: Library,
+              view: 'saved',
+              label: 'Library',
+              active: ['saved', 'history', 'notes', 'playlists'].includes(view),
+            },
           ] as const
         ).map((item) => (
           <button
             key={item.view}
-            aria-current={view === item.view ? 'page' : undefined}
+            aria-current={item.active ? 'page' : undefined}
             onClick={() => navigate(item.view)}
           >
-            <item.icon size={20} />
-            <span>{item.view === 'saved' ? 'Saved' : labels[item.view]}</span>
+            <span className="mobile-nav-icon">
+              <item.icon size={21} />
+            </span>
+            <span>{item.label}</span>
           </button>
         ))}
       </nav>
       <div className={'app-body ' + (player.active ? 'has-player' : '')}>
         <header className="topbar">
           <div className="breadcrumb">
-            <SidebarTrigger className="mobile-toggle" />
+            <SidebarTrigger
+              className="mobile-toggle"
+              aria-label="Open all navigation"
+            />
             <button
               className="header-home"
               onClick={() => navigate('discover')}
             >
               <span className="desktop-home-label">Your learning</span>
               <span className="mobile-home-label">
-                YU<span>Torah</span>
+                <img
+                  src="/images/yutorah-wordmark.png"
+                  width={298}
+                  height={69}
+                  alt="The Marcos and Adina Katz YUTorah Online. A project of Yeshiva University–RIETS."
+                />
               </span>
             </button>
             <ChevronRight size={14} />
@@ -1004,6 +1108,13 @@ export default function TorahApp({
             <div className="header-search">{searchBar}</div>
           )}
           <div className="header-right">
+            <button
+              className="mobile-header-search"
+              aria-label="Search the library"
+              onClick={() => navigate('search')}
+            >
+              <Search size={21} />
+            </button>
             <span className="hebrew" lang="he">
               {home?.hebrewDate}
             </span>
@@ -1024,6 +1135,51 @@ export default function TorahApp({
           </div>
         </header>
         <main id="main-content" className="main-content" tabIndex={-1}>
+          {['saved', 'history', 'notes', 'playlists'].includes(view) && (
+            <div className="mobile-library-heading">
+              <h1>Your library</h1>
+              <p>
+                {library.saved.length} saved · {library.playlists.length}{' '}
+                playlists · On this device
+              </p>
+            </div>
+          )}
+          {['topics', 'teachers', 'series'].includes(view) && (
+            <nav className="mobile-view-tabs" aria-label="Browse the library">
+              {(['topics', 'teachers', 'series'] as const).map(
+                (destination) => (
+                  <button
+                    key={destination}
+                    aria-current={view === destination ? 'page' : undefined}
+                    onClick={() => navigate(destination)}
+                  >
+                    {labels[destination]}
+                  </button>
+                ),
+              )}
+            </nav>
+          )}
+          {['saved', 'history', 'notes', 'playlists'].includes(view) && (
+            <nav className="mobile-view-tabs" aria-label="Your library">
+              {(['saved', 'history', 'playlists', 'notes'] as const).map(
+                (destination) => (
+                  <button
+                    key={destination}
+                    aria-current={view === destination ? 'page' : undefined}
+                    onClick={() => navigate(destination)}
+                  >
+                    {destination === 'saved'
+                      ? 'Saved'
+                      : destination === 'history'
+                        ? 'History'
+                        : destination === 'playlists'
+                          ? 'Playlists'
+                          : 'Notes'}
+                  </button>
+                ),
+              )}
+            </nav>
+          )}
           {(view === 'discover' ||
             view === 'following' ||
             view === 'trending') && (
@@ -1057,99 +1213,116 @@ export default function TorahApp({
             >
               <div className="view-heading">
                 <div className="eyebrow">THE YUTORAH LIBRARY</div>
-                <h1>What will you learn next?</h1>
-                <p>
-                  Find shiurim by topic, teacher, source, or the time you have.
-                </p>
+                <h1>Search the library</h1>
+                <p>Find shiurim by topic, teacher, title or source.</p>
               </div>
               {searchBar}
-              <SearchTools
-                query={q}
-                filters={filters}
-                directory={directory}
-                library={library}
-                update={update}
-                onSearch={(query, fs) => void runSearch(query, fs)}
-                notify={notify}
-                hasResults={!!results}
-              />
-              <TranscriptSearch
-                query={results?.plan.term ?? submitted}
-                onSelect={openTranscriptHit}
-              />
-              <div className="filter-bar">
-                <button
-                  className="filter-toggle"
-                  aria-expanded={advancedFilters}
-                  aria-controls="advanced-search-filters"
-                  onClick={() => setAdvancedFilters(!advancedFilters)}
-                >
-                  <SlidersHorizontal size={16} /> Advanced search{' '}
-                  <ChevronDown size={14} />
-                </button>
-                <FilterSelect
-                  label="Duration"
-                  value={filters.max || 'all'}
-                  onChange={(v) => filterChange('max', v)}
-                  options={[
-                    { value: 'all', label: 'Any length' },
-                    ...Array.from(
-                      new Set([
-                        '10',
-                        '20',
-                        '30',
-                        '60',
-                        ...(filters.max ? [filters.max] : []),
-                      ]),
-                    )
-                      .sort((a, b) => Number(a) - Number(b))
-                      .map((v) => ({
-                        value: v,
-                        label: `Under ${v} min`,
-                      })),
-                  ]}
-                />
-                <FilterSelect
-                  label="Language"
-                  value={filters.language || 'all'}
-                  onChange={(v) => filterChange('language', v)}
-                  options={[
-                    { value: 'all', label: 'Any language' },
-                    { value: 'EN', label: 'English' },
-                    { value: 'HE', label: 'Hebrew' },
-                  ]}
-                />
-                <FilterSelect
-                  label="Format"
-                  value={filters.format || 'all'}
-                  onChange={(v) => filterChange('format', v)}
-                  options={[
-                    { value: 'all', label: 'All formats' },
-                    { value: 'audio', label: 'Audio' },
-                    { value: 'video', label: 'Video' },
-                    { value: 'text', label: 'Articles' },
-                  ]}
-                />
-                {Object.entries(filters).some(
-                  ([key, value]) => key !== 'sort' && value,
-                ) && (
-                  <button
-                    className="text-button"
-                    onClick={() => void runSearch(submitted, noFilters)}
-                  >
-                    Clear filters <X size={13} />
-                  </button>
-                )}
-              </div>
-              {advancedFilters && (
-                <AdvancedSearch
-                  key={JSON.stringify(filters)}
+              <SearchOptions
+                collapsed={isMobile}
+                label="Filters & search tools"
+              >
+                <SearchTools
+                  query={q}
                   filters={filters}
                   directory={directory}
-                  loading={searchLoading}
-                  onApply={(next) => void runSearch(q, next)}
+                  library={library}
+                  update={update}
+                  onSearch={(query, fs) => void runSearch(query, fs)}
+                  notify={notify}
+                  hasResults={!!results}
                 />
-              )}
+                {isMobile ? (
+                  <details className="mobile-transcript-disclosure">
+                    <summary>
+                      <FileText size={18} />
+                      <span>Search inside the audio</span>
+                      <ChevronDown size={16} />
+                    </summary>
+                    <TranscriptSearch
+                      query={results?.plan.term ?? submitted}
+                      onSelect={openTranscriptHit}
+                    />
+                  </details>
+                ) : (
+                  <TranscriptSearch
+                    query={results?.plan.term ?? submitted}
+                    onSelect={openTranscriptHit}
+                  />
+                )}
+                <div className="filter-bar">
+                  <button
+                    className="filter-toggle"
+                    aria-expanded={advancedFilters}
+                    aria-controls="advanced-search-filters"
+                    onClick={() => setAdvancedFilters(!advancedFilters)}
+                  >
+                    <SlidersHorizontal size={16} /> Advanced search{' '}
+                    <ChevronDown size={14} />
+                  </button>
+                  <FilterSelect
+                    label="Duration"
+                    value={filters.max || 'all'}
+                    onChange={(v) => filterChange('max', v)}
+                    options={[
+                      { value: 'all', label: 'Any length' },
+                      ...Array.from(
+                        new Set([
+                          '10',
+                          '20',
+                          '30',
+                          '60',
+                          ...(filters.max ? [filters.max] : []),
+                        ]),
+                      )
+                        .sort((a, b) => Number(a) - Number(b))
+                        .map((v) => ({
+                          value: v,
+                          label: `Under ${v} min`,
+                        })),
+                    ]}
+                  />
+                  <FilterSelect
+                    label="Language"
+                    value={filters.language || 'all'}
+                    onChange={(v) => filterChange('language', v)}
+                    options={[
+                      { value: 'all', label: 'Any language' },
+                      { value: 'EN', label: 'English' },
+                      { value: 'HE', label: 'Hebrew' },
+                    ]}
+                  />
+                  <FilterSelect
+                    label="Format"
+                    value={filters.format || 'all'}
+                    onChange={(v) => filterChange('format', v)}
+                    options={[
+                      { value: 'all', label: 'All formats' },
+                      { value: 'audio', label: 'Audio' },
+                      { value: 'video', label: 'Video' },
+                      { value: 'text', label: 'Articles' },
+                    ]}
+                  />
+                  {Object.entries(filters).some(
+                    ([key, value]) => key !== 'sort' && value,
+                  ) && (
+                    <button
+                      className="text-button"
+                      onClick={() => void runSearch(submitted, noFilters)}
+                    >
+                      Clear filters <X size={13} />
+                    </button>
+                  )}
+                </div>
+                {advancedFilters && (
+                  <AdvancedSearch
+                    key={JSON.stringify(filters)}
+                    filters={filters}
+                    directory={directory}
+                    loading={searchLoading}
+                    onApply={(next) => void runSearch(q, next)}
+                  />
+                )}
+              </SearchOptions>
               {Object.entries(filters).some(
                 ([key, value]) => key !== 'sort' && value,
               ) && (
@@ -1237,146 +1410,141 @@ export default function TorahApp({
               {results && (
                 <>
                   <div className="results-heading" aria-live="polite">
-                    <div>
-                      <h2>
-                        {results.complete === false
-                          ? `${results.total.toLocaleString()} matches found so far`
-                          : results.filtered
-                            ? `${results.items.length} matching shiurim loaded`
-                            : `${results.total.toLocaleString()} shiurim`}
-                      </h2>
-                      {results.complete !== undefined && (
-                        <p>
-                          {results.complete
-                            ? `All ${results.sourceTotal?.toLocaleString()} library candidates checked. ${results.total.toLocaleString()} matches.`
-                            : `Checking the full result set: ${results.scanned?.toLocaleString()} of ${results.sourceTotal?.toLocaleString()} shiurim. Counts and order are provisional until complete.`}
-                        </p>
-                      )}
-                      {results.complete === false && (
-                        <div className="full-search-progress">
-                          <progress
-                            aria-label="Search progress"
-                            value={results.scanned || 0}
-                            max={results.sourceTotal || 1}
-                          />
-                          <button
-                            className="text-button"
-                            onClick={() => {
-                              if (searchLoading) {
-                                searchAbort.current?.abort();
-                                setSearchLoading(false);
-                              } else void runSearch(submitted, filters);
-                            }}
-                          >
-                            {searchLoading ? 'Pause search' : 'Continue search'}
-                          </button>
-                        </div>
-                      )}
-                      {results.filtered && (
-                        <p>
-                          Filtered from {results.total.toLocaleString()} library
-                          matches.{' '}
-                          {results.nextPage
-                            ? 'Load more to continue.'
-                            : 'All matches checked.'}
-                        </p>
-                      )}
-                    </div>
-                    <div className="result-view-controls">
-                      <FilterSelect
-                        label="Sort all results"
-                        value={resultOrder}
-                        onChange={(sort) =>
-                          void runSearch(submitted, { ...filters, sort })
-                        }
-                        options={[
-                          { value: 'relevance', label: 'Best matches' },
-                          { value: 'popular', label: 'Most popular' },
-                          { value: 'library', label: 'Library order' },
-                          { value: 'new', label: 'Newest first' },
-                          { value: 'old', label: 'Oldest first' },
-                          { value: 'long', label: 'Longest first' },
-                          { value: 'short', label: 'Shortest first' },
-                          { value: 'title', label: 'Title A–Z' },
-                        ]}
-                      />
-                      <div className="view-switch">
-                        <button
-                          aria-label="List view"
-                          aria-pressed={!grid}
-                          onClick={() => setGrid(false)}
-                        >
-                          <List size={17} />
-                        </button>
-                        <button
-                          aria-label="Grid view"
-                          aria-pressed={grid}
-                          onClick={() => setGrid(true)}
-                        >
-                          <LayoutGrid size={17} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  {results.items.length > 0 && (
-                    <div className="results-workspace-tools">
-                      <label className="within-search">
-                        <Search size={16} />
-                        <input
-                          aria-label="Find within loaded results"
-                          placeholder="Find within these results…"
-                          value={withinResults}
-                          onChange={(e) => setWithinResults(e.target.value)}
-                        />
-                      </label>
-                      <FilterSelect
-                        label="Learning status"
-                        value={learningFilter}
-                        onChange={setLearningFilter}
-                        options={[
-                          { value: 'all', label: 'All learning' },
-                          { value: 'unlearned', label: 'Not learned yet' },
-                          { value: 'saved', label: 'Saved only' },
-                        ]}
-                      />
-                      <button
-                        className="text-button"
-                        onClick={() => {
-                          const audio = visibleResults.filter(
-                            (s) => mediaKind(s) === 'audio',
-                          );
-                          update((old) => ({
-                            ...old,
-                            queue: [
-                              ...new Map(
-                                [...old.queue, ...audio].map((s) => [s.id, s]),
-                              ).values(),
-                            ],
-                          }));
-                          notify(
-                            `Added ${audio.length} audio shiurim to your queue.`,
-                          );
+                    {isMobile ? (
+                      <MobileSearchSummary
+                        result={results}
+                        searching={searchLoading}
+                        onToggle={() => {
+                          if (searchLoading) {
+                            searchAbort.current?.abort();
+                            setSearchLoading(false);
+                          } else void runSearch(submitted, filters);
                         }}
-                      >
-                        <ListPlus size={16} />
-                        Queue results
-                      </button>
-                      {(withinResults || learningFilter !== 'all') && (
-                        <p>
-                          {visibleResults.length} of {results.items.length}{' '}
-                          loaded shiurim match these local refinements.{' '}
-                          <button
-                            onClick={() => {
-                              setWithinResults('');
-                              setLearningFilter('all');
-                            }}
-                          >
-                            Reset
-                          </button>
-                        </p>
-                      )}
-                    </div>
-                  )}
+                      />
+                    ) : (
+                      <div>
+                        <h2>
+                          {results.complete === false
+                            ? `${results.total.toLocaleString()} matches found so far`
+                            : results.filtered
+                              ? `${results.items.length} matching shiurim loaded`
+                              : `${results.total.toLocaleString()} shiurim`}
+                        </h2>
+                        {results.complete !== undefined && (
+                          <p>
+                            {results.complete
+                              ? `All ${results.sourceTotal?.toLocaleString()} library candidates checked. ${results.total.toLocaleString()} matches.`
+                              : `Checking the full result set: ${results.scanned?.toLocaleString()} of ${results.sourceTotal?.toLocaleString()} shiurim. Counts and order are provisional until complete.`}
+                          </p>
+                        )}
+                        {results.complete === false && (
+                          <div className="full-search-progress">
+                            <progress
+                              aria-label="Search progress"
+                              value={results.scanned || 0}
+                              max={results.sourceTotal || 1}
+                            />
+                            <button
+                              className="text-button"
+                              onClick={() => {
+                                if (searchLoading) {
+                                  searchAbort.current?.abort();
+                                  setSearchLoading(false);
+                                } else void runSearch(submitted, filters);
+                              }}
+                            >
+                              {searchLoading
+                                ? 'Pause search'
+                                : 'Continue search'}
+                            </button>
+                          </div>
+                        )}
+                        {results.filtered && (
+                          <p>
+                            Filtered from {results.total.toLocaleString()}{' '}
+                            library matches.{' '}
+                            {results.nextPage
+                              ? 'Load more to continue.'
+                              : 'All matches checked.'}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {!isMobile && resultViewControls}
+                  </div>
+                  <SearchOptions
+                    collapsed={isMobile}
+                    label={
+                      'Sort & refine results' +
+                      (withinResults || learningFilter !== 'all'
+                        ? ` · ${visibleResults.length} shown`
+                        : '')
+                    }
+                  >
+                    {isMobile && resultViewControls}
+                    {results.items.length > 0 && (
+                      <div className="results-workspace-tools">
+                        <label className="within-search">
+                          <Search size={16} />
+                          <input
+                            aria-label="Find within loaded results"
+                            placeholder="Find within these results…"
+                            value={withinResults}
+                            onChange={(e) => setWithinResults(e.target.value)}
+                          />
+                        </label>
+                        <FilterSelect
+                          label="Learning status"
+                          value={learningFilter}
+                          onChange={setLearningFilter}
+                          options={[
+                            { value: 'all', label: 'All learning' },
+                            { value: 'unlearned', label: 'Not learned yet' },
+                            { value: 'saved', label: 'Saved only' },
+                          ]}
+                        />
+                        <button
+                          className="text-button"
+                          onClick={() => {
+                            const audio = visibleResults.filter(
+                              (s) => mediaKind(s) === 'audio',
+                            );
+                            update((old) => ({
+                              ...old,
+                              queue: [
+                                ...new Map(
+                                  [...old.queue, ...audio].map((s) => [
+                                    s.id,
+                                    s,
+                                  ]),
+                                ).values(),
+                              ],
+                            }));
+                            notify(
+                              `Added ${audio.length} audio shiurim to your queue.`,
+                            );
+                          }}
+                        >
+                          <ListPlus size={16} />
+                          Queue results
+                        </button>
+                        {(withinResults || learningFilter !== 'all') && (
+                          <p>
+                            {visibleResults.length} of {results.items.length}{' '}
+                            loaded shiurim match these local refinements.{' '}
+                            <button
+                              onClick={() => {
+                                setWithinResults('');
+                                setLearningFilter('all');
+                              }}
+                            >
+                              Reset
+                            </button>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </SearchOptions>
                   {results.plan.teacherId > 0 && (
                     <div className="search-follow-banner">
                       <span>
@@ -1467,35 +1635,79 @@ export default function TorahApp({
                   )}
                 </>
               )}
-              {!results && !searchLoading && !searchError && (
-                <div className="search-start">
-                  <BookOpen size={28} />
-                  <h2>What would you like to learn?</h2>
-                  <p>
-                    Search a subject, a teacher’s full name, or a source. Add
-                    “under 20 minutes” to fit your time.
-                  </p>
-                  <div className="search-prompts">
-                    {[
-                      'How can I improve my prayer?',
-                      'Rosh Hashana',
-                      'Rabbi Aryeh Lebowitz',
-                      'Chullin 130',
-                    ].map((t) => (
-                      <button key={t} onClick={() => void runSearch(t)}>
-                        {t}
-                        <ArrowUpRight size={15} />
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    className="text-button"
-                    onClick={() => void runSearch('')}
+              {!results &&
+                !searchLoading &&
+                !searchError &&
+                (isMobile ? (
+                  <section
+                    className="mobile-search-browse"
+                    aria-label="Browse the library"
                   >
-                    Browse all shiurim <ArrowRight size={15} />
-                  </button>
-                </div>
-              )}
+                    <h2>Browse the library</h2>
+                    {[
+                      {
+                        view: 'topics' as const,
+                        icon: LayoutGrid,
+                        label: 'Topics',
+                        detail: 'Torah texts and areas of study',
+                      },
+                      {
+                        view: 'teachers' as const,
+                        icon: Users,
+                        label: 'Teachers',
+                        detail: 'Torah educators and their shiurim',
+                      },
+                      {
+                        view: 'series' as const,
+                        icon: BookOpen,
+                        label: 'Series',
+                        detail: 'Courses and ongoing learning',
+                      },
+                    ].map(
+                      ({ view: destination, icon: Icon, label, detail }) => (
+                        <button
+                          key={destination}
+                          onClick={() => navigate(destination)}
+                        >
+                          <Icon size={21} />
+                          <span>
+                            <strong>{label}</strong>
+                            <small>{detail}</small>
+                          </span>
+                          <ChevronRight size={17} />
+                        </button>
+                      ),
+                    )}
+                  </section>
+                ) : (
+                  <div className="search-start">
+                    <BookOpen size={28} />
+                    <h2>What would you like to learn?</h2>
+                    <p>
+                      Search a subject, a teacher’s full name, or a source. Add
+                      “under 20 minutes” to fit your time.
+                    </p>
+                    <div className="search-prompts">
+                      {[
+                        'How can I improve my prayer?',
+                        'Rosh Hashana',
+                        'Rabbi Aryeh Lebowitz',
+                        'Chullin 130',
+                      ].map((t) => (
+                        <button key={t} onClick={() => void runSearch(t)}>
+                          {t}
+                          <ArrowUpRight size={15} />
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      className="text-button"
+                      onClick={() => void runSearch('')}
+                    >
+                      Browse all shiurim <ArrowRight size={15} />
+                    </button>
+                  </div>
+                ))}
             </section>
           )}
           {(['teachers', 'series', 'topics'] as View[]).includes(view) && (
@@ -1511,10 +1723,10 @@ export default function TorahApp({
                 </h1>
                 <p>
                   {view === 'teachers'
-                    ? 'Voices and perspectives from across the YUTorah community.'
+                    ? 'Browse Torah educators and their recorded shiurim.'
                     : view === 'series'
-                      ? 'Follow a subject, one shiur at a time.'
-                      : 'Browse the subjects that make up a lifetime of Torah.'}
+                      ? 'Explore ongoing courses and shiur series.'
+                      : 'Browse Torah subjects, texts and areas of study.'}
                 </p>
               </div>
               <div className="directory-toolbar">
@@ -1543,10 +1755,10 @@ export default function TorahApp({
                 )}
                 <span>
                   {view === 'teachers'
-                    ? listedTeachers.length
+                    ? listedTeachers.length.toLocaleString()
                     : view === 'series'
-                      ? listedSeries.length
-                      : listedTopics.length}{' '}
+                      ? listedSeries.length.toLocaleString()
+                      : listedTopics.length.toLocaleString()}{' '}
                   {view}
                 </span>
               </div>
@@ -1725,7 +1937,7 @@ export default function TorahApp({
                         <Search size={17} />
                         <input
                           aria-label="Search your learning"
-                          placeholder="Find a shiur or teacher in your learning…"
+                          placeholder="Find a saved shiur"
                           value={libraryQuery}
                           onChange={(e) => setLibraryQuery(e.target.value)}
                         />
@@ -1996,6 +2208,7 @@ export default function TorahApp({
           )}
           {view === 'notes' && (
             <Notebook
+              nested={isMobile}
               library={library}
               items={loadedItems}
               onOpen={(id) => void openById(String(id))}
@@ -2037,9 +2250,7 @@ export default function TorahApp({
               tradition.
             </span>
             <div>
-              <button onClick={() => setHelp(true)}>
-                About this experience
-              </button>
+              <button onClick={() => setHelp(true)}>About the library</button>
               <span>Audio and teaching © YUTorah</span>
             </div>
           </footer>
@@ -2062,7 +2273,10 @@ export default function TorahApp({
           }
         }}
       >
-        <SheetContent className="detail-sheet">
+        <SheetContent
+          className="detail-sheet"
+          side={isMobile ? 'bottom' : 'right'}
+        >
           <SheetHeader>
             <SheetTitle>Shiur details</SheetTitle>
             <SheetDescription>From the YUTorah library</SheetDescription>
@@ -2471,7 +2685,10 @@ export default function TorahApp({
         </SheetContent>
       </Sheet>
       <Sheet open={queueOpen} onOpenChange={setQueueOpen}>
-        <SheetContent className="queue-sheet">
+        <SheetContent
+          className="queue-sheet"
+          side={isMobile ? 'bottom' : 'right'}
+        >
           <SheetHeader>
             <SheetTitle>Your listening queue</SheetTitle>
             <SheetDescription>
@@ -2679,7 +2896,7 @@ export default function TorahApp({
       <Dialog open={help} onOpenChange={setHelp}>
         <DialogContent className="about-dialog">
           <DialogHeader>
-            <DialogTitle>About this experience</DialogTitle>
+            <DialogTitle>About the library</DialogTitle>
             <DialogDescription>
               A new way to learn from YUTorah.
             </DialogDescription>
