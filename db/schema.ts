@@ -81,3 +81,14 @@ export const searchTitleImports = sqliteTable('search_title_imports', {
   started: integer('started').notNull(),
   completed: integer('completed').notNull().default(0),
 });
+
+export const sourcesRuns = sqliteTable(
+  'sources_runs',
+  {
+    id: text('id').primaryKey(),
+    payload: text('payload').notNull(),
+    lease: integer('lease').notNull().default(0),
+    expires: integer('expires').notNull(),
+  },
+  (t) => [index('sources_runs_expires').on(t.expires)],
+);

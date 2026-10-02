@@ -2,6 +2,7 @@ import { Pool, types, type QueryResult } from 'pg';
 import type { SearchDatabase, SearchStatement } from './search-storage';
 
 const identifiers = new Set([
+  'sources_runs',
   'search_runs',
   'search_hits',
   'search_title_catalog',

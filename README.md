@@ -24,6 +24,11 @@ its separate write connection. Completed transcripts remain available when that
 computer is offline. Hosts that use the HTTP reader can instead configure
 `TRANSCRIPT_API_URL` and `TRANSCRIPT_API_TOKEN` as described in the operations guide.
 
+Completed transcripts also have a **Sources** tab with conservative Sefaria
+links and timestamped mentions. Its optional source-sheet preview adds source
+text, categories, edition attribution, HTML download, and print/PDF. See the
+[implementation, precision policy, API research, and deployment migration](docs/sefaria-sources.md).
+
 Requires Node 22.13 or newer.
 
 ```sh
