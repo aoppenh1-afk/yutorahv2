@@ -7,8 +7,7 @@ if (url.protocol !== 'https:')
   throw new Error('Use an HTTPS production origin.');
 const token = process.env.SEARCH_INDEX_TRANSFER_TOKEN;
 const siteToken = process.env.SITES_API_TOKEN;
-if (!token || !siteToken)
-  throw new Error('Set the transfer and private-site API tokens.');
+if (!token) throw new Error('Set the search-index transfer token.');
 const db = new DatabaseSync(filename, { readOnly: true });
 const manifest = db
   .prepare("SELECT * FROM search_title_imports WHERE name='archive'")
@@ -31,7 +30,9 @@ async function request(body?: unknown): Promise<TransferStatus> {
         method: body ? 'POST' : 'GET',
         headers: {
           Authorization: `Bearer ${token}`,
-          'OAI-Sites-Authorization': `Bearer ${siteToken}`,
+          ...(siteToken
+            ? { 'OAI-Sites-Authorization': `Bearer ${siteToken}` }
+            : {}),
           'Content-Type': 'application/json',
         },
         body: body ? JSON.stringify(body) : undefined,

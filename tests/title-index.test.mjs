@@ -11,6 +11,7 @@ const compiled = await build({
     'packages/yutorah-core/src/search-matching.ts',
     'lib/title-migration.ts',
     'lib/title-transfer.ts',
+    'scripts/migrate-search-schema.ts',
   ],
   bundle: true,
   write: false,
@@ -18,15 +19,47 @@ const compiled = await build({
   format: 'esm',
   outdir: 'unused',
 });
-const [index, catalog, matching, migration, transfer] = await Promise.all(
-  compiled.outputFiles.map(
-    (file) =>
-      import(
-        'data:text/javascript;base64,' +
-          Buffer.from(file.text).toString('base64')
-      ),
-  ),
-);
+const [index, catalog, matching, migration, transfer, schema] =
+  await Promise.all(
+    compiled.outputFiles.map(
+      (file) =>
+        import(
+          'data:text/javascript;base64,' +
+            Buffer.from(file.text).toString('base64')
+        ),
+    ),
+  );
+
+void test('Vercel schema setup survives partial application and preserves indexed titles on redeployment', async () => {
+  const db = database();
+  await db.batch(
+    index.indexTitleStatements(db, [{ id: 42, title: 'Quantum Halacha' }]),
+  );
+  const before = (
+    await db.prepare('SELECT * FROM search_title_terms ORDER BY term').all()
+  ).results;
+  await db.prepare('DROP TABLE search_title_imports').run();
+  await db.prepare('DROP TABLE search_title_cursors').run();
+  await migrate();
+  await migrate();
+  assert.deepEqual(
+    (await db.prepare('SELECT * FROM search_title_terms ORDER BY term').all())
+      .results,
+    before,
+  );
+  assert.equal(
+    (
+      await db
+        .prepare('SELECT COUNT(*) AS count FROM search_title_catalog')
+        .first()
+    ).count,
+    1,
+  );
+
+  async function migrate() {
+    await schema.migrateTitleSchema(db);
+  }
+});
 
 void test('an indexed spelling keeps exact retrieval first and can recover a close spelling after zero results', async () => {
   const db = database();

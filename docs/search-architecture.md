@@ -71,19 +71,19 @@ cannot mark the migration complete. The public site's search endpoint exposes
 slightly more public records than the newer metadata API; the bulk vocabulary
 includes them, while user result retrieval continues to use the existing API.
 
-For a new Sites database, `npm run search:transfer -- SNAPSHOT.sqlite SITE_URL`
+For a Vercel or Sites database, `npm run search:transfer -- SNAPSHOT.sqlite SITE_URL`
 copies an immutable, completed local snapshot over HTTPS. Set the secret
-`SEARCH_INDEX_TRANSFER_TOKEN` in both the operator environment and Sites, enable
-`SEARCH_INDEX_TRANSFER_ENABLED=true` in Sites only during the transfer, and set
+`SEARCH_INDEX_TRANSFER_TOKEN` in both the operator environment and the deployment, enable
+`SEARCH_INDEX_TRANSFER_ENABLED=true` in the deployment only during the transfer, and set
 `SITES_API_TOKEN` only in the operator environment for the private site's access
-gate. Titles rebuild document frequencies through the same database triggers;
+gate. Vercel does not require `SITES_API_TOKEN`. Titles rebuild document frequencies through the same database triggers;
 unique spelling keys are copied separately in bounded batches. Both phases
 checkpoint transactionally and safely retry committed batches. Only keys for active
 vocabulary are transferred. Completion expires finished query caches so requests
 can immediately use the imported vocabulary, while pending searches retain their
 original expansion. Completion checks
 title coverage and spelling-key coverage before marking the archive complete.
-Set `SEARCH_INDEX_TRANSFER_ENABLED=false`, remove the Sites transfer secret,
+Set `SEARCH_INDEX_TRANSFER_ENABLED=false`, remove the deployment's transfer secret,
 and redeploy after verification. The switch defaults to off and disables
 `/api/search-index` even if the hosting runtime retains an old secret binding.
 Verify that the old credential gets HTTP 404 for both GET and POST. The endpoint
