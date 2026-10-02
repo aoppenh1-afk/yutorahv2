@@ -106,6 +106,7 @@ npm run lint
 npm run audit
 npm run test:search
 npm run test:learning
+npm run test:api
 npm run worker:build
 # Use a disposable PostgreSQL database; runs the database/recovery tests:
 TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:worker

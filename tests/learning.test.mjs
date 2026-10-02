@@ -157,6 +157,46 @@ void test('one teacher cannot occupy adjacent recommendations when alternatives 
   );
   assert.notEqual(output[0].shiur.teacherId, output[1].shiur.teacherId);
 });
+void test('indexed recommendations preserve normalized topic matches and the first follow reason', () => {
+  const library = context({
+    following: [
+      { kind: 'topic', id: 10, name: 'SHABBAT!' },
+      { kind: 'teacher', id: 50, name: 'Teacher' },
+    ],
+    history: [
+      {
+        shiur: shiur(9, { topics: ['TEFILLAH!'] }),
+        seconds: 100,
+        duration: 900,
+      },
+      { shiur: shiur(3), seconds: 900, duration: 900 },
+      { shiur: shiur(3), seconds: 0, duration: 900 },
+    ],
+    hidden: [4],
+    completed: [5],
+  });
+  const output = recommend(
+    [
+      shiur(1, { teacherId: 50 }),
+      shiur(2, { topics: ['Tefillah'] }),
+      shiur(3),
+      shiur(4),
+      shiur(5),
+    ],
+    library,
+    { now: Date.parse('2026-09-16') },
+  );
+  assert.deepEqual(
+    output.map((r) => r.shiur.id),
+    [1, 2],
+  );
+  assert.equal(output[0].reason, 'You follow SHABBAT!');
+  assert.equal(output[1].reason, 'Because you explore Tefillah');
+  const included = recommend([shiur(3), shiur(4), shiur(5)], library, {
+    includeCompleted: true,
+  });
+  assert.deepEqual(included.map((r) => r.shiur.id).sort(), [3, 5]);
+});
 void test('related learning prioritizes the series and never recommends the current or hidden shiur', () => {
   const source = shiur(1, { seriesId: 20 });
   const output = relatedShiurim(

@@ -243,6 +243,7 @@ export default function TorahApp({
   );
   const { library, update, ready } = useLibrary(notify);
   const player = useAudio(library, update, ready, notify);
+  const { active: activeShiur, play: togglePlayback } = player;
   const detailId = detail?.id;
   useEffect(() => {
     setRelatedCandidates([]);
@@ -509,16 +510,16 @@ export default function TorahApp({
       } else if (
         !editing &&
         e.code === 'Space' &&
-        player.active &&
+        activeShiur &&
         target.tagName !== 'BUTTON'
       ) {
         e.preventDefault();
-        player.play();
+        togglePlayback();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [navigate, player]);
+  }, [navigate, activeShiur, togglePlayback]);
   useEffect(() => {
     const context = (
       document as Document & {
@@ -840,29 +841,45 @@ export default function TorahApp({
       items.sort((a, b) => a.title.localeCompare(b.title));
     return items;
   }, [results, resultOrder]);
-  const visibleResults = orderedResults.filter((s) => {
-    if (learningFilter === 'unlearned' && isLearned(s, library)) return false;
-    if (learningFilter === 'saved' && !savedIds.has(s.id)) return false;
-    return matchQuery(
-      [s.title, s.teacher, s.description, s.series, ...s.topics].join(' '),
-      withinResults,
-    );
-  });
-  const loadedItems = [
-    ...new Map(
-      [
-        ...(home?.featured || []),
-        ...(home?.recent || []),
-        ...(home?.daily || []),
-        ...(results?.items || []),
-        ...library.saved,
-        ...library.history.map((h) => h.shiur),
-      ].map((s) => [s.id, s]),
-    ).values(),
-  ];
-  const detailRelated = detail
-    ? relatedShiurim(detail, [...relatedCandidates, ...loadedItems], library)
-    : [];
+  const visibleResults = useMemo(
+    () =>
+      orderedResults.filter((s) => {
+        if (learningFilter === 'unlearned' && isLearned(s, library))
+          return false;
+        if (learningFilter === 'saved' && !savedIds.has(s.id)) return false;
+        return matchQuery(
+          [s.title, s.teacher, s.description, s.series, ...s.topics].join(' '),
+          withinResults,
+        );
+      }),
+    [orderedResults, learningFilter, library, savedIds, withinResults],
+  );
+  const loadedItems = useMemo(
+    () => [
+      ...new Map(
+        [
+          ...(home?.featured || []),
+          ...(home?.recent || []),
+          ...(home?.daily || []),
+          ...(results?.items || []),
+          ...library.saved,
+          ...library.history.map((h) => h.shiur),
+        ].map((s) => [s.id, s]),
+      ).values(),
+    ],
+    [home, results, library.saved, library.history],
+  );
+  const detailRelated = useMemo(
+    () =>
+      detail
+        ? relatedShiurim(
+            detail,
+            [...relatedCandidates, ...loadedItems],
+            library,
+          )
+        : [],
+    [detail, relatedCandidates, loadedItems, library],
+  );
   const matchLibrary = (s: Shiur) =>
     matchQuery(s.title + ' ' + s.teacher + ' ' + s.series, libraryQuery);
   const listedTeachers = useMemo(

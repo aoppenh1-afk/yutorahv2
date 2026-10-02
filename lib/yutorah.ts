@@ -150,9 +150,31 @@ export function normalize(raw: RawShiur): Shiur {
   };
 }
 const cache = new Map<string, { until: number; data: unknown }>();
+const pending = new Map<string, Promise<unknown>>();
 export async function upstream<T>(path: string, ttl = 120): Promise<T> {
+  // Candidate scans explicitly request fresh pages. They must not reuse a
+  // cached response or another scan's request when checking upstream totals.
+  if (ttl <= 0) return (await fetchUpstream(path)) as T;
   const hit = cache.get(path);
   if (hit && hit.until > Date.now()) return hit.data as T;
+  if (hit) cache.delete(path);
+  const requestKey = JSON.stringify([path, ttl]);
+  const existing = pending.get(requestKey);
+  if (existing) return (await existing) as T;
+  const request = fetchUpstream(path).then((data) => {
+    if (!cache.has(path) && cache.size >= 36)
+      cache.delete(cache.keys().next().value!);
+    cache.set(path, { until: Date.now() + ttl * 1000, data });
+    return data;
+  });
+  pending.set(requestKey, request);
+  try {
+    return (await request) as T;
+  } finally {
+    pending.delete(requestKey);
+  }
+}
+async function fetchUpstream(path: string): Promise<unknown> {
   const response = await fetch(`${ORIGIN}/api/${path}`, {
     headers: { Accept: 'application/json' },
     signal: AbortSignal.timeout(18000),
@@ -173,9 +195,7 @@ export async function upstream<T>(path: string, ttl = 120): Promise<T> {
       },
     };
   }
-  if (cache.size > 35) cache.delete(cache.keys().next().value!);
-  cache.set(path, { until: Date.now() + ttl * 1000, data });
-  return data as T;
+  return data;
 }
 export async function getHome(): Promise<HomeData> {
   const j = await upstream<HomeResponse>('homepage/details');
