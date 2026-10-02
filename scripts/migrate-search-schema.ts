@@ -44,20 +44,37 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
-  const config = {
-    accountId: process.env.CLOUDFLARE_ACCOUNT_ID || '',
-    databaseId: process.env.SEARCH_D1_DATABASE_ID || '',
-    token: process.env.SEARCH_D1_API_TOKEN || '',
-  };
-  if (
-    !process.env.VERCEL &&
-    !config.accountId &&
-    !config.databaseId &&
-    !config.token
-  ) {
-    console.log('Local Vercel build: remote search migrations skipped.');
+  if (process.env.SEARCH_DATABASE_URL) {
+    const { postgresSearchDatabase, postgresSearchPool } =
+      await import('../lib/search-postgres');
+    const pool = postgresSearchPool(process.env.SEARCH_DATABASE_URL);
+    try {
+      const db = postgresSearchDatabase(pool);
+      await db
+        .prepare('SELECT id,title,terms FROM search_title_catalog LIMIT 0')
+        .all();
+      await db.prepare('SELECT key,term FROM search_title_keys LIMIT 0').all();
+      await db.prepare('SELECT id,next FROM search_runs LIMIT 0').all();
+      console.log('Managed PostgreSQL search schema ready.');
+    } finally {
+      await pool.end();
+    }
   } else {
-    await migrateTitleSchema(d1HttpDatabase(config));
-    console.log('Search title schema ready.');
+    const config = {
+      accountId: process.env.CLOUDFLARE_ACCOUNT_ID || '',
+      databaseId: process.env.SEARCH_D1_DATABASE_ID || '',
+      token: process.env.SEARCH_D1_API_TOKEN || '',
+    };
+    if (
+      !process.env.VERCEL &&
+      !config.accountId &&
+      !config.databaseId &&
+      !config.token
+    ) {
+      console.log('Local Vercel build: remote search migrations skipped.');
+    } else {
+      await migrateTitleSchema(d1HttpDatabase(config));
+      console.log('Search title schema ready.');
+    }
   }
 }

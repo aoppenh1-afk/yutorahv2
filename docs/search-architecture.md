@@ -1,7 +1,7 @@
 # Intent, typo, and partial-word search
 
-Updated October 1, 2026. No new hosted search service, API account, or
-model credentials are required.
+Updated October 1, 2026. The public Vercel website uses managed PostgreSQL;
+Cloudflare/Sites and local development use D1. No model credentials are required.
 
 ## Learning from the title index
 
@@ -47,7 +47,8 @@ npm run search:index -- --local --pages 20
 npm run search:index -- --local --bulk --all --pages 100 --concurrency 4
 ```
 
-Without `--local`, the importer uses the same `CLOUDFLARE_ACCOUNT_ID`,
+Without `--local` or `--sqlite`, the importer uses `SEARCH_DATABASE_URL` when
+configured for managed PostgreSQL. Otherwise it uses `CLOUDFLARE_ACCOUNT_ID`,
 `SEARCH_D1_DATABASE_ID`, and `SEARCH_D1_API_TOKEN` as the existing HTTP storage
 adapter. `--sqlite PATH` chooses a specific local search database; `--restart`
 restarts its scan without deleting learned titles. The command reports current
@@ -92,6 +93,52 @@ accepts only these bounded archive operations.
 This learns archive vocabulary and word boundaries. Open-ended meaning matching
 still requires title embeddings and an inference model; a spelling dictionary
 alone cannot infer a connection between two completely different phrases.
+
+## Vercel PostgreSQL migration
+
+The Vercel runtime selects managed PostgreSQL when `SEARCH_DATABASE_URL` is set.
+`lib/search-postgres.ts` preserves bound values, atomic batches, numeric counts,
+and the shared module's SQL behavior. A small pool and a dedicated search role
+keep credentials server-side. The runtime role has CRUD access only to the
+`yutorah_search` schema; it cannot change transcription data or schema definitions.
+Builds check that the schema already exists, using that runtime role.
+
+Apply `db/search-postgres/001_search.sql` with a migration/owner connection.
+The logical spelling-key view has exactly the same keys as the SQLite index.
+Compact phrase keys derive from each term; prefix and deletion keys are grouped
+per word. B-tree and GIN indexes retrieve the same bounded candidates and title
+frequencies. Title edits update document frequencies; transactional word-key
+merges preserve words split across ingestion batches. Query expansions remain
+snapshotted so newly learned titles cannot change a resumed search.
+
+For the initial migration, prepare a completed, immutable title snapshot:
+
+```sh
+npx tsx scripts/prepare-search-postgres.ts SNAPSHOT.sqlite work/search-copy.sql
+# Set SEARCH_MIGRATION_DATABASE_URL privately to an owner/migration connection.
+# PostgreSQL client tools (psql) are required for COPY and audit.
+npx tsx scripts/import-search-postgres.ts work/search-copy.sql
+npx tsx scripts/verify-search-postgres.ts work/search-copy.sql.audit.json work/search-audit.json
+```
+
+The import refuses a nonempty destination, copies all title/vocabulary data in
+one transaction, and restores the catalog trigger before committing. SHA-256
+audits compare every logical row, including the reconstructed spelling-key view,
+with the SQLite source. The import does not copy expired query caches or modify
+transcripts. Create the restricted runtime role, set its pooled TLS connection
+as `SEARCH_DATABASE_URL`, then deploy and verify public searches.
+
+Production's completed snapshot has 433,693 titles, 1,560,167 vocabulary entries,
+and 3,032,518 logical spelling keys. The provider enforces a 512 MB project size
+limit despite Vercel's integration page advertising 1 GB. The compact index and
+existing transcript data fit, but the free plan still has finite storage and
+compute capacity; monitor usage as query caches and transcripts grow.
+
+Remove Vercel's unused `CLOUDFLARE_ACCOUNT_ID`, `SEARCH_D1_DATABASE_ID`,
+`SEARCH_D1_API_TOKEN`, `TRANSCRIPT_API_URL`, `TRANSCRIPT_API_TOKEN`, and
+`SEARCH_INDEX_TRANSFER_TOKEN`. Set `SEARCH_INDEX_TRANSFER_ENABLED=false` and
+verify the old transfer credential receives HTTP 404. Keep local rollback
+databases and completed snapshots. No paid hosting plan is enabled.
 
 ## Intent interpretation
 

@@ -6,6 +6,7 @@ import { seedCachedTitles } from '../lib/title-index';
 import { d1HttpDatabase } from '../lib/d1-http';
 import { migrateTitleArchive } from '../lib/title-migration';
 import type { SearchDatabase, SearchStatement } from '../lib/search-storage';
+import type { Pool } from 'pg';
 
 const args = process.argv.slice(2);
 const value = (flag: string) => {
@@ -18,6 +19,7 @@ const concurrency = Number(value('--concurrency') || 4);
 if (!Number.isInteger(pages) || pages < 1 || pages > 1000)
   throw new Error('--pages must be between 1 and 1000.');
 let sqlite: DatabaseSync | undefined;
+let postgres: Pool | undefined;
 let db: SearchDatabase;
 if (args.includes('--local') || args.includes('--sqlite')) {
   let filename = value('--sqlite');
@@ -71,6 +73,11 @@ if (args.includes('--local') || args.includes('--sqlite')) {
       }
     },
   };
+} else if (process.env.SEARCH_DATABASE_URL) {
+  const { postgresSearchPool, postgresSearchDatabase } =
+    await import('../lib/search-postgres');
+  postgres = postgresSearchPool(process.env.SEARCH_DATABASE_URL);
+  db = postgresSearchDatabase(postgres);
 } else {
   db = d1HttpDatabase({
     accountId: process.env.CLOUDFLARE_ACCOUNT_ID || '',
@@ -100,4 +107,5 @@ try {
   }
 } finally {
   sqlite?.close();
+  await postgres?.end();
 }
