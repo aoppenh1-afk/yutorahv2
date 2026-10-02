@@ -16,7 +16,8 @@ not reliably prevent the problem. This evidence supports interrupted upstream
 reads; it does not establish the underlying network or server cause.
 
 The search reader now allows three attempts within the original 18-second
-budget. Each attempt gets at most six seconds, including response-body reads.
+budget. The first two attempts get at most three and five seconds; the last
+attempt uses the remaining budget, including response-body reads.
 Retries repeat the exact GET URL after a timeout or recognized connection
 interruption. HTTP errors, invalid JSON, and other failures still propagate.
 Directory and detail reads retain their existing behavior.
@@ -27,12 +28,37 @@ permit retrying idempotent requests after communication failures.
 bounds each attempt. A monotonic deadline also accounts for time spent between
 attempts, so retries cannot add another 18-second wait.
 
-The query compiler, aliases, typo recovery, filters, caching rules, and scan
-transactions remain the same. Failed reads never become empty or completed
-searches. Existing source-total and duplicate checks still validate every pass.
+Runtime logs from deployment `67UdPssSsiFbiKhd8JADXYeHe6We` confirmed remaining
+pagination, question-search, and fallback failures were upstream `TimeoutError`s.
+The prayer query retrieves 22,770 candidates: one exhausted page read could
+discard a four-page pass and stop the search. Both API hostnames stalled in
+alternating probes; single reads also stalled, so concurrency and redirects
+do not explain every failure.
+
+Search passes now wait for all page reads, validate every successful response,
+and transactionally save the contiguous verified pages before an interrupted
+read. The cursor stays at that gap, and the existing client resumes the same
+run and query. Three consecutive passes without progress still return an error;
+the saved run remains retryable. Permanent errors, changed totals, and incomplete
+pages still fail the pass. Successful pages after a gap are fetched again when
+the cursor reaches them.
+
+The query compiler, aliases, typo recovery, filters, and caching rules remain the
+same. Failed reads never become empty or completed searches. Existing
+source-total and duplicate checks still validate completion. The live harness
+allows partial passes and checks that the run, source total, and saved progress
+remain consistent.
 
 The regression test interrupts page four of a seven-page scan and verifies all
 181 candidates, filtered results, and the saved cursor. Reader tests cover
 interrupted bodies, exhaustion, shared requests, the total deadline, and
-permanent failures. Two direct live passes with the revised reader each returned
-97 distinct candidates across four pages in about 6.4 seconds.
+permanent failures. Two direct live passes with the original retry reader each
+returned 97 distinct candidates across four pages in about 6.4 seconds. In two
+alternating four-page probes, the six-second waits took 13 and 17 seconds, while
+three/five-second waits with the remainder reserved for the final read took
+3.6 and 3.7 seconds. All probes returned the same totals and complete pages;
+these samples do not guarantee future latency. A regression verifies a
+seven-second final response can finish within the total deadline. Additional
+regressions exhaust a page's retries in strict and fallback scans, verify the
+saved prefix and unchanged filters, and ensure repeated stalls stop after three
+passes and can later recover.

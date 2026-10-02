@@ -56,7 +56,7 @@ void test('search retries stop after three interruptions and a later call can re
   const path = 'search/get?searchTerm=teshuva';
   const pending = await Promise.allSettled([upstream(path), upstream(path)]);
   assert.ok(
-    pending.every((r) => r.status === 'rejected' && r.reason === failure),
+    pending.every((r) => r.status === 'rejected' && r.reason.cause === failure),
   );
   assert.equal(calls, 3);
   failing = false;
@@ -108,10 +108,39 @@ void test('search retries cannot extend the original eighteen-second deadline', 
     throw new DOMException('The operation timed out.', 'TimeoutError');
   });
   await assert.rejects(upstream('search/get?start=4', 0), {
-    name: 'TimeoutError',
+    name: 'SearchReadError',
   });
   assert.equal(calls, 2);
-  assert.deepEqual(timeouts, [6000, 6000]);
+  assert.deepEqual(timeouts, [3000, 5000]);
+});
+
+void test('a slow final read can use the remaining deadline after two stalled connections', async (t) => {
+  const upstream = await fresh('slow-final-read');
+  let now = 0;
+  let calls = 0;
+  const budgets = new WeakMap();
+  const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+  t.mock.method(performance, 'now', () => now);
+  t.mock.method(AbortSignal, 'timeout', (ms) => {
+    const signal = realTimeout(ms);
+    budgets.set(signal, ms);
+    return signal;
+  });
+  t.mock.method(globalThis, 'fetch', async (_input, { signal }) => {
+    const latency = ++calls <= 2 ? Infinity : 7000;
+    const budget = budgets.get(signal);
+    now += Math.min(latency, budget);
+    if (latency >= budget) throw new DOMException('Timed out.', 'TimeoutError');
+    return Response.json({
+      response: { numFound: 1, docs: [{ shiurid: 42 }] },
+    });
+  });
+  assert.equal(
+    (await upstream('search/get?start=4', 0)).response.docs[0].shiurid,
+    42,
+  );
+  assert.equal(calls, 3);
+  assert.ok(now <= 18000);
 });
 
 void test('HTTP failures and invalid JSON are not retried or replaced with empty search results', async (t) => {
