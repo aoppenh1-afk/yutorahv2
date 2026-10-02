@@ -2031,9 +2031,11 @@ svg {
   }
 }
 /* Source and personal learning sheets. */
-.detail-sheet {
+.detail-sheet[data-side='right'] {
   width: min(580px, 95vw) !important;
   max-width: 580px !important;
+}
+.detail-sheet {
   gap: 0 !important;
 }
 .detail-sheet [data-slot='sheet-header'],

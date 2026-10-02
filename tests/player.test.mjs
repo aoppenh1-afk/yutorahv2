@@ -90,8 +90,12 @@ const shiur = {
   format: 'mp3',
   materials: [],
 };
-async function openPlayer(viewport, stalled = false) {
-  const context = await browser.newContext({ viewport });
+async function openPlayer(viewport, stalled = false, options = {}) {
+  const context = await browser.newContext({
+    viewport,
+    deviceScaleFactor: options.pixelRatio || 1,
+  });
+  const recording = { ...shiur, image: options.image || '' };
   await context.addInitScript((s) => {
     if (!localStorage.getItem('yutorah-learning-v1'))
       localStorage.setItem(
@@ -102,7 +106,24 @@ async function openPlayer(viewport, stalled = false) {
           queue: [{ ...s, id: 900002 }],
         }),
       );
-  }, shiur);
+  }, recording);
+  await context.route('**/api/shiur?id=900001', (route) =>
+    route.fulfill({ json: recording }),
+  );
+  await context.route(
+    'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/player-fixture*.jpg',
+    (route) => {
+      const original = route.request().url().includes('_lp.jpg');
+      if (original && options.missingOriginal)
+        return route.fulfill({ status: 404, body: '' });
+      const width = original ? 240 : 50;
+      const height = original ? 280 : 50;
+      return route.fulfill({
+        contentType: 'image/svg+xml',
+        body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="#325a89"/></svg>`,
+      });
+    },
+  );
   await context.route('**/player-test.wav', async (route) => {
     if (stalled) await new Promise((resolve) => setTimeout(resolve, 1500));
     const range = route
@@ -272,6 +293,97 @@ void test('player controls stop playback and the phone dialog stays inside the b
         }
       },
     );
+    for (const width of [320, 390, 667]) {
+      await t.test(
+        `phone details sheet fills and centers in ${width}px`,
+        async () => {
+          const viewport = { width, height: 844 };
+          const { context, page } = await openPlayer(viewport);
+          try {
+            await page
+              .getByRole('button', { name: 'Expand player controls' })
+              .click();
+            await page
+              .getByRole('button', { name: 'Open shiur details and notes' })
+              .click();
+            const sheet = page.getByRole('dialog', {
+              name: 'Shiur details',
+              exact: true,
+            });
+            await sheet.waitFor();
+            await page.waitForFunction(() => {
+              const panel = document.querySelector('.detail-sheet');
+              return (
+                panel &&
+                !panel.hasAttribute('data-starting-style') &&
+                panel
+                  .getAnimations()
+                  .every((animation) => animation.playState === 'finished')
+              );
+            });
+            await assertInViewport(sheet, viewport);
+            const rect = await sheet.boundingBox();
+            assert.ok(Math.abs(rect.width - width) <= 1, JSON.stringify(rect));
+            assert.ok(
+              Math.abs(rect.x + rect.width / 2 - width / 2) <= 1,
+              JSON.stringify(rect),
+            );
+          } finally {
+            await context.close();
+          }
+        },
+      );
+    }
+    for (const pixelRatio of [1, 2, 3]) {
+      for (const missingOriginal of [false, true]) {
+        await t.test(
+          `portrait avoids upscaling at ${pixelRatio}x density, original missing=${missingOriginal}`,
+          async () => {
+            const { context, page } = await openPlayer(
+              { width: 390, height: 844 },
+              false,
+              {
+                pixelRatio,
+                missingOriginal,
+                image:
+                  'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/player-fixture.jpg',
+              },
+            );
+            try {
+              await page
+                .getByRole('button', { name: 'Expand player controls' })
+                .click();
+              const portrait = page.locator('.now-playing-portrait img');
+              await portrait.waitFor();
+              await page.waitForFunction(
+                () =>
+                  document.querySelector('.now-playing-portrait img')
+                    ?.naturalWidth > 0,
+              );
+              const pixels = await portrait.evaluate((img) => ({
+                width: img.getBoundingClientRect().width * devicePixelRatio,
+                height: img.getBoundingClientRect().height * devicePixelRatio,
+                naturalWidth: img.naturalWidth,
+                naturalHeight: img.naturalHeight,
+                source: img.currentSrc,
+              }));
+              assert.equal(pixels.naturalWidth, missingOriginal ? 50 : 240);
+              assert.ok(
+                pixels.width <= pixels.naturalWidth + 1,
+                JSON.stringify(pixels),
+              );
+              assert.ok(
+                pixels.height <= pixels.naturalHeight + 1,
+                JSON.stringify(pixels),
+              );
+              assert.equal(pixels.source.includes('_lp.jpg'), !missingOriginal);
+            } finally {
+              await context.close();
+            }
+          },
+        );
+      }
+    }
   } finally {
     await browser.close();
     server?.kill();
