@@ -77,6 +77,52 @@ test.after(() => {
   globalThis.fetch = realFetch;
 });
 
+void test('a timed-out candidate page recovers without losing filters, candidates, or the scan cursor', async (t) => {
+  const { completeSearch: resilientSearch } = await import(
+    'data:text/javascript;base64,' +
+      Buffer.from(compiled.outputFiles[0].text).toString('base64') +
+      '#interrupted-page'
+  );
+  const requests = [];
+  let interrupted = false;
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    const url = new URL(input);
+    if (url.pathname.includes('/browse/')) return Response.json([]);
+    requests.push(url.href);
+    assert.equal(url.searchParams.get('teacherID'), '1');
+    const page = Number(url.searchParams.get('start'));
+    if (page === 4 && !interrupted) {
+      interrupted = true;
+      throw new DOMException('The operation timed out.', 'TimeoutError');
+    }
+    return Response.json({
+      response: {
+        docs: records.slice((page - 1) * 30, page * 30),
+        numFound: records.length,
+      },
+    });
+  });
+  const db = database();
+  const filters = { teacherId: 1, max: 30 };
+  const first = await resilientSearch(db, 'teshuva', filters);
+  assert.equal(first.complete, false);
+  assert.equal(first.scanned, 120);
+  const result = await resilientSearch(db, 'teshuva', filters, 1, first.run);
+  assert.equal(result.run, first.run);
+  assert.equal(result.complete, true);
+  assert.equal(result.scanned, 181);
+  assert.equal(result.sourceTotal, 181);
+  assert.equal(result.total, 30);
+  assert.equal(new Set(result.items.map((s) => s.id)).size, 30);
+  assert.ok(result.items.every((s) => s.teacherId === 1 && s.duration <= 1800));
+  assert.equal(result.related, false);
+  const retries = requests.filter(
+    (url) => new URL(url).searchParams.get('start') === '4',
+  );
+  assert.equal(retries.length, 2);
+  assert.equal(retries[0], retries[1]);
+});
+
 void test('an indexed title spelling can recover after zero source results without losing teacher filters', async () => {
   const { completeSearch: recoveredSearch } = await import(
     'data:text/javascript;base64,' +

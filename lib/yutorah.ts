@@ -228,15 +228,7 @@ export async function upstream<T>(path: string, ttl = 120): Promise<T> {
   }
 }
 async function fetchUpstream(path: string): Promise<unknown> {
-  const response = await fetch(`${ORIGIN}/api/${path}`, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(18000),
-  });
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error(`YUTorah returned ${response.status}`);
-  }
-  let data: unknown = await response.json();
+  let data = await readUpstream(path);
   if (path.startsWith('search/')) {
     const search = data as SearchResponse;
     const f = search.facet_counts?.facet_fields || {};
@@ -252,6 +244,59 @@ async function fetchUpstream(path: string): Promise<unknown> {
     };
   }
   return data;
+}
+
+/** Retry interrupted GETs without changing the query or the total time budget.
+ * A stalled page must not discard the other pages in a resumable search pass.
+ */
+async function readUpstream(path: string): Promise<unknown> {
+  const attempts = path.startsWith('search/') ? 3 : 1;
+  const deadline = performance.now() + 18000;
+  for (let attempt = 0; ; attempt++) {
+    const remaining = Math.floor(deadline - performance.now());
+    if (remaining <= 0)
+      throw new DOMException('The search timed out.', 'TimeoutError');
+    const signal = AbortSignal.timeout(
+      Math.min(attempts > 1 ? 6000 : 18000, remaining),
+    );
+    try {
+      const response = await fetch(`${ORIGIN}/api/${path}`, {
+        headers: { Accept: 'application/json' },
+        signal,
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(`YUTorah returned ${response.status}`);
+      }
+      return await response.json();
+    } catch (error) {
+      const code = (error as { cause?: { code?: string } })?.cause?.code;
+      const interrupted =
+        error instanceof Error &&
+        (error.name === 'TimeoutError' ||
+          (error.name === 'AbortError' &&
+            signal.aborted &&
+            signal.reason instanceof Error &&
+            signal.reason.name === 'TimeoutError') ||
+          (error instanceof TypeError &&
+            !!code &&
+            [
+              'ECONNRESET',
+              'EPIPE',
+              'ETIMEDOUT',
+              'UND_ERR_SOCKET',
+              'UND_ERR_CONNECT_TIMEOUT',
+              'UND_ERR_HEADERS_TIMEOUT',
+              'UND_ERR_BODY_TIMEOUT',
+            ].includes(code)));
+      if (
+        !interrupted ||
+        attempt + 1 >= attempts ||
+        performance.now() >= deadline
+      )
+        throw error;
+    }
+  }
 }
 export async function getHome(): Promise<HomeData> {
   const j = await upstream<HomeResponse>('homepage/details');
