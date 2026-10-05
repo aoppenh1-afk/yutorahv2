@@ -10,19 +10,27 @@ export function titleSchemaStatements(directory = resolve('drizzle')) {
   return [
     '0002_title_vocabulary.sql',
     '0003_title_import_checkpoint.sql',
-    '0004_sources.sql',
+    '0004_title_autocomplete.sql',
+    '0005_sources.sql',
   ]
     .flatMap((name) =>
       readFileSync(resolve(directory, name), 'utf8')
         .split('--> statement-breakpoint')
-        .map((sql) => sql.trim())
+        .map((sql) => sql.replace(/^--[^\n]*\n/gm, '').trim())
         .filter(Boolean),
     )
     .map((sql) => {
-      if (!/^CREATE (?:TABLE|TRIGGER|INDEX)\s/i.test(sql))
+      if (
+        sql ===
+          "INSERT INTO search_title_autocomplete(search_title_autocomplete) VALUES('rebuild');" ||
+        sql ===
+          "INSERT OR IGNORE INTO search_title_cursors(name,next) VALUES('title-autocomplete-v1',1);"
+      )
+        return sql;
+      if (!/^CREATE (?:VIRTUAL TABLE|TABLE|TRIGGER|INDEX)\s/i.test(sql))
         throw new Error('Title schema setup accepts additive migrations only.');
       return sql.replace(
-        /^CREATE (TABLE|TRIGGER|INDEX)\s/i,
+        /^CREATE (VIRTUAL TABLE|TABLE|TRIGGER|INDEX)(?: IF NOT EXISTS)?\s/i,
         'CREATE $1 IF NOT EXISTS ',
       );
     });
@@ -30,7 +38,17 @@ export function titleSchemaStatements(directory = resolve('drizzle')) {
 
 export async function migrateTitleSchema(db: SearchDatabase) {
   // Each statement is idempotent, including after an interrupted build.
-  for (const sql of titleSchemaStatements()) await db.prepare(sql).run();
+  for (const sql of titleSchemaStatements()) {
+    if (sql.startsWith('INSERT INTO search_title_autocomplete')) {
+      const built = await db
+        .prepare(
+          "SELECT next FROM search_title_cursors WHERE name='title-autocomplete-v1'",
+        )
+        .first();
+      if (built) continue;
+    }
+    await db.prepare(sql).run();
+  }
   await db
     .prepare('SELECT id,title,terms FROM search_title_catalog LIMIT 0')
     .all();
@@ -87,6 +105,13 @@ if (
         .all();
       await db.prepare('SELECT key,term FROM search_title_keys LIMIT 0').all();
       await db.prepare('SELECT id,next FROM search_runs LIMIT 0').all();
+      const index = await pool.query(
+        "SELECT 1 FROM pg_indexes WHERE schemaname='yutorah_search' AND indexname='search_title_autocomplete'",
+      );
+      if (!index.rowCount)
+        throw new Error(
+          'Apply db/search-postgres/002_autocomplete.sql with the search migration owner before deploying.',
+        );
       console.log('Managed PostgreSQL search schema ready.');
     } finally {
       await pool.end();

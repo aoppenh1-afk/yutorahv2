@@ -2,6 +2,7 @@ import {
   getDirectory,
   parseSearch,
   upstream,
+  SearchReadError,
   normalize,
   mediaKind,
   type SearchPlan,
@@ -188,7 +189,7 @@ export async function completeSearch(
     await db.batch([
       db
         .prepare(
-          'DELETE FROM search_runs WHERE id IN (SELECT id FROM search_runs WHERE created < ? AND ((next - 1) * 30 >= total OR created < ?) LIMIT 5)',
+          "DELETE FROM search_runs WHERE id IN (SELECT id FROM search_runs WHERE fingerprint NOT LIKE 'trending:v1:%' AND created < ? AND ((next - 1) * 30 >= total OR created < ?) LIMIT 5)",
         )
         .bind(cutoff, activeCutoff),
       db
@@ -201,6 +202,7 @@ export async function completeSearch(
   const storedPlan = JSON.parse(run.plan) as {
     sourceQuery: string;
     related: boolean;
+    stalls?: number;
   };
   const { sourceQuery, related } = storedPlan;
   if (related)
@@ -219,7 +221,7 @@ export async function completeSearch(
     if (acquired.meta.changes) {
       try {
         const end = Math.min(pages + 1, run.next + 4);
-        const batches = await Promise.all(
+        const settled = await Promise.allSettled(
           Array.from({ length: end - run.next }, (_, i) =>
             firstPage && run!.next + i === 1
               ? Promise.resolve(firstPage)
@@ -229,26 +231,46 @@ export async function completeSearch(
                 ),
           ),
         );
-        if (
-          batches.some(
-            (b) =>
-              !Array.isArray(b.response?.docs) ||
-              b.response.numFound !== run!.total,
+        // Wait for every read before releasing the lease. Permanent errors and
+        // changed/incomplete pages still invalidate the whole pass.
+        const failure = settled.find((result) => result.status === 'rejected');
+        for (const [i, result] of settled.entries()) {
+          if (result.status === 'rejected') {
+            if (!(result.reason instanceof SearchReadError))
+              throw result.reason;
+            continue;
+          }
+          const b = result.value;
+          if (
+            !Array.isArray(b.response?.docs) ||
+            b.response.numFound !== run.total
           )
-        )
-          throw new SearchChangedError(
-            'The library changed during this search. Start the search again for a fresh count.',
-          );
-        const learnedTitles: { id: number; title: string }[] = [];
-        const rows = batches.flatMap((b, i) => {
+            throw new SearchChangedError(
+              'The library changed during this search. Start the search again for a fresh count.',
+            );
           const expected = Math.min(
             pageSize,
-            run!.total - (run!.next + i - 1) * pageSize,
+            run.total - (run.next + i - 1) * pageSize,
           );
           if (b.response.docs.length !== expected)
             throw new Error(
               'An incomplete search page was received. Please retry.',
             );
+        }
+        // Only a contiguous verified prefix can advance the cursor. A transient
+        // gap remains pending and the existing client resumes it on the next pass.
+        const prefix = failure ? settled.indexOf(failure) : settled.length;
+        const batches = settled
+          .slice(0, prefix)
+          .map(
+            (result) =>
+              (result as PromiseFulfilledResult<SearchResponse>).value,
+          );
+        const next = run.next + prefix;
+        const stalls = prefix ? 0 : (storedPlan.stalls || 0) + 1;
+        const updatedPlan = JSON.stringify({ ...JSON.parse(run.plan), stalls });
+        const learnedTitles: { id: number; title: string }[] = [];
+        const rows = batches.flatMap((b, i) => {
           return b.response.docs.map((raw, j) => {
             const s = normalize(raw);
             learnedTitles.push({ id: s.id, title: s.title });
@@ -289,12 +311,20 @@ export async function completeSearch(
         statements.push(
           db
             .prepare(
-              'UPDATE search_runs SET next = ?, lease = 0, created = CASE WHEN ? THEN ? ELSE created END WHERE id = ? AND lease = ?',
+              'UPDATE search_runs SET next = ?, plan = ?, lease = 0, created = CASE WHEN ? THEN ? ELSE created END WHERE id = ? AND lease = ?',
             )
-            .bind(end, end > pages ? 1 : 0, Date.now(), run.id, lease),
+            .bind(
+              next,
+              updatedPlan,
+              next > pages ? 1 : 0,
+              Date.now(),
+              run.id,
+              lease,
+            ),
         );
         await db.batch(statements);
-        run.next = end;
+        run.next = next;
+        if (failure && stalls >= 3) throw failure.reason;
       } catch (e) {
         await db
           .prepare(
@@ -348,14 +378,14 @@ export async function completeSearch(
     );
   if (plan.scope === 'title' && plan.term) predicates.push('matched = 1');
   const where = predicates.join(' AND ');
+  const refinements = predicates.slice(1).join(' AND ') || '1 = 1';
+  // Count candidates and refined matches in one pass and one database read.
   const counts = await db
-    .prepare('SELECT COUNT(*) AS scanned FROM search_hits WHERE run = ?')
-    .bind(run.id)
-    .first<{ scanned: number }>();
-  const matched = await db
-    .prepare(`SELECT COUNT(*) AS matches FROM search_hits WHERE ${where}`)
-    .bind(...args)
-    .first<{ matches: number }>();
+    .prepare(
+      `SELECT COUNT(*) AS scanned, COUNT(CASE WHEN ${refinements} THEN 1 END) AS matches FROM search_hits WHERE run = ?`,
+    )
+    .bind(...args.slice(1), run.id)
+    .first<{ scanned: number; matches: number }>();
   if (complete && counts!.scanned !== run.total) {
     await db.prepare('DELETE FROM search_runs WHERE id = ?').bind(run.id).run();
     throw new SearchChangedError(
@@ -371,7 +401,7 @@ export async function completeSearch(
     .all<{ payload: string }>();
   return {
     items: data.results.map((r) => JSON.parse(r.payload) as Shiur),
-    total: matched!.matches,
+    total: counts!.matches,
     sourceTotal: run.total,
     scanned: counts!.scanned,
     complete,
@@ -379,7 +409,7 @@ export async function completeSearch(
     run: run.id,
     plan,
     filtered: false,
-    nextPage: complete && page * pageSize < matched!.matches ? page + 1 : null,
+    nextPage: complete && page * pageSize < counts!.matches ? page + 1 : null,
     facets: { teachers: [], topics: [], series: [] },
   };
 }

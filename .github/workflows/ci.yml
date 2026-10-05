@@ -52,6 +52,7 @@ jobs:
       - run: npm run test:sources
       - run: npm run test:search
       - run: npm run test:learning
+      - run: npm run test:api
       - run: npx tsc --noEmit
       - run: npm run lint
       - run: npm run build

@@ -32,7 +32,7 @@ import type { SearchDatabase, SearchStatement } from '../lib/search-storage';
 
 function database() {
   const sqlite = new DatabaseSync(':memory:');
-  sqlite.exec(readFileSync('drizzle/0004_sources.sql', 'utf8'));
+  sqlite.exec(readFileSync('drizzle/0005_sources.sql', 'utf8'));
   const prepare = (sql: string, params: unknown[] = []): SearchStatement => ({
     bind: (...values) => prepare(sql, values),
     first: async <T>() =>

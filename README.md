@@ -49,6 +49,10 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
 
 ## What works
 
+- Search autocomplete shows up to five matching shiur titles while typing,
+  alongside teacher, topic, and series suggestions. Strong directory matches
+  come first. Selecting a title opens its shiur; Enter still submits a full search.
+  [Implementation, research, and database setup](docs/search-autocomplete.md).
 - Submitted searches and live suggestions understand typos, transposed letters,
   incomplete words, missing/extra spaces, and common English/Hebrew/transliteration aliases. Teacher
   names resolve only when unambiguous. Ranking, highlights, directory browsing,
@@ -68,7 +72,7 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
   happens. Ranking favors complete subject coverage and nearby title matches.
 - Browse teachers, series, topics, editor selections, recent additions, and daily learning.
 - Resume unfinished learning directly from Discover, or revisit each recording's progress in Learning history.
-- Explore trending recordings ranked by real public view counts across the latest 180 uploads. The interface discloses the sample and uses lifetime views rather than claiming a rolling archive-wide chart.
+- Explore trending shiurim for 24 hours, week, month, year or all time, ranked by public lifetime views within each upload cohort. Resumable indexing reports incomplete coverage and caches completed charts. See [trending behavior and warm-up](docs/trending.md).
 - Follow teachers, topics, and series; filter recommendations to a time budget. Related learning fetches additional recordings from the current shiur's series, topics, and teacher, with a reason for each recommendation.
 - Play recordings while navigating; seek, change speed and volume, manage the queue, set a sleep timer, and resume listening.
 - Save shiurim, create and edit playlists, and keep timestamped notes on this device. Removal actions support undo.
@@ -111,6 +115,7 @@ npm run lint
 npm run audit
 npm run test:search
 npm run test:learning
+npm run test:api
 npm run worker:build
 # Use a disposable PostgreSQL database; runs the database/recovery tests:
 TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:worker

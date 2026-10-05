@@ -152,7 +152,9 @@ No Sefaria API key is required. Existing transcript and search connections are
 used. Apply the additive cache migration before deploying:
 
 - D1: `npm run db:migrate:local` for development, or the usual remote process for
-  `drizzle/0004_sources.sql`. Vercel's D1 setup also applies it idempotently.
+  `drizzle/0005_sources.sql`. This follows main's title autocomplete migration;
+  existing preview cache tables are retained. Vercel's D1 setup also applies it
+  idempotently.
 - PostgreSQL: apply `db/search-postgres/002_sources.sql` using the **search schema
   owner**. It grants CRUD to the installed `yutorah_search_app` role when present;
   installations with another app role must grant it the same four table privileges.

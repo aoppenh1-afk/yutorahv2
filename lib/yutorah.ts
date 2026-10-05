@@ -25,6 +25,7 @@ export type Shiur = {
   url: string;
   duration: number;
   date: string;
+  uploadedAt?: string;
   topics: string[];
   topicIds?: number[];
   views?: number;
@@ -93,22 +94,73 @@ export function safeUrl(value: unknown): string {
     return '';
   }
 }
+/** The legacy website serializes Eastern wall time; the mobile API includes Z. */
+export function uploadDate(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  let input = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}T[\d:.]+$/.test(input)) {
+    const wall = Date.parse(input + 'Z');
+    if (!Number.isFinite(wall)) return undefined;
+    const eastern = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    });
+    let instant = wall;
+    for (let pass = 0; pass < 2; pass++) {
+      const parts = Object.fromEntries(
+        eastern.formatToParts(instant).map((p) => [p.type, p.value]),
+      );
+      const local = Date.UTC(
+        Number(parts.year),
+        Number(parts.month) - 1,
+        Number(parts.day),
+        Number(parts.hour),
+        Number(parts.minute),
+        Number(parts.second),
+      );
+      instant = wall - (local - Math.floor(instant / 1000) * 1000);
+    }
+    input = new Date(instant).toISOString();
+  }
+  // A date without a time or offset cannot establish a 24-hour cutoff.
+  if (!/T.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(input)) return undefined;
+  const timestamp = Date.parse(input);
+  return Number.isFinite(timestamp)
+    ? new Date(timestamp).toISOString()
+    : undefined;
+}
 export function normalize(raw: RawShiur): Shiur {
   const teacher = raw.shiurTeachers?.[0];
   const seconds = String(raw.shiurLength ?? '0:0:0')
     .split(':')
     .reduce((s: number, n: string) => s * 60 + Number(n), 0);
+  const legacyPhoto =
+    raw.PHOTO || (Array.isArray(raw.photo) ? raw.photo[0] : raw.photo);
   const photo =
     teacher?.teacherPhotoURL ||
-    (raw.PHOTO
-      ? 'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/' + raw.PHOTO
+    (legacyPhoto
+      ? 'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/' + legacyPhoto
       : '');
   const id = Number(raw.shiurID ?? raw.shiurid);
   return {
     id,
     title: plain(raw.shiurTitle ?? raw.shiurtitle),
-    teacher: plain(teacher?.teacherName ?? raw.teacherfullname),
-    teacherId: Number(teacher?.teacherID ?? raw.teacherid),
+    teacher: plain(
+      teacher?.teacherName ??
+        (Array.isArray(raw.teacherfullname)
+          ? raw.teacherfullname[0]
+          : raw.teacherfullname),
+    ),
+    teacherId: Number(
+      teacher?.teacherID ??
+        (Array.isArray(raw.teacherid) ? raw.teacherid[0] : raw.teacherid),
+    ),
     image: safeUrl(photo),
     audio: safeUrl(raw.downloadURL || raw.shiurFileURL || raw.shiurdownloadurl),
     url: `${ORIGIN}/lectures/details?shiurID=${id}`,
@@ -117,6 +169,7 @@ export function normalize(raw: RawShiur): Shiur {
       /^(\d{4}-\d{2}-\d{2}T[\d:.]+)$/,
       '$1Z',
     ),
+    uploadedAt: uploadDate(raw.shiurDateSubmitted ?? raw.shiurdatesubmitted),
     topics: (
       raw.shiurSubcategoriesObj?.map((s) => s.name) ??
       raw.subcategoryname ??
@@ -150,15 +203,32 @@ export function normalize(raw: RawShiur): Shiur {
   };
 }
 const cache = new Map<string, { until: number; data: unknown }>();
+const pending = new Map<string, Promise<unknown>>();
 export async function upstream<T>(path: string, ttl = 120): Promise<T> {
+  // Candidate scans explicitly request fresh pages. They must not reuse a
+  // cached response or another scan's request when checking upstream totals.
+  if (ttl <= 0) return (await fetchUpstream(path)) as T;
   const hit = cache.get(path);
   if (hit && hit.until > Date.now()) return hit.data as T;
-  const response = await fetch(`${ORIGIN}/api/${path}`, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(18000),
+  if (hit) cache.delete(path);
+  const requestKey = JSON.stringify([path, ttl]);
+  const existing = pending.get(requestKey);
+  if (existing) return (await existing) as T;
+  const request = fetchUpstream(path).then((data) => {
+    if (!cache.has(path) && cache.size >= 36)
+      cache.delete(cache.keys().next().value!);
+    cache.set(path, { until: Date.now() + ttl * 1000, data });
+    return data;
   });
-  if (!response.ok) throw new Error(`YUTorah returned ${response.status}`);
-  let data: unknown = await response.json();
+  pending.set(requestKey, request);
+  try {
+    return (await request) as T;
+  } finally {
+    pending.delete(requestKey);
+  }
+}
+async function fetchUpstream(path: string): Promise<unknown> {
+  let data = await readUpstream(path);
   if (path.startsWith('search/')) {
     const search = data as SearchResponse;
     const f = search.facet_counts?.facet_fields || {};
@@ -173,9 +243,85 @@ export async function upstream<T>(path: string, ttl = 120): Promise<T> {
       },
     };
   }
-  if (cache.size > 35) cache.delete(cache.keys().next().value!);
-  cache.set(path, { until: Date.now() + ttl * 1000, data });
-  return data as T;
+  return data;
+}
+
+export class SearchReadError extends Error {
+  constructor(cause: unknown) {
+    super('YUTorah search read was interrupted.', { cause });
+    this.name = 'SearchReadError';
+  }
+}
+
+/** Retry interrupted GETs without changing the query or the total time budget. */
+async function readUpstream(path: string): Promise<unknown> {
+  const attempts = path.startsWith('search/') ? 3 : 1;
+  const deadline = performance.now() + 18000;
+  for (let attempt = 0; ; attempt++) {
+    const remaining = Math.floor(deadline - performance.now());
+    if (remaining <= 0)
+      throw new SearchReadError(
+        new DOMException('The search timed out.', 'TimeoutError'),
+      );
+    // Recover quickly from stalled connections while leaving the final read
+    // enough time for a slow but healthy response.
+    const attemptBudget =
+      attempts === 1 || attempt >= 2 ? remaining : attempt === 0 ? 3000 : 5000;
+    const signal = AbortSignal.timeout(Math.min(attemptBudget, remaining));
+    try {
+      const response = await fetch(`${ORIGIN}/api/${path}`, {
+        headers: { Accept: 'application/json' },
+        signal,
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        const error = new Error(`YUTorah returned ${response.status}`);
+        if (attempts === 1 || ![500, 502, 503, 504].includes(response.status))
+          throw error;
+        const header = response.headers.get('Retry-After');
+        const advertisedWait = header
+          ? /^\d+$/.test(header)
+            ? Number(header) * 1000
+            : Date.parse(header) - Date.now()
+          : 0;
+        const retryAfter = Number.isFinite(advertisedWait)
+          ? Math.max(0, advertisedWait)
+          : 0;
+        if (attempt + 1 >= attempts)
+          throw retryAfter > 0 ? error : new SearchReadError(error);
+        const delay = Math.max(250 * 2 ** attempt, retryAfter);
+        // A requested wait beyond this pass's budget must stop recovery rather
+        // than cause an immediate resume that ignores Retry-After.
+        if (delay >= deadline - performance.now()) throw error;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      return await response.json();
+    } catch (error) {
+      const code = (error as { cause?: { code?: string } })?.cause?.code;
+      const interrupted =
+        error instanceof Error &&
+        (error.name === 'TimeoutError' ||
+          (error.name === 'AbortError' &&
+            signal.aborted &&
+            signal.reason instanceof Error &&
+            signal.reason.name === 'TimeoutError') ||
+          (error instanceof TypeError &&
+            !!code &&
+            [
+              'ECONNRESET',
+              'EPIPE',
+              'ETIMEDOUT',
+              'UND_ERR_SOCKET',
+              'UND_ERR_CONNECT_TIMEOUT',
+              'UND_ERR_HEADERS_TIMEOUT',
+              'UND_ERR_BODY_TIMEOUT',
+            ].includes(code)));
+      if (!interrupted) throw error;
+      if (attempt + 1 >= attempts || performance.now() >= deadline)
+        throw attempts > 1 ? new SearchReadError(error) : error;
+    }
+  }
 }
 export async function getHome(): Promise<HomeData> {
   const j = await upstream<HomeResponse>('homepage/details');

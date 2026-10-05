@@ -1,8 +1,12 @@
 import { Pool } from 'pg';
 import { TranscriptionStore } from '../packages/transcription/src/store';
+import {
+  createCachedTranscriptReader,
+  type TranscriptReader,
+} from '../packages/transcription/src/read-cache';
 
-type Reader = Pick<TranscriptionStore, 'content' | 'search'>;
 let store: TranscriptionStore | undefined;
+const readers = new WeakMap<TranscriptReader, TranscriptReader>();
 
 /** A small server-side pool using the website's read-only database role. */
 function databaseReader() {
@@ -26,12 +30,25 @@ function databaseReader() {
 export async function transcriptDatabaseGateway(
   path: string,
   params: URLSearchParams,
-  reader?: Reader,
+  reader?: TranscriptReader,
 ): Promise<Response> {
   const reply = (body: unknown, status = 200) =>
-    Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+    Response.json(body, {
+      status,
+      headers: {
+        'Cache-Control':
+          status === 200
+            ? `public, max-age=0, s-maxage=${path === '/v1/transcripts/search' ? 15 : 60}`
+            : 'no-store',
+      },
+    });
   try {
-    const source = reader ?? databaseReader();
+    const raw = reader ?? databaseReader();
+    let source = readers.get(raw);
+    if (!source) {
+      source = createCachedTranscriptReader(raw);
+      readers.set(raw, source);
+    }
     const id = path.match(/^\/v1\/transcripts\/(\d{1,12})$/)?.[1];
     if (id) {
       const content = await source.content(id);

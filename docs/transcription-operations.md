@@ -1,5 +1,9 @@
 # Provision and operate the Linux worker
 
+Published transcripts automatically omit hesitation fillers. See
+[transcript cleanup](transcript-cleanup.md) for the policy and the backed-up
+cleanup command for existing records.
+
 For the current teacher/series GUI, installation, and notes workflow, use
 [the transcription operator guide](transcription-operator.md). Automated discovery
 is restricted to enabled selections and their recording budgets. The CLI

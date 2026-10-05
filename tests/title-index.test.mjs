@@ -52,6 +52,11 @@ void test('title evidence recovers a transposition plus missing letter in Shmini
 
 void test('Vercel schema setup survives partial application and preserves indexed titles on redeployment', async () => {
   const db = database();
+  await db
+    .prepare(
+      "INSERT INTO sources_runs(id,payload,lease,expires) VALUES('cached-source','{}',0,1791000000000)",
+    )
+    .run();
   await db.batch(
     index.indexTitleStatements(db, [{ id: 42, title: 'Quantum Halacha' }]),
   );
@@ -75,9 +80,66 @@ void test('Vercel schema setup survives partial application and preserves indexe
     ).count,
     1,
   );
+  assert.equal(
+    (
+      await db
+        .prepare("SELECT expires FROM sources_runs WHERE id='cached-source'")
+        .first()
+    ).expires,
+    1791000000000,
+  );
+  assert.equal(
+    (
+      await db
+        .prepare(
+          "SELECT rowid FROM search_title_autocomplete WHERE search_title_autocomplete MATCH 'Quantum'",
+        )
+        .first()
+    ).rowid,
+    42,
+  );
 
   async function migrate() {
     await schema.migrateTitleSchema(db);
+  }
+});
+
+void test('journal migrations upgrade autocomplete and retain an existing preview sources cache', () => {
+  const sqlite = new DatabaseSync(':memory:');
+  try {
+    const { entries } = JSON.parse(
+      readFileSync('drizzle/meta/_journal.json', 'utf8'),
+    );
+    for (const entry of entries.slice(0, -1))
+      sqlite.exec(readFileSync(`drizzle/${entry.tag}.sql`, 'utf8'));
+    sqlite.exec(
+      `INSERT INTO search_title_catalog(id,title,terms) VALUES(42,'Quantum Halacha','["quantum","halacha"]')`,
+    );
+    // Earlier source previews created this table before the migrations were combined.
+    sqlite.exec(
+      'CREATE TABLE sources_runs(id text PRIMARY KEY,payload text NOT NULL,lease integer NOT NULL DEFAULT 0,expires integer NOT NULL)',
+    );
+    sqlite.exec('CREATE INDEX sources_runs_expires ON sources_runs(expires)');
+    sqlite.exec(
+      "INSERT INTO sources_runs VALUES('cached-source','{}',0,1791000000000)",
+    );
+    sqlite.exec(readFileSync(`drizzle/${entries.at(-1).tag}.sql`, 'utf8'));
+    assert.equal(
+      sqlite
+        .prepare("SELECT expires FROM sources_runs WHERE id='cached-source'")
+        .get().expires,
+      1791000000000,
+    );
+    assert.equal(
+      sqlite
+        .prepare(
+          "SELECT rowid FROM search_title_autocomplete WHERE search_title_autocomplete MATCH 'Quantum'",
+        )
+        .get().rowid,
+      42,
+    );
+  } finally {
+    sqlite.close();
   }
 });
 
@@ -538,7 +600,7 @@ void test('archive backfill resumes atomically and refreshes new titles without 
     pages.push(page);
     if (page === fail) {
       fail = 0;
-      return new Response('Unavailable', { status: 503 });
+      return new Response('Invalid request', { status: 400 });
     }
     return Response.json({
       response: {

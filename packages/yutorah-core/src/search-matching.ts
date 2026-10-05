@@ -46,7 +46,7 @@ const aliasGroups = [
   ['emunah', 'emuna', 'אמונה', 'faith', 'belief', 'believe'],
   ['middot', 'midos', 'מידות'],
   ['selichot', 'selichos', 'slichot', 'סליחות'],
-  ['sukkot', 'sukkos', 'succot', 'succos', 'סוכות'],
+  ['sukkot', 'sukkos', 'sukkas', 'succot', 'succos', 'סוכות'],
   ['pesach', 'passover', 'פסח'],
   ['shavuot', 'shavuos', 'שבועות'],
   ['chanukah', 'chanuka', 'hanukkah', 'hanukah', 'חנוכה'],
