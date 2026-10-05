@@ -24,6 +24,7 @@ async function database() {
   for (const file of (await readdir('db/transcript-archive')).sort())
     sqlite.exec(await readFile(`db/transcript-archive/${file}`, 'utf8'));
   let reads = 0;
+  let chunkWrites = 0;
   class Statement implements ArchiveStatement {
     constructor(
       private sql: string,
@@ -42,6 +43,8 @@ async function database() {
       return (await this.all<T>()).results[0] ?? null;
     }
     async run() {
+      if (this.sql.includes('INSERT OR IGNORE INTO archive_content_chunks'))
+        chunkWrites++;
       return sqlite.prepare(this.sql).run(...(this.args as never[]));
     }
   }
@@ -60,7 +63,7 @@ async function database() {
       }
     },
   };
-  return { db, sqlite, reads: () => reads };
+  return { db, sqlite, reads: () => reads, chunkWrites: () => chunkWrites };
 }
 const fixture = (
   text = 'Quantum halacha includes חזרה.',
@@ -119,6 +122,93 @@ void test('packed initial spelling index preserves typo search and later publica
   }
 });
 
+void test('notes states reuse timed text and repeated search words use one spelling lookup', async () => {
+  const { db, sqlite, reads, chunkWrites } = await database();
+  try {
+    const archive = new TranscriptArchive(db, new D1ContentObjects(db));
+    const first = await archive.publish({ generation: 1, content: fixture() });
+    const before = sqlite
+      .prepare('SELECT COUNT(*) AS n FROM archive_content_chunks')
+      .get()!.n;
+    for (const [i, status] of ['cleaning', 'generating'].entries()) {
+      await archive.updateStatus({
+        id: '42',
+        generation: i + 2,
+        transcriptId: fixture().transcriptId,
+        notes: { status },
+      });
+    }
+    assert.equal(
+      sqlite.prepare('SELECT COUNT(*) AS n FROM archive_content_chunks').get()!
+        .n,
+      before,
+    );
+    assert.equal((await archive.status('42'))!.version, first.version);
+    const previousWrites = chunkWrites();
+    await archive.publish({
+      generation: 4,
+      content: {
+        ...fixture(),
+        notes: { status: 'completed', markdown: '# Notes' },
+      },
+    });
+    assert.equal(
+      chunkWrites() - previousWrites,
+      1,
+      'only the new notes manifest is uploaded',
+    );
+    assert.equal(
+      sqlite
+        .prepare(
+          "SELECT COUNT(DISTINCT object_key) AS n FROM archive_content_chunks WHERE object_key LIKE '%/segments/%'",
+        )
+        .get()!.n,
+      1,
+    );
+    assert.equal(
+      sqlite.prepare('SELECT COUNT(*) AS n FROM archive_segments').get()!.n,
+      3,
+    );
+    const initial = reads();
+    assert.ok((await archive.search('quantmu quantmu quantmu')).length);
+    assert.equal(reads() - initial, 2);
+    assert.equal(
+      (await archive.content('42', first.version))!.notes!.status,
+      'queued',
+    );
+  } finally {
+    sqlite.close();
+  }
+});
+
+void test('immutable D1 objects reuse stored chunks and repair an interrupted upload', async () => {
+  const { db, sqlite, chunkWrites } = await database();
+  try {
+    const objects = new D1ContentObjects(db);
+    const body = 'a'.repeat(99999) + '😀' + 'b'.repeat(150000);
+    await objects.put('fixture', body);
+    const initialWrites = chunkWrites();
+    await objects.put('fixture', body);
+    assert.equal(
+      chunkWrites(),
+      initialWrites,
+      'a completed object is not uploaded again',
+    );
+    sqlite.exec(
+      "DELETE FROM archive_content_chunks WHERE object_key='fixture' AND chunk_index=1",
+    );
+    await objects.put('fixture', body);
+    assert.equal(
+      chunkWrites(),
+      initialWrites + 1,
+      'only the missing chunk is uploaded',
+    );
+    assert.equal(await (await objects.get('fixture'))!.text(), body);
+  } finally {
+    sqlite.close();
+  }
+});
+
 void test('D1 publication preserves hashes, timestamps, Hebrew, and immutable previous versions', async () => {
   const { db, sqlite } = await database();
   try {
@@ -137,6 +227,9 @@ void test('D1 publication preserves hashes, timestamps, Hebrew, and immutable pr
     assert.deepEqual(await archive.status('42'), {
       transcriptId: fixture().transcriptId,
       version: first.version,
+      searchVersion: await contentHash(
+        JSON.stringify(publicContent(fixture()).segments),
+      ),
       notes: { status: 'queued' },
     });
     const revised = {
@@ -297,7 +390,7 @@ void test('Free Worker serves D1, authenticates before edge cache, and bypasses 
       ctx,
     );
     const statusBody = await status.text();
-    assert.ok(statusBody.length < 200);
+    assert.ok(statusBody.length < 300);
     assert.ok(!statusBody.includes('segments'));
     assert.equal(
       (

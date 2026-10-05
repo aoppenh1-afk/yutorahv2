@@ -1,4 +1,5 @@
 'use client';
+import { pollDelay } from '@/lib/poll-delay';
 import { useEffect, useRef, useState } from 'react';
 import {
   Download,
@@ -48,7 +49,6 @@ export function useTranscriptSources(
     setRecovering(false);
     if (!enabled || !transcriptId) return;
     const abort = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
     let polls = 0;
     const read = async () => {
       try {
@@ -78,10 +78,11 @@ export function useTranscriptSources(
             throw new Error(
               'Sources are still being checked. Retry to continue.',
             );
-          timer = setTimeout(
-            () => void read(),
+          await pollDelay(
             sourceRetryDelay(response.headers.get('Retry-After')),
+            abort.signal,
           );
+          if (!abort.signal.aborted) void read();
         }
       } catch (error) {
         if (!abort.signal.aborted)
@@ -95,7 +96,6 @@ export function useTranscriptSources(
     void read();
     return () => {
       abort.abort();
-      clearTimeout(timer);
     };
   }, [shiurId, transcriptId, enabled, retry]);
   return { result, error, recovering, retry: () => setRetry((n) => n + 1) };

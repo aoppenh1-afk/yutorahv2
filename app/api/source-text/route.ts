@@ -8,8 +8,16 @@ export async function GET(request: Request) {
       request,
       {
         db: searchDatabase(),
-        transcript: (id) =>
-          transcriptGateway(`/v1/transcripts/${id}`, new URLSearchParams()),
+        status: (id) =>
+          transcriptGateway(
+            `/v1/transcripts/${id}/status`,
+            new URLSearchParams(),
+          ),
+        transcript: (id, version) =>
+          transcriptGateway(
+            `/v1/transcripts/${id}`,
+            new URLSearchParams(version ? { version } : {}),
+          ),
       },
       true,
     );

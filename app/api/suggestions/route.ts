@@ -16,7 +16,10 @@ export async function GET(request: Request) {
     return Response.json(
       { items: await suggest(searchDatabase(), query) },
       {
-        headers: { 'Cache-Control': 'public, max-age=60' },
+        headers: {
+          'Cache-Control':
+            'public, max-age=60, s-maxage=300, stale-while-revalidate=300',
+        },
       },
     );
   } catch (error) {

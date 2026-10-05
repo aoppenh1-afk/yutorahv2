@@ -19,8 +19,16 @@ export async function POST(request: Request) {
     url.searchParams.set('id', shiurId);
     return await sourcesResponse(new Request(url), {
       db: searchDatabase(),
-      transcript: (id) =>
-        transcriptGateway(`/v1/transcripts/${id}`, new URLSearchParams()),
+      status: (id) =>
+        transcriptGateway(
+          `/v1/transcripts/${id}/status`,
+          new URLSearchParams({ fresh: 'true' }),
+        ),
+      transcript: (id, version) =>
+        transcriptGateway(
+          `/v1/transcripts/${id}`,
+          new URLSearchParams(version ? { version } : { fresh: 'true' }),
+        ),
     });
   } catch {
     return Response.json(

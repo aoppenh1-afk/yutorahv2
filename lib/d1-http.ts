@@ -18,8 +18,12 @@ export function d1HttpDatabase(config: {
   databaseId: string;
   token: string;
   onResult?: (meta: Result['meta']) => void;
+  onResults?: (
+    queries: Query[],
+    metas: Result['meta'][],
+  ) => void | Promise<void>;
   signal?: AbortSignal;
-  beforeRequest?: () => void;
+  beforeRequest?: (queries: Query[]) => void | Promise<void>;
 }): SearchDatabase {
   if (
     !/^[a-f0-9]{32}$/i.test(config.accountId) ||
@@ -30,7 +34,7 @@ export function d1HttpDatabase(config: {
   const endpoint = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/d1/database/${config.databaseId}/query`;
   async function execute(queries: Query[]): Promise<Result[]> {
     if (!queries.length) return [];
-    config.beforeRequest?.();
+    await config.beforeRequest?.(queries);
     const options = {
       method: 'POST',
       headers: {
@@ -90,6 +94,10 @@ export function d1HttpDatabase(config: {
     )
       throw new Error('Search storage returned an unsuccessful query.');
     for (const result of body.result) config.onResult?.(result.meta);
+    await config.onResults?.(
+      queries,
+      body.result.map((result) => result.meta),
+    );
     return body.result;
   }
   class Statement implements SearchStatement {

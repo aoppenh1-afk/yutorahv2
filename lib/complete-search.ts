@@ -17,11 +17,9 @@ import {
   searchRetrieval,
   searchVocabulary,
 } from './search-matching';
-import {
-  indexTitleStatements,
-  seedCachedTitles,
-  titleVocabulary,
-} from './title-index';
+import { changedTitleStatements, titleVocabulary } from './title-index';
+
+import { BoundedCache } from './bounded-cache';
 
 type Run = {
   id: string;
@@ -30,12 +28,12 @@ type Run = {
   next: number;
   created: number;
   lease: number;
+  scanned: number;
 };
 const pageSize = 30;
 const sorts: Record<string, string> = {
   relevance: 'rank DESC, id DESC',
-  popular:
-    "COALESCE(json_extract(payload, '$.views'), 0) DESC, rank DESC, id DESC",
+  popular: 'views DESC, rank DESC, id DESC',
   new: 'date DESC, id DESC',
   old: 'date ASC, id ASC',
   short: 'CASE WHEN duration = 0 THEN 1 ELSE 0 END, duration ASC, id DESC',
@@ -44,6 +42,7 @@ const sorts: Record<string, string> = {
   library: 'position ASC, id DESC',
 };
 export class SearchChangedError extends Error {}
+export class SearchBusyError extends Error {}
 
 function sourceParams(plan: SearchPlan, query: string, page: number) {
   const p = new URLSearchParams({
@@ -58,7 +57,7 @@ function sourceParams(plan: SearchPlan, query: string, page: number) {
 }
 
 /** Bounded, resumable passes. A database transaction commits each pass with its cursor. */
-export async function completeSearch(
+async function searchPass(
   db: SearchDatabase,
   query: string,
   options: Partial<SearchPlan>,
@@ -111,93 +110,160 @@ export async function completeSearch(
     vocabulary: string[];
     corrections: string[];
   };
-  let expansion = run ? (JSON.parse(run.plan) as Expansion) : null;
-  if (!expansion) {
-    await seedCachedTitles(db);
-    const learned = await titleVocabulary(db, plan.term);
-    const spacing = interpretSpacing(plan.term, learned.phrases);
-    expansion = {
-      sourceQuery: '',
-      related: false,
-      searchTerm: spacing.term,
-      corrections: spacing.labels,
-      vocabulary: [
-        ...new Set([
-          ...learned.words,
-          ...searchVocabulary([
-            ...directory.teachers.map((teacher) => teacher.name),
-            ...directory.topics.map((topic) => topic.name),
-            ...directory.series.map((series) => series.name),
-          ]),
-        ]),
-      ],
-    };
-  }
-  plan.labels.push(...expansion.corrections);
-  // Keep the parsed request in the public plan: the UI resumes with plan.term.
-  // The repaired retrieval term lives in the run snapshot independently.
-  const retrieval = searchRetrieval(
-    expansion.searchTerm || plan.phrase || '',
-    expansion.vocabulary,
-  );
-  const relatedQuery = criteria.quoted ? '' : retrieval.relatedQuery;
+  let creationOwner = '';
   if (!run) {
-    let sourceQuery = retrieval.strictQuery;
-    const fetchFirst = async () => {
-      const first = await upstream<SearchResponse>(
-        sourceParams(plan, sourceQuery, 1),
-        0,
-      );
-      if (
-        !Array.isArray(first.response?.docs) ||
-        !Number.isSafeInteger(first.response.numFound) ||
-        first.response.numFound < 0
+    creationOwner = crypto.randomUUID();
+    const claim = await db
+      .prepare(`INSERT INTO search_creation_leases(fingerprint,owner,expires) VALUES(?,?,?)
+      ON CONFLICT(fingerprint) DO UPDATE SET owner=excluded.owner,expires=excluded.expires WHERE search_creation_leases.expires < ?`)
+      .bind(fingerprint, creationOwner, Date.now() + 120000, Date.now())
+      .run();
+    if (!claim.meta.changes)
+      return {
+        items: [],
+        total: 0,
+        sourceTotal: 0,
+        scanned: 0,
+        complete: false,
+        run: '',
+        retryAfterMs: 1500,
+        plan,
+        filtered: false,
+        nextPage: null,
+        facets: { teachers: [], topics: [], series: [] },
+      };
+    // A previous creator may have committed after our initial lookup.
+    run = await db
+      .prepare(
+        'SELECT * FROM search_runs WHERE fingerprint=? AND (created>? OR (created>? AND (next-1)*30<total)) ORDER BY created DESC LIMIT 1',
       )
-        throw new Error('Search is unavailable.');
-      return first;
-    };
-    firstPage = await fetchFirst();
-    if (
-      firstPage.response.numFound === 0 &&
-      !criteria.quoted &&
-      !plan.phrase &&
-      retrieval.spellingQuery
-    ) {
-      sourceQuery = retrieval.spellingQuery;
+      .bind(fingerprint, cutoff, activeCutoff)
+      .first<Run>();
+  }
+  let expansion = run ? (JSON.parse(run.plan) as Expansion) : null;
+  let retrieval!: ReturnType<typeof searchRetrieval>;
+  try {
+    if (!expansion) {
+      const learned = await titleVocabulary(db, plan.term);
+      const spacing = interpretSpacing(plan.term, learned.phrases);
+      expansion = {
+        sourceQuery: '',
+        related: false,
+        searchTerm: spacing.term,
+        corrections: spacing.labels,
+        vocabulary: [
+          ...new Set([
+            ...learned.words,
+            ...searchVocabulary([
+              ...directory.teachers.map((teacher) => teacher.name),
+              ...directory.topics.map((topic) => topic.name),
+              ...directory.series.map((series) => series.name),
+            ]),
+          ]),
+        ],
+      };
+    }
+    plan.labels.push(...expansion.corrections);
+    // Keep the parsed request in the public plan: the UI resumes with plan.term.
+    // The repaired retrieval term lives in the run snapshot independently.
+    retrieval = searchRetrieval(
+      expansion.searchTerm || plan.phrase || '',
+      expansion.vocabulary,
+    );
+    const relatedQuery = criteria.quoted ? '' : retrieval.relatedQuery;
+    if (!run) {
+      let sourceQuery = retrieval.strictQuery;
+      const fetchFirst = async () => {
+        const first = await upstream<SearchResponse>(
+          sourceParams(plan, sourceQuery, 1),
+          0,
+        );
+        if (
+          !Array.isArray(first.response?.docs) ||
+          !Number.isSafeInteger(first.response.numFound) ||
+          first.response.numFound < 0
+        )
+          throw new Error('Search is unavailable.');
+        return first;
+      };
       firstPage = await fetchFirst();
-      if (firstPage.response.numFound > 0) {
-        const label =
-          'Spelling alternatives: no original match; showing close indexed spellings.';
-        expansion.corrections.push(label);
-        plan.labels.push(label);
+      if (
+        firstPage.response.numFound === 0 &&
+        !criteria.quoted &&
+        !plan.phrase &&
+        retrieval.spellingQuery
+      ) {
+        sourceQuery = retrieval.spellingQuery;
+        firstPage = await fetchFirst();
+        if (firstPage.response.numFound > 0) {
+          const label =
+            'Spelling alternatives: no original match; showing close indexed spellings.';
+          expansion.corrections.push(label);
+          plan.labels.push(label);
+        }
       }
+      let related = false;
+      if (firstPage.response.numFound === 0 && relatedQuery) {
+        sourceQuery = relatedQuery;
+        firstPage = await fetchFirst();
+        related = firstPage.response.numFound > 0;
+      }
+      run = {
+        id: crypto.randomUUID(),
+        plan: JSON.stringify({ ...plan, ...expansion, sourceQuery, related }),
+        total: firstPage.response.numFound,
+        next: 1,
+        created: Date.now(),
+        lease: 0,
+        scanned: 0,
+      };
+      if (run.total > 50000)
+        throw new RangeError(
+          'This search exceeds the cache budget. Choose a teacher, topic, or narrower search.',
+        );
+      const committed = await db.batch([
+        db
+          .prepare(
+            "DELETE FROM search_runs WHERE id IN (SELECT id FROM search_runs WHERE fingerprint NOT LIKE 'trending:v1:%' AND created < ? AND ((next - 1) * 30 >= total OR created < ?) LIMIT 64)",
+          )
+          .bind(cutoff, activeCutoff),
+        db
+          .prepare(
+            `DELETE FROM search_runs WHERE id IN (SELECT id FROM (SELECT id,SUM(total) OVER (ORDER BY created DESC,id DESC) AS reserved,ROW_NUMBER() OVER (ORDER BY created DESC,id DESC) AS ordinal FROM search_runs WHERE (next-1)*30>=total AND fingerprint NOT LIKE 'trending:v1:%') ranked WHERE reserved > ? OR ordinal > 128)`,
+          )
+          .bind(Math.max(0, 50000 - run.total)),
+        db.prepare(
+          'DELETE FROM search_documents WHERE key IN (SELECT key FROM search_documents d WHERE NOT EXISTS (SELECT 1 FROM search_hits h WHERE h.document_key=d.key) LIMIT 256)',
+        ),
+        db
+          .prepare('DELETE FROM search_creation_leases WHERE expires < ?')
+          .bind(Date.now()),
+        db
+          .prepare(
+            `INSERT INTO search_runs (id,fingerprint,plan,total,next,created,lease) SELECT ?,?,?,?,1,?,0 WHERE (SELECT COALESCE(SUM(total),0) FROM search_runs WHERE fingerprint NOT LIKE 'trending:v1:%') <= ?`,
+          )
+          .bind(
+            run.id,
+            fingerprint,
+            run.plan,
+            run.total,
+            run.created,
+            50000 - run.total,
+          ),
+      ]);
+      if (!(committed.at(-1) as { meta?: { changes: number } })?.meta?.changes)
+        throw new SearchBusyError(
+          'The search cache is busy. Retry shortly or choose a narrower search.',
+        );
     }
-    let related = false;
-    if (firstPage.response.numFound === 0 && relatedQuery) {
-      sourceQuery = relatedQuery;
-      firstPage = await fetchFirst();
-      related = firstPage.response.numFound > 0;
-    }
-    run = {
-      id: crypto.randomUUID(),
-      plan: JSON.stringify({ ...plan, ...expansion, sourceQuery, related }),
-      total: firstPage.response.numFound,
-      next: 1,
-      created: Date.now(),
-      lease: 0,
-    };
-    await db.batch([
-      db
+  } finally {
+    if (creationOwner)
+      await db
         .prepare(
-          "DELETE FROM search_runs WHERE id IN (SELECT id FROM search_runs WHERE fingerprint NOT LIKE 'trending:v1:%' AND created < ? AND ((next - 1) * 30 >= total OR created < ?) LIMIT 5)",
+          'DELETE FROM search_creation_leases WHERE fingerprint=? AND owner=?',
         )
-        .bind(cutoff, activeCutoff),
-      db
-        .prepare(
-          'INSERT INTO search_runs (id,fingerprint,plan,total,next,created,lease) VALUES (?,?,?,?,1,?,0)',
-        )
-        .bind(run.id, fingerprint, run.plan, run.total, run.created),
-    ]);
+        .bind(fingerprint, creationOwner)
+        .run();
   }
   const storedPlan = JSON.parse(run.plan) as {
     sourceQuery: string;
@@ -270,7 +336,7 @@ export async function completeSearch(
         const stalls = prefix ? 0 : (storedPlan.stalls || 0) + 1;
         const updatedPlan = JSON.stringify({ ...JSON.parse(run.plan), stalls });
         const learnedTitles: { id: number; title: string }[] = [];
-        const rows = batches.flatMap((b, i) => {
+        const rawRows = batches.flatMap((b, i) => {
           return b.response.docs.map((raw, j) => {
             const s = normalize(raw);
             learnedTitles.push({ id: s.id, title: s.title });
@@ -294,16 +360,49 @@ export async function completeSearch(
             ];
           });
         });
-        const statements: SearchStatement[] = indexTitleStatements(
+        const documents = new Map<string, string>();
+        const rows = await Promise.all(
+          rawRows.map(async (row) => {
+            const payload = row[2] as string;
+            const digest = await crypto.subtle.digest(
+              'SHA-256',
+              new TextEncoder().encode(payload),
+            );
+            const key = Array.from(new Uint8Array(digest), (n) =>
+              n.toString(16).padStart(2, '0'),
+            ).join('');
+            documents.set(key, payload);
+            row[2] = '';
+            return [...row, key, Number(JSON.parse(payload).views) || 0];
+          }),
+        );
+        const statements: SearchStatement[] = await changedTitleStatements(
           db,
           learnedTitles,
         );
-        for (let i = 0; i < rows.length; i += 8) {
-          const group = rows.slice(i, i + 8);
+        const entries = [...documents];
+        for (let i = 0; i < entries.length; i += 30) {
+          const group = entries.slice(i, i + 30);
           statements.push(
             db
               .prepare(
-                `INSERT OR IGNORE INTO search_hits (run,id,payload,matched,search,language,format,rank,date,duration,title,position) VALUES ${group.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?)').join(',')}`,
+                `INSERT OR IGNORE INTO search_documents(key,payload,created) VALUES ${group.map(() => '(?,?,?)').join(',')}`,
+              )
+              .bind(
+                ...group.flatMap(([key, payload]) => [
+                  key,
+                  payload,
+                  Date.now(),
+                ]),
+              ),
+          );
+        }
+        for (let i = 0; i < rows.length; i += 7) {
+          const group = rows.slice(i, i + 7);
+          statements.push(
+            db
+              .prepare(
+                `INSERT OR IGNORE INTO search_hits (run,id,payload,matched,search,language,format,rank,date,duration,title,position,document_key,views) VALUES ${group.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',')}`,
               )
               .bind(...group.flat()),
           );
@@ -311,11 +410,12 @@ export async function completeSearch(
         statements.push(
           db
             .prepare(
-              'UPDATE search_runs SET next = ?, plan = ?, lease = 0, created = CASE WHEN ? THEN ? ELSE created END WHERE id = ? AND lease = ?',
+              'UPDATE search_runs SET next = ?, plan = ?, scanned = ?, lease = 0, created = CASE WHEN ? THEN ? ELSE created END WHERE id = ? AND lease = ?',
             )
             .bind(
               next,
               updatedPlan,
+              run.scanned + rows.length,
               next > pages ? 1 : 0,
               Date.now(),
               run.id,
@@ -324,6 +424,18 @@ export async function completeSearch(
         );
         await db.batch(statements);
         run.next = next;
+        if (next > pages) run.created = Date.now();
+        run.scanned += rows.length;
+        if (next > pages) {
+          const count = await db
+            .prepare('SELECT COUNT(*) AS scanned FROM search_hits WHERE run=?')
+            .bind(run.id)
+            .first<{ scanned: number }>();
+          if (count!.scanned !== run.total)
+            throw new SearchChangedError(
+              'The library changed during this search. Please search again.',
+            );
+        }
         if (failure && stalls >= 3) throw failure.reason;
       } catch (e) {
         await db
@@ -337,6 +449,19 @@ export async function completeSearch(
             .prepare('DELETE FROM search_runs WHERE id = ?')
             .bind(run.id)
             .run();
+        if (
+          e instanceof Error &&
+          e.message.includes('Search cache capacity reached')
+        ) {
+          await db
+            .prepare(
+              'DELETE FROM search_documents WHERE key IN(SELECT key FROM search_documents d WHERE NOT EXISTS(SELECT 1 FROM search_hits h WHERE h.document_key=d.key) LIMIT 1000)',
+            )
+            .run();
+          throw new SearchBusyError(
+            'The search cache is busy. Please retry shortly.',
+          );
+        }
         throw e;
       }
     } else {
@@ -344,6 +469,10 @@ export async function completeSearch(
         .prepare('SELECT * FROM search_runs WHERE id = ?')
         .bind(run.id)
         .first<Run>())!;
+      if (!run)
+        throw new SearchChangedError(
+          'The cached search expired. Please search again.',
+        );
     }
   }
   const complete = run.next > pages;
@@ -378,33 +507,29 @@ export async function completeSearch(
     );
   if (plan.scope === 'title' && plan.term) predicates.push('matched = 1');
   const where = predicates.join(' AND ');
-  const refinements = predicates.slice(1).join(' AND ') || '1 = 1';
-  // Count candidates and refined matches in one pass and one database read.
-  const counts = await db
-    .prepare(
-      `SELECT COUNT(*) AS scanned, COUNT(CASE WHEN ${refinements} THEN 1 END) AS matches FROM search_hits WHERE run = ?`,
-    )
-    .bind(...args.slice(1), run.id)
-    .first<{ scanned: number; matches: number }>();
-  if (complete && counts!.scanned !== run.total) {
-    await db.prepare('DELETE FROM search_runs WHERE id = ?').bind(run.id).run();
-    throw new SearchChangedError(
-      'The library changed during this search. Please search again.',
-    );
-  }
+  const counts = { scanned: run.scanned, matches: run.scanned };
   const order = sorts[plan.sort || 'relevance'] || sorts.relevance;
   const data = await db
     .prepare(
-      `SELECT payload FROM search_hits WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`,
+      `SELECT COALESCE((SELECT d.payload FROM search_documents d WHERE d.key=search_hits.document_key),payload) AS payload${predicates.length > 1 ? ', COUNT(*) OVER() AS matches' : ''} FROM search_hits WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`,
     )
     .bind(...args, pageSize, complete ? (page - 1) * pageSize : 0)
-    .all<{ payload: string }>();
+    .all<{ payload: string; matches?: number }>();
+  if (predicates.length > 1)
+    counts.matches = data.results.length
+      ? data.results[0].matches!
+      : (await db
+          .prepare(`SELECT COUNT(*) AS matches FROM search_hits WHERE ${where}`)
+          .bind(...args)
+          .first<{ matches: number }>())!.matches;
   return {
     items: data.results.map((r) => JSON.parse(r.payload) as Shiur),
     total: counts!.matches,
     sourceTotal: run.total,
     scanned: counts!.scanned,
     complete,
+    retryAfterMs: 1500,
+    expiresAt: run.created + 60 * 60_000,
     related,
     run: run.id,
     plan,
@@ -412,4 +537,63 @@ export async function completeSearch(
     nextPage: complete && page * pageSize < counts!.matches ? page + 1 : null,
     facets: { teachers: [], topics: [], series: [] },
   };
+}
+
+const local = new WeakMap<
+  SearchDatabase,
+  {
+    cache: BoundedCache<SearchResult>;
+    pending: Map<string, Promise<SearchResult>>;
+  }
+>();
+/** Coalesce identical reads inside a process. The database lease coordinates other hosts. */
+export async function completeSearch(
+  db: SearchDatabase,
+  query: string,
+  options: Partial<SearchPlan>,
+  page = 1,
+  runId = '',
+): Promise<SearchResult> {
+  let state = local.get(db);
+  if (!state) {
+    state = {
+      cache: new BoundedCache(128, 8 * 1024 * 1024),
+      pending: new Map(),
+    };
+    local.set(db, state);
+  }
+  const key = JSON.stringify([
+    query,
+    Object.entries(options).sort(([a], [b]) => a.localeCompare(b)),
+    page,
+    runId,
+  ]);
+  const cached = state.cache.get(key);
+  if (cached) return structuredClone(cached);
+  let promise = state.pending.get(key);
+  if (!promise && state.pending.size >= 32)
+    throw new SearchBusyError('Search is busy. Please retry shortly.');
+  if (!promise) {
+    const current = state;
+    promise = searchPass(db, query, options, page, runId)
+      .then((result) => {
+        current.cache.set(
+          key,
+          result,
+          result.complete && runId
+            ? Math.max(
+                0,
+                Math.min(
+                  60000,
+                  (result.expiresAt || Date.now() + 60000) - Date.now(),
+                ),
+              )
+            : 0,
+        );
+        return result;
+      })
+      .finally(() => current.pending.delete(key));
+    current.pending.set(key, promise);
+  }
+  return structuredClone(await promise);
 }

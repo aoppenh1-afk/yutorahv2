@@ -1,5 +1,11 @@
 import type { Pool } from 'pg';
-import { setTimeout as delay } from 'node:timers/promises';
+import { retainPublishedStorage } from './retention.js';
+import { workWake } from './work-wake.js';
+import {
+  publicationBudget,
+  PublicationPausedError,
+} from './publication-budget.js';
+import { preparePublishedSources } from '../../../apps/worker/src/source-preparation.js';
 import { TranscriptionStore } from './store.js';
 import { TranscriptArchive } from './archive.js';
 import { D1ContentObjects } from './d1-content.js';
@@ -16,14 +22,49 @@ export function publicationTarget(
   if (!accountId && !databaseId && !token) return undefined;
   if (!accountId || !databaseId || !token)
     throw new Error('Invalid transcript publication configuration.');
-  const db = d1HttpDatabase({ accountId, databaseId, token });
-  return new TranscriptArchive(db, new D1ContentObjects(db));
+  const budget = publicationBudget(databaseId, env);
+  const db = d1HttpDatabase({
+    accountId,
+    databaseId,
+    token,
+    beforeRequest: (queries) => budget.reserve(queries),
+    onResults: (_queries, metas) => budget.observed(metas),
+    onResult: (meta) => {
+      budget.observe(meta);
+      console.log(
+        JSON.stringify({
+          event: 'archive_storage_usage',
+          rowsRead: meta.rows_read ?? 0,
+          rowsWritten: meta.rows_written ?? 0,
+          bytes: meta.size_after,
+        }),
+      );
+    },
+  });
+  return new TranscriptArchive(
+    db,
+    new D1ContentObjects(db),
+    async (statusOnly) => {
+      try {
+        await budget.check(statusOnly ? 50 : 5000);
+      } catch (error) {
+        if (
+          !(error instanceof PublicationPausedError) ||
+          !error.message.includes('storage')
+        )
+          throw error;
+        await db.prepare('SELECT id FROM archive_items LIMIT 0').all();
+        await budget.check(statusOnly ? 50 : 5000);
+      }
+    },
+  );
 }
 
 /** Hold a per-shiur lock and snapshot while exporting, independently of paid jobs. */
 export async function publishPending(
   pool: Pool,
-  target: Pick<TranscriptArchive, 'publish'>,
+  target: Pick<TranscriptArchive, 'publish'> &
+    Partial<Pick<TranscriptArchive, 'updateStatus' | 'beforePublication'>>,
   signal: AbortSignal,
   limit = 20,
 ) {
@@ -49,8 +90,8 @@ export async function publishPending(
       if (!locked) continue;
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
       const row = (
-        await client.query<{ generation: string }>(
-          `SELECT generation FROM transcript_publications
+        await client.query<{ generation: string; content_changed: boolean }>(
+          `SELECT generation,content_changed FROM transcript_publications
         WHERE shiur_id=$1 AND generation>published_generation AND available_at<=now()`,
           [id],
         )
@@ -59,26 +100,50 @@ export async function publishPending(
         await client.query('COMMIT');
         continue;
       }
-      const content = await writer.publicContent(id, client);
+      generation = Number(row.generation);
+      const statusOnly = !row.content_changed && !!target.updateStatus;
+      await target.beforePublication?.(statusOnly);
+      const status = statusOnly ? await writer.contentStatus(id, client) : null;
+      const content = statusOnly
+        ? null
+        : await writer.publicContent(id, client);
       await client.query('COMMIT');
-      if (!content) continue;
+      if (!content && !status) continue;
       generation = Number(row.generation);
       if (!Number.isSafeInteger(generation))
         throw new Error('Publication generation out of range.');
       // Indexing and hashing run on this Node host. Workers Free permits only
       // 10 ms of CPU per request, so the public Worker performs reads only.
-      const result = await target.publish({ generation, content });
+      const result =
+        statusOnly && status
+          ? await target.updateStatus!({ id, generation, ...status })
+          : await target.publish({ generation, content: content! });
+      if (!result) {
+        await client.query(
+          'UPDATE transcript_publications SET content_changed=true WHERE shiur_id=$1 AND generation=$2',
+          [id, generation],
+        );
+        continue;
+      }
       if (result.generation < generation)
         throw new Error('Publication failed.');
       await client.query(
-        `UPDATE transcript_publications SET published_generation=$2,attempt=0,error=NULL
+        `UPDATE transcript_publications SET published_generation=$2,content_changed=false,attempt=0,error=NULL
         WHERE shiur_id=$1 AND generation=$2`,
         [id, generation],
       );
       published++;
-    } catch {
+      if (!statusOnly) await preparePublishedSources(id, signal);
+    } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       if (signal.aborted) signal.throwIfAborted();
+      if (error instanceof PublicationPausedError) {
+        await client.query(
+          `UPDATE transcript_publications SET error='publication_budget',available_at=$3 WHERE shiur_id=$1 AND ($2::bigint IS NULL OR generation=$2)`,
+          [id, generation ?? null, error.resumeAt],
+        );
+        continue;
+      }
       await client.query(
         `UPDATE transcript_publications SET attempt=attempt+1,error='publication_failed',
         available_at=now()+LEAST(3600,30*power(2,LEAST(attempt,7))) * interval '1 second'
@@ -97,12 +162,22 @@ export async function publishPending(
 }
 export async function runPublisher(
   pool: Pool,
-  target: Pick<TranscriptArchive, 'publish'>,
+  target: Pick<TranscriptArchive, 'publish'> &
+    Partial<Pick<TranscriptArchive, 'updateStatus' | 'beforePublication'>>,
   signal: AbortSignal,
 ) {
+  const wake = workWake(pool);
+  let interval = 30000;
+  let retained = 0;
   while (!signal.aborted) {
+    const observed = wake.revision;
     try {
       const published = await publishPending(pool, target, signal);
+      if (Date.now() >= retained) {
+        await retainPublishedStorage(pool, true);
+        retained = Date.now() + 24 * 60 * 60_000;
+      }
+      interval = published ? 30000 : Math.min(15 * 60_000, interval * 2);
       if (published)
         console.log(
           JSON.stringify({ event: 'transcripts_published', count: published }),
@@ -112,7 +187,7 @@ export async function runPublisher(
         console.error(JSON.stringify({ event: 'publication_retry' }));
     }
     try {
-      await delay(30_000, undefined, { signal });
+      await wake.wait(interval, signal, observed);
     } catch {
       if (!signal.aborted) throw new Error('Publisher wait failed.');
     }

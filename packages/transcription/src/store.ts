@@ -1,3 +1,6 @@
+import { workWake } from './work-wake.js';
+import { enqueueNotes } from './notes-store.js';
+import type { NotesProfile } from './notes.js';
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
 import { Failure } from '../../antigravity-acp/src/errors.js';
@@ -183,7 +186,7 @@ export class TranscriptionStore {
       );
       await client.query(
         `INSERT INTO transcription_shiurim(id,title,teacher,media_url) VALUES($1,$2,$3,$4)
-        ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,teacher=EXCLUDED.teacher,media_url=EXCLUDED.media_url,updated_at=now()`,
+        ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,teacher=EXCLUDED.teacher,media_url=EXCLUDED.media_url,updated_at=now() WHERE ROW(transcription_shiurim.title,transcription_shiurim.teacher,transcription_shiurim.media_url) IS DISTINCT FROM ROW(EXCLUDED.title,EXCLUDED.teacher,EXCLUDED.media_url)`,
         [shiur.id, shiur.title, shiur.teacher, shiur.mediaUrl ?? null],
       );
       const result = await client.query<{ id: string }>(
@@ -204,25 +207,21 @@ export class TranscriptionStore {
       const id = result.rows[0].id;
       // Re-ingesting an older duplicate must not demote a newer requested version.
       await client.query(
-        `UPDATE transcription_shiurim s SET latest_job_id=$2 WHERE s.id=$1 AND
+        `UPDATE transcription_shiurim s SET latest_job_id=$2 WHERE s.id=$1 AND s.latest_job_id IS DISTINCT FROM $2 AND
         (s.latest_job_id IS NULL OR (SELECT created_at FROM transcription_jobs WHERE id=s.latest_job_id)
           <= (SELECT created_at FROM transcription_jobs WHERE id=$2))`,
         [shiur.id, id],
       );
       return id;
+    }).then((id) => {
+      workWake(this.pool).notify();
+      return id;
     });
   }
   async claim(selectedOnly = false): Promise<Job | null> {
-    await this.pool.query(
-      `UPDATE transcription_jobs SET status='failed',completed_at=now(),lease_token=NULL,lease_until=NULL,
-       error=jsonb_build_object('code','attempts_exhausted')
-       WHERE cancel_requested=false AND status IN ('downloading','preparing','transcribing','merging')
-       AND lease_until < now() AND attempt >= $1`,
-      [MAX_JOB_ATTEMPTS],
-    );
     const token = randomUUID();
     const result = await this.pool.query<Job>(
-      `WITH candidate AS (
+      `WITH exhausted AS (UPDATE transcription_jobs SET status='failed',completed_at=now(),lease_token=NULL,lease_until=NULL,error=jsonb_build_object('code','attempts_exhausted') WHERE cancel_requested=false AND status IN ('downloading','preparing','transcribing','merging') AND lease_until<now() AND attempt>=$3 RETURNING id), candidate AS (
       SELECT id FROM transcription_jobs WHERE cancel_requested=false AND
         (NOT $4 OR EXISTS (SELECT 1 FROM transcription_target_jobs tj JOIN transcription_targets t ON t.id=tj.target_id WHERE tj.job_id=transcription_jobs.id AND t.enabled)) AND
         ((status='queued' AND available_at <= now()) OR
@@ -348,7 +347,11 @@ export class TranscriptionStore {
       },
     };
   }
-  async complete(job: Job, transcript: Transcript): Promise<void> {
+  async complete(
+    job: Job,
+    transcript: Transcript,
+    notes?: NotesProfile,
+  ): Promise<void> {
     transcript = cleanTranscript(transcript);
     if (
       !validSegments(transcript.segments, transcript.durationMs) ||
@@ -378,7 +381,9 @@ export class TranscriptionStore {
         `UPDATE transcription_jobs SET status='completed',completed_at=now(),lease_token=NULL,lease_until=NULL,error=NULL WHERE id=$1`,
         [job.id],
       );
+      if (notes) await enqueueNotes(client, notes, false, id);
     });
+    workWake(this.pool).notify();
   }
   private async insertSegments(
     client: PoolClient,
@@ -527,6 +532,7 @@ export class TranscriptionStore {
       WHERE id=$1 AND status NOT IN ('completed','cancelled')`,
       [id],
     );
+    workWake(this.pool).notify();
   }
   async retry(id: string): Promise<void> {
     await this.pool.query(
@@ -534,6 +540,7 @@ export class TranscriptionStore {
       WHERE id=$1 AND status IN ('failed','cancelled')`,
       [id],
     );
+    workWake(this.pool).notify();
   }
   /** Only the active, fully published transcript is exposed to readers. */
   async content(
@@ -592,8 +599,8 @@ export class TranscriptionStore {
   }
 
   /** Polling never reads the transcript, timed segments, or notes body. */
-  async contentStatus(shiurId: string) {
-    const result = await this.pool.query<{
+  async contentStatus(shiurId: string, client: Pool | PoolClient = this.pool) {
+    const result = await client.query<{
       transcriptId: string;
       notes: { status: string } | null;
     }>(
@@ -644,6 +651,8 @@ export class TranscriptionStore {
     limit = 20,
     mode: 'phrase' | 'terms' | 'smart' = 'phrase',
   ) {
+    if (process.env.TRANSCRIPT_ARCHIVE_ONLY_SEARCH === 'true')
+      throw new Failure('configuration');
     const variants = searchVariants(query, expandAliases);
     return transaction(this.pool, async (client) => {
       await client.query("SET LOCAL statement_timeout = '3s'");

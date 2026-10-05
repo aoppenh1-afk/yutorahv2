@@ -6,8 +6,16 @@ export async function GET(request: Request) {
   try {
     return await sourcesResponse(request, {
       db: searchDatabase(),
-      transcript: (id) =>
-        transcriptGateway(`/v1/transcripts/${id}`, new URLSearchParams()),
+      status: (id) =>
+        transcriptGateway(
+          `/v1/transcripts/${id}/status`,
+          new URLSearchParams(),
+        ),
+      transcript: (id, version) =>
+        transcriptGateway(
+          `/v1/transcripts/${id}`,
+          new URLSearchParams(version ? { version } : {}),
+        ),
     });
   } catch {
     return Response.json(

@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { setTimeout as delay } from 'node:timers/promises';
 import type { Pool } from 'pg';
 import {
   Failure,
@@ -12,6 +11,7 @@ import {
   type Profile,
 } from '../../../packages/transcription/src/store.js';
 import { catalogPage } from '../../../packages/yutorah-core/src/media.js';
+import { workWake } from '../../../packages/transcription/src/work-wake.js';
 import { catalogRecords } from './catalog.js';
 
 export type Target = {
@@ -37,13 +37,38 @@ export type OperatorSettings = {
   quota_resume_at: Date | null;
 };
 export class SelectionStore {
+  private cached?: {
+    revision: number;
+    expires: number;
+    value: Awaited<ReturnType<SelectionStore['readSnapshot']>>;
+  };
+  private pendingSnapshot?: ReturnType<SelectionStore['readSnapshot']>;
   constructor(readonly pool: Pool) {}
   async targets(): Promise<Target[]> {
     return (
       await this.pool.query<Target>(
-        `SELECT t.*,(SELECT count(*)::int FROM transcription_target_jobs j WHERE j.target_id=t.id) AS imported FROM transcription_targets t ORDER BY created_at`,
+        `SELECT t.* FROM transcription_targets t ORDER BY created_at`,
       )
     ).rows;
+  }
+  async target(id: string): Promise<Target | null> {
+    return (
+      (
+        await this.pool.query<Target>(
+          'SELECT * FROM transcription_targets WHERE id=$1',
+          [id],
+        )
+      ).rows[0] ?? null
+    );
+  }
+  async hasEnabledTarget() {
+    return (
+      (
+        await this.pool.query(
+          'SELECT 1 FROM transcription_targets WHERE enabled LIMIT 1',
+        )
+      ).rows.length > 0
+    );
   }
   async saveTarget(input: {
     kind: Target['kind'];
@@ -100,6 +125,8 @@ export class SelectionStore {
         ],
       );
     });
+    workWake(this.pool).notify();
+    workWake(this.pool, 'catalog').notify();
   }
   async settings(): Promise<OperatorSettings> {
     return (
@@ -121,6 +148,8 @@ export class SelectionStore {
       'UPDATE transcription_operator_settings SET model=$1,notes_enabled=$2,worker_enabled=$3,quota_resume_at=CASE WHEN $3 THEN quota_resume_at ELSE NULL END WHERE id=1',
       [s.model, s.notes_enabled, s.worker_enabled],
     );
+    workWake(this.pool).notify();
+    workWake(this.pool, 'catalog').notify();
   }
   async setQuotaResume(at: Date | null): Promise<Date | null> {
     return (
@@ -131,6 +160,25 @@ export class SelectionStore {
     ).rows[0].quota_resume_at;
   }
   async snapshot() {
+    const revision = workWake(this.pool).revision;
+    if (
+      this.cached &&
+      this.cached.revision === revision &&
+      this.cached.expires > Date.now()
+    )
+      return this.cached.value;
+    if (!this.pendingSnapshot)
+      this.pendingSnapshot = this.readSnapshot()
+        .then((value) => {
+          this.cached = { revision, expires: Date.now() + 30000, value };
+          return value;
+        })
+        .finally(() => {
+          this.pendingSnapshot = undefined;
+        });
+    return this.pendingSnapshot;
+  }
+  private async readSnapshot() {
     const [targets, settings, jobs, totals] = await Promise.all([
       this.targets(),
       this.settings(),
@@ -210,9 +258,7 @@ export async function scanSelections(
       let offset = target.archive_complete ? 0 : target.page_offset;
       for (let pageIndex = 0; pageIndex < pagesPerTarget; pageIndex++) {
         checkAbort(signal);
-        const current = (await selection.targets()).find(
-          (t) => t.id === target.id,
-        );
+        const current = await selection.target(target.id);
         if (
           !current?.enabled ||
           current.teacher_filter !== target.teacher_filter ||
@@ -226,9 +272,7 @@ export async function scanSelections(
             ? { teacherId: target.teacher_filter }
             : {}),
         });
-        const afterFetch = (await selection.targets()).find(
-          (t) => t.id === target.id,
-        );
+        const afterFetch = await selection.target(target.id);
         if (
           !afterFetch?.enabled ||
           afterFetch.teacher_filter !== target.teacher_filter
@@ -243,9 +287,7 @@ export async function scanSelections(
           checkAbort(signal);
           const audio = catalogRecords([page.docs[index]]).records[0];
           if (audio) {
-            const current = (await selection.targets()).find(
-              (t) => t.id === target.id,
-            );
+            const current = await selection.target(target.id);
             if (
               !current?.enabled ||
               current.teacher_filter !== target.teacher_filter ||
@@ -264,6 +306,7 @@ export async function scanSelections(
               },
               p,
             );
+            let addedToTarget = false;
             await transaction(store.pool, async (client) => {
               const currentTarget = (
                 await client.query<Target>(
@@ -278,12 +321,7 @@ export async function scanSelections(
                 budgetReached = true;
                 return;
               }
-              const count = (
-                await client.query<{ count: number }>(
-                  'SELECT count(*)::int AS count FROM transcription_target_jobs WHERE target_id=$1',
-                  [target.id],
-                )
-              ).rows[0].count;
+              const count = currentTarget.imported;
               if (count >= currentTarget.recording_limit) {
                 budgetReached = true;
                 return;
@@ -293,11 +331,13 @@ export async function scanSelections(
                 [target.id, jobId],
               );
               accepted += added.rowCount ?? 0;
+              addedToTarget = !!added.rowCount;
               await client.query(
                 'UPDATE transcription_targets SET next_page=$2,page_offset=$3,upstream_total=$4,last_scan_at=now(),error=NULL WHERE id=$1',
                 [target.id, pageNumber, index + 1, page.total],
               );
             });
+            if (addedToTarget) workWake(store.pool).notify();
             if (budgetReached) break;
           } else {
             await store.pool.query(
@@ -352,18 +392,21 @@ export async function pollSelections(
   intervalMs: number,
   onEvent: (value: { event: string; code?: string; accepted?: number }) => void,
 ) {
+  const wake = workWake(store.pool, 'catalog');
+  let interval = intervalMs;
   while (!signal.aborted) {
     try {
-      onEvent({
-        event: 'selection_scan',
-        ...(await scanSelections(store, p, signal)),
-      });
+      const result = await scanSelections(store, p, signal);
+      interval = result.accepted
+        ? intervalMs
+        : Math.min(60 * 60_000, Math.max(10 * 60_000, interval * 2));
+      onEvent({ event: 'selection_scan', ...result });
     } catch (error) {
       if (signal.aborted) break;
       onEvent({ event: 'selection_scan_failed', code: failure(error).code });
     }
     try {
-      await delay(intervalMs, undefined, { signal });
+      await wake.wait(interval, signal, wake.revision);
     } catch {
       break;
     }

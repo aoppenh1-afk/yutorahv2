@@ -18,6 +18,7 @@ export type PublicContent = {
   notes: { status: string; markdown: string | null } | null;
 };
 export type ContentStatus = {
+  searchVersion?: string;
   transcriptId: string;
   version?: string;
   notes: { status: string } | null;

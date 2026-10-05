@@ -15,13 +15,30 @@ export class D1ContentObjects implements ArchiveObjects {
       start = end;
     }
     if (!chunks.length) throw new Error('Invalid empty content.');
-    const statements = chunks.map((chunk, index) =>
-      this.db
-        .prepare(
-          `INSERT OR IGNORE INTO archive_content_chunks(object_key,chunk_index,chunk_count,body)
+    // Immutable objects survive notes updates and interrupted publication.
+    // Check only chunk metadata instead of uploading the same text again.
+    const existing = await this.db
+      .prepare(
+        'SELECT chunk_index,chunk_count FROM archive_content_chunks WHERE object_key=?',
+      )
+      .bind(key)
+      .all<{ chunk_index: number; chunk_count: number }>();
+    const staged = new Set(
+      existing.results
+        .filter((row) => row.chunk_count === chunks.length)
+        .map((row) => row.chunk_index),
+    );
+    const statements = chunks.flatMap((chunk, index) =>
+      staged.has(index)
+        ? []
+        : [
+            this.db
+              .prepare(
+                `INSERT OR IGNORE INTO archive_content_chunks(object_key,chunk_index,chunk_count,body)
        VALUES(?,?,?,?)`,
-        )
-        .bind(key, index, chunks.length, chunk),
+              )
+              .bind(key, index, chunks.length, chunk),
+          ],
     );
     for (let i = 0; i < statements.length; i += 20)
       await this.db.batch(statements.slice(i, i + 20));

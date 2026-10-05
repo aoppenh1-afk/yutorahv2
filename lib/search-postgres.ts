@@ -5,6 +5,9 @@ const identifiers = new Set([
   'sources_runs',
   'search_runs',
   'search_hits',
+  'search_documents',
+  'search_creation_leases',
+  'search_cache_usage',
   'search_title_catalog',
   'search_title_terms',
   'search_title_keys',
@@ -118,6 +121,11 @@ export function postgresSearchDatabase(
     results: query.rows,
     meta: { changes: query.rowCount ?? 0 },
   });
+  const cacheWrites = new RegExp(
+    `^(?:INSERT INTO ${schema}\\.search_(?:runs|documents|hits)|DELETE FROM ${schema}\\.search_(?:runs|documents))\\b`,
+    'i',
+  );
+  const cacheWrite = (sql: string) => cacheWrites.test(sql);
   class Statement implements SearchStatement {
     constructor(
       readonly sql: string,
@@ -134,6 +142,10 @@ export function postgresSearchDatabase(
       return new Statement(this.sql, params);
     }
     async all<T = Record<string, unknown>>() {
+      if (cacheWrite(this.sql)) {
+        const [query] = await batch([this]);
+        return { ...query, results: query.results as T[] };
+      }
       const query = await pool.query(this.sql, this.params);
       return { ...result(query), results: query.rows as T[] };
     }
@@ -141,7 +153,49 @@ export function postgresSearchDatabase(
       return (await this.all<T>()).results[0] ?? null;
     }
     async run() {
+      if (cacheWrite(this.sql)) return (await batch([this]))[0];
       return result(await pool.query(this.sql, this.params));
+    }
+  }
+  async function batch(statements: SearchStatement[]) {
+    if (statements.some((statement) => !(statement instanceof Statement)))
+      throw new TypeError('Search statement belongs to another database.');
+    if (!statements.length) return [];
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Title frequencies share rows across otherwise independent queries.
+      // Serialize these small writes to avoid lock-order deadlocks.
+      if (
+        (statements as Statement[]).some(
+          (s) =>
+            s.sql.includes(`${schema}.search_title_catalog`) ||
+            s.sql.includes(`${schema}.search_title_keys`),
+        )
+      )
+        await client.query(
+          'SELECT pg_advisory_xact_lock(1790900494,hashtext($1))',
+          [schema],
+        );
+      if ((statements as Statement[]).some((s) => cacheWrite(s.sql)))
+        // Use the same lock for admission, hit commits and orphan cleanup.
+        // A cleanup snapshot must be taken after any attaching writer commits.
+        await client.query(
+          'SELECT pg_advisory_xact_lock(1790900495,hashtext($1))',
+          [schema],
+        );
+      const results = [];
+      for (const statement of statements as Statement[])
+        results.push(
+          result(await client.query(statement.sql, statement.params)),
+        );
+      await client.query('COMMIT');
+      return results;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
   }
   return {
@@ -149,40 +203,7 @@ export function postgresSearchDatabase(
     prepare(sql) {
       return new Statement(postgresSearchSql(sql, schema));
     },
-    async batch(statements) {
-      if (statements.some((statement) => !(statement instanceof Statement)))
-        throw new TypeError('Search statement belongs to another database.');
-      if (!statements.length) return [];
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        // Title frequencies share rows across otherwise independent queries.
-        // Serialize these small writes to avoid lock-order deadlocks.
-        if (
-          (statements as Statement[]).some(
-            (s) =>
-              s.sql.includes(`${schema}.search_title_catalog`) ||
-              s.sql.includes(`${schema}.search_title_keys`),
-          )
-        )
-          await client.query(
-            'SELECT pg_advisory_xact_lock(1790900494,hashtext($1))',
-            [schema],
-          );
-        const results = [];
-        for (const statement of statements as Statement[])
-          results.push(
-            result(await client.query(statement.sql, statement.params)),
-          );
-        await client.query('COMMIT');
-        return results;
-      } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
-      } finally {
-        client.release();
-      }
-    },
+    batch,
   };
 }
 

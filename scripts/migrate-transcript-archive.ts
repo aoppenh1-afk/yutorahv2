@@ -1,3 +1,4 @@
+import { publicationBudget } from '../packages/transcription/src/publication-budget';
 /** Run export, inspect, import, verify in that order. No live-site switch here. */
 import { readFile, writeFile, mkdir, readdir, rm } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -309,17 +310,23 @@ if (command === 'export') {
     const budget = Number(process.env.TRANSCRIPT_IMPORT_WRITE_BUDGET ?? 70000);
     if (!Number.isSafeInteger(budget) || budget < 100 || budget > 70000)
       throw new Error('Invalid Free-plan write budget');
+    const sharedBudget = publicationBudget(databaseId, process.env);
     const db = d1HttpDatabase({
       accountId,
       databaseId,
       token,
-      beforeRequest: () => {
+      beforeRequest: async (queries) => {
+        if (command === 'import') await sharedBudget.reserve(queries);
         if (command === 'import' && written >= budget)
           throw new Error(
             'Import paused at the daily write budget. Rerun tomorrow to resume.',
           );
       },
+      onResults: async (_queries, metas) => {
+        if (command === 'import') await sharedBudget.observed(metas);
+      },
       onResult: (meta) => {
+        sharedBudget.observe(meta);
         written += meta.rows_written ?? 0;
         read += meta.rows_read ?? 0;
       },

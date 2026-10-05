@@ -30,7 +30,9 @@
     "operator": "node .worker-build/apps/worker/src/cli.js serve-operator",
     "transcription": "node scripts/transcription-control.mjs",
     "test:transcription-control": "node --test scripts/transcription-control.test.mjs",
-    "build:vercel": "tsx scripts/migrate-search-schema.ts && DEPLOY_TARGET=vercel NITRO_PRESET=vercel vinext build"
+    "build:vercel": "tsx scripts/migrate-search-schema.ts && DEPLOY_TARGET=vercel NITRO_PRESET=vercel vinext build",
+    "data:maintain": "tsx scripts/maintain-data.ts",
+    "test:maintenance": "tsx --test tests/data-maintenance.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

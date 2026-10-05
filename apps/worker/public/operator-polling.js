@@ -37,6 +37,6 @@ export function statusPollInterval(state, failures) {
   if (failures)
     return Math.min(300_000, 30_000 * 2 ** Math.min(failures - 1, 4));
   return ['running', 'starting', 'authenticating'].includes(state)
-    ? 10_000
-    : 60_000;
+    ? 30_000
+    : 120_000;
 }

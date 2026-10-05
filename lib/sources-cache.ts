@@ -1,3 +1,4 @@
+import { BoundedCache } from './bounded-cache';
 import type { SearchDatabase } from './search-storage';
 import {
   SourcesLeaseError,
@@ -9,7 +10,10 @@ import { sourceText, type SefariaFetch, type SourceText } from './sefaria';
 type CacheRow = { payload: string; expires: number };
 const snapshots = new WeakMap<
   SearchDatabase,
-  Map<string, { expires: number; value: SourceTranscript }>
+  {
+    cache: BoundedCache<SourceTranscript>;
+    pending: Map<string, Promise<SourceTranscript>>;
+  }
 >();
 const pruned = new WeakMap<SearchDatabase, number>();
 
@@ -17,8 +21,16 @@ export async function pruneSourceCache(db: SearchDatabase) {
   const now = Date.now();
   if ((pruned.get(db) || 0) > now) return;
   await db
-    .prepare('DELETE FROM sources_runs WHERE expires < ? AND lease < ?')
+    .prepare(
+      'DELETE FROM sources_runs WHERE id IN (SELECT id FROM sources_runs WHERE expires < ? AND lease < ? LIMIT 128)',
+    )
     .bind(now, now)
+    .run();
+  await db
+    .prepare(`DELETE FROM sources_runs WHERE id IN (
+    SELECT id FROM (SELECT id,SUM(length(payload)*4) OVER(ORDER BY expires DESC,id) AS bytes,ROW_NUMBER() OVER(ORDER BY expires DESC,id) AS ordinal FROM sources_runs WHERE lease<? AND (id LIKE 'text:%' OR payload LIKE '%"done":true%')) capacity WHERE bytes>33554432 OR ordinal>256 LIMIT 64
+  )`)
+    .bind(now)
     .run();
   pruned.set(db, now + 60000);
 }
@@ -33,47 +45,34 @@ export async function sourceSnapshot(
 ): Promise<SourceTranscript> {
   let memory = snapshots.get(db);
   if (!memory) {
-    memory = new Map();
+    memory = {
+      cache: new BoundedCache(8, 8 * 1024 * 1024),
+      pending: new Map(),
+    };
     snapshots.set(db, memory);
   }
-  const previous = memory.get(id);
-  if (
-    !refresh &&
-    previous &&
-    previous.expires > Date.now() &&
-    (!revision || previous.value.transcriptId === revision)
-  )
-    return previous.value;
-  const key = `input:v1:${id}`;
-  const row = refresh
-    ? null
-    : await db
-        .prepare(
-          'SELECT payload,expires FROM sources_runs WHERE id = ? AND expires > ?',
-        )
-        .bind(key, Date.now())
-        .first<CacheRow>();
-  let transcript = row ? (JSON.parse(row.payload) as SourceTranscript) : null;
-  if (revision && transcript?.transcriptId !== revision) transcript = null;
-  if (!transcript) {
-    transcript = await load();
-    validateSourceTranscript(transcript);
-    const payload = JSON.stringify(transcript);
-    if (new TextEncoder().encode(payload).length <= 900000)
-      await db
-        .prepare(
-          'INSERT INTO sources_runs (id,payload,lease,expires) VALUES (?,?,0,?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, expires = excluded.expires',
-        )
-        .bind(key, payload, Date.now() + 60000)
-        .run();
+  const key = id + ':' + (revision || '');
+  const previous = !refresh ? memory.cache.get(key) : undefined;
+  if (previous) return previous;
+  let pending = memory.pending.get(key);
+  if (!pending) {
+    if (memory.pending.size >= 16)
+      throw new SourcesLeaseError('Sources are busy. Please retry.');
+    const current = memory;
+    pending = load()
+      .then((transcript) => {
+        validateSourceTranscript(transcript);
+        current.cache.set(
+          key,
+          transcript,
+          transcript.searchVersion ? 60 * 60_000 : 60000,
+        );
+        return transcript;
+      })
+      .finally(() => current.pending.delete(key));
+    current.pending.set(key, pending);
   }
-  // At most eight immutable snapshots per warm server, independent of archive size.
-  if (memory.size >= 8) memory.delete(memory.keys().next().value!);
-  memory.set(id, {
-    value: transcript,
-    expires: row?.expires || Date.now() + 60000,
-  });
-  return transcript;
+  return pending;
 }
 
 /** Only called after the handler verifies this exact canonical ref is cited. Errors never enter the cache. */

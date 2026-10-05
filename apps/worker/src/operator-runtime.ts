@@ -159,8 +159,8 @@ export class OperatorRuntime {
     if (this.closed) throw new Failure('configuration');
     if (this.work) return;
     if (this.authWork) throw new Failure('configuration');
-    const targets = await this.selections.targets();
-    if (!targets.some((t) => t.enabled)) throw new Failure('configuration');
+    if (!(await this.selections.hasEnabledTarget()))
+      throw new Failure('configuration');
     const settings = await this.selections.settings();
     const p = await this.currentProfile();
     const notes = settings.notes_enabled
