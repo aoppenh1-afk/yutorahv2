@@ -57,17 +57,16 @@ previous live pointer. Notes-only updates reuse segment search rows.
 
 D1 FTS5 searches normalized timed text. Phrases can cross into the next segment,
 but returned seek links anchor in the matching segment. Shared Hebrew aliases
-and a bounded spelling dictionary support tolerant searches. Indexing and
-the initial spelling dictionary use 1,024 deterministic JSON buckets instead
+and a bounded spelling dictionary support tolerant searches. The initial
+spelling dictionary uses 1,024 deterministic JSON buckets instead
 of one row per deletion key. D1's JSON functions resolve a bucket's candidates
 inside the database. Later publications add indexed delta keys, and searches
 combine the base and delta dictionaries. This avoids over 137,000 initial
 key-row writes for the recovered corpus while retaining spelling matches.
 See [D1 JSON functions](https://developers.cloudflare.com/d1/sql-api/query-json/).
 
-Indexing and
-content hashing run on a Node host through the D1 REST API, outside the Free
-Worker's 10 ms CPU limit. The Worker serves verified JSON without parsing and
+Indexing and content hashing run on a Node host through the D1 REST API, outside
+the Free Worker's 10 ms CPU limit. The Worker serves verified JSON without parsing and
 serializing large transcript bodies. Its edge-cache lookup follows token
 authentication; failures and missing transcripts are not cached.
 
@@ -136,6 +135,17 @@ repeatable-read export recovered all 284 published transcripts in that source,
 the complete local archive occupies 54,128,640 bytes and fits the Free limit.
 The latest transcript in the recovered source was created October 2, 2026.
 
-Import and hash verification are in progress. Keep both source projects. The
-blocked project's later changes cannot yet be compared with this recovered
-copy; the website must switch only after the recovered corpus is verified.
+All 284 recovered transcripts were imported and verified against their export
+hashes, both through D1 REST and through the deployed Worker. The import used
+37,724 row writes, including its resumed attempt after an OAuth expiration.
+Coffee, Hebrew, and Hebrew-alias searches passed with valid timestamp links;
+the three Worker search checks took 74–175 ms over the network.
+
+Vercel's production configuration selects the verified D1 archive. Its read
+token is stored as a sensitive environment variable; export access remains
+disabled. A private public-content backup is kept under
+`work/transcript-migration/neon-older-export` and is excluded from Git.
+
+Keep both source projects. The blocked project's later changes cannot yet be
+compared with this recovered copy. Reconcile that project once Neon permits
+reads again; this migration does not claim that the newer source is identical.
