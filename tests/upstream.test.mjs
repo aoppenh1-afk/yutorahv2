@@ -143,12 +143,82 @@ void test('a slow final read can use the remaining deadline after two stalled co
   assert.ok(now <= 18000);
 });
 
-void test('HTTP failures and invalid JSON are not retried or replaced with empty search results', async (t) => {
+void test('temporary HTTP server errors recover through the same bounded search request', async (t) => {
+  for (const status of [500, 502, 503, 504]) {
+    await t.test(String(status), async (t) => {
+      const upstream = await fresh('http-retry-' + status);
+      const requests = [];
+      t.mock.method(globalThis, 'fetch', async (input) => {
+        requests.push(input);
+        return requests.length === 1
+          ? new Response('Unavailable', { status })
+          : Response.json({
+              response: { numFound: 1, docs: [{ shiurid: 42 }] },
+            });
+      });
+      assert.equal(
+        (await upstream('search/get?start=4', 0)).response.docs[0].shiurid,
+        42,
+      );
+      assert.equal(requests.length, 2);
+      assert.equal(requests[0], requests[1]);
+    });
+  }
+});
+
+void test('persistent server failures stay bounded and never become empty results', async (t) => {
+  const upstream = await fresh('persistent-http');
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++;
+    return new Response('Unavailable', { status: 500 });
+  });
+  await assert.rejects(
+    upstream('search/get?start=4', 0),
+    (error) =>
+      error.name === 'SearchReadError' &&
+      /returned 500/.test(error.cause.message),
+  );
+  assert.equal(calls, 3);
+});
+
+void test('Retry-After seconds and dates count toward the deadline and longer waits stop automatic recovery', async (t) => {
+  const upstream = await fresh('http-backoff');
+  let now = 0;
+  let calls = 0;
+  const waits = [];
+  t.mock.method(performance, 'now', () => now);
+  t.mock.method(globalThis, 'setTimeout', (callback, ms) => {
+    waits.push(ms);
+    now += ms;
+    queueMicrotask(callback);
+  });
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++;
+    if (calls === 1)
+      return new Response('Unavailable', {
+        status: 503,
+        headers: { 'Retry-After': '1' },
+      });
+    if (calls === 2)
+      return new Response('Unavailable', {
+        status: 503,
+        headers: { 'Retry-After': new Date(Date.now() + 20000).toUTCString() },
+      });
+    return Response.json({ response: { numFound: 0, docs: [] } });
+  });
+  await assert.rejects(upstream('search/get?start=4', 0), /returned 503/);
+  assert.deepEqual(waits, [1000]);
+  assert.equal(calls, 2);
+  assert.ok(now < 18000);
+});
+
+void test('other HTTP errors and invalid JSON are not retried or replaced with empty search results', async (t) => {
   for (const { name, response, pattern } of [
     {
       name: 'http',
-      response: new Response('Unavailable', { status: 503 }),
-      pattern: /YUTorah returned 503/,
+      response: new Response('Not found', { status: 404 }),
+      pattern: /YUTorah returned 404/,
     },
     { name: 'json', response: new Response('{'), pattern: /JSON/ },
   ]) {

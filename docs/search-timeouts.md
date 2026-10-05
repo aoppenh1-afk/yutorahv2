@@ -19,11 +19,18 @@ The search reader now allows three attempts within the original 18-second
 budget. The first two attempts get at most three and five seconds; the last
 attempt uses the remaining budget, including response-body reads.
 Retries repeat the exact GET URL after a timeout or recognized connection
-interruption. HTTP errors, invalid JSON, and other failures still propagate.
+interruption or a temporary HTTP 500, 502, 503, or 504 response. Server-error
+retries wait 250 then 500 ms, or the advertised `Retry-After` interval when
+longer. Waiting counts toward the same deadline. An advertised wait beyond
+the budget stops automatic recovery. Other HTTP errors, invalid JSON, and other
+failures still propagate.
 Directory and detail reads retain their existing behavior.
 
 [HTTP semantics](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.2.2)
 permit retrying idempotent requests after communication failures.
+[A documented retry policy](https://docs.cloud.google.com/storage/docs/retry-strategy)
+also treats these server errors as retryable for idempotent requests; applying
+that policy here is a design choice based on the observed YUTorah HTTP 500.
 [Node's abort signal](https://nodejs.org/api/globals.html#static-method-abortsignaltimeoutdelay)
 bounds each attempt. A monotonic deadline also accounts for time spent between
 attempts, so retries cannot add another 18-second wait.
@@ -33,13 +40,16 @@ pagination, question-search, and fallback failures were upstream `TimeoutError`s
 The prayer query retrieves 22,770 candidates: one exhausted page read could
 discard a four-page pass and stop the search. Both API hostnames stalled in
 alternating probes; single reads also stalled, so concurrency and redirects
-do not explain every failure.
+do not explain every failure. A later production request on deployment
+`2sTokNFRc2WN1q8t3MoQyCTU7PLn` also failed with `YUTorah returned 500` during
+the prayer scan. This exposed a second failure class: temporary server errors
+were being treated as permanent failures and bypassing both retries and resume.
 
 Search passes now wait for all page reads, validate every successful response,
 and transactionally save the contiguous verified pages before an interrupted
 read. The cursor stays at that gap, and the existing client resumes the same
 run and query. Three consecutive passes without progress still return an error;
-the saved run remains retryable. Permanent errors, changed totals, and incomplete
+the saved run remains retryable. Other HTTP errors, changed totals, and incomplete
 pages still fail the pass. Successful pages after a gap are fetched again when
 the cursor reaches them.
 

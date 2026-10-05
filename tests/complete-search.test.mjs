@@ -64,7 +64,7 @@ globalThis.fetch = async (input) => {
   const page = Number(url.searchParams.get('start') || 1);
   if (page === failPage) {
     failPage = 0;
-    return new Response('Unavailable', { status: 503 });
+    return new Response('Invalid request', { status: 400 });
   }
   return Response.json({
     response: {
@@ -124,70 +124,82 @@ void test('a timed-out candidate page recovers without losing filters, candidate
 });
 
 void test('exhausted page reads preserve a verified prefix and resume the gap for strict and fallback searches', async (t) => {
-  for (const fallback of [false, true]) {
-    await t.test(fallback ? 'fallback' : 'strict', async (t) => {
-      const { completeSearch: search } = await import(
-        'data:text/javascript;base64,' +
-          Buffer.from(compiled.outputFiles[0].text).toString('base64') +
-          '#prefix-' +
-          fallback
+  for (const interruption of ['timeout', 'http'])
+    for (const fallback of [false, true]) {
+      await t.test(
+        interruption + (fallback ? ' fallback' : ' strict'),
+        async (t) => {
+          const { completeSearch: search } = await import(
+            'data:text/javascript;base64,' +
+              Buffer.from(compiled.outputFiles[0].text).toString('base64') +
+              '#prefix-' +
+              interruption +
+              fallback
+          );
+          let failures = 3;
+          const requests = [];
+          t.mock.method(globalThis, 'fetch', async (input) => {
+            const url = new URL(input);
+            if (url.pathname.includes('/browse/')) return Response.json([]);
+            assert.equal(url.searchParams.get('teacherID'), '1');
+            if (
+              fallback &&
+              url.searchParams.get('searchTerm').includes('zzzxqv')
+            )
+              return Response.json({ response: { numFound: 0, docs: [] } });
+            requests.push(url.href);
+            const page = Number(url.searchParams.get('start'));
+            if (page === 2 && failures-- > 0) {
+              if (interruption === 'timeout')
+                throw new DOMException('Timed out.', 'TimeoutError');
+              return new Response('Temporary server failure', { status: 500 });
+            }
+            return Response.json({
+              response: {
+                docs: records.slice((page - 1) * 30, page * 30),
+                numFound: records.length,
+              },
+            });
+          });
+          const db = database();
+          const query = fallback ? 'tefillah shabbat zzzxqv' : 'teshuva';
+          const filters = { teacherId: 1, max: 30, sort: 'library' };
+          const first = await search(db, query, filters);
+          assert.equal(first.scanned, 30);
+          assert.equal(first.sourceTotal, 181);
+          assert.equal(first.complete, false);
+          assert.equal(first.related, fallback);
+          const saved = await db
+            .prepare('SELECT * FROM search_runs WHERE id = ?')
+            .bind(first.run)
+            .first();
+          assert.equal(saved.next, 2);
+          assert.equal(saved.lease, 0);
+          let result = first;
+          for (let pass = 0; !result.complete && pass < 3; pass++)
+            result = await search(db, query, filters, 1, first.run);
+          assert.equal(result.run, first.run);
+          assert.equal(result.complete, true);
+          assert.equal(result.scanned, 181);
+          assert.equal(result.total, 30);
+          assert.ok(
+            result.items.every((s) => s.teacherId === 1 && s.duration <= 1800),
+          );
+          assert.equal(new Set(result.items.map((s) => s.id)).size, 30);
+          const gap = requests.filter(
+            (url) => new URL(url).searchParams.get('start') === '2',
+          );
+          assert.equal(gap.length, 4);
+          assert.equal(new Set(gap).size, 1);
+          assert.equal(
+            requests.filter(
+              (url) => new URL(url).searchParams.get('start') === '1',
+            ).length,
+            1,
+          );
+        },
       );
-      let failures = 3;
-      const requests = [];
-      t.mock.method(globalThis, 'fetch', async (input) => {
-        const url = new URL(input);
-        if (url.pathname.includes('/browse/')) return Response.json([]);
-        assert.equal(url.searchParams.get('teacherID'), '1');
-        if (fallback && url.searchParams.get('searchTerm').includes('zzzxqv'))
-          return Response.json({ response: { numFound: 0, docs: [] } });
-        requests.push(url.href);
-        const page = Number(url.searchParams.get('start'));
-        if (page === 2 && failures-- > 0)
-          throw new DOMException('Timed out.', 'TimeoutError');
-        return Response.json({
-          response: {
-            docs: records.slice((page - 1) * 30, page * 30),
-            numFound: records.length,
-          },
-        });
-      });
-      const db = database();
-      const query = fallback ? 'tefillah shabbat zzzxqv' : 'teshuva';
-      const filters = { teacherId: 1, max: 30, sort: 'library' };
-      const first = await search(db, query, filters);
-      assert.equal(first.scanned, 30);
-      assert.equal(first.sourceTotal, 181);
-      assert.equal(first.complete, false);
-      assert.equal(first.related, fallback);
-      const saved = await db
-        .prepare('SELECT * FROM search_runs WHERE id = ?')
-        .bind(first.run)
-        .first();
-      assert.equal(saved.next, 2);
-      assert.equal(saved.lease, 0);
-      let result = first;
-      for (let pass = 0; !result.complete && pass < 3; pass++)
-        result = await search(db, query, filters, 1, first.run);
-      assert.equal(result.run, first.run);
-      assert.equal(result.complete, true);
-      assert.equal(result.scanned, 181);
-      assert.equal(result.total, 30);
-      assert.ok(
-        result.items.every((s) => s.teacherId === 1 && s.duration <= 1800),
-      );
-      assert.equal(new Set(result.items.map((s) => s.id)).size, 30);
-      const gap = requests.filter(
-        (url) => new URL(url).searchParams.get('start') === '2',
-      );
-      assert.equal(gap.length, 4);
-      assert.equal(new Set(gap).size, 1);
-      assert.equal(
-        requests.filter((url) => new URL(url).searchParams.get('start') === '1')
-          .length,
-        1,
-      );
-    });
-  }
+    }
 });
 
 void test('repeated timeouts without progress stop after three passes and keep the run retryable', async (t) => {
@@ -246,7 +258,7 @@ void test('an interrupted page cannot hide invalid responses elsewhere in the sa
         const page = Number(url.searchParams.get('start'));
         if (page === 2) throw new DOMException('Timed out.', 'TimeoutError');
         if (page === 4 && kind === 'http')
-          return new Response('Unavailable', { status: 503 });
+          return new Response('Invalid request', { status: 400 });
         return Response.json({
           response: {
             docs:
@@ -265,7 +277,7 @@ void test('an interrupted page cannot hide invalid responses elsewhere in the sa
           ? /library changed/
           : kind === 'incomplete'
             ? /incomplete search page/
-            : /returned 503/,
+            : /returned 400/,
       );
       const saved = await db
         .prepare('SELECT * FROM search_runs LIMIT 1')
@@ -888,7 +900,12 @@ void test('recovery never replaces source errors or broadens an existing candida
   try {
     const db = database();
     await assert.rejects(guardedSearch(db, 'practical tefillah shabbat', {}));
-    assert.equal(queries.length, 1);
+    assert.equal(queries.length, 3);
+    assert.equal(
+      new Set(queries).size,
+      1,
+      'Server retries must not broaden the query',
+    );
     assert.ok(queries[0].includes('practical'));
     fail = false;
     queries.length = 0;
