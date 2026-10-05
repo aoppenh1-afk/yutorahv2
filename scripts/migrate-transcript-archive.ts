@@ -16,6 +16,11 @@ import {
   type PublicContent,
 } from '../packages/transcription/src/public-content.js';
 import { d1HttpDatabase } from '../lib/d1-http.js';
+import {
+  buildSpellingBase,
+  seedSpellingBase,
+  verifySpellingBase,
+} from '../packages/transcription/src/spelling-base.js';
 
 const [command, directoryArg] = process.argv.slice(2);
 if (
@@ -229,11 +234,17 @@ if (command === 'export') {
     const { db, sqlite } = await openLocal();
     try {
       const archive = new TranscriptArchive(db, new D1ContentObjects(db));
+      const contents = await Promise.all(manifest.items.map(content));
+      const base = buildSpellingBase(contents);
+      await seedSpellingBase(db, base);
       for (const item of manifest.items)
-        await archive.publish({
-          generation: item.generation,
-          content: await content(item),
-        });
+        await archive.publish(
+          {
+            generation: item.generation,
+            content: await content(item),
+          },
+          { spellingBaseSeeded: true },
+        );
       const page = sqlite.prepare('PRAGMA page_count').get() as {
         page_count: number;
       };
@@ -245,6 +256,7 @@ if (command === 'export') {
         manifestHash: await contentHash(JSON.stringify(manifest)),
         transcripts: manifest.items.length,
         databaseBytes: bytes,
+        spellingBuckets: base.length,
         freeDatabaseLimitBytes: 500_000_000,
         fits: bytes < 400_000_000,
       };
@@ -314,13 +326,21 @@ if (command === 'export') {
     });
     const archive = new TranscriptArchive(db, new D1ContentObjects(db));
     try {
+      const base = buildSpellingBase(
+        await Promise.all(manifest.items.map(content)),
+      );
+      if (command === 'import') await seedSpellingBase(db, base);
+      else await verifySpellingBase(db, base);
       let count = 0;
       for (const item of manifest.items) {
         if (command === 'import')
-          await archive.publish({
-            generation: item.generation,
-            content: await content(item),
-          });
+          await archive.publish(
+            {
+              generation: item.generation,
+              content: await content(item),
+            },
+            { spellingBaseSeeded: true },
+          );
         const c = await archive.content(item.id);
         if (!c || c.version !== item.hash)
           throw new Error('Remote hash verification failed for ' + item.id);

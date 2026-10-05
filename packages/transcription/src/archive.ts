@@ -6,6 +6,7 @@ import {
 } from '../../yutorah-core/src/search.js';
 import { wordMatch } from '../../yutorah-core/src/search-matching.js';
 import { publicContent, type PublicContent } from './public-content.js';
+import { spellingKeys, spellingBucket } from './spelling-base.js';
 
 export interface ArchiveStatement {
   bind(...values: unknown[]): ArchiveStatement;
@@ -42,14 +43,6 @@ export async function contentHash(text: string) {
   return Array.from(new Uint8Array(digest), (b) =>
     b.toString(16).padStart(2, '0'),
   ).join('');
-}
-/** Bounded deletion keys recover spelling errors without a dictionary scan. */
-function spellingKeys(word: string) {
-  const prefix = Array.from(word).slice(0, 7);
-  const keys = new Set([prefix.join('')]);
-  for (let i = 0; i < prefix.length; i++)
-    keys.add(prefix.filter((_, j) => j !== i).join(''));
-  return [...keys].map((k) => `d:${k}`);
 }
 export class TranscriptArchive {
   constructor(
@@ -98,7 +91,10 @@ export class TranscriptArchive {
     const hash = version ?? item!.version;
     return { text, version: hash };
   }
-  async publish(publication: Publication) {
+  async publish(
+    publication: Publication,
+    options: { spellingBaseSeeded?: boolean } = {},
+  ) {
     const { generation } = publication;
     if (!Number.isSafeInteger(generation) || generation < 1)
       throw new Error('Invalid generation.');
@@ -159,8 +155,9 @@ export class TranscriptArchive {
             window,
           ),
       );
-      for (const w of normalized.split(' '))
-        if (w.length >= 3 && w.length <= 64) words.add(w);
+      if (!options.spellingBaseSeeded)
+        for (const w of normalized.split(' '))
+          if (w.length >= 3 && w.length <= 64) words.add(w);
     }
     // Every statement has fewer than D1's 100 bound-parameter limit.
     for (const word of words) {
@@ -233,9 +230,15 @@ export class TranscriptArchive {
         const keys = spellingKeys(word);
         const rows = await this.db
           .prepare(
-            `SELECT DISTINCT word FROM archive_spelling_keys WHERE key IN (${keys.map(() => '?').join(',')}) LIMIT 128`,
+            `WITH lookup(bucket,key) AS (VALUES ${keys.map(() => '(?,?)').join(',')}),
+             candidates(word) AS (
+               SELECT word FROM archive_spelling_keys WHERE key IN (${keys.map(() => '?').join(',')})
+               UNION
+               SELECT j.value FROM lookup l JOIN archive_spelling_base b ON b.bucket=l.bucket
+               JOIN json_each(b.body, '$."'||l.key||'"') j
+             ) SELECT word FROM candidates LIMIT 128`,
           )
-          .bind(...keys)
+          .bind(...keys.flatMap((key) => [spellingBucket(key), key]), ...keys)
           .all<{ word: string }>();
         candidates.set(
           word,

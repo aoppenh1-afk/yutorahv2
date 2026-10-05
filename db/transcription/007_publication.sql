@@ -1,5 +1,7 @@
 BEGIN;
-CREATE SEQUENCE transcript_publication_generation;
+-- Direct imports of an older database use generation 1. Future outbox
+-- publications must start above that snapshot, even on the first queued ID.
+CREATE SEQUENCE transcript_publication_generation START WITH 2;
 CREATE TABLE transcript_publications (
   shiur_id text PRIMARY KEY REFERENCES transcription_shiurim(id) ON DELETE CASCADE,
   generation bigint NOT NULL DEFAULT nextval('transcript_publication_generation'),

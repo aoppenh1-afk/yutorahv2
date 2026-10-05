@@ -14,6 +14,10 @@ import {
   type PublicContent,
 } from '../../../packages/transcription/src/public-content.js';
 import worker from '../../transcript-archive/src/index.js';
+import {
+  buildSpellingBase,
+  seedSpellingBase,
+} from '../../../packages/transcription/src/spelling-base.js';
 
 async function database() {
   const sqlite = new DatabaseSync(':memory:');
@@ -80,6 +84,39 @@ const fixture = (
     },
   ],
   notes: { status: 'queued', markdown: null },
+});
+
+void test('packed initial spelling index preserves typo search and later publications', async () => {
+  const { db, sqlite } = await database();
+  try {
+    const content = fixture();
+    const base = buildSpellingBase([content]);
+    await seedSpellingBase(db, base);
+    await seedSpellingBase(db, base);
+    const archive = new TranscriptArchive(db, new D1ContentObjects(db));
+    await archive.publish(
+      { generation: 1, content },
+      { spellingBaseSeeded: true },
+    );
+    assert.equal(
+      sqlite.prepare('SELECT count(*) AS n FROM archive_spelling_keys').get()!
+        .n,
+      0,
+    );
+    assert.equal((await archive.search('quantmu'))[0].startMs, 1000);
+    assert.equal((await archive.search('chazara'))[0].startMs, 1000);
+    await archive.publish({
+      generation: 1,
+      content: fixture('Astronomy discusses stars.', '43'),
+    });
+    assert.equal((await archive.search('astronmo'))[0].shiurId, '43');
+    assert.equal((await archive.search('quantmu'))[0].shiurId, '42');
+    sqlite.exec('DELETE FROM archive_spelling_base');
+    await seedSpellingBase(db, base);
+    assert.equal((await archive.search('quantmu'))[0].shiurId, '42');
+  } finally {
+    sqlite.close();
+  }
 });
 
 void test('D1 publication preserves hashes, timestamps, Hebrew, and immutable previous versions', async () => {

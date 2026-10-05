@@ -58,6 +58,14 @@ previous live pointer. Notes-only updates reuse segment search rows.
 D1 FTS5 searches normalized timed text. Phrases can cross into the next segment,
 but returned seek links anchor in the matching segment. Shared Hebrew aliases
 and a bounded spelling dictionary support tolerant searches. Indexing and
+the initial spelling dictionary use 1,024 deterministic JSON buckets instead
+of one row per deletion key. D1's JSON functions resolve a bucket's candidates
+inside the database. Later publications add indexed delta keys, and searches
+combine the base and delta dictionaries. This avoids over 137,000 initial
+key-row writes for the recovered corpus while retaining spelling matches.
+See [D1 JSON functions](https://developers.cloudflare.com/d1/sql-api/query-json/).
+
+Indexing and
 content hashing run on a Node host through the D1 REST API, outside the Free
 Worker's 10 ms CPU limit. The Worker serves verified JSON without parsing and
 serializing large transcript bodies. Its edge-cache lookup follows token
@@ -120,10 +128,14 @@ removed. Local tests also verify safe retry behavior, previous versions, and
 cached reads requiring zero D1 queries. Browser tests verify bounded status
 polling and preservation of content during an outage.
 
-The actual existing transcript copy has not completed. The website's source
-export returned 503. The signed-in Neon account shows `neon-aqua-cushion`, but
-not the recorded transcript project `withered-math-53751244`. The October 2
-backup was previously recorded on a VM the user no longer has. None of these
-facts establishes a complete, accessible source. Do not configure the live
-website to read the empty D1 archive until the original source or backup is
-available and verified.
+The user signed into the correct Neon organization. Its current transcript
+project `withered-math-53751244` remains blocked at 5.57 GB of its 5 GB transfer
+allowance. The older `dry-water-47479286` project remains readable. A
+repeatable-read export recovered all 284 published transcripts in that source,
+8,962 timed segments, and 274 completed notes. Public JSON totals 7,356,857 bytes;
+the complete local archive occupies 54,128,640 bytes and fits the Free limit.
+The latest transcript in the recovered source was created October 2, 2026.
+
+Import and hash verification are in progress. Keep both source projects. The
+blocked project's later changes cannot yet be compared with this recovered
+copy; the website must switch only after the recovered corpus is verified.

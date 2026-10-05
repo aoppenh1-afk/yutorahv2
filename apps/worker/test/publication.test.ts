@@ -74,6 +74,10 @@ void test(
         .rows[0];
       assert.ok(first);
       assert.equal(first.published_generation, '0');
+      assert.ok(
+        Number(first.generation) > 1,
+        'outbox updates supersede an imported generation-1 snapshot',
+      );
       const controller = new AbortController();
       assert.equal(
         await publishPending(
