@@ -973,7 +973,10 @@ void test(
               new Request('http://localhost/api/transcript?id=42'),
             );
             assert.equal(response.status, 200);
-            assert.equal(response.headers.get('cache-control'), 'no-store');
+            assert.equal(
+              response.headers.get('cache-control'),
+              'public, max-age=0, s-maxage=60',
+            );
             const body = await response.json();
             assert.equal(body.segments[0].startMs, 1000);
             assert.equal(body.notes.status, 'completed');
