@@ -414,7 +414,10 @@ void test(
           `${websiteOrigin}/api/transcript-search?q=${encodeURIComponent(query)}`,
         );
         assert.equal(response.status, 200, await response.clone().text());
-        assert.equal(response.headers.get('cache-control'), 'no-store');
+        assert.equal(
+          response.headers.get('cache-control'),
+          'public, max-age=0, s-maxage=15',
+        );
         const body = await response.json();
         assert.equal(body.results.length, 1, `Transcript search: ${query}`);
         assert.equal(body.results[0].shiurId, '42');
@@ -434,7 +437,10 @@ void test(
         200,
         await contentResponse.clone().text(),
       );
-      assert.equal(contentResponse.headers.get('cache-control'), 'no-store');
+      assert.equal(
+        contentResponse.headers.get('cache-control'),
+        'public, max-age=0, s-maxage=60',
+      );
       const content = await contentResponse.json();
       assert.equal(content.segments[0].startMs, 1000);
       assert.equal(content.notes.status, 'completed');
