@@ -309,6 +309,93 @@ void test('player controls stop playback and the phone dialog stays inside the b
       });
     }
     await t.test(
+      'transcript notes polling pauses in hidden tabs, has a retry limit, and keeps manual refresh',
+      async () => {
+        const { context, page } = await openPlayer({ width: 390, height: 844 });
+        let reads = 0;
+        let queued = true;
+        try {
+          await context.route('**/api/transcript?id=900001', (route) => {
+            reads++;
+            return route.fulfill({
+              json: {
+                id: '900001',
+                title: shiur.title,
+                teacher: shiur.teacher,
+                text: `Transcript read ${reads}`,
+                segments: [
+                  {
+                    startMs: 0,
+                    endMs: 1000,
+                    text: `Transcript read ${reads}`,
+                    speaker: null,
+                  },
+                ],
+                notes: {
+                  status: queued ? 'queued' : 'completed',
+                  markdown: queued ? null : '# Completed notes',
+                },
+              },
+            });
+          });
+          await page.evaluate(() => {
+            window.transcriptHidden = false;
+            Object.defineProperty(document, 'hidden', {
+              configurable: true,
+              get: () => window.transcriptHidden,
+            });
+          });
+          await page.clock.install();
+          await page
+            .getByRole('button', { name: 'Expand player controls' })
+            .click();
+          await page
+            .getByRole('button', { name: 'Open shiur details and notes' })
+            .click();
+          await page.getByText('Transcript read 1', { exact: true }).waitFor();
+          await page.evaluate(() => {
+            window.transcriptHidden = true;
+            document.dispatchEvent(new Event('visibilitychange'));
+          });
+          await page.clock.runFor(600_000);
+          assert.equal(reads, 1, 'hidden readers make no background requests');
+          await page.evaluate(() => {
+            window.transcriptHidden = false;
+            document.dispatchEvent(new Event('visibilitychange'));
+          });
+          await page.getByText('Transcript read 2', { exact: true }).waitFor();
+          for (let expected = 3; expected <= 11; expected++) {
+            await page.clock.runFor(30_000);
+            await page
+              .getByText(`Transcript read ${expected}`, { exact: true })
+              .waitFor();
+          }
+          await page.clock.runFor(600_000);
+          assert.equal(reads, 11, 'queued notes cannot poll indefinitely');
+          queued = false;
+          await page
+            .getByRole('region', { name: 'Transcript and study notes' })
+            .getByRole('button', { name: 'Refresh', exact: true })
+            .click();
+          await page.getByText('Transcript read 12', { exact: true }).waitFor();
+          await page.evaluate(() => {
+            window.transcriptHidden = true;
+            document.dispatchEvent(new Event('visibilitychange'));
+            window.transcriptHidden = false;
+            document.dispatchEvent(new Event('visibilitychange'));
+          });
+          await page.clock.runFor(600_000);
+          assert.equal(
+            reads,
+            12,
+            'completed notes do not restart polling on tab focus',
+          );
+        } finally {
+          await context.close();
+        }
+      },
+    );
+    await t.test(
       'phone mini-player closes without opening full view',
       async () => {
         const { context, page } = await openPlayer({ width: 390, height: 844 });

@@ -70,6 +70,7 @@ export function createOperatorServer(
   const files = new Map([
     ['/', ['operator.html', 'text/html']],
     ['/operator.js', ['operator.js', 'text/javascript']],
+    ['/operator-polling.js', ['operator-polling.js', 'text/javascript']],
     ['/operator.css', ['operator.css', 'text/css']],
   ]);
   return createServer(async (req, res) => {

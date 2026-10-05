@@ -35,10 +35,16 @@ export function TranscriptReader({
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let awaitingNotes = 0;
+    let pendingNotes = false;
+    let reading = false;
+    let loaded = false;
     setContent(null);
     setTab('transcript');
     setLoading(true);
     const read = async () => {
+      if (abort.signal.aborted || document.hidden || reading) return;
+      clearTimeout(timer);
+      reading = true;
       try {
         const response = await fetch(`/api/transcript?id=${shiurId}`, {
           signal: abort.signal,
@@ -53,13 +59,17 @@ export function TranscriptReader({
         if (abort.signal.aborted) return;
         setContent(data);
         setState('');
-        if (
-          (!data.notes && awaitingNotes++ < 3) ||
-          (data.notes &&
-            ['queued', 'cleaning', 'generating'].includes(data.notes.status))
-        )
-          timer = setTimeout(() => void read(), 10000);
+        pendingNotes =
+          (!data.notes && awaitingNotes < 3) ||
+          Boolean(
+            data.notes &&
+            ['queued', 'cleaning', 'generating'].includes(data.notes.status),
+          );
+        // Bound automatic retries even when notes remain queued indefinitely.
+        if (pendingNotes && awaitingNotes++ < 10 && !document.hidden)
+          timer = setTimeout(() => void read(), 30_000);
       } catch (error) {
+        pendingNotes = false;
         if (!abort.signal.aborted)
           setState(
             error instanceof Error
@@ -67,13 +77,22 @@ export function TranscriptReader({
               : 'Transcript is unavailable.',
           );
       } finally {
+        reading = false;
+        loaded = true;
         if (!abort.signal.aborted) setLoading(false);
       }
     };
+    const visibilityChanged = () => {
+      clearTimeout(timer);
+      if (!document.hidden && (!loaded || pendingNotes) && awaitingNotes <= 10)
+        void read();
+    };
+    document.addEventListener('visibilitychange', visibilityChanged);
     void read();
     return () => {
       abort.abort();
       clearTimeout(timer);
+      document.removeEventListener('visibilitychange', visibilityChanged);
     };
   }, [shiurId, retry]);
   const download = () => {

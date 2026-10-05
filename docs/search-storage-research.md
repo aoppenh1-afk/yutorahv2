@@ -1,5 +1,73 @@
 # Search and transcription storage investigation — 2026-10-02
 
+## Network quota and replacement options — 2026-10-04
+
+The transcription project reports 5,567,511,167 bytes of network transfer
+against a 5,000,000,000-byte monthly allowance. Its logical storage is
+172,638,208 bytes, and compute usage is 9.13 CU-hours. The titles project
+has transferred 362,877,947 bytes; the retained original project has
+transferred 3,556,432,337 bytes. These are separate per-project allowances.
+The current billing period ends November 1. Neon suspended the transcript
+compute at 2026-10-04 04:59:45 UTC, before the autocomplete release.
+
+These totals do not identify the caller that consumed the transfer. Neon
+rejects the detailed consumption-history API on Free with HTTP 403, requiring
+Launch or above. Its monitoring retention is one day. The observed quota
+failure is independent of the autocomplete feature and affects database
+queries outside the website as well.
+
+The code has avoidable repeated reads: the operator previously fetched the
+latest 100 jobs every three seconds, and the public reader fetched the entire
+transcript every ten seconds indefinitely while notes were queued. The fix
+pauses both readers in hidden tabs, slows operator polling, bounds notes
+polling, shares concurrent database reads, and caches successful content for
+60 seconds and searches for 15 seconds. Cache sizes are bounded by entries
+and UTF-8 bytes. Error and missing-content responses remain uncached.
+These changes reduce future usage; they cannot replenish the exhausted
+allowance or populate an empty cache while Neon is suspended.
+
+### Options researched
+
+Prices and quotas below were checked against official provider pages on
+October 4, 2026. They exclude the website's hosting and migration labor.
+
+| Option                                                                                                                           | Current allowance or cost                                                                                                                                                                                                                                                                          | Fit for this project                                                                                                                                                                                      | Judgment                                                                                                                                                                                                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [Neon Free / Launch](https://neon.com/docs/introduction/plans)                                                                   | Free: 5 GB transfer and 100 CU-hours per project monthly. Launch: $0.106/CU-hour, $0.35/GB-month, 500 GB transfer per project included.                                                                                                                                                            | Existing PostgreSQL schema, queue, search, and roles work as they are. At 0.25 CU continuously active for 720 hours, compute would be $19.08/project/month; actual cost depends on activity.              | Keep Free as requested. Fixing reads helps future months but does not restore this month's suspended project.                                                                                                                                                            |
+| [Aiven Free](https://aiven.io/docs/products/postgresql/concepts/pg-free-tier) and [pricing](https://aiven.io/pricing/postgresql) | Free: 1 GB storage, 1 CPU, 1 GB RAM, backups, 20 connections, one free PostgreSQL service. Developer: $5/month and 8 GB storage. Pricing lists networking as included.                                                                                                                             | PostgreSQL and [pg_trgm](https://aiven.io/docs/products/postgresql/reference/list-of-extensions) preserve the existing approach. No built-in pooler on Free/Developer; cloud/region selection is limited. | Strongest managed free candidate for a small transcript database. Verify selected PostgreSQL version, role permissions, networking terms and connection concurrency before cutover. The 20-connection limit needs care with Vercel's multiple instances.                 |
+| PostgreSQL on the existing worker VM                                                                                             | No additional database subscription if the VM has sufficient disk, RAM, and included transfer. [Oracle Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm) includes 10 TB/month outbound transfer, if that is the VM's actual hosting plan. | Reuses the existing queue and search SQL. Serve the website through its existing authenticated HTTPS reader, keeping PostgreSQL local to the VM.                                                          | Best temporary option when a current backup and VM access are available. Website reads become dependent on the VM; backups, monitoring, patching, and recovery are our responsibility. The present VM plan and available capacity were not verified from this workspace. |
+| [Cloudflare R2](https://developers.cloudflare.com/r2/pricing/) for published transcripts                                         | Standard free tier: 10 GB-month, 1 million writes, 10 million reads monthly; R2 egress is free. Other connected services may bill separately.                                                                                                                                                      | Publish versioned transcript/notes JSON once and serve repeat reads from object storage/CDN. PostgreSQL still owns jobs and spoken-word search.                                                           | Best long-term way to remove full transcript downloads from the database transfer budget. This is an architectural change, not a replacement for the queue. Needs publication retries, version matching, and a way to backfill current transcripts.                      |
+| [Supabase](https://supabase.com/pricing)                                                                                         | Free: 500 MB database, 5 GB uncached egress, two active projects, inactivity pause. Pro starts at $25/month, first project included, additional projects from $10/month.                                                                                                                           | PostgreSQL migration is relatively direct. The extra cached egress allowance applies to cached storage traffic, not ordinary PostgreSQL results.                                                          | Free gives little transfer headroom over Neon and less database storage. Pro is viable but does not match the current preference to avoid paid service.                                                                                                                  |
+| [Cloudflare D1](https://developers.cloudflare.com/d1/platform/pricing/) / [Turso](https://turso.tech/pricing)                    | D1 Free: 5 GB total, 5 million row reads/day and 100,000 writes/day, no database egress charge. Turso Free: 5 GB storage, 500 million monthly row reads and 10 million writes.                                                                                                                     | SQLite-based storage requires replacing PostgreSQL queue locking, JSONB queries, full-text vectors, and trigram search.                                                                                   | Potential future search/read storage, but a substantial rewrite for the transcription worker. Not an emergency migration.                                                                                                                                                |
+| [Railway](https://railway.com/pricing)                                                                                           | Hobby has a $5 monthly minimum credited toward resource use; service egress is $0.05/GB. Free has a $5 initial 30-day trial, then $1 monthly credit.                                                                                                                                               | PostgreSQL keeps most application code; resource use and backups require operational planning.                                                                                                            | Reasonable paid alternative. Treat credits as a trial/budget, not a permanent free database with sufficient capacity.                                                                                                                                                    |
+| [Render Free PostgreSQL](https://render.com/docs/free#free-postgres)                                                             | 1 GB storage, expires after 30 days; no backups or managed pooling.                                                                                                                                                                                                                                | PostgreSQL compatibility makes a temporary restore possible.                                                                                                                                              | Avoid for this production library because it expires and would require another migration.                                                                                                                                                                                |
+
+### Recommendation and migration constraints
+
+Do not move all three databases merely to get a fresh allowance. The titles
+project is healthy. For immediate restoration without a paid subscription,
+first establish whether the VM has a current recoverable copy. If it does,
+local PostgreSQL plus the existing HTTPS reader is the shortest route. Aiven
+Free is the managed alternative worth evaluating with a staging restore and
+load test. No provider account, subscription, database, or production
+connection was changed during this research.
+
+The October 2 split backup is a verified historical snapshot, not a verified
+current copy. The live project's size has changed since then. Restoring that
+snapshot alone could omit later writes. An exhausted Neon project cannot be
+queried normally to export its latest data, so any immediate migration needs
+a sufficiently current backup or restored source access. Preserve the source,
+compare every table count and content hash, verify read-only grants and
+representative search/content queries, then switch both the worker and web
+reader consistently. Keep rollback copies and connection settings.
+
+For a permanent change, I would first publish completed transcript and notes
+objects to R2, retaining PostgreSQL for the transactional worker and search.
+That addresses the large repeated payloads without rewriting the queue or
+moving the healthy title database. Decide whether to replace Neon itself
+after measuring usage with the polling/cache fix installed on both the
+website and VM.
+
 ## Completed database split
 
 The production website and operator now use two separate Neon projects:

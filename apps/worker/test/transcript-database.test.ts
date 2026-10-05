@@ -75,7 +75,10 @@ void test(
         reader,
       );
       assert.equal(content.status, 200);
-      assert.equal(content.headers.get('Cache-Control'), 'no-store');
+      assert.equal(
+        content.headers.get('Cache-Control'),
+        'public, max-age=0, s-maxage=60',
+      );
       assert.equal((await content.json()).segments[0].startMs, 1000);
       const missing = await transcriptDatabaseGateway(
         '/v1/transcripts/900002',
@@ -123,6 +126,7 @@ void test('database failures return a stable response without exposing connectio
     { content: fail, search: fail },
   );
   assert.equal(response.status, 503);
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
   assert.deepEqual(await response.json(), {
     error: 'Transcripts are temporarily unavailable.',
   });

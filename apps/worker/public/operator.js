@@ -1,4 +1,5 @@
 'use strict';
+import { createStatusPoller, statusPollInterval } from './operator-polling.js';
 const el = (id) => document.getElementById(id);
 let snapshot;
 let directory;
@@ -6,6 +7,7 @@ let chosen;
 let viewed;
 let viewingNotes = false;
 let refreshing = false;
+let pollFailures = 0;
 let directoryPending;
 let directoryRetryAt = 0;
 let settingsDirty = false;
@@ -117,11 +119,12 @@ async function loadDirectory() {
     });
   await directoryPending;
 }
-async function refresh() {
+async function readStatus() {
   if (refreshing) return;
   refreshing = true;
   try {
     snapshot = await api('status');
+    pollFailures = 0;
     el('workspace').hidden = false;
     const r = snapshot.runtime;
     el('session-state').textContent =
@@ -217,6 +220,7 @@ async function refresh() {
       );
     void loadDirectory();
   } catch (error) {
+    pollFailures++;
     if (!el('workspace').hidden) notice(error.message);
   } finally {
     refreshing = false;
@@ -433,7 +437,15 @@ el('download-content').addEventListener('click', () => {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
-void refresh();
-setInterval(() => {
-  if (!el('workspace').hidden) void refresh();
-}, 3000);
+const statusPoller = createStatusPoller({
+  read: readStatus,
+  isVisible: () => !document.hidden,
+  intervalMs: () => statusPollInterval(snapshot?.runtime.state, pollFailures),
+});
+function refresh() {
+  return statusPoller.refresh();
+}
+document.addEventListener('visibilitychange', () =>
+  statusPoller.visibilityChanged(),
+);
+statusPoller.visibilityChanged();

@@ -43,7 +43,9 @@ export async function transcriptGateway(
       return unavailable('Try different search words.', 400);
     if (!upstream.ok) throw new Error('Transcript gateway failed');
     return Response.json(await upstream.json(), {
-      headers: { 'Cache-Control': 'no-store' },
+      headers: {
+        'Cache-Control': `public, max-age=0, s-maxage=${path === '/v1/transcripts/search' ? 15 : 60}`,
+      },
     });
   } catch {
     return unavailable('Transcripts are temporarily unavailable.');

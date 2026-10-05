@@ -207,7 +207,22 @@ The content endpoint returns only the active, fully published transcript.
 Notes are tied to that exact transcript version, so an old notes job can never
 appear beside a newer transcript. Raw timed segments remain available while
 notes are queued or fail. Website requests carry the read token only on the
-server, and all content/search responses use `Cache-Control: no-store`.
+server. Successful public content can be cached by the CDN for 60 seconds,
+and search results for 15 seconds. Errors and missing transcripts use
+`Cache-Control: no-store`. Direct PostgreSQL reads also share a bounded
+per-process cache with those same lifetimes, so updates can take up to two
+minutes to appear through both layers. Each of the content and search caches
+holds at most 128 entries and 8 MiB of serialized data; oversized responses
+are not retained. Concurrent identical reads share one database query.
+
+The public reader checks pending notes every 30 seconds, stops while its tab
+is hidden, and allows at most ten automatic follow-up reads per opening or
+manual refresh. **Refresh** remains available after that limit. The operator
+polls every ten seconds during processing or sign-in, and every minute while
+paused. Hidden operator tabs stop polling; failures back off to five minutes.
+Returning to the tab and manual actions refresh immediately. Install the
+updated operator GUI on the VM using the upgrade steps above; pushing the
+website to Vercel does not update the VM's installed files.
 
 ## Parallel processing and long recordings
 

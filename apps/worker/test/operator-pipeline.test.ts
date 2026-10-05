@@ -1137,6 +1137,12 @@ void test(
             const page = await fetch(origin + '/');
             assert.equal(page.status, 200);
             assert.doesNotMatch(await page.text(), /operator-key|login-form/);
+            const polling = await fetch(origin + '/operator-polling.js');
+            assert.equal(polling.status, 200);
+            assert.match(
+              polling.headers.get('Content-Type') ?? '',
+              /javascript/,
+            );
             assert.equal(
               (await fetch(origin + '/api/operator/status')).status,
               200,
