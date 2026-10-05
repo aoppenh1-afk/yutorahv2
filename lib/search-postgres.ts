@@ -144,6 +144,7 @@ export function postgresSearchDatabase(
     }
   }
   return {
+    dialect: 'postgres',
     prepare(sql) {
       return new Statement(postgresSearchSql(sql, schema));
     },

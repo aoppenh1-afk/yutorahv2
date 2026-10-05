@@ -88,7 +88,7 @@ import {
 import { useLibrary, useAudio, timeLabel } from '@/lib/library';
 import { useIsMobile } from '@/hooks/use-mobile';
 import type { HomeData, Shiur, Directory, SearchResult } from '@/lib/yutorah';
-import { mediaKind } from '@/lib/yutorah';
+import { mediaKind, normalize } from '@/lib/yutorah';
 type View =
   | 'discover'
   | 'following'
@@ -817,6 +817,11 @@ export default function TorahApp({
           ...noFilters,
           [suggestion.kind]: String(suggestion.id),
         })
+      }
+      onSelectShiur={(suggestion) =>
+        void showDetail(
+          normalize({ shiurID: suggestion.id, shiurTitle: suggestion.name }),
+        )
       }
     />
   );

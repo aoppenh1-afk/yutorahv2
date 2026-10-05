@@ -11,7 +11,14 @@ import {
   X,
 } from 'lucide-react';
 import type { Directory } from '@/lib/yutorah';
-import { suggestSearch, type SearchSuggestion } from '@/lib/search-discovery';
+import {
+  suggestSearch,
+  combineSearchSuggestions,
+  highlightParts,
+  type SearchSuggestion,
+  type ShiurSuggestion,
+} from '@/lib/search-discovery';
+import { useShiurSuggestions } from '@/hooks/use-shiur-suggestions';
 
 const recentKey = 'yutorah-recent-searches-v1';
 export function SearchBox({
@@ -19,24 +26,42 @@ export function SearchBox({
   onChange,
   onSearch,
   onSelect,
+  onSelectShiur,
   directory,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSearch: (query: string) => void;
   onSelect: (suggestion: SearchSuggestion) => void;
+  onSelectShiur: (suggestion: ShiurSuggestion) => void;
   directory: Directory | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState(-1);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
   const input = useRef<HTMLInputElement>(null);
-  const suggestions = useMemo(
+  const directorySuggestions = useMemo(
     () => suggestSearch(value, directory),
     [value, directory],
   );
   const history = value.trim() ? [] : recent;
+  const shiurim = useShiurSuggestions(value, open);
+  const suggestions = useMemo(
+    () => combineSearchSuggestions(directorySuggestions, shiurim.items),
+    [directorySuggestions, shiurim.items],
+  );
   const count = suggestions.length + history.length;
+  const showSuggestions = open && (count > 0 || shiurim.status !== 'idle');
+  const optionKey = (index: number) => {
+    const suggestion = suggestions[index];
+    return suggestion
+      ? `${suggestion.kind}-${suggestion.id}`
+      : history[index - suggestions.length] || null;
+  };
+  const activeIndex =
+    Array.from({ length: count }, (_, index) => index).find(
+      (index) => optionKey(index) === selectedKey,
+    ) ?? -1;
   useEffect(() => {
     try {
       const stored: unknown = JSON.parse(
@@ -55,11 +80,11 @@ export function SearchBox({
     }
   }, []);
   useEffect(() => {
-    if (open && selected >= 0)
+    if (open && activeIndex >= 0)
       document
-        .getElementById(`search-option-${selected}`)
+        .getElementById(`search-option-${activeIndex}`)
         ?.scrollIntoView({ block: 'nearest' });
-  }, [selected, open]);
+  }, [activeIndex, open]);
   const submit = (query: string) => {
     const trimmed = query.trim();
     if (trimmed) {
@@ -75,14 +100,16 @@ export function SearchBox({
       }
     }
     setOpen(false);
-    setSelected(-1);
+    setSelectedKey(null);
     onSearch(query);
   };
   const choose = (index: number) => {
     if (index < suggestions.length) {
       setOpen(false);
-      setSelected(-1);
-      onSelect(suggestions[index]);
+      setSelectedKey(null);
+      const suggestion = suggestions[index];
+      if (suggestion.kind === 'shiur') onSelectShiur(suggestion);
+      else onSelect(suggestion);
     } else submit(history[index - suggestions.length]);
   };
   return (
@@ -97,7 +124,7 @@ export function SearchBox({
         className="main-search"
         onSubmit={(e) => {
           e.preventDefault();
-          if (open && selected >= 0 && selected < count) choose(selected);
+          if (open && activeIndex >= 0) choose(activeIndex);
           else submit(value);
         }}
       >
@@ -110,34 +137,37 @@ export function SearchBox({
           onChange={(e) => {
             onChange(e.target.value);
             setOpen(true);
-            setSelected(-1);
+            setSelectedKey(null);
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
             if (e.key === 'Escape') {
               setOpen(false);
-              setSelected(-1);
+              setSelectedKey(null);
             }
             if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && count) {
               e.preventDefault();
               setOpen(true);
-              setSelected((old) =>
+              const next =
                 e.key === 'ArrowDown'
-                  ? (old + 1) % count
-                  : old <= 0
+                  ? (activeIndex + 1) % count
+                  : activeIndex <= 0
                     ? count - 1
-                    : old - 1,
-              );
+                    : activeIndex - 1;
+              setSelectedKey(optionKey(next));
             }
           }}
-          placeholder="Topic, teacher, or series"
+          placeholder="Shiur, topic, teacher, or series"
           aria-label="Search YUTorah"
           aria-autocomplete="list"
-          aria-expanded={open && count > 0}
-          aria-controls={open && count ? 'search-suggestions' : undefined}
+          aria-expanded={showSuggestions}
+          aria-controls={showSuggestions ? 'search-suggestions' : undefined}
           aria-describedby="search-matching-hint"
           aria-activedescendant={
-            open && selected >= 0 ? `search-option-${selected}` : undefined
+            open && activeIndex >= 0
+              ? `search-option-${activeIndex}`
+              : undefined
           }
           autoComplete="off"
           maxLength={300}
@@ -149,7 +179,7 @@ export function SearchBox({
             aria-label="Clear search"
             onClick={() => {
               onChange('');
-              setSelected(-1);
+              setSelectedKey(null);
               setOpen(true);
               input.current?.focus();
             }}
@@ -166,15 +196,13 @@ export function SearchBox({
         Ask in your own words, or search a topic, teacher, or series. Typos and
         partial words work too.
       </p>
-      {open && count > 0 && (
+      {showSuggestions && (
         <div className="search-suggestion-panel">
           <div className="suggestion-heading">
             <span>
-              {suggestions.length
-                ? 'From the YUTorah library'
-                : 'Recent searches'}
+              {value.trim() ? 'From the YUTorah library' : 'Recent searches'}
             </span>
-            {!suggestions.length && (
+            {!value.trim() && history.length > 0 && (
               <button
                 type="button"
                 onClick={() => {
@@ -212,26 +240,44 @@ export function SearchBox({
                       choose(i);
                     }
                   }}
-                  aria-selected={selected === i}
+                  aria-selected={activeIndex === i}
                   className={
-                    'search-option ' + (selected === i ? 'selected' : '')
+                    'search-option ' + (activeIndex === i ? 'selected' : '')
                   }
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => choose(i)}
-                  onMouseEnter={() => setSelected(i)}
+                  onMouseEnter={() => {
+                    setSelectedKey(optionKey(i));
+                  }}
                 >
                   <span className="suggestion-icon">
                     <Icon size={18} />
                   </span>
                   <span className="suggestion-name">
-                    <strong dir="auto">{s.name}</strong>
+                    <strong dir="auto">
+                      {highlightParts(s.name, value).map((part, index) =>
+                        part.match ? (
+                          <mark key={index}>{part.text}</mark>
+                        ) : (
+                          part.text
+                        ),
+                      )}
+                    </strong>
                     <small>
-                      {s.kind === 'topic' ? `Topic · ${s.context}` : s.context}
+                      {s.kind === 'shiur'
+                        ? 'Open shiur'
+                        : s.kind === 'topic'
+                          ? `Topic · ${s.context}`
+                          : s.context}
                     </small>
                   </span>
-                  <span className="suggestion-count">
-                    {s.count.toLocaleString()} <span>shiurim</span>
-                  </span>
+                  {s.kind === 'shiur' ? (
+                    <span className="suggestion-kind">Shiur</span>
+                  ) : (
+                    <span className="suggestion-count">
+                      {s.count.toLocaleString()} <span>shiurim</span>
+                    </span>
+                  )}
                   <ArrowRight size={15} />
                 </div>
               );
@@ -248,13 +294,15 @@ export function SearchBox({
                     choose(i);
                   }
                 }}
-                aria-selected={selected === i}
+                aria-selected={activeIndex === i}
                 className={
-                  'search-option ' + (selected === i ? 'selected' : '')
+                  'search-option ' + (activeIndex === i ? 'selected' : '')
                 }
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => choose(i)}
-                onMouseEnter={() => setSelected(i)}
+                onMouseEnter={() => {
+                  setSelectedKey(optionKey(i));
+                }}
               >
                 <span className="suggestion-icon">
                   <History size={18} />
@@ -266,6 +314,26 @@ export function SearchBox({
               </div>
             ))}
           </div>
+          <div className="suggestion-status" role="status">
+            {shiurim.status === 'loading'
+              ? 'Searching shiurim…'
+              : shiurim.status === 'error'
+                ? 'Shiur suggestions are unavailable. Press Enter to search.'
+                : shiurim.status === 'ready' && !count
+                  ? 'No matching titles. Press Enter to search the library.'
+                  : shiurim.items.length
+                    ? `${shiurim.items.length} matching shiurim`
+                    : ''}
+          </div>
+          {value.trim() && (
+            <button
+              type="button"
+              className="suggestion-all-results"
+              onClick={() => submit(value)}
+            >
+              Search all results <ArrowRight size={15} />
+            </button>
+          )}
           <div className="suggestion-footer">
             <span>↑ ↓ to explore</span>
             <span>Enter to select</span>

@@ -3131,6 +3131,42 @@ svg {
   color: #737d8a;
   font-size: 12px;
 }
+.suggestion-kind {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #31507b;
+  background: #eff3fa;
+  padding: 4px 7px;
+  border-radius: 5px;
+}
+.suggestion-name strong {
+  overflow-wrap: anywhere;
+}
+.suggestion-name mark {
+  background: transparent;
+  color: inherit;
+  font-weight: 750;
+}
+.suggestion-status:not(:empty) {
+  padding: 8px 20px 12px;
+  font-size: 12px;
+  color: #687484;
+}
+.suggestion-all-results {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 13px 20px;
+  border-top: 1px solid #e8ecf1;
+  color: var(--primary);
+  font-size: 13px;
+  text-align: left;
+}
+.suggestion-all-results:hover,
+.suggestion-all-results:focus-visible {
+  background: #eff3fa;
+}
 .suggestion-footer {
   display: flex;
   gap: 18px;
