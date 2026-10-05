@@ -569,7 +569,7 @@ void test('concurrent requests share a fetch; cached data expires after five min
 void test('cache survives a new server instance without altering metadata-search runs or creating candidate hits', async () => {
   const { db, sqlite } = database();
   sqlite.exec(
-    "INSERT INTO search_runs VALUES ('ordinary','sha256','{}',0,1,1,0)",
+    "INSERT INTO search_runs(id,fingerprint,plan,total,next,created,lease) VALUES ('ordinary','sha256','{}',0,1,1,0)",
   );
   let calls = 0;
   const config = {
@@ -737,7 +737,9 @@ void test('missing storage and corrupt persisted JSON rebuild from the upstream 
   assert.equal((await offline(options)).stale, false);
   const { db, sqlite } = database();
   sqlite
-    .prepare('INSERT INTO search_runs VALUES (?,?,?,?,?,?,?)')
+    .prepare(
+      'INSERT INTO search_runs(id,fingerprint,plan,total,next,created,lease) VALUES (?,?,?,?,?,?,?)',
+    )
     .run(
       'trending:v1:week:0',
       'trending:v1:week:0',

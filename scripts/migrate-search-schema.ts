@@ -76,6 +76,36 @@ export async function migrateSourcesSchema(db: SearchDatabase) {
     .run();
 }
 
+export async function migrateEfficiencySchema(db: SearchDatabase) {
+  const columns: Record<string, string[]> = {};
+  for (const table of ['search_runs', 'search_hits']) {
+    columns[table] = (
+      await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>()
+    ).results.map((row) => row.name);
+  }
+  const statements = readFileSync(
+    resolve('drizzle/0006_search_efficiency.sql'),
+    'utf8',
+  )
+    .split('--> statement-breakpoint')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const sql of statements) {
+    const alter = sql.match(/^ALTER TABLE (\w+) ADD COLUMN (\w+)/);
+    if (alter && columns[alter[1]].includes(alter[2])) continue;
+    await db
+      .prepare(
+        sql
+          .replace(/^CREATE (TABLE|INDEX|TRIGGER) /, 'CREATE $1 IF NOT EXISTS ')
+          .replace(
+            /^INSERT INTO search_cache_usage/,
+            'INSERT OR IGNORE INTO search_cache_usage',
+          ),
+      )
+      .run();
+  }
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
@@ -104,7 +134,26 @@ if (
         .prepare('SELECT id,title,terms FROM search_title_catalog LIMIT 0')
         .all();
       await db.prepare('SELECT key,term FROM search_title_keys LIMIT 0').all();
-      await db.prepare('SELECT id,next FROM search_runs LIMIT 0').all();
+      try {
+        await db
+          .prepare('SELECT id,next,scanned FROM search_runs LIMIT 0')
+          .all();
+        await db
+          .prepare('SELECT key,payload FROM search_documents LIMIT 0')
+          .all();
+        await db
+          .prepare('SELECT name,bytes FROM search_cache_usage LIMIT 0')
+          .all();
+        await db
+          .prepare(
+            'SELECT fingerprint,owner FROM search_creation_leases LIMIT 0',
+          )
+          .all();
+      } catch {
+        throw new Error(
+          'Apply db/search-postgres/003_efficiency.sql with the schema owner and grant the website role access to the new tables before deploying.',
+        );
+      }
       const index = await pool.query(
         "SELECT 1 FROM pg_indexes WHERE schemaname='yutorah_search' AND indexname='search_title_autocomplete'",
       );
@@ -130,7 +179,9 @@ if (
     ) {
       console.log('Local Vercel build: remote search migrations skipped.');
     } else {
-      await migrateTitleSchema(d1HttpDatabase(config));
+      const db = d1HttpDatabase(config);
+      await migrateTitleSchema(db);
+      await migrateEfficiencySchema(db);
       console.log('Search title schema ready.');
     }
   }

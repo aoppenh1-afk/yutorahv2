@@ -6,12 +6,18 @@ import {
 export async function transcriptGateway(
   path: string,
   params: URLSearchParams,
+  etag?: string,
 ): Promise<Response> {
   const archive = process.env.TRANSCRIPT_ARCHIVE_URL;
   if (!archive && process.env.TRANSCRIPT_DATABASE_URL) {
     const { transcriptDatabaseGateway } = await import('./transcript-database');
     return transcriptDatabaseGateway(path, params);
   }
+  if (!archive && params.has('version'))
+    return Response.json(
+      { error: 'Versioned transcripts require the transcript archive.' },
+      { status: 400, headers: { 'Cache-Control': 'no-store' } },
+    );
   const base = archive || process.env.TRANSCRIPT_API_URL;
   const token = archive
     ? process.env.TRANSCRIPT_ARCHIVE_READ_TOKEN
@@ -41,18 +47,41 @@ export async function transcriptGateway(
   }
   try {
     const upstream = await fetch(target, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        ...(etag ? { 'If-None-Match': etag } : {}),
+      },
       signal: AbortSignal.timeout(8000),
       // workerd rejects an explicit "default" cache mode.
       ...(params.get('fresh') === 'true' ? { cache: 'no-store' as const } : {}),
     });
+    if (upstream.status === 304)
+      return new Response(null, {
+        status: 304,
+        headers: {
+          ETag: upstream.headers.get('ETag') || etag || '',
+          'Cache-Control':
+            upstream.headers.get('Cache-Control') || contentCacheControl,
+        },
+      });
     if (upstream.status === 404)
       return unavailable('No completed transcript yet.', 404);
     if (upstream.status === 400)
       return unavailable('Try different search words.', 400);
     if (!upstream.ok) throw new Error('Transcript gateway failed');
-    return Response.json(await upstream.json(), {
+    const headers = new Headers({
+      'Content-Type':
+        upstream.headers.get('Content-Type') ||
+        'application/json; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
+      ...(upstream.headers.get('ETag')
+        ? { ETag: upstream.headers.get('ETag')! }
+        : {}),
+    });
+    return new Response(upstream.body, {
       headers: {
+        ...Object.fromEntries(headers),
         'Cache-Control':
           params.get('fresh') === 'true'
             ? 'no-store'

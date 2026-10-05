@@ -1,6 +1,7 @@
 /* oxlint-disable next/no-img-element -- Teacher photos and series covers stream from YUTorah’s CDN. */
 /* oxlint-disable jsx-a11y/media-has-caption -- YUTorah provides no caption tracks for these recordings; never invent captions. */
 'use client';
+import { pollDelay } from '@/lib/poll-delay';
 import Link from 'next/link';
 import { AdvancedSearch, type Filters, noFilters } from './advanced-search';
 import { SearchBox } from './search-box';
@@ -339,17 +340,7 @@ export default function TorahApp({
           setResults(result);
           setAdvancedFilters(false);
           p.set('run', result.run!);
-          await new Promise<void>((resolve, reject) => {
-            const stop = () => {
-              clearTimeout(timer);
-              reject(new DOMException('Aborted', 'AbortError'));
-            };
-            const timer = setTimeout(() => {
-              controller.signal.removeEventListener('abort', stop);
-              resolve();
-            }, 400);
-            controller.signal.addEventListener('abort', stop, { once: true });
-          });
+          await pollDelay(result.retryAfterMs || 1500, controller.signal);
           result = await requestJson<SearchResult>(
             '/api/search?' + p,
             controller.signal,

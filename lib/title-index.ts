@@ -31,7 +31,7 @@ function termKeys(term: string, words: number): string[] {
   ];
 }
 
-function titleTerms(title: string): string[] {
+export function titleTerms(title: string): string[] {
   const words = searchText(title).split(' ').filter(Boolean).slice(0, 80);
   const terms = new Set<string>();
   for (let i = 0; i < words.length; i++) {
@@ -69,8 +69,12 @@ export function indexTitleStatements(
         keys.set(`${key}\0${term}`, [key, term]);
   const statements: SearchStatement[] = [];
   // Keep both SQL parameter counts and the number of D1 queries bounded.
-  for (let i = 0; i < titles.length; i += 30) {
-    const group = titles.slice(i, i + 30);
+  for (
+    let i = 0;
+    i < titles.length;
+    i += db.dialect === 'postgres' ? 500 : 30
+  ) {
+    const group = titles.slice(i, i + (db.dialect === 'postgres' ? 500 : 30));
     statements.push(
       db
         .prepare(
@@ -100,6 +104,32 @@ export function indexTitleStatements(
     );
   }
   return statements;
+}
+
+/** Avoid tokenization and spelling-key writes for previously learned titles. */
+export async function changedTitleStatements(
+  db: SearchDatabase,
+  records: TitleRecord[],
+) {
+  const unique = [
+    ...new Map(records.map((record) => [record.id, record])).values(),
+  ];
+  const known = new Map<number, string>();
+  for (let i = 0; i < unique.length; i += 90) {
+    const ids = unique.slice(i, i + 90).map((record) => record.id);
+    if (!ids.length) continue;
+    const { results } = await db
+      .prepare(
+        `SELECT id,title FROM search_title_catalog WHERE id IN (${ids.map(() => '?').join(',')})`,
+      )
+      .bind(...ids)
+      .all<TitleRecord>();
+    for (const record of results) known.set(record.id, record.title);
+  }
+  return indexTitleStatements(
+    db,
+    unique.filter((record) => known.get(record.id) !== record.title),
+  );
 }
 
 /** Look up only candidates for this request; never load all titles into memory.
@@ -170,7 +200,7 @@ export async function titleVocabulary(db: SearchDatabase, query: string) {
 export async function seedCachedTitles(db: SearchDatabase) {
   const { results } = await db
     .prepare(
-      `SELECT h.id,MAX(json_extract(h.payload,'$.title')) AS title FROM search_hits h
+      `SELECT h.id,MAX(json_extract(COALESCE(d.payload,h.payload),'$.title')) AS title FROM search_hits h LEFT JOIN search_documents d ON d.key=h.document_key
      LEFT JOIN search_title_catalog t ON t.id=h.id WHERE t.id IS NULL
      GROUP BY h.id LIMIT 120`,
     )

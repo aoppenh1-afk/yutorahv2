@@ -1,4 +1,8 @@
-import { completeSearch, SearchChangedError } from '@/lib/complete-search';
+import {
+  completeSearch,
+  SearchChangedError,
+  SearchBusyError,
+} from '@/lib/complete-search';
 import { searchDatabase } from '@/lib/search-db';
 export async function GET(request: Request) {
   const p = new URL(request.url).searchParams;
@@ -37,46 +41,67 @@ export async function GET(request: Request) {
       { status: 400 },
     );
   try {
-    return Response.json(
-      await completeSearch(
-        searchDatabase(),
-        q,
-        {
-          sort: [
-            'relevance',
-            'popular',
-            'library',
-            'new',
-            'old',
-            'short',
-            'long',
-            'title',
-          ].includes(p.get('sort') || '')
-            ? p.get('sort')!
-            : '',
-          max: number('max', 240),
-          min: number('min', 240),
-          after: date('after'),
-          before: date('before'),
-          phrase: p.get('phrase') || '',
-          exclude: p.get('exclude') || '',
-          scope: p.get('scope') === 'title' ? 'title' : '',
-          language: ['EN', 'HE'].includes(p.get('language') || '')
-            ? p.get('language')!
-            : '',
-          format: ['audio', 'video', 'text'].includes(p.get('format') || '')
-            ? p.get('format')!
-            : '',
-          teacherId: number('teacher'),
-          seriesId: number('series'),
-          topicId: number('topic'),
-        },
-        Math.max(1, Math.floor(number('page', 20000))),
-        (p.get('run') || '').slice(0, 64),
-      ),
-      { headers: { 'Cache-Control': 'no-store' } },
+    const result = await completeSearch(
+      searchDatabase(),
+      q,
+      {
+        sort: [
+          'relevance',
+          'popular',
+          'library',
+          'new',
+          'old',
+          'short',
+          'long',
+          'title',
+        ].includes(p.get('sort') || '')
+          ? p.get('sort')!
+          : '',
+        max: number('max', 240),
+        min: number('min', 240),
+        after: date('after'),
+        before: date('before'),
+        phrase: p.get('phrase') || '',
+        exclude: p.get('exclude') || '',
+        scope: p.get('scope') === 'title' ? 'title' : '',
+        language: ['EN', 'HE'].includes(p.get('language') || '')
+          ? p.get('language')!
+          : '',
+        format: ['audio', 'video', 'text'].includes(p.get('format') || '')
+          ? p.get('format')!
+          : '',
+        teacherId: number('teacher'),
+        seriesId: number('series'),
+        topicId: number('topic'),
+      },
+      Math.max(1, Math.floor(number('page', 20000))),
+      (p.get('run') || '').slice(0, 64),
     );
+    const lifetime = Math.max(
+      0,
+      Math.floor(
+        ((result.expiresAt || Date.now() + 60000) - Date.now()) / 1000,
+      ),
+    );
+    const ttl = Math.min(60, lifetime);
+    const stale = Math.min(120, Math.max(0, lifetime - ttl));
+    return Response.json(result, {
+      headers: {
+        'Cache-Control': result.complete
+          ? `public, max-age=${Math.min(30, ttl)}, s-maxage=${ttl}, stale-while-revalidate=${stale}`
+          : 'no-store',
+        ...(result.complete ? {} : { 'Retry-After': '2' }),
+      },
+    });
   } catch (e) {
+    if (e instanceof SearchBusyError)
+      return Response.json(
+        { error: e.message },
+        {
+          status: 429,
+          headers: { 'Cache-Control': 'no-store', 'Retry-After': '30' },
+        },
+      );
     if (e instanceof RangeError || e instanceof SearchChangedError)
       return Response.json(
         { error: e.message },

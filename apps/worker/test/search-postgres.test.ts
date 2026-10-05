@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { Pool } from 'pg';
 import {
   postgresSearchDatabase,
@@ -22,7 +23,9 @@ void test(
     const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
     const pool = postgresSearchPool(process.env.TEST_DATABASE_URL!);
     const migration = (
-      await readFile('db/search-postgres/001_search.sql', 'utf8')
+      (await readFile('db/search-postgres/001_search.sql', 'utf8')) +
+      '\n' +
+      (await readFile('db/search-postgres/003_efficiency.sql', 'utf8'))
     ).replaceAll('yutorah_search', schema);
     try {
       await admin.query(migration);
@@ -193,6 +196,103 @@ void test(
       assert.equal(migrated.complete, true);
       assert.equal(migrated.scanned, 61);
     } finally {
+      await pool.end();
+      await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await admin.end();
+    }
+  },
+);
+
+void test(
+  'PostgreSQL cleanup cannot remove a shared document while another search attaches it',
+  { skip: !process.env.TEST_DATABASE_URL },
+  async () => {
+    const schema = 'search_' + randomUUID().replaceAll('-', '');
+    const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
+    const pool = postgresSearchPool(process.env.TEST_DATABASE_URL!);
+    const gate = await admin.connect();
+    let writer: Promise<unknown> | undefined;
+    let pruning: Promise<unknown> | undefined;
+    const waitFor = async (check: () => Promise<boolean>) => {
+      const deadline = Date.now() + 5000;
+      while (!(await check())) {
+        assert.ok(
+          Date.now() < deadline,
+          'concurrent operation reached its gate',
+        );
+        await delay(10);
+      }
+    };
+    const waitingOn = async (lock: number) =>
+      !!(
+        await admin.query(
+          `SELECT 1 FROM pg_locks WHERE locktype='advisory' AND classid=$1::oid
+          AND objid=(hashtext($2)::bigint & 4294967295)::oid AND NOT granted`,
+          [lock, schema],
+        )
+      ).rowCount;
+    try {
+      const migration =
+        (await readFile('db/search-postgres/001_search.sql', 'utf8')) +
+        '\n' +
+        (await readFile('db/search-postgres/003_efficiency.sql', 'utf8'));
+      await admin.query(migration.replaceAll('yutorah_search', schema));
+      const db = postgresSearchDatabase(pool, schema);
+      await db
+        .prepare(
+          "INSERT INTO search_runs(id,fingerprint,plan,total,created) VALUES('race','race','{}',1,0)",
+        )
+        .run();
+      await db
+        .prepare("INSERT INTO search_documents VALUES('shared',?,0)")
+        .bind('{"id":42}')
+        .run();
+      await gate.query('SELECT pg_advisory_lock(1790900496,hashtext($1))', [
+        schema,
+      ]);
+      // Pause between reuse of an existing orphan document and its new hit.
+      writer = db.batch([
+        db
+          .prepare(
+            "INSERT OR IGNORE INTO search_documents VALUES('shared',?,0)",
+          )
+          .bind('{"id":42}'),
+        db
+          .prepare('SELECT pg_advisory_xact_lock(1790900496,hashtext(?))')
+          .bind(schema),
+        db.prepare(
+          "INSERT INTO search_hits(run,id,payload,matched,rank,date,duration,title,position,document_key) VALUES('race',42,'',1,0,0,1,'Fixture',0,'shared')",
+        ),
+      ]);
+      await waitFor(() => waitingOn(1790900496));
+      let pruned = false;
+      const cleanup = db
+        .prepare(
+          'DELETE FROM search_documents WHERE key IN(SELECT key FROM search_documents d WHERE NOT EXISTS(SELECT 1 FROM search_hits h WHERE h.document_key=d.key))',
+        )
+        .run();
+      pruning = cleanup.finally(() => {
+        pruned = true;
+      });
+      await waitFor(async () => pruned || (await waitingOn(1790900495)));
+      await gate.query('SELECT pg_advisory_unlock(1790900496,hashtext($1))', [
+        schema,
+      ]);
+      await Promise.all([writer, pruning]);
+      assert.equal((await cleanup).meta.changes, 0);
+      const hit = await db
+        .prepare(
+          'SELECT COALESCE((SELECT d.payload FROM search_documents d WHERE d.key=search_hits.document_key),payload) AS payload FROM search_hits WHERE run=?',
+        )
+        .bind('race')
+        .first<{ payload: string }>();
+      assert.deepEqual(JSON.parse(hit!.payload), { id: 42 });
+    } finally {
+      await gate.query('SELECT pg_advisory_unlock(1790900496,hashtext($1))', [
+        schema,
+      ]);
+      gate.release();
+      await Promise.allSettled([writer, pruning]);
       await pool.end();
       await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
       await admin.end();

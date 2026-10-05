@@ -55,6 +55,11 @@ export async function transcriptDatabaseGateway(
       },
     });
   try {
+    if (params.has('version'))
+      return reply(
+        { error: 'Versioned transcripts require the transcript archive.' },
+        400,
+      );
     const raw = reader ?? databaseReader();
     let source = readers.get(raw);
     if (!source) {

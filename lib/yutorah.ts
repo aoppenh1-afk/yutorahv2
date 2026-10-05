@@ -667,6 +667,8 @@ export type SearchResult = {
   plan: SearchPlan;
   filtered: boolean;
   complete?: boolean;
+  retryAfterMs?: number;
+  expiresAt?: number;
   scanned?: number;
   sourceTotal?: number;
   related?: boolean;

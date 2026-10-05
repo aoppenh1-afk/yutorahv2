@@ -54,6 +54,50 @@ function database() {
       Promise.all(statements.map((s) => s.run())),
   } satisfies SearchDatabase;
 }
+
+void test('completed sources use trusted publication versions without another transcript read or stored input copy', async () => {
+  const db = database();
+  const data: SourceTranscript = {
+    transcriptId: 'immutable-fixture',
+    segments: [],
+  };
+  let loads = 0;
+  const searchVersion = 'a'.repeat(64),
+    version = 'b'.repeat(64);
+  const deps = {
+    db,
+    status: async () =>
+      Response.json({
+        transcriptId: data.transcriptId,
+        searchVersion,
+        version,
+      }),
+    transcript: async (_id: string, requestedVersion?: string) => {
+      loads++;
+      assert.equal(requestedVersion, version);
+      return Response.json(data);
+    },
+  };
+  const url = `https://example.test/api/sources?id=42&revision=${data.transcriptId}`;
+  assert.equal((await sourcesResponse(new Request(url), deps)).status, 200);
+  assert.equal((await sourcesResponse(new Request(url), deps)).status, 200);
+  assert.equal(loads, 1);
+  assert.equal(
+    (await db
+      .prepare("SELECT count(*) AS n FROM sources_runs WHERE id LIKE 'input:%'")
+      .first<{ n: number }>())!.n,
+    0,
+  );
+  assert.equal(
+    (
+      await sourcesResponse(
+        new Request(url.replace(data.transcriptId, 'old-transcript')),
+        deps,
+      )
+    ).status,
+    409,
+  );
+});
 const transcript = (...text: string[]): SourceTranscript => ({
   transcriptId: 'transcript-fixture-1',
   segments: text.map((text, i) => ({
@@ -384,7 +428,10 @@ void test('HTTP uses only persisted transcript text; arbitrary text requests and
     dependencies,
   );
   assert.equal(ready.status, 200);
-  assert.equal(ready.headers.get('Cache-Control'), 'no-store');
+  assert.equal(
+    ready.headers.get('Cache-Control'),
+    'public, max-age=60, s-maxage=300',
+  );
   const uncited = await sourcesResponse(
     new Request('https://example.org/api/source-text?id=1&ref=Exodus%202%3A2'),
     dependencies,

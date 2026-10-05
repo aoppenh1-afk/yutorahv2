@@ -110,7 +110,7 @@ void test('journal migrations upgrade autocomplete and retain an existing previe
     const { entries } = JSON.parse(
       readFileSync('drizzle/meta/_journal.json', 'utf8'),
     );
-    for (const entry of entries.slice(0, -1))
+    for (const entry of entries.filter(entry=>entry.idx<5))
       sqlite.exec(readFileSync(`drizzle/${entry.tag}.sql`, 'utf8'));
     sqlite.exec(
       `INSERT INTO search_title_catalog(id,title,terms) VALUES(42,'Quantum Halacha','["quantum","halacha"]')`,
@@ -123,7 +123,7 @@ void test('journal migrations upgrade autocomplete and retain an existing previe
     sqlite.exec(
       "INSERT INTO sources_runs VALUES('cached-source','{}',0,1791000000000)",
     );
-    sqlite.exec(readFileSync(`drizzle/${entries.at(-1).tag}.sql`, 'utf8'));
+    for (const entry of entries.filter(entry=>entry.idx>=5)) sqlite.exec(readFileSync(`drizzle/${entry.tag}.sql`, 'utf8'));
     assert.equal(
       sqlite
         .prepare("SELECT expires FROM sources_runs WHERE id='cached-source'")

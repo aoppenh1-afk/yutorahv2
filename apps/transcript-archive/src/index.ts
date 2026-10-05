@@ -1,3 +1,4 @@
+import { normalizeTranscriptSearch } from '../../../packages/yutorah-core/src/search';
 import {
   TranscriptArchive,
   type ArchiveDatabase,
@@ -51,12 +52,51 @@ const worker = {
     const cache = (
       globalThis.caches as unknown as { default?: EdgeCache } | undefined
     )?.default;
-    const key = new Request(url.toString());
+    // Canonical keys collapse ignored parameters, fragments, defaults and casing.
+    const canonical = new URL(url);
+    canonical.hash = '';
+    const incoming = new URLSearchParams(url.searchParams);
+    canonical.search = '';
+    if (url.pathname === '/v1/transcripts/search') {
+      const q = incoming.get('q') ?? '';
+      const limit = Number(incoming.get('limit') ?? 20);
+      const mode = incoming.get('mode') ?? 'smart';
+      if (
+        !q.trim() ||
+        q.length > 200 ||
+        !Number.isInteger(limit) ||
+        limit < 1 ||
+        limit > 50 ||
+        !['smart', 'phrase', 'terms'].includes(mode)
+      )
+        return reply({ error: 'Invalid search' }, 400);
+      canonical.searchParams.set('q', normalizeTranscriptSearch(q));
+      canonical.searchParams.set('mode', mode);
+      canonical.searchParams.set('limit', String(limit));
+      canonical.searchParams.set(
+        'aliases',
+        incoming.get('aliases') === 'false' ? 'false' : 'true',
+      );
+    } else if (incoming.has('version')) {
+      const version = incoming.get('version')!;
+      if (!/^[a-f0-9]{64}$/.test(version))
+        return reply({ error: 'Invalid version' }, 400);
+      canonical.searchParams.set('version', version);
+    }
+    const key = new Request(canonical.toString());
     const fresh = url.searchParams.get('fresh') === 'true';
     try {
       if (!fresh && cache) {
         const cached = await cache.match(key);
-        if (cached) return cached;
+        if (cached) {
+          if (
+            request.headers.get('If-None-Match') ===
+              cached.headers.get('ETag') &&
+            cached.headers.has('ETag')
+          )
+            return new Response(null, { status: 304, headers: cached.headers });
+          return cached;
+        }
       }
       let response: Response;
       const statusId = url.pathname.match(
@@ -118,8 +158,25 @@ const worker = {
           statusCacheControl,
         );
       } else return reply({ error: 'Not found' }, 404);
-      if (!fresh && cache && response.ok)
-        context.waitUntil(cache.put(key, response.clone()).catch(() => {}));
+      if (!fresh && cache && response.ok) {
+        const stored = response.clone();
+        // Cache API does not implement stale-while-revalidate/stale-if-error.
+        stored.headers.set(
+          'Cache-Control',
+          canonical.searchParams.has('version')
+            ? 'public, max-age=31536000'
+            : 'public, max-age=' +
+                (statusId || url.pathname === '/v1/transcripts/search'
+                  ? 15
+                  : 60),
+        );
+        context.waitUntil(cache.put(key, stored).catch(() => {}));
+      }
+      if (
+        response.headers.has('ETag') &&
+        request.headers.get('If-None-Match') === response.headers.get('ETag')
+      )
+        return new Response(null, { status: 304, headers: response.headers });
       return response;
     } catch (error) {
       const invalid = error instanceof Error && /Invalid/.test(error.message);

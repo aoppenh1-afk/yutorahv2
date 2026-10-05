@@ -11,5 +11,9 @@ export async function GET(request: Request) {
   if (params.get('fresh') === 'true') forwarded.set('fresh', 'true');
   if (/^[a-f0-9]{64}$/.test(params.get('version') ?? ''))
     forwarded.set('version', params.get('version')!);
-  return transcriptGateway(`/v1/transcripts/${id}`, forwarded);
+  return transcriptGateway(
+    `/v1/transcripts/${id}`,
+    forwarded,
+    request.headers.get('If-None-Match') || undefined,
+  );
 }

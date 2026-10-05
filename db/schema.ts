@@ -16,6 +16,7 @@ export const searchRuns = sqliteTable(
     next: integer('next').notNull().default(1),
     created: integer('created').notNull(),
     lease: integer('lease').notNull().default(0),
+    scanned: integer('scanned').notNull().default(0),
   },
   (t) => [index('search_runs_fingerprint').on(t.fingerprint, t.created)],
 );
@@ -27,6 +28,8 @@ export const searchHits = sqliteTable(
       .references(() => searchRuns.id, { onDelete: 'cascade' }),
     id: integer('id').notNull(),
     payload: text('payload').notNull(),
+    documentKey: text('document_key'),
+    views: real('views').notNull().default(0),
     matched: integer('matched').notNull(),
     search: text('search').notNull().default(''),
     language: text('language').notNull().default(''),
@@ -43,6 +46,9 @@ export const searchHits = sqliteTable(
     index('search_hits_date').on(t.run, t.date),
     index('search_hits_duration').on(t.run, t.duration),
     index('search_hits_title').on(t.run, t.title),
+    index('search_hits_document').on(t.documentKey),
+    index('search_hits_position').on(t.run, t.position, t.id),
+    index('search_hits_popular').on(t.run, t.views, t.rank, t.id),
   ],
 );
 
@@ -92,3 +98,19 @@ export const sourcesRuns = sqliteTable(
   },
   (t) => [index('sources_runs_expires').on(t.expires)],
 );
+
+export const searchDocuments = sqliteTable('search_documents', {
+  key: text('key').primaryKey(),
+  payload: text('payload').notNull(),
+  created: integer('created').notNull(),
+});
+export const searchCreationLeases = sqliteTable('search_creation_leases', {
+  fingerprint: text('fingerprint').primaryKey(),
+  owner: text('owner').notNull(),
+  expires: integer('expires').notNull(),
+});
+
+export const searchCacheUsage = sqliteTable('search_cache_usage', {
+  name: text('name').primaryKey(),
+  bytes: integer('bytes').notNull().default(0),
+});

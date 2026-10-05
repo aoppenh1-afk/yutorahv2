@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import { Download, Loader2 } from 'lucide-react';
+import { BoundedCache } from '@/lib/bounded-cache';
 import { timeLabel } from '@/lib/library';
 import type { ContentStatus } from '../packages/transcription/src/public-content';
 import { sourceHighlights } from '@/lib/source-highlights';
@@ -24,6 +25,7 @@ type Content = {
     markdown: string | null;
   } | null;
 };
+const readerVersions = new BoundedCache<Content>(8, 8 * 1024 * 1024);
 export function TranscriptReader({
   shiurId,
   onSeek,
@@ -67,7 +69,8 @@ export function TranscriptReader({
       reading = true;
       try {
         const options = { signal: abort.signal };
-        if (statusOnly && current) {
+        let version: string | undefined;
+        if ((statusOnly || current) && current) {
           const statusResponse = await fetch(
             `/api/transcript-status?id=${shiurId}`,
             options,
@@ -75,9 +78,12 @@ export function TranscriptReader({
           if (!statusResponse.ok)
             throw new Error('Could not refresh study notes.');
           const status = (await statusResponse.json()) as ContentStatus;
+          version = status.version;
           if (
+            (!version || version === current.version) &&
             status.transcriptId === current.transcriptId &&
-            status.notes?.status !== 'completed'
+            (status.notes?.status !== 'completed' ||
+              (version && version === current.version))
           ) {
             pendingNotes =
               !status.notes ||
@@ -102,11 +108,18 @@ export function TranscriptReader({
           }
         }
         const query = new URLSearchParams({ id: String(shiurId) });
-        if (retry > 0 || statusOnly) query.set('fresh', 'true');
-        const response = await fetch(`/api/transcript?${query}`, {
-          signal: abort.signal,
-          cache: retry > 0 || statusOnly ? 'no-store' : 'default',
-        });
+        if (version) query.set('version', version);
+        if ((retry > 0 || statusOnly) && !version) query.set('fresh', 'true');
+        const cached = version
+          ? readerVersions.get(shiurId + ':' + version)
+          : undefined;
+        const response = cached
+          ? Response.json(cached)
+          : await fetch(`/api/transcript?${query}`, {
+              signal: abort.signal,
+              cache:
+                (retry > 0 || statusOnly) && !version ? 'no-store' : 'default',
+            });
         const data = (await response.json()) as Content & { error?: string };
         if (!response.ok)
           throw new Error(
@@ -116,6 +129,8 @@ export function TranscriptReader({
           );
         if (abort.signal.aborted) return;
         current = data;
+        if (data.version)
+          readerVersions.set(shiurId + ':' + data.version, data, 60 * 60_000);
         last.current = { id: shiurId, content: data };
         setContent(data);
         setState('');

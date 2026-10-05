@@ -44,7 +44,7 @@ import {
   resolveMedia,
 } from '../../../packages/yutorah-core/src/media.js';
 import { pollSelections } from './selections.js';
-import { preparePublishedSources } from './source-preparation.js';
+import { workWake } from '../../../packages/transcription/src/work-wake.js';
 import {
   NotesStore,
   type NotesJob,
@@ -235,7 +235,7 @@ export async function processJob(
       diagnostic: (event) =>
         diagnostic({ event: 'chunk_failure', job: job.id, ...event }),
     });
-    await store.complete(job, transcript);
+    await store.complete(job, transcript, config.notes);
     diagnostic({ event: 'completed', job: job.id });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -403,21 +403,59 @@ export async function runWorker(
       );
     }
     const notesStore = config.notes ? new NotesStore(store.pool) : undefined;
-    let enqueueNotes: Promise<void> | undefined;
+    const wake = workWake(store.pool);
+    let nextNotesScan = 0;
+    let nextProbe = 0;
+    let idleMs = Math.max(5000, config.pollMs);
+    let claimQueue = Promise.resolve();
+    const claim = async () => {
+      const previous = claimQueue;
+      let release!: () => void;
+      claimQueue = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      try {
+        if (Date.now() < nextProbe) return null;
+        if (notesStore && config.notes) {
+          if (Date.now() >= nextNotesScan) {
+            await notesStore.enqueueMissing(config.notes, config.selectedOnly);
+            nextNotesScan = Date.now() + 15 * 60_000;
+          }
+          const notes = await notesStore.claim(config.selectedOnly);
+          if (notes) return { notes };
+        }
+        const job = await store.claim(config.selectedOnly);
+        if (job) return { job };
+        nextProbe = Date.now() + idleMs;
+        idleMs = Math.min(10 * 60_000, idleMs * 2);
+        return null;
+      } finally {
+        release();
+      }
+    };
     const lane = async () => {
       while (!combined.aborted) {
-        // A broken leadership connection cannot admit more jobs.
+        const observed = wake.revision;
+        const claimed = await claim();
+        if (!claimed) {
+          await wake.wait(
+            Math.max(1000, nextProbe - Date.now()),
+            combined,
+            observed,
+          );
+          if (wake.revision !== observed) {
+            nextProbe = 0;
+            idleMs = Math.max(5000, config.pollMs);
+          }
+          continue;
+        }
+        nextProbe = 0;
+        idleMs = Math.max(5000, config.pollMs);
+        // Check leadership when admitting work; the socket error also aborts active jobs.
         await leader.query('SELECT 1');
-        if (notesStore && config.notes) {
-          // Concurrent lanes share discovery as well as the account-wide ACP pool.
-          enqueueNotes ??= notesStore
-            .enqueueMissing(config.notes, config.selectedOnly)
-            .finally(() => {
-              enqueueNotes = undefined;
-            });
-          await enqueueNotes;
-          checkAbort(combined);
-          const notesJob = await notesStore.claim(config.selectedOnly);
+        if ('notes' in claimed && notesStore) {
+          const notesJob = claimed.notes;
           if (notesJob) {
             try {
               await runLeasedJob(notesStore, notesJob, combined, (s) =>
@@ -442,20 +480,13 @@ export async function runWorker(
           }
         }
         checkAbort(combined);
-        const job = await store.claim(config.selectedOnly);
-        if (!job) {
-          await delay(config.pollMs, undefined, { signal: combined });
-          continue;
-        }
+        if (!claimed.job) continue;
+        const job = claimed.job;
         log({ event: 'claimed', job: job.id, attempt: job.attempt });
         try {
           await runLeasedJob(store, job, combined, (s) =>
             processJob(store, job, config, pool, s, log, config.media),
           );
-          // Publication is complete and its heartbeat has stopped before warming website caches.
-          await preparePublishedSources(job.shiur_id, combined, {
-            report: (event) => log({ ...event, job: job.id }),
-          });
         } catch (error) {
           const e = failure(error);
           log({ event: 'job_failed', job: job.id, code: e.code });

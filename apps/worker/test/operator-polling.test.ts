@@ -42,7 +42,7 @@ void test('operator reads stop while hidden and resume immediately when visible'
   poller.visibilityChanged();
   await poller.refresh();
   assert.equal(calls, 1);
-  assert.equal([...clock.tasks.values()][0].delay, 60_000);
+  assert.equal([...clock.tasks.values()][0].delay, 120_000);
   visible = false;
   poller.visibilityChanged();
   assert.equal(clock.tasks.size, 0);
@@ -51,7 +51,7 @@ void test('operator reads stop while hidden and resume immediately when visible'
   poller.visibilityChanged();
   await poller.refresh();
   assert.equal(calls, 2);
-  assert.equal([...clock.tasks.values()][0].delay, 10_000);
+  assert.equal([...clock.tasks.values()][0].delay, 30_000);
 });
 
 void test('manual refreshes share a slow read and do not schedule more work after hiding', async () => {
@@ -109,5 +109,5 @@ void test('failed operator reads back off and manual refresh can recover immedia
   }
   fail = false;
   await poller.refresh();
-  assert.equal([...clock.tasks.values()][0].delay, 10_000);
+  assert.equal([...clock.tasks.values()][0].delay, 30_000);
 });

@@ -12,6 +12,7 @@ import {
 
 export type SourceTranscript = {
   transcriptId: string;
+  searchVersion?: string;
   segments: Array<{ startMs: number; endMs: number; text: string }>;
 };
 export type SourceOccurrence = {
@@ -78,10 +79,10 @@ type State = {
   done: boolean;
 };
 type Row = { payload: string; lease: number; expires: number };
-const policyVersion = 4;
+const policyVersion = 5;
 const chunkSize = 12000;
 const overlap = 256;
-const cacheDuration = 7 * 24 * 60 * 60 * 1000;
+const cacheDuration = 30 * 24 * 60 * 60 * 1000;
 
 export class SourcesLimitError extends Error {}
 export class SourcesLeaseError extends Error {}
@@ -96,16 +97,23 @@ async function prepare(transcript: SourceTranscript): Promise<Prepared> {
     const chars = Array.from(
       transcript.segments.map((s) => s.text).join('\n\n'),
     );
-    const hash = await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(
-        JSON.stringify({
-          policyVersion,
-          transcriptId: transcript.transcriptId,
-          segments: transcript.segments,
-        }),
-      ),
-    );
+    const key = transcript.searchVersion
+      ? sourcesResultKey(transcript.transcriptId, transcript.searchVersion)
+      : Array.from(
+          new Uint8Array(
+            await crypto.subtle.digest(
+              'SHA-256',
+              new TextEncoder().encode(
+                JSON.stringify({
+                  policyVersion,
+                  transcriptId: transcript.transcriptId,
+                  segments: transcript.segments,
+                }),
+              ),
+            ),
+          ),
+          (n) => n.toString(16).padStart(2, '0'),
+        ).join('');
     let offset = 0;
     const segmentOffsets = transcript.segments.map((s) => {
       const start = offset;
@@ -115,14 +123,41 @@ async function prepare(transcript: SourceTranscript): Promise<Prepared> {
     return {
       chars,
       segmentOffsets,
-      key: Array.from(new Uint8Array(hash), (n) =>
-        n.toString(16).padStart(2, '0'),
-      ).join(''),
+      key,
     };
   })();
   prepared.set(transcript, work);
   return work;
 }
+export function sourcesResultKey(transcriptId: string, searchVersion: string) {
+  return `sources:v${policyVersion}:${transcriptId}:${searchVersion}`;
+}
+/** The version is obtained from published status, never trusted from a client. */
+export async function cachedSourcesResult(
+  db: SearchDatabase,
+  transcriptId: string,
+  searchVersion: string,
+): Promise<SourcesResult | null> {
+  const row = await db
+    .prepare('SELECT payload FROM sources_runs WHERE id=? AND expires>?')
+    .bind(sourcesResultKey(transcriptId, searchVersion), Date.now())
+    .first<{ payload: string }>();
+  if (!row) return null;
+  const state = JSON.parse(row.payload) as State;
+  return state.done
+    ? {
+        transcriptId,
+        status: 'ready',
+        progress: 100,
+        sources: state.sources,
+        omitted: state.omitted,
+        omissionCounts: state.omissionCounts,
+        omissions: state.omissions,
+        limited: state.limited,
+      }
+    : null;
+}
+
 export function validateSourceTranscript(transcript: SourceTranscript) {
   if (
     !transcript?.transcriptId ||
@@ -398,7 +433,19 @@ export async function advanceSources(
       .run();
   }
   async function save(state: State) {
-    const payload = JSON.stringify(state);
+    const payload = JSON.stringify(
+      state.done
+        ? {
+            ...state,
+            metadata: {},
+            candidates: [],
+            proposals: [],
+            proposedOmissions: [],
+            omissionKeys: [],
+            task: null,
+          }
+        : state,
+    );
     if (new TextEncoder().encode(payload).length > 900000)
       throw new SourcesLimitError(
         'Too many citations to save. This transcript needs a smaller sources run.',
