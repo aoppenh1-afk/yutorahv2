@@ -39,7 +39,7 @@ void test('concurrent website reads use one database query and return separate u
     assert.equal(response.status, 200);
     assert.equal(
       response.headers.get('Cache-Control'),
-      'public, max-age=0, s-maxage=60',
+      'public, max-age=60, s-maxage=3600, stale-while-revalidate=300, stale-if-error=86400',
     );
     assert.deepEqual(await response.json(), fixture('1'));
   }
@@ -69,10 +69,10 @@ void test('reads expire without extending their age; search options keep distinc
     { now: () => now },
   );
   await reader.content('1');
-  now = 59_999;
+  now = 3_599_999;
   await reader.content('1');
   assert.equal(contentCalls, 1);
-  now = 60_000;
+  now = 3_600_000;
   await reader.content('1');
   assert.equal(contentCalls, 2);
   await reader.search('coffee', true, 20, 'smart');

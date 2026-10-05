@@ -975,7 +975,7 @@ void test(
             assert.equal(response.status, 200);
             assert.equal(
               response.headers.get('cache-control'),
-              'public, max-age=0, s-maxage=60',
+              'public, max-age=60, s-maxage=3600, stale-while-revalidate=300, stale-if-error=86400',
             );
             const body = await response.json();
             assert.equal(body.segments[0].startMs, 1000);

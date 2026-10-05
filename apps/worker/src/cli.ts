@@ -26,6 +26,11 @@ import { OperatorRuntime } from './operator-runtime.js';
 import { serveOperator } from './operator-server.js';
 import { serveSearch } from './search-server.js';
 import { DEFAULT_CONCURRENCY } from '../../../packages/antigravity-acp/src/pool.js';
+import {
+  publicationTarget,
+  publishPending,
+  runPublisher,
+} from '../../../packages/transcription/src/publication.js';
 
 const [command, ...args] = process.argv.slice(2);
 const controller = new AbortController();
@@ -52,11 +57,15 @@ const option = (name: string, fallback = '') =>
     ? args[args.indexOf(name) + 1]
     : fallback;
 let database: Pool | undefined;
+let publicationTask: Promise<void> | undefined;
 function store() {
   if (!process.env.DATABASE_URL) throw new Failure('configuration');
+  const poolSize = Number(process.env.WORKER_DATABASE_POOL_SIZE ?? 6);
+  if (!Number.isInteger(poolSize) || poolSize < 2 || poolSize > 20)
+    throw new Failure('configuration');
   database ??= new Pool({
     connectionString: process.env.DATABASE_URL,
-    max: 8,
+    max: poolSize,
     connectionTimeoutMillis: 10_000,
     query_timeout: 15_000,
     keepAlive: true,
@@ -144,6 +153,21 @@ async function main() {
       await client.query('SELECT pg_advisory_unlock(891733,2)').catch(() => {});
       client.release();
     }
+  } else if (command === 'publish-transcripts') {
+    const target = publicationTarget();
+    if (!target) throw new Failure('configuration');
+    if (args.includes('--watch'))
+      await runPublisher(db.pool, target, controller.signal);
+    else
+      log({
+        event: 'transcripts_published',
+        accepted: await publishPending(
+          db.pool,
+          target,
+          controller.signal,
+          1000,
+        ),
+      });
   } else if (command === 'clean-transcripts') {
     const apply = args.includes('--apply');
     if (apply && !option('--backup-dir')) throw new Failure('configuration');
@@ -172,6 +196,10 @@ async function main() {
       }) + '\n',
     );
   } else if (command === 'serve-operator') {
+    const target = publicationTarget();
+    publicationTask = target
+      ? runPublisher(db.pool, target, controller.signal)
+      : undefined;
     const operator = new OperatorRuntime(db, {
       runtime,
       transcriptionSkillPath: resolve(
@@ -208,6 +236,10 @@ async function main() {
     };
     const currentProfile = profile(skill, settings, runtimeIdentity());
     if (command === 'run') {
+      const target = publicationTarget();
+      publicationTask = target
+        ? runPublisher(db.pool, target, controller.signal)
+        : undefined;
       const intervalMs = Number(process.env.CATALOG_POLL_MS ?? 300_000);
       const deepIntervalMs = Number(
         process.env.CATALOG_DEEP_POLL_MS ?? 3_600_000,
@@ -348,5 +380,7 @@ try {
     });
     process.exitCode = 1;
   }
+  if (!controller.signal.aborted) controller.abort(new Failure('cancelled'));
+  await publicationTask;
   await database?.end();
 }

@@ -312,17 +312,23 @@ void test('player controls stop playback and the phone dialog stays inside the b
       'transcript notes polling pauses in hidden tabs, has a retry limit, and keeps manual refresh',
       async () => {
         const { context, page } = await openPlayer({ width: 390, height: 844 });
-        let reads = 0;
-        let queued = true;
+        let reads = 0,
+          statuses = 0;
+        let queued = true,
+          unavailable = false;
         try {
-          await context.route('**/api/transcript?id=900001', (route) => {
+          await context.route('**/api/transcript?*', (route) => {
             reads++;
+            if (unavailable)
+              return route.fulfill({
+                status: 503,
+                json: { error: 'Temporarily unavailable' },
+              });
             return route.fulfill({
               json: {
                 id: '900001',
-                title: shiur.title,
-                teacher: shiur.teacher,
-                text: `Transcript read ${reads}`,
+                transcriptId: 'fixture-1',
+                version: 'a'.repeat(64),
                 segments: [
                   {
                     startMs: 0,
@@ -335,6 +341,16 @@ void test('player controls stop playback and the phone dialog stays inside the b
                   status: queued ? 'queued' : 'completed',
                   markdown: queued ? null : '# Completed notes',
                 },
+              },
+            });
+          });
+          await context.route('**/api/transcript-status?*', (route) => {
+            statuses++;
+            return route.fulfill({
+              json: {
+                transcriptId: 'fixture-1',
+                version: String(statuses).padStart(64, '0'),
+                notes: { status: queued ? 'queued' : 'completed' },
               },
             });
           });
@@ -358,26 +374,35 @@ void test('player controls stop playback and the phone dialog stays inside the b
             document.dispatchEvent(new Event('visibilitychange'));
           });
           await page.clock.runFor(600_000);
-          assert.equal(reads, 1, 'hidden readers make no background requests');
+          assert.equal(reads, 1);
+          assert.equal(
+            statuses,
+            0,
+            'hidden readers make no background requests',
+          );
           await page.evaluate(() => {
             window.transcriptHidden = false;
             document.dispatchEvent(new Event('visibilitychange'));
           });
-          await page.getByText('Transcript read 2', { exact: true }).waitFor();
-          for (let expected = 3; expected <= 11; expected++) {
+          await page.waitForResponse('**/api/transcript-status?*');
+          for (let expected = 2; expected <= 10; expected++) {
+            const response = page.waitForResponse('**/api/transcript-status?*');
             await page.clock.runFor(30_000);
-            await page
-              .getByText(`Transcript read ${expected}`, { exact: true })
-              .waitFor();
+            await response;
           }
           await page.clock.runFor(600_000);
-          assert.equal(reads, 11, 'queued notes cannot poll indefinitely');
+          assert.equal(statuses, 10, 'queued notes cannot poll indefinitely');
+          assert.equal(
+            reads,
+            1,
+            'status polls never download transcript bodies',
+          );
           queued = false;
           await page
             .getByRole('region', { name: 'Transcript and study notes' })
             .getByRole('button', { name: 'Refresh', exact: true })
             .click();
-          await page.getByText('Transcript read 12', { exact: true }).waitFor();
+          await page.getByText('Transcript read 2', { exact: true }).waitFor();
           await page.evaluate(() => {
             window.transcriptHidden = true;
             document.dispatchEvent(new Event('visibilitychange'));
@@ -387,9 +412,19 @@ void test('player controls stop playback and the phone dialog stays inside the b
           await page.clock.runFor(600_000);
           assert.equal(
             reads,
-            12,
+            2,
             'completed notes do not restart polling on tab focus',
           );
+          assert.equal(statuses, 10);
+          unavailable = true;
+          await page
+            .getByRole('region', { name: 'Transcript and study notes' })
+            .getByRole('button', { name: 'Refresh', exact: true })
+            .click();
+          await page
+            .getByText(/Your loaded transcript is still available/)
+            .waitFor();
+          await page.getByText('Transcript read 2', { exact: true }).waitFor();
         } finally {
           await context.close();
         }

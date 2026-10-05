@@ -1,14 +1,21 @@
 /** Only the website server knows the VM's read token. */
+import {
+  contentCacheControl,
+  statusCacheControl,
+} from '../packages/transcription/src/public-content';
 export async function transcriptGateway(
   path: string,
   params: URLSearchParams,
 ): Promise<Response> {
-  if (process.env.TRANSCRIPT_DATABASE_URL) {
+  const archive = process.env.TRANSCRIPT_ARCHIVE_URL;
+  if (!archive && process.env.TRANSCRIPT_DATABASE_URL) {
     const { transcriptDatabaseGateway } = await import('./transcript-database');
     return transcriptDatabaseGateway(path, params);
   }
-  const base = process.env.TRANSCRIPT_API_URL;
-  const token = process.env.TRANSCRIPT_API_TOKEN;
+  const base = archive || process.env.TRANSCRIPT_API_URL;
+  const token = archive
+    ? process.env.TRANSCRIPT_ARCHIVE_READ_TOKEN
+    : process.env.TRANSCRIPT_API_TOKEN;
   const unavailable = (message: string, status = 503) =>
     Response.json(
       { error: message },
@@ -36,6 +43,7 @@ export async function transcriptGateway(
     const upstream = await fetch(target, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
       signal: AbortSignal.timeout(8000),
+      cache: params.get('fresh') === 'true' ? 'no-store' : 'default',
     });
     if (upstream.status === 404)
       return unavailable('No completed transcript yet.', 404);
@@ -44,7 +52,14 @@ export async function transcriptGateway(
     if (!upstream.ok) throw new Error('Transcript gateway failed');
     return Response.json(await upstream.json(), {
       headers: {
-        'Cache-Control': `public, max-age=0, s-maxage=${path === '/v1/transcripts/search' ? 15 : 60}`,
+        'Cache-Control':
+          params.get('fresh') === 'true'
+            ? 'no-store'
+            : path === '/v1/transcripts/search' || path.endsWith('/status')
+              ? statusCacheControl
+              : params.has('version')
+                ? 'public, max-age=31536000, immutable'
+                : contentCacheControl,
       },
     });
   } catch {

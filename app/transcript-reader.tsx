@@ -1,12 +1,14 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import { Download, Loader2 } from 'lucide-react';
 import { timeLabel } from '@/lib/library';
+import type { ContentStatus } from '../packages/transcription/src/public-content';
 
 type Content = {
   id: string;
-  text: string;
+  transcriptId?: string;
+  version?: string;
   segments: Array<{
     startMs: number;
     endMs: number;
@@ -16,7 +18,6 @@ type Content = {
   notes: {
     status: string;
     markdown: string | null;
-    cleanedText: string | null;
   } | null;
 };
 export function TranscriptReader({
@@ -31,6 +32,8 @@ export function TranscriptReader({
   const [state, setState] = useState('Loading transcript…');
   const [retry, setRetry] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshError, setRefreshError] = useState('');
+  const last = useRef<{ id: number; content: Content } | null>(null);
   useEffect(() => {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -38,16 +41,58 @@ export function TranscriptReader({
     let pendingNotes = false;
     let reading = false;
     let loaded = false;
-    setContent(null);
-    setTab('transcript');
-    setLoading(true);
-    const read = async () => {
+    let current = last.current?.id === shiurId ? last.current.content : null;
+    if (!current) {
+      setContent(null);
+      setTab('transcript');
+    }
+    setLoading(!current);
+    setRefreshError('');
+    const read = async (statusOnly = false) => {
       if (abort.signal.aborted || document.hidden || reading) return;
       clearTimeout(timer);
       reading = true;
       try {
-        const response = await fetch(`/api/transcript?id=${shiurId}`, {
+        const options = { signal: abort.signal };
+        if (statusOnly && current) {
+          const statusResponse = await fetch(
+            `/api/transcript-status?id=${shiurId}`,
+            options,
+          );
+          if (!statusResponse.ok)
+            throw new Error('Could not refresh study notes.');
+          const status = (await statusResponse.json()) as ContentStatus;
+          if (
+            status.transcriptId === current.transcriptId &&
+            status.notes?.status !== 'completed'
+          ) {
+            pendingNotes =
+              !status.notes ||
+              ['queued', 'cleaning', 'generating'].includes(
+                status.notes.status,
+              );
+            if (!status.notes && awaitingNotes >= 3) pendingNotes = false;
+            if (status.notes) {
+              current = {
+                ...current,
+                notes: {
+                  status: status.notes.status,
+                  markdown: current.notes?.markdown ?? null,
+                },
+              };
+              last.current = { id: shiurId, content: current };
+              setContent(current);
+            }
+            if (pendingNotes && awaitingNotes++ < 10)
+              timer = setTimeout(() => void read(true), 30_000);
+            return;
+          }
+        }
+        const query = new URLSearchParams({ id: String(shiurId) });
+        if (retry > 0 || statusOnly) query.set('fresh', 'true');
+        const response = await fetch(`/api/transcript?${query}`, {
           signal: abort.signal,
+          cache: retry > 0 || statusOnly ? 'no-store' : 'default',
         });
         const data = (await response.json()) as Content & { error?: string };
         if (!response.ok)
@@ -57,8 +102,11 @@ export function TranscriptReader({
               : data.error || 'Transcript is unavailable.',
           );
         if (abort.signal.aborted) return;
+        current = data;
+        last.current = { id: shiurId, content: data };
         setContent(data);
         setState('');
+        setRefreshError('');
         pendingNotes =
           (!data.notes && awaitingNotes < 3) ||
           Boolean(
@@ -67,15 +115,19 @@ export function TranscriptReader({
           );
         // Bound automatic retries even when notes remain queued indefinitely.
         if (pendingNotes && awaitingNotes++ < 10 && !document.hidden)
-          timer = setTimeout(() => void read(), 30_000);
+          timer = setTimeout(() => void read(true), 30_000);
       } catch (error) {
         pendingNotes = false;
-        if (!abort.signal.aborted)
-          setState(
+        if (!abort.signal.aborted) {
+          const message =
             error instanceof Error
               ? error.message
-              : 'Transcript is unavailable.',
-          );
+              : 'Transcript is unavailable.';
+          if (current) {
+            setState('');
+            setRefreshError(message);
+          } else setState(message);
+        }
       } finally {
         reading = false;
         loaded = true;
@@ -85,7 +137,7 @@ export function TranscriptReader({
     const visibilityChanged = () => {
       clearTimeout(timer);
       if (!document.hidden && (!loaded || pendingNotes) && awaitingNotes <= 10)
-        void read();
+        void read(loaded);
     };
     document.addEventListener('visibilitychange', visibilityChanged);
     void read();
@@ -146,6 +198,11 @@ export function TranscriptReader({
           </button>
         )}
       </div>
+      {refreshError && (
+        <output className="study-state">
+          {refreshError} Your loaded transcript is still available.
+        </output>
+      )}
       {loading ? (
         <p className="feed-loading">
           <Loader2 size={14} className="spin" /> Loading transcript…

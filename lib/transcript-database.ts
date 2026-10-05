@@ -1,4 +1,8 @@
 import { Pool } from 'pg';
+import {
+  contentCacheControl,
+  statusCacheControl,
+} from '../packages/transcription/src/public-content';
 import { TranscriptionStore } from '../packages/transcription/src/store';
 import {
   createCachedTranscriptReader,
@@ -6,6 +10,7 @@ import {
 } from '../packages/transcription/src/read-cache';
 
 let store: TranscriptionStore | undefined;
+let publicReader: TranscriptReader | undefined;
 const readers = new WeakMap<TranscriptReader, TranscriptReader>();
 
 /** A small server-side pool using the website's read-only database role. */
@@ -24,7 +29,12 @@ function databaseReader() {
     );
     store = new TranscriptionStore(pool);
   }
-  return store;
+  publicReader ??= {
+    content: (id) => store!.publicContent(id),
+    search: (...args) => store!.search(...args),
+    contentStatus: (id) => store!.contentStatus(id),
+  };
+  return publicReader;
 }
 
 export async function transcriptDatabaseGateway(
@@ -37,8 +47,10 @@ export async function transcriptDatabaseGateway(
       status,
       headers: {
         'Cache-Control':
-          status === 200
-            ? `public, max-age=0, s-maxage=${path === '/v1/transcripts/search' ? 15 : 60}`
+          status === 200 && params.get('fresh') !== 'true'
+            ? path === '/v1/transcripts/search' || path.endsWith('/status')
+              ? statusCacheControl
+              : contentCacheControl
             : 'no-store',
       },
     });
@@ -49,9 +61,17 @@ export async function transcriptDatabaseGateway(
       source = createCachedTranscriptReader(raw);
       readers.set(raw, source);
     }
+    const statusId = path.match(/^\/v1\/transcripts\/(\d{1,12})\/status$/)?.[1];
+    if (statusId && source.contentStatus) {
+      const status = await source.contentStatus(statusId);
+      return status
+        ? reply(status)
+        : reply({ error: 'No completed transcript yet.' }, 404);
+    }
     const id = path.match(/^\/v1\/transcripts\/(\d{1,12})$/)?.[1];
     if (id) {
-      const content = await source.content(id);
+      // A completed notes status or manual refresh must bypass the older body.
+      const content = await source.content(id, params.get('fresh') === 'true');
       return content
         ? reply(content)
         : reply({ error: 'No completed transcript yet.' }, 404);

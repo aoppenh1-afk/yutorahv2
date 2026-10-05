@@ -1,10 +1,15 @@
-import type { SearchDatabase, SearchStatement } from './search-storage';
+import type { SearchDatabase, SearchStatement } from './search-storage.js';
 
 type Query = { sql: string; params: unknown[] };
 type Result = {
   success: boolean;
   results: Record<string, unknown>[];
-  meta: { changes: number };
+  meta: {
+    changes: number;
+    rows_read?: number;
+    rows_written?: number;
+    size_after?: number;
+  };
 };
 
 /** Access the same durable D1 SQL storage from a Node server runtime. */
@@ -12,6 +17,9 @@ export function d1HttpDatabase(config: {
   accountId: string;
   databaseId: string;
   token: string;
+  onResult?: (meta: Result['meta']) => void;
+  signal?: AbortSignal;
+  beforeRequest?: () => void;
 }): SearchDatabase {
   if (
     !/^[a-f0-9]{32}$/i.test(config.accountId) ||
@@ -22,6 +30,7 @@ export function d1HttpDatabase(config: {
   const endpoint = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/d1/database/${config.databaseId}/query`;
   async function execute(queries: Query[]): Promise<Result[]> {
     if (!queries.length) return [];
+    config.beforeRequest?.();
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -31,8 +40,9 @@ export function d1HttpDatabase(config: {
       body: JSON.stringify(
         queries.length === 1 ? queries[0] : { batch: queries },
       ),
-      signal: AbortSignal.timeout(15000),
-      cache: 'no-store',
+      signal: config.signal
+        ? AbortSignal.any([config.signal, AbortSignal.timeout(30000)])
+        : AbortSignal.timeout(30000),
     });
     if (!response.ok) {
       // Classify known database failures without echoing upstream text, SQL,
@@ -77,6 +87,7 @@ export function d1HttpDatabase(config: {
       )
     )
       throw new Error('Search storage returned an unsuccessful query.');
+    for (const result of body.result) config.onResult?.(result.meta);
     return body.result;
   }
   class Statement implements SearchStatement {

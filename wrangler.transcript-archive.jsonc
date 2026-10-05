@@ -1,0 +1,7 @@
+{
+  "name": "yutorah-transcript-archive",
+  "main": "apps/transcript-archive/src/index.ts",
+  "compatibility_date": "2026-10-04",
+  "d1_databases": [{"binding":"DB","database_name":"yutorah-transcript-archive","database_id":"c518a2b8-1eff-4924-a3f4-5e165be22054","migrations_dir":"db/transcript-archive"}],
+  "observability":{"enabled":true}
+}

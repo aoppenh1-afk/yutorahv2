@@ -1,11 +1,11 @@
 import { Buffer } from 'node:buffer';
 import type { TranscriptionStore } from './store.js';
+import type { PublicContent } from './public-content.js';
 
 export type TranscriptReader = {
-  content: (
-    id: string,
-  ) => Promise<Awaited<ReturnType<TranscriptionStore['content']>> | null>;
+  content: (id: string, fresh?: boolean) => Promise<PublicContent | null>;
   search: TranscriptionStore['search'];
+  contentStatus?: TranscriptionStore['contentStatus'];
 };
 type CacheOptions = {
   now?: () => number;
@@ -30,10 +30,15 @@ class ReadCache<T> {
     this.entries.delete(key);
   }
 
-  get(key: string, load: () => Promise<T>, ttl: number): Promise<T> {
+  get(
+    key: string,
+    load: () => Promise<T>,
+    ttl: number,
+    fresh = false,
+  ): Promise<T> {
     const now = this.options.now ?? Date.now;
     const cached = this.entries.get(key);
-    if (cached && cached.until > now()) {
+    if (!fresh && cached && cached.until > now()) {
       this.entries.delete(key);
       this.entries.set(key, cached);
       return Promise.resolve(cached.value);
@@ -83,8 +88,15 @@ export function createCachedTranscriptReader(
   const search = new ReadCache<Awaited<ReturnType<TranscriptReader['search']>>>(
     options,
   );
+  const status = new ReadCache<
+    Awaited<ReturnType<TranscriptionStore['contentStatus']>>
+  >(options);
   return {
-    content: (id) => content.get(id, () => source.content(id), 60_000),
+    content: (id, fresh = false) =>
+      content.get(id, () => source.content(id), 3_600_000, fresh),
+    contentStatus: source.contentStatus
+      ? (id) => status.get(id, () => source.contentStatus!(id), 15_000)
+      : undefined,
     search: (query, aliases, limit, mode) =>
       search.get(
         JSON.stringify([query, aliases, limit, mode]),

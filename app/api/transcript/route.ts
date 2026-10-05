@@ -6,5 +6,10 @@ export async function GET(request: Request) {
       { error: 'Choose a valid shiur.' },
       { status: 400, headers: { 'Cache-Control': 'no-store' } },
     );
-  return transcriptGateway(`/v1/transcripts/${id}`, new URLSearchParams());
+  const params = new URL(request.url).searchParams;
+  const forwarded = new URLSearchParams();
+  if (params.get('fresh') === 'true') forwarded.set('fresh', 'true');
+  if (/^[a-f0-9]{64}$/.test(params.get('version') ?? ''))
+    forwarded.set('version', params.get('version')!);
+  return transcriptGateway(`/v1/transcripts/${id}`, forwarded);
 }

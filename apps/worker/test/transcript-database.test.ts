@@ -77,7 +77,7 @@ void test(
       assert.equal(content.status, 200);
       assert.equal(
         content.headers.get('Cache-Control'),
-        'public, max-age=0, s-maxage=60',
+        'public, max-age=60, s-maxage=3600, stale-while-revalidate=300, stale-if-error=86400',
       );
       assert.equal((await content.json()).segments[0].startMs, 1000);
       const missing = await transcriptDatabaseGateway(

@@ -439,7 +439,7 @@ void test(
       );
       assert.equal(
         contentResponse.headers.get('cache-control'),
-        'public, max-age=0, s-maxage=60',
+        'public, max-age=60, s-maxage=3600, stale-while-revalidate=300, stale-if-error=86400',
       );
       const content = await contentResponse.json();
       assert.equal(content.segments[0].startMs, 1000);

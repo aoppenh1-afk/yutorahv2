@@ -536,12 +536,17 @@ export class TranscriptionStore {
     );
   }
   /** Only the active, fully published transcript is exposed to readers. */
-  async content(shiurId: string) {
-    const result = await this.pool.query<{
+  async content(
+    shiurId: string,
+    includeInternal = true,
+    reader: Pick<Pool, 'query'> = this.pool,
+  ) {
+    const result = await reader.query<{
       id: string;
       title: string;
       teacher: string;
       transcriptId: string;
+      mediaUrl: string | null;
       text: string;
       durationMs: number;
       createdAt: string;
@@ -552,12 +557,51 @@ export class TranscriptionStore {
         cleanedText: string | null;
       } | null;
     }>(
-      `SELECT h.id,h.title,h.teacher,t.id AS "transcriptId",t.text,t.duration_ms::float8 AS "durationMs",t.created_at AS "createdAt",
+      `SELECT h.id,h.title,h.teacher,h.media_url AS "mediaUrl",t.id AS "transcriptId",${includeInternal ? 't.text,' : ''}t.duration_ms::float8 AS "durationMs",t.created_at AS "createdAt",
        (SELECT coalesce(jsonb_agg(jsonb_build_object('startMs',s.start_ms,'endMs',s.end_ms,'text',s.text,'speaker',s.speaker,'language',s.language) ORDER BY segment_index),'[]') FROM transcript_segments s WHERE s.transcript_id=t.id) AS segments,
-       (SELECT jsonb_build_object('status',j.status,'markdown',n.markdown,'cleanedText',j.cleaned_text)
+       (SELECT jsonb_build_object('status',j.status,'markdown',n.markdown${includeInternal ? ",'cleanedText',j.cleaned_text" : ''})
         FROM notes_jobs j LEFT JOIN transcript_notes n ON n.id=j.id WHERE j.transcript_id=t.id
         ORDER BY (j.status='completed') DESC,j.created_at DESC LIMIT 1) AS notes
        FROM transcription_shiurim h JOIN transcripts t ON t.id=h.active_transcript_id WHERE h.id=$1`,
+      [shiurId],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async publicContent(
+    shiurId: string,
+    reader: Pick<Pool, 'query'> = this.pool,
+  ) {
+    const c = await this.content(shiurId, false, reader);
+    return (
+      c && {
+        id: c.id,
+        title: c.title,
+        teacher: c.teacher,
+        mediaUrl: c.mediaUrl,
+        transcriptId: c.transcriptId,
+        durationMs: c.durationMs,
+        createdAt: new Date(c.createdAt).toISOString(),
+        segments: c.segments,
+        notes: c.notes && {
+          status: c.notes.status,
+          markdown: c.notes.markdown,
+        },
+      }
+    );
+  }
+
+  /** Polling never reads the transcript, timed segments, or notes body. */
+  async contentStatus(shiurId: string) {
+    const result = await this.pool.query<{
+      transcriptId: string;
+      notes: { status: string } | null;
+    }>(
+      `SELECT h.active_transcript_id AS "transcriptId",
+      (SELECT jsonb_build_object('status',j.status) FROM notes_jobs j
+       WHERE j.transcript_id=h.active_transcript_id
+       ORDER BY (j.status='completed') DESC,j.created_at DESC LIMIT 1) AS notes
+      FROM transcription_shiurim h WHERE h.id=$1 AND h.active_transcript_id IS NOT NULL`,
       [shiurId],
     );
     return result.rows[0] ?? null;

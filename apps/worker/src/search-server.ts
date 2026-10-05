@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { once } from 'node:events';
 import type { TranscriptionStore } from '../../../packages/transcription/src/store.js';
 import { Failure } from '../../../packages/antigravity-acp/src/errors.js';
+import { createCachedTranscriptReader } from '../../../packages/transcription/src/read-cache.js';
 
 function authorized(header: string | undefined, token: string): boolean {
   if (!header?.startsWith('Bearer ')) return false;
@@ -13,10 +14,20 @@ function authorized(header: string | undefined, token: string): boolean {
 
 export function createSearchServer(
   store: Pick<TranscriptionStore, 'search'> &
-    Partial<Pick<TranscriptionStore, 'content'>>,
+    Partial<
+      Pick<TranscriptionStore, 'content' | 'contentStatus' | 'publicContent'>
+    >,
   token: string,
 ): Server {
   if (Buffer.byteLength(token) < 32) throw new Failure('configuration');
+  const reader = store.content
+    ? createCachedTranscriptReader({
+        content: (id) =>
+          store.publicContent ? store.publicContent(id) : store.content!(id),
+        search: (...args) => store.search(...args),
+        contentStatus: store.contentStatus?.bind(store),
+      })
+    : undefined;
   return createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -49,10 +60,28 @@ export function createSearchServer(
     )?.[1];
     if (contentId && store.content) {
       try {
-        const content = await store.content(contentId);
+        const content = await reader!.content(
+          contentId,
+          url.searchParams.get('fresh') === 'true',
+        );
         reply(
           content ? 200 : 404,
           content ?? { error: 'No completed transcript yet.' },
+        );
+      } catch {
+        reply(503, { error: 'Transcript is unavailable.' });
+      }
+      return;
+    }
+    const statusId = url.pathname.match(
+      /^\/v1\/transcripts\/(\d{1,12})\/status$/,
+    )?.[1];
+    if (statusId && reader?.contentStatus) {
+      try {
+        const status = await reader.contentStatus(statusId);
+        reply(
+          status ? 200 : 404,
+          status ?? { error: 'No completed transcript yet.' },
         );
       } catch {
         reply(503, { error: 'Transcript is unavailable.' });
@@ -78,7 +107,7 @@ export function createSearchServer(
       return;
     }
     try {
-      const results = await store.search(
+      const results = await (reader ?? store).search(
         query,
         url.searchParams.get('aliases') !== 'false',
         limit,
