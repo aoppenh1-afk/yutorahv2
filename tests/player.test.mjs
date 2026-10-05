@@ -328,7 +328,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
               json: {
                 id: '900001',
                 transcriptId: 'fixture-1',
-                version: 'a'.repeat(64),
+                version: (queued ? 'a' : 'b').repeat(64),
                 title: shiur.title,
                 teacher: shiur.teacher,
                 segments: [
@@ -348,10 +348,15 @@ void test('player controls stop playback and the phone dialog stays inside the b
           });
           await context.route('**/api/transcript-status?*', (route) => {
             statuses++;
+            if (unavailable)
+              return route.fulfill({
+                status: 503,
+                json: { error: 'Temporarily unavailable' },
+              });
             return route.fulfill({
               json: {
                 transcriptId: 'fixture-1',
-                version: String(statuses).padStart(64, '0'),
+                version: (queued ? 'a' : 'b').repeat(64),
                 notes: { status: queued ? 'queued' : 'completed' },
               },
             });
@@ -375,24 +380,27 @@ void test('player controls stop playback and the phone dialog stays inside the b
             window.transcriptHidden = true;
             document.dispatchEvent(new Event('visibilitychange'));
           });
-          await page.clock.runFor(600_000);
+          await page.clock.fastForward(600_000);
           assert.equal(reads, 1);
           assert.equal(
             statuses,
             0,
             'hidden readers make no background requests',
           );
+          const resumedStatus = page.waitForResponse(
+            '**/api/transcript-status?*',
+          );
           await page.evaluate(() => {
             window.transcriptHidden = false;
             document.dispatchEvent(new Event('visibilitychange'));
           });
-          await page.waitForResponse('**/api/transcript-status?*');
+          await resumedStatus;
           for (let expected = 2; expected <= 10; expected++) {
             const response = page.waitForResponse('**/api/transcript-status?*');
             await page.clock.runFor(30_000);
             await response;
           }
-          await page.clock.runFor(600_000);
+          await page.clock.fastForward(600_000);
           assert.equal(statuses, 10, 'queued notes cannot poll indefinitely');
           assert.equal(
             reads,
@@ -413,13 +421,34 @@ void test('player controls stop playback and the phone dialog stays inside the b
             window.transcriptHidden = false;
             document.dispatchEvent(new Event('visibilitychange'));
           });
-          await page.clock.runFor(600_000);
+          await page.clock.fastForward(600_000);
           assert.equal(
             reads,
             2,
             'completed notes do not restart polling on tab focus',
           );
-          assert.equal(statuses, 10);
+          assert.equal(
+            statuses,
+            11,
+            'manual refresh checks the published version',
+          );
+          const unchangedStatus = page.waitForResponse(
+            '**/api/transcript-status?*',
+          );
+          await page
+            .getByRole('region', {
+              name: 'Transcript, study notes, and sources',
+            })
+            .getByRole('button', { name: 'Refresh', exact: true })
+            .click();
+          await unchangedStatus;
+          await page.clock.fastForward(600_000);
+          assert.equal(
+            reads,
+            2,
+            'an unchanged immutable version reuses its content',
+          );
+          assert.equal(statuses, 12);
           unavailable = true;
           await page
             .getByRole('region', {
