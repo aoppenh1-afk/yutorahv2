@@ -422,7 +422,9 @@ void test('player controls stop playback and the phone dialog stays inside the b
           assert.equal(statuses, 10);
           unavailable = true;
           await page
-            .getByRole('region', { name: 'Transcript and study notes' })
+            .getByRole('region', {
+              name: 'Transcript, study notes, and sources',
+            })
             .getByRole('button', { name: 'Refresh', exact: true })
             .click();
           await page
