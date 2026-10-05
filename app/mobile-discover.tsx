@@ -30,6 +30,9 @@ type Props = {
   library: LibraryState;
   pick?: Shiur;
   items: Shiur[];
+  trending: Shiur[];
+  trendingLoading: boolean;
+  trendingError: boolean;
   continuing: LibraryState['history'];
   activeId?: number;
   playing: boolean;
@@ -58,6 +61,9 @@ export function MobileDiscover({
   library,
   pick,
   items,
+  trending,
+  trendingLoading,
+  trendingError,
   continuing,
   activeId,
   playing,
@@ -71,18 +77,18 @@ export function MobileDiscover({
   onRefresh,
 }: Props) {
   const [query, setQuery] = useState('');
-  const [feed, setFeed] = useState('latest');
+  const [feed, setFeed] = useState('recommended');
   const stats = learningStats(library.learningDays);
   const entries = useMemo(() => {
-    if (feed === 'short')
-      return items.filter((s) => s.duration > 0 && s.duration <= 1200);
+    if (feed === 'trending') return trending;
     if (feed === 'recommended') return items;
     return home?.recent.length
       ? home.recent
       : [...items].sort(
           (a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0),
         );
-  }, [feed, home, items]);
+  }, [feed, home, items, trending]);
+  const loading = refreshing || (feed === 'trending' && trendingLoading);
   const open = (s: Shiur) =>
     mediaKind(s) === 'audio' ? onPlay(s) : onDetails(s);
   const sectionTitle = (
@@ -264,17 +270,15 @@ export function MobileDiscover({
         aria-label="Shiurim from the library"
       >
         {sectionTitle('From the library', () =>
-          feed === 'short'
-            ? onSearch('', { ...noFilters, max: '20' })
-            : feed === 'recommended'
-              ? onNavigate('trending')
-              : onSearch('', { ...noFilters, sort: 'new' }),
+          feed === 'latest'
+            ? onSearch('', { ...noFilters, sort: 'new' })
+            : onNavigate('trending'),
         )}
         <div className="archive-feed-tabs" aria-label="Library selections">
           {[
-            ['latest', 'Recently added'],
             ['recommended', 'Recommended'],
-            ['short', 'Under 20 min'],
+            ['trending', 'Trending'],
+            ['latest', 'Recently added'],
           ].map(([value, label]) => (
             <button
               key={value}
@@ -290,32 +294,26 @@ export function MobileDiscover({
         ) : (
           <StatePanel
             title={
-              refreshing
+              loading
                 ? 'Loading shiurim…'
-                : feed === 'short'
-                  ? 'Explore short shiurim'
+                : feed === 'trending'
+                  ? trendingError
+                    ? 'Trending couldn’t load'
+                    : 'No trending shiurim yet'
                   : 'Explore the library'
             }
             description={
-              feed === 'short'
-                ? 'Search the full library for shiurim under 20 minutes.'
+              feed === 'trending'
+                ? 'Reload the trending selections or explore the full chart.'
                 : 'Reload the selections or search the full library.'
             }
           >
             <button
               className="outline-button"
-              disabled={refreshing}
-              onClick={() =>
-                feed === 'short'
-                  ? onSearch('', { ...noFilters, max: '20' })
-                  : onRefresh()
-              }
+              disabled={loading}
+              onClick={onRefresh}
             >
-              {feed === 'short'
-                ? 'Find short shiurim'
-                : refreshing
-                  ? 'Loading…'
-                  : 'Reload selections'}
+              {loading ? 'Loading…' : 'Reload selections'}
             </button>
           </StatePanel>
         )}

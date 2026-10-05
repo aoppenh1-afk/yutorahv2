@@ -479,6 +479,9 @@ export function LearningHome(props: Props) {
           library={library}
           pick={pick}
           items={items.map(({ shiur }) => shiur)}
+          trending={discoveryCharts['week:0']?.trending ?? []}
+          trendingLoading={discoveryLoading}
+          trendingError={discoveryError}
           continuing={continuing}
           activeId={activeId}
           playing={playing}
