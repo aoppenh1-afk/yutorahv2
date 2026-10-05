@@ -43,7 +43,8 @@ export async function transcriptGateway(
     const upstream = await fetch(target, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
       signal: AbortSignal.timeout(8000),
-      cache: params.get('fresh') === 'true' ? 'no-store' : 'default',
+      // workerd rejects an explicit "default" cache mode.
+      ...(params.get('fresh') === 'true' ? { cache: 'no-store' as const } : {}),
     });
     if (upstream.status === 404)
       return unavailable('No completed transcript yet.', 404);
