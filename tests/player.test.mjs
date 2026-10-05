@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
@@ -320,6 +320,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             return route.fulfill({
               json: {
                 id: '900001',
+                transcriptId: 'polling-ui-fixture',
                 title: shiur.title,
                 teacher: shiur.teacher,
                 text: `Transcript read ${reads}`,
@@ -374,7 +375,9 @@ void test('player controls stop playback and the phone dialog stays inside the b
           assert.equal(reads, 11, 'queued notes cannot poll indefinitely');
           queued = false;
           await page
-            .getByRole('region', { name: 'Transcript and study notes' })
+            .getByRole('region', {
+              name: 'Transcript, study notes, and sources',
+            })
             .getByRole('button', { name: 'Refresh', exact: true })
             .click();
           await page.getByText('Transcript read 12', { exact: true }).waitFor();
@@ -558,6 +561,230 @@ void test('player controls stop playback and the phone dialog stays inside the b
               assert.ok(pixels.width * 3 <= pixels.naturalWidth);
               assert.ok(pixels.height * 3 <= pixels.naturalHeight);
             }
+          } finally {
+            await context.close();
+          }
+        },
+      );
+    }
+    for (const width of [390, 1280]) {
+      await t.test(
+        `sources recovery and customized sheet export at ${width}px`,
+        async () => {
+          const { context, page } = await openPlayer({ width, height: 844 });
+          try {
+            const segments = [
+              { text: 'Genesis 1:1', startMs: 0, endMs: 30000 },
+              { text: 'Shabbat 2b', startMs: 30000, endMs: 60000 },
+              { text: 'Exodus 1:1', startMs: 60000, endMs: 90000 },
+            ];
+            await context.route('**/api/transcript?id=900001', (route) =>
+              route.fulfill({
+                json: {
+                  id: '900001',
+                  transcriptId: 'source-ui-fixture',
+                  title: 'Source controls fixture',
+                  teacher: 'Test teacher',
+                  text: segments.map((s) => s.text).join(' '),
+                  segments,
+                  notes: {
+                    status: 'completed',
+                    markdown: 'Notes',
+                    cleanedText: null,
+                  },
+                },
+              }),
+            );
+            const sources = segments.map((segment, index) => ({
+              ref: segment.text,
+              heRef: 'הפניה',
+              url:
+                'https://www.sefaria.org/' + segment.text.replaceAll(' ', '_'),
+              category: index === 1 ? 'Talmud' : 'Tanakh',
+              occurrences: [
+                {
+                  offset: index * 20,
+                  startMs: segment.startMs,
+                  endMs: segment.endMs,
+                  mention: segment.text,
+                  spans: [
+                    {
+                      segmentIndex: index,
+                      startChar: 0,
+                      endChar: segment.text.length,
+                    },
+                  ],
+                },
+              ],
+            }));
+            let sourceCalls = 0,
+              textCalls = 0;
+            await context.route('**/api/sources?**', (route) => {
+              sourceCalls++;
+              return route.fulfill(
+                sourceCalls === 1
+                  ? {
+                      status: 503,
+                      json: { error: 'Temporary failure' },
+                      headers: { 'Retry-After': '1' },
+                    }
+                  : {
+                      json: {
+                        transcriptId: 'source-ui-fixture',
+                        status: 'ready',
+                        progress: 100,
+                        sources,
+                        omitted: 1,
+                        limited: false,
+                        omissionCounts: { missing_amud: 1 },
+                        omissions: [
+                          {
+                            reason: 'missing_amud',
+                            mention: 'Shabbat 2',
+                            offset: 100,
+                            startMs: 10000,
+                          },
+                        ],
+                      },
+                    },
+              );
+            });
+            await context.route('**/api/source-text?**', (route) => {
+              textCalls++;
+              const params = new URL(route.request().url()).searchParams;
+              const ref = params.get('ref');
+              const lines = params.get('extent') === 'full' ? 12 : 8;
+              return route.fulfill({
+                json: {
+                  ref,
+                  categories: [
+                    'Library',
+                    ref.startsWith('Shabbat') ? 'Talmud' : 'Tanakh',
+                  ],
+                  editions: [
+                    {
+                      title: 'Original fixture edition',
+                      language: 'he',
+                      direction: 'rtl',
+                      license: 'Public Domain',
+                      versionSource: null,
+                      text: ['מקור לדוגמה'],
+                      truncated: false,
+                    },
+                    {
+                      title: 'English fixture edition',
+                      language: 'en',
+                      direction: 'ltr',
+                      license: 'CC-BY',
+                      versionSource: null,
+                      text: Array.from(
+                        { length: lines },
+                        (_, i) => `English line ${i + 1}`,
+                      ),
+                      truncated: lines === 8,
+                    },
+                  ],
+                },
+              });
+            });
+            if (width < 768)
+              await page
+                .getByRole('button', { name: 'Expand player controls' })
+                .click();
+            await page
+              .getByRole('button', { name: 'Open shiur details and notes' })
+              .click();
+            await page
+              .getByRole('button', { name: 'Sources', exact: true })
+              .click();
+            await page
+              .getByRole('button', { name: 'Preview source sheet' })
+              .waitFor();
+            assert.equal(
+              sourceCalls,
+              2,
+              'temporary failure recovers automatically',
+            );
+            await page.getByText('Why references were omitted (1)').click();
+            assert.ok(
+              await page.getByText('Missing an explicit amud: 1').isVisible(),
+            );
+            await page
+              .getByRole('button', { name: 'Preview source sheet' })
+              .click();
+            const sheet = page.getByRole('region', {
+              name: 'Source sheet preview',
+            });
+            await sheet
+              .getByRole('button', { name: 'Download sheet' })
+              .waitFor();
+            await page.waitForFunction(
+              () =>
+                !document.querySelector('.source-sheet-tools button').disabled,
+            );
+            await sheet
+              .getByLabel('Language', { exact: true })
+              .selectOption('en');
+            assert.equal(await sheet.getByText('מקור לדוגמה').count(), 0);
+            await sheet.getByText('Choose sources (3 of 3)').click();
+            await sheet.getByLabel('Exodus 1:1', { exact: true }).uncheck();
+            await sheet
+              .getByLabel('Source text', { exact: true })
+              .selectOption('full');
+            await sheet
+              .getByLabel('Order', { exact: true })
+              .selectOption('category');
+            await page.waitForFunction(
+              () =>
+                !document.querySelector('.source-sheet-tools button').disabled,
+            );
+            assert.equal(await sheet.locator('article').count(), 2);
+            assert.ok(
+              (await sheet.locator('article').first().innerText()).includes(
+                'Shabbat 2b',
+              ),
+            );
+            assert.equal(
+              await sheet.getByText('English line 12', { exact: true }).count(),
+              2,
+            );
+            const [download] = await Promise.all([
+              page.waitForEvent('download'),
+              sheet.getByRole('button', { name: 'Download sheet' }).click(),
+            ]);
+            const html = await readFile(await download.path(), 'utf8');
+            assert.ok(html.includes('English line 12'));
+            assert.ok(!html.includes('מקור לדוגמה'));
+            assert.ok(!html.includes('Exodus 1:1'));
+            assert.ok(html.includes('CC-BY'));
+            assert.ok(html.indexOf('Shabbat 2b') < html.indexOf('Genesis 1:1'));
+            const before = textCalls;
+            await sheet
+              .getByLabel('Language', { exact: true })
+              .selectOption('he');
+            assert.equal(
+              textCalls,
+              before,
+              'changing language reuses the loaded editions',
+            );
+            assert.equal(
+              await sheet.getByText('English line 12', { exact: true }).count(),
+              0,
+            );
+            assert.equal(await sheet.getByText('מקור לדוגמה').count(), 2);
+            await sheet
+              .getByRole('button', { name: 'Clear selection' })
+              .click();
+            assert.ok(
+              await sheet
+                .getByRole('button', { name: 'Download sheet' })
+                .isDisabled(),
+            );
+            assert.equal(await sheet.locator('article').count(), 0);
+            const overflow = await sheet.evaluate(
+              (el) => el.scrollWidth > el.clientWidth + 1,
+            );
+            assert.equal(overflow, false);
           } finally {
             await context.close();
           }

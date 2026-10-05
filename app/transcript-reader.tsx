@@ -3,9 +3,14 @@ import { useEffect, useState } from 'react';
 import Markdown from 'react-markdown';
 import { Download, Loader2 } from 'lucide-react';
 import { timeLabel } from '@/lib/library';
+import { sourceHighlights } from '@/lib/source-highlights';
+import { SourcesPanel, useTranscriptSources } from './sources-panel';
 
 type Content = {
   id: string;
+  transcriptId: string;
+  title: string;
+  teacher: string;
   text: string;
   segments: Array<{
     startMs: number;
@@ -27,10 +32,18 @@ export function TranscriptReader({
   onSeek: (seconds: number) => void;
 }) {
   const [content, setContent] = useState<Content | null>(null);
-  const [tab, setTab] = useState<'transcript' | 'notes'>('transcript');
+  const [tab, setTab] = useState<'transcript' | 'notes' | 'sources'>(
+    'transcript',
+  );
+  const [sourcesEnabled, setSourcesEnabled] = useState(false);
   const [state, setState] = useState('Loading transcript…');
   const [retry, setRetry] = useState(0);
   const [loading, setLoading] = useState(true);
+  const sources = useTranscriptSources(
+    shiurId,
+    content?.transcriptId,
+    sourcesEnabled,
+  );
   useEffect(() => {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -40,6 +53,7 @@ export function TranscriptReader({
     let loaded = false;
     setContent(null);
     setTab('transcript');
+    setSourcesEnabled(false);
     setLoading(true);
     const read = async () => {
       if (abort.signal.aborted || document.hidden || reading) return;
@@ -119,9 +133,9 @@ export function TranscriptReader({
   return (
     <section
       className="detail-section generated-study"
-      aria-label="Transcript and study notes"
+      aria-label="Transcript, study notes, and sources"
     >
-      <h3>Transcript &amp; study notes</h3>
+      <h3>Transcript &amp; study tools</h3>
       <div className="study-tabs">
         <button
           type="button"
@@ -137,14 +151,26 @@ export function TranscriptReader({
         >
           Study notes
         </button>
+        <button
+          type="button"
+          aria-pressed={tab === 'sources'}
+          onClick={() => {
+            setTab('sources');
+            setSourcesEnabled(true);
+          }}
+        >
+          Sources
+        </button>
         <button type="button" onClick={() => setRetry((n) => n + 1)}>
           Refresh
         </button>
-        {content && (tab === 'transcript' || content.notes?.markdown) && (
-          <button className="study-download" type="button" onClick={download}>
-            <Download size={14} /> Download
-          </button>
-        )}
+        {content &&
+          (tab === 'transcript' ||
+            (tab === 'notes' && content.notes?.markdown)) && (
+            <button className="study-download" type="button" onClick={download}>
+              <Download size={14} /> Download
+            </button>
+          )}
       </div>
       {loading ? (
         <p className="feed-loading">
@@ -159,23 +185,65 @@ export function TranscriptReader({
         </output>
       ) : content && tab === 'transcript' ? (
         <div className="study-transcript">
-          {content.segments.map((segment, index) => (
-            <div className="study-segment" key={`${segment.startMs}-${index}`}>
-              <button
-                className="study-time"
-                type="button"
-                aria-label={`Play from ${timeLabel(segment.startMs / 1000)}`}
-                onClick={() => onSeek(segment.startMs / 1000)}
+          {content.segments.map((segment, index) => {
+            const spans = sourceHighlights(
+              sources.result?.transcriptId === content.transcriptId
+                ? sources.result.sources
+                : [],
+              index,
+            );
+            let position = 0;
+            const text = spans.flatMap((span) => {
+              const before = segment.text.slice(position, span.startChar);
+              position = span.endChar;
+              return [
+                before,
+                <a
+                  className="transcript-source-link"
+                  key={`${span.startChar}-${span.ref}`}
+                  href={span.url}
+                  title={span.ref}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {segment.text.slice(span.startChar, span.endChar)}
+                </a>,
+              ];
+            });
+            text.push(segment.text.slice(position));
+            return (
+              <div
+                className="study-segment"
+                key={`${segment.startMs}-${index}`}
               >
-                {timeLabel(segment.startMs / 1000)}
-              </button>
-              <p dir="auto">
-                {segment.speaker && <strong>{segment.speaker}: </strong>}
-                {segment.text}
-              </p>
-            </div>
-          ))}
+                <button
+                  className="study-time"
+                  type="button"
+                  aria-label={`Play from ${timeLabel(segment.startMs / 1000)}`}
+                  onClick={() => onSeek(segment.startMs / 1000)}
+                >
+                  {timeLabel(segment.startMs / 1000)}
+                </button>
+                <p dir="auto">
+                  {segment.speaker && <strong>{segment.speaker}: </strong>}
+                  {text}
+                </p>
+              </div>
+            );
+          })}
         </div>
+      ) : content && tab === 'sources' ? (
+        <SourcesPanel
+          key={content.transcriptId}
+          shiurId={shiurId}
+          title={content.title}
+          teacher={content.teacher}
+          result={sources.result}
+          error={sources.error}
+          recovering={sources.recovering}
+          onRetry={sources.retry}
+          onSeek={onSeek}
+        />
       ) : content?.notes?.markdown ? (
         <div className="study-markdown" dir="auto">
           <p className="study-note-label">
