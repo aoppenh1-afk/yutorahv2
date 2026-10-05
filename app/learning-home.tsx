@@ -372,24 +372,6 @@ export function LearningHome(props: Props) {
       (s.duration > 0 && s.duration <= Number(minutes) * 60),
   );
   const isHome = currentTab === 'for-you';
-  const markComplete = (s: Shiur) => {
-    update((old) => ({
-      ...old,
-      completed: [...new Set([...old.completed, s.id])],
-      history: old.history.some((h) => h.shiur.id === s.id)
-        ? old.history
-        : [
-            {
-              shiur: s,
-              seconds: 0,
-              duration: s.duration,
-              updatedAt: new Date().toISOString(),
-            },
-            ...old.history,
-          ].slice(0, 200),
-    }));
-    notify('Marked as learned. Find it in your learning history.');
-  };
   const refreshAll = () => {
     setRefresh((n) => n + 1);
     onRefresh();
@@ -415,7 +397,7 @@ export function LearningHome(props: Props) {
   );
   const cards = (entries: typeof ranked, count = limit) => (
     <div className="discovery-card-grid">
-      {entries.slice(0, count).map(({ shiur: s, reason }) => (
+      {entries.slice(0, count).map(({ shiur: s }) => (
         <div className="recommendation-item" key={s.id}>
           <ShiurCard
             shiur={s}
@@ -425,34 +407,6 @@ export function LearningHome(props: Props) {
             saved={library.saved.some((v) => v.id === s.id)}
             active={activeId === s.id && playing}
           />
-          <div className="recommendation-foot">
-            <span title={reason}>
-              {hasInterests && <Sparkles size={12} />}
-              {reason}
-            </span>
-            <button
-              className="icon-button"
-              aria-label={'Mark as learned: ' + s.title}
-              onClick={() => markComplete(s)}
-            >
-              <Check size={15} />
-            </button>
-            <button
-              className="icon-button"
-              aria-label={'Hide suggestion: ' + s.title}
-              onClick={() => {
-                update((old) => ({
-                  ...old,
-                  hidden: [...new Set([...old.hidden, s.id])],
-                }));
-                notify(
-                  'Suggestion hidden. Restore it in your learning preferences.',
-                );
-              }}
-            >
-              <X size={14} />
-            </button>
-          </div>
         </div>
       ))}
     </div>

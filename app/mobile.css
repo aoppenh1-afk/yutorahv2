@@ -1426,9 +1426,6 @@
     padding: 7px;
     border-radius: 15px;
   }
-  .recommendation-foot {
-    font-size: 11px;
-  }
   .discovery-tabs {
     width: calc(100% + 40px);
     margin-inline: -20px;
@@ -1480,13 +1477,6 @@
   }
   .search-view.has-results .search-matching-hint {
     display: none;
-  }
-  .notebook-view .view-heading h2 {
-    font-family: var(--font-editorial), Georgia, serif;
-    font-size: 22px;
-    font-weight: 500;
-    letter-spacing: -0.45px;
-    color: #152e4b;
   }
   .toast {
     top: auto;

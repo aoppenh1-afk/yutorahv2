@@ -1062,40 +1062,6 @@ body {
   background: #fff;
   border: 1px solid #b9c7ff;
 }
-.recommendation-foot {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-top: 7px;
-  padding-top: 8px;
-  border-top: 1px solid #edf0f7;
-}
-.recommendation-foot > span {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  align-items: flex-start;
-  gap: 5px;
-  color: #8390a9;
-  font-size: 11px;
-  white-space: normal;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.4;
-}
-.recommendation-foot > span svg {
-  flex: 0 0 auto;
-}
-.recommendation-foot .icon-button {
-  height: 32px;
-  width: 30px;
-  color: #8b98b1;
-  flex-shrink: 0;
-}
-.recommendation-foot .icon-button:hover {
-  color: #355d96;
-}
 .discovery-more {
   display: flex;
   align-items: center;
@@ -2542,23 +2508,6 @@ body {
     width: 12px;
     height: 12px;
   }
-  .recommendation-foot {
-    gap: 0;
-    align-items: flex-start;
-  }
-  .recommendation-foot > span {
-    font-size: 9px;
-    line-height: 1.5;
-    padding-top: 4px;
-  }
-  .recommendation-foot .icon-button {
-    width: 26px;
-    height: 30px;
-  }
-  .recommendation-foot .icon-button svg {
-    width: 13px;
-    height: 13px;
-  }
   .discovery-more {
     font-size: 12px;
     min-height: 44px;
@@ -3027,12 +2976,6 @@ body {
   }
   .card-bottom > span > svg {
     display: none;
-  }
-  .recommendation-foot > span {
-    font-size: 9px;
-  }
-  .recommendation-foot .icon-button {
-    width: 23px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

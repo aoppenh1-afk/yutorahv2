@@ -9,7 +9,6 @@ import { SearchTools } from './search-tools';
 import { MobileSearchSummary } from './mobile-search-summary';
 import { TranscriptSearch, type TranscriptHit } from './transcript-search';
 import { TranscriptReader } from './transcript-reader';
-import { Notebook } from './notebook';
 import { LearningHome, FollowButton } from './learning-home';
 import { isLearned, relatedShiurim, type Follow } from '@/lib/learning';
 import { relevanceScore } from '@/lib/search-discovery';
@@ -46,7 +45,6 @@ import {
   Timer,
   LayoutGrid,
   List,
-  NotebookPen,
   Flame,
   Info,
 } from 'lucide-react';
@@ -94,7 +92,6 @@ type View =
   | 'discover'
   | 'following'
   | 'trending'
-  | 'notes'
   | 'search'
   | 'teachers'
   | 'series'
@@ -106,7 +103,6 @@ const labels: Record<View, string> = {
   discover: 'Discover',
   trending: 'Trending',
   following: 'Following',
-  notes: 'My notebook',
   search: 'Search',
   teachers: 'Teachers',
   series: 'Series',
@@ -219,7 +215,6 @@ export default function TorahApp({
   const [undoAction, setUndoAction] = useState<(() => void) | null>(null);
   const [playlistTarget, setPlaylistTarget] = useState<Shiur | null>(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState('');
-  const [noteText, setNoteText] = useState('');
   const [toast, setToast] = useState('');
   const [help, setHelp] = useState(false);
 
@@ -420,7 +415,6 @@ export default function TorahApp({
     setDetail(s);
     setDetailError('');
     setDetailLoading(true);
-    setNoteText('');
     try {
       const fresh = await requestJson<
         Shiur & { text?: string; video?: string }
@@ -1010,7 +1004,6 @@ export default function TorahApp({
                 [
                   { icon: Bookmark, view: 'saved' },
                   { icon: History, view: 'history' },
-                  { icon: NotebookPen, view: 'notes' },
                   { icon: Library, view: 'playlists' },
                 ] as const
               ).map((item) => (
@@ -1093,7 +1086,7 @@ export default function TorahApp({
               icon: Library,
               view: 'saved',
               label: 'Library',
-              active: ['saved', 'history', 'notes', 'playlists'].includes(view),
+              active: ['saved', 'history', 'playlists'].includes(view),
             },
           ] as const
         ).map((item) => (
@@ -1164,7 +1157,7 @@ export default function TorahApp({
           </div>
         </header>
         <main id="main-content" className="main-content" tabIndex={-1}>
-          {['saved', 'history', 'notes', 'playlists'].includes(view) && (
+          {['saved', 'history', 'playlists'].includes(view) && (
             <div className="mobile-library-heading">
               <h1>Your library</h1>
               <p>
@@ -1188,9 +1181,9 @@ export default function TorahApp({
               )}
             </nav>
           )}
-          {['saved', 'history', 'notes', 'playlists'].includes(view) && (
+          {['saved', 'history', 'playlists'].includes(view) && (
             <nav className="mobile-view-tabs" aria-label="Your library">
-              {(['saved', 'history', 'playlists', 'notes'] as const).map(
+              {(['saved', 'history', 'playlists'] as const).map(
                 (destination) => (
                   <button
                     key={destination}
@@ -1201,9 +1194,7 @@ export default function TorahApp({
                       ? 'Saved'
                       : destination === 'history'
                         ? 'History'
-                        : destination === 'playlists'
-                          ? 'Playlists'
-                          : 'Notes'}
+                        : 'Playlists'}
                   </button>
                 ),
               )}
@@ -2241,44 +2232,6 @@ export default function TorahApp({
               )}
             </section>
           )}
-          {view === 'notes' && (
-            <Notebook
-              nested={isMobile}
-              library={library}
-              items={loadedItems}
-              onOpen={(id) => void openById(String(id))}
-              onExplore={() => navigate('discover')}
-              onPlay={(id, seconds) => {
-                const s =
-                  loadedItems.find((item) => item.id === id) ||
-                  library.notes.find((n) => n.shiurId === id)?.shiur;
-                if (s) {
-                  if (mediaKind(s) === 'audio') player.start(s, seconds);
-                  else void showDetail(s);
-                } else
-                  requestJson<Shiur>('/api/shiur?id=' + id)
-                    .then((fresh) => {
-                      if (mediaKind(fresh) === 'audio')
-                        player.start(fresh, seconds);
-                      else void showDetail(fresh);
-                    })
-                    .catch(() =>
-                      notify('This shiur could not load. Please try again.'),
-                    );
-              }}
-              onRemove={(note) => {
-                update((old) => ({
-                  ...old,
-                  notes: old.notes.filter((n) => n.id !== note.id),
-                }));
-                notify('Note removed.');
-                setUndoAction(() => () => {
-                  update((old) => ({ ...old, notes: [...old.notes, note] }));
-                  notify('Note restored.');
-                });
-              }}
-            />
-          )}
           <footer className="page-footer">
             <span>
               {home ? `${home.total.toLocaleString()} shiurim. ` : ''}One shared
@@ -2571,99 +2524,6 @@ export default function TorahApp({
                 shiurId={detail.id}
                 onSeek={(seconds) => player.start(detail, seconds)}
               />
-              <section className="detail-section">
-                <div className="note-heading">
-                  <h3>
-                    <NotebookPen size={17} />
-                    Your notes
-                  </h3>
-                  <span>On this device</span>
-                </div>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const text = noteText.trim();
-                    if (!text) return;
-                    const seconds =
-                      player.active?.id === detail.id
-                        ? Math.floor(player.time)
-                        : 0;
-                    update((old) => ({
-                      ...old,
-                      notes: [
-                        ...old.notes,
-                        {
-                          id: crypto.randomUUID(),
-                          shiurId: detail.id,
-                          shiur: detail,
-                          text,
-                          seconds,
-                          date: new Date().toISOString(),
-                        },
-                      ],
-                    }));
-                    setNoteText('');
-                    notify('Note saved.');
-                  }}
-                >
-                  <textarea
-                    aria-label="Write a note"
-                    placeholder="A question, a source, a thought to return to…"
-                    value={noteText}
-                    onChange={(e) => setNoteText(e.target.value)}
-                    maxLength={5000}
-                  />
-                  <div className="note-form-footer">
-                    <span>
-                      {player.active?.id === detail.id
-                        ? `At ${timeLabel(player.time)}`
-                        : 'Add a note to this shiur'}
-                    </span>
-                    <button
-                      className="outline-button"
-                      type="submit"
-                      disabled={!noteText.trim()}
-                    >
-                      Save note
-                    </button>
-                  </div>
-                </form>
-                <div className="notes-list">
-                  {library.notes
-                    .filter((n) => n.shiurId === detail.id)
-                    .map((n) => (
-                      <article key={n.id}>
-                        <button
-                          className="note-time"
-                          onClick={() => player.start(detail, n.seconds)}
-                        >
-                          {timeLabel(n.seconds)}
-                        </button>
-                        <p>{n.text}</p>
-                        <button
-                          className="icon-button"
-                          aria-label="Delete note"
-                          onClick={() => {
-                            update((old) => ({
-                              ...old,
-                              notes: old.notes.filter((v) => v.id !== n.id),
-                            }));
-                            notify('Note deleted.');
-                            setUndoAction(() => () => {
-                              update((old) => ({
-                                ...old,
-                                notes: [...old.notes, n],
-                              }));
-                              notify('Note restored.');
-                            });
-                          }}
-                        >
-                          <X size={14} />
-                        </button>
-                      </article>
-                    ))}
-                </div>
-              </section>
               {player.active?.id === detail.id && (
                 <button
                   className="outline-button timestamp-share"
@@ -2943,10 +2803,10 @@ export default function TorahApp({
           </p>
           <h3>Your learning stays on this device</h3>
           <p>
-            Saved shiurim, playlists, notes, and listening progress are stored
-            in this browser, along with follows, saved searches, and learning
-            goals. They do not sync to your YUTorah account. Clearing your
-            browser’s site data removes them.
+            Saved shiurim, playlists, and listening progress are stored in this
+            browser, along with follows, saved searches, and learning goals.
+            They do not sync to your YUTorah account. Clearing your browser’s
+            site data removes them.
           </p>
           <button
             className="outline-button"
