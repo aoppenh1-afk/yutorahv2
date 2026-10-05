@@ -228,15 +228,7 @@ export async function upstream<T>(path: string, ttl = 120): Promise<T> {
   }
 }
 async function fetchUpstream(path: string): Promise<unknown> {
-  const response = await fetch(`${ORIGIN}/api/${path}`, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(18000),
-  });
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error(`YUTorah returned ${response.status}`);
-  }
-  let data: unknown = await response.json();
+  let data = await readUpstream(path);
   if (path.startsWith('search/')) {
     const search = data as SearchResponse;
     const f = search.facet_counts?.facet_fields || {};
@@ -252,6 +244,84 @@ async function fetchUpstream(path: string): Promise<unknown> {
     };
   }
   return data;
+}
+
+export class SearchReadError extends Error {
+  constructor(cause: unknown) {
+    super('YUTorah search read was interrupted.', { cause });
+    this.name = 'SearchReadError';
+  }
+}
+
+/** Retry interrupted GETs without changing the query or the total time budget. */
+async function readUpstream(path: string): Promise<unknown> {
+  const attempts = path.startsWith('search/') ? 3 : 1;
+  const deadline = performance.now() + 18000;
+  for (let attempt = 0; ; attempt++) {
+    const remaining = Math.floor(deadline - performance.now());
+    if (remaining <= 0)
+      throw new SearchReadError(
+        new DOMException('The search timed out.', 'TimeoutError'),
+      );
+    // Recover quickly from stalled connections while leaving the final read
+    // enough time for a slow but healthy response.
+    const attemptBudget =
+      attempts === 1 || attempt >= 2 ? remaining : attempt === 0 ? 3000 : 5000;
+    const signal = AbortSignal.timeout(Math.min(attemptBudget, remaining));
+    try {
+      const response = await fetch(`${ORIGIN}/api/${path}`, {
+        headers: { Accept: 'application/json' },
+        signal,
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        const error = new Error(`YUTorah returned ${response.status}`);
+        if (attempts === 1 || ![500, 502, 503, 504].includes(response.status))
+          throw error;
+        const header = response.headers.get('Retry-After');
+        const advertisedWait = header
+          ? /^\d+$/.test(header)
+            ? Number(header) * 1000
+            : Date.parse(header) - Date.now()
+          : 0;
+        const retryAfter = Number.isFinite(advertisedWait)
+          ? Math.max(0, advertisedWait)
+          : 0;
+        if (attempt + 1 >= attempts)
+          throw retryAfter > 0 ? error : new SearchReadError(error);
+        const delay = Math.max(250 * 2 ** attempt, retryAfter);
+        // A requested wait beyond this pass's budget must stop recovery rather
+        // than cause an immediate resume that ignores Retry-After.
+        if (delay >= deadline - performance.now()) throw error;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      return await response.json();
+    } catch (error) {
+      const code = (error as { cause?: { code?: string } })?.cause?.code;
+      const interrupted =
+        error instanceof Error &&
+        (error.name === 'TimeoutError' ||
+          (error.name === 'AbortError' &&
+            signal.aborted &&
+            signal.reason instanceof Error &&
+            signal.reason.name === 'TimeoutError') ||
+          (error instanceof TypeError &&
+            !!code &&
+            [
+              'ECONNRESET',
+              'EPIPE',
+              'ETIMEDOUT',
+              'UND_ERR_SOCKET',
+              'UND_ERR_CONNECT_TIMEOUT',
+              'UND_ERR_HEADERS_TIMEOUT',
+              'UND_ERR_BODY_TIMEOUT',
+            ].includes(code)));
+      if (!interrupted) throw error;
+      if (attempt + 1 >= attempts || performance.now() >= deadline)
+        throw attempts > 1 ? new SearchReadError(error) : error;
+    }
+  }
 }
 export async function getHome(): Promise<HomeData> {
   const j = await upstream<HomeResponse>('homepage/details');

@@ -538,7 +538,7 @@ void test('archive backfill resumes atomically and refreshes new titles without 
     pages.push(page);
     if (page === fail) {
       fail = 0;
-      return new Response('Unavailable', { status: 503 });
+      return new Response('Invalid request', { status: 400 });
     }
     return Response.json({
       response: {
