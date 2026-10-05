@@ -1,0 +1,618 @@
+{
+  "collectedAt": "2026-10-02",
+  "reviewedBy": "Codex agent; independent human review pending",
+  "scope": "30 citation-bearing excerpts from 30 published transcripts; selected by citation keywords, not a random sample. All sampled shiurim are Rabbi Aryeh Lebowitz. Expected references were annotated before replaying Linker output.",
+  "samples": [
+    {
+      "shiurId": "1180522",
+      "title": "Ten Minute Halacha - Beer at a Ballgame and Coffee at Starbucks",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1180522",
+      "transcriptId": "8ceb667c-b6ac-463a-8345-453ba2cf7d5d",
+      "originalSegment": 2,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "So let's, let's go back to the beginning. The גמ׳ in מסכת עבודה זרה on דף לא: says that there's an איסור to have non-Jewish beer, just like there's an איסור of בישול עכו״ם, and חלב עכו״ם, and סתם יינם, and all of these things, there's an איסור to have non-Jewish beer. And the גמ׳ says two possible reasons why that איסור exists: either because of חתנות, that, when you drink the beer of non-Jews, you might come to intermarry; or not because of, of חתנות, but because when, non-Jewish people make beer, they sometimes leave it out overnight, they leave it exposed. And, beverages that are left exposed might be dangerous to drink because, there may be dangerous, snakes or things like that around that will leave the their venom in the, in in the the liquids. And, there is, in יורה דעה סימן קט״ז, we have דברים האסורים משום סכנה, and maybe this is ",
+          "startMs": 58000,
+          "endMs": 113000
+        }
+      ],
+      "expectedRefs": [
+        "Avodah Zarah 31b"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Hebrew daf-colon notation explicitly identifies amud b. Yoreh Deah 116 lacks a named work and specific seif."
+    },
+    {
+      "shiurId": "1189252",
+      "title": "Ten Minute Halacha - Cholim Eating on Yom Kippur",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1189252",
+      "transcriptId": "fea64645-81f6-4479-a4c3-d4ea50f16e16",
+      "originalSegment": 23,
+      "originalStartChar": 1,
+      "segments": [
+        {
+          "text": "av Soloveitchik, they say toward the end of his life, used to take IVs, but he was very clear that it wasn't because of הלכה. It was because he just couldn't bear the thought of eating on יום כפור. So, so it's not not not הלכה; it's just, emotionally, he couldn't bear the thought of, of eating on יום כפור.",
+          "startMs": 454000,
+          "endMs": 470000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "No complete citation; discussing halacha does not identify a source."
+    },
+    {
+      "shiurId": "1119184",
+      "title": "Ten Minute Halacha - CPAP Machines on Shabbos",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1119184",
+      "transcriptId": "520360a5-eb62-4462-9d89-1183f142aa2e",
+      "originalSegment": 10,
+      "originalStartChar": 358,
+      "segments": [
+        {
+          "text": "ore you could activate the machine with a שינוי. For a חולה שאין בו סכנה, you're allowed to use a שינוי, that's רמ״א in סימן שכ״ח if I'm not mistaken. If when when you're activating it by breathing into them, so that's not a שינוי, there's no way to do a שינוי because that's the way you're supposed to activate it by breathing into it, so Rabbi Heinemann relies on the חיי אדם that you're allowed to violate an איסור דרבנן even without a שינוי when there's no possible שינוי to do, even for a חולה שאין בו סכנה.",
+          "startMs": 557000,
+          "endMs": 611000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "Rema 328 has no named Shulchan Arukh section or individual comment. Chayei Adam has no location."
+    },
+    {
+      "shiurId": "1172454",
+      "title": "Ten Minute Halacha - Milah She'lo B'zmana on Thursday or Friday",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1172454",
+      "transcriptId": "93a289dd-7bba-46de-a7f7-bf1432af4a12",
+      "originalSegment": 6,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "Now, the רמב״ם in הלכות מילה פרק א׳ הלכה ב׳ implies also that it's each day, that each day that you delay is another ביטול מצוה. The רמב״ם writes, כשייגדל, when a person grows up, if he does not yet have a מילה, \"חייב למול את עצמו, ובכל יום ויום שיעבור עליו משיגדיל ולא ימול את עצמו, הרי הוא מבטל מצות עשה.\" That every day that goes, he's מבטל a מצות עשה.",
+          "startMs": 126000,
+          "endMs": 149000
+        }
+      ],
+      "expectedRefs": [
+        "Mishneh Torah, Circumcision 1:2"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Explicit work, laws, chapter and halacha. Later repeated Rambam mentions are not additional citations."
+    },
+    {
+      "shiurId": "909946",
+      "title": "Ten Minute Halacha - Non-Dairy Creamer and Maris Ayin",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=909946",
+      "transcriptId": "435b21f5-4aa0-4610-8990-c128c4c936fd",
+      "originalSegment": 3,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "So there is a גמ׳ in מסכת כריתות דף כ״א ע״ב where the גמ׳ tells us דם דגים שכינסו אסור, that if you take blood of fish and you put it into a cup, you are not allowed to drink that blood. I'm sorry to disappoint you, but you're not allowed to drink fish blood. So the גמ׳ says, why not? You know, we have a דרשה from a פסוק that דם דגים, דם חגבים is not called דם in הלכה. It's not a violation of איסור of אכילת דם. So why shouldn't you be allowed to have it? So says the גמ׳, yeah, that's because of מראית עין, and the גמ׳ assumes that's because of מראית עין. And therefore, if you want to have it, you have to have קשקשים in it. What are קשקשים? The scales. The fish scales need to be in it in order to drink it, because then everyone will realize that this is fish blood and not real blood.",
+          "startMs": 106000,
+          "endMs": 155000
+        }
+      ],
+      "expectedRefs": [
+        "Keritot 21b"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Explicit tractate, daf and amud. Unnamed verse is not a source."
+    },
+    {
+      "shiurId": "966038",
+      "title": "Ten Minute Halacha - Joining a Zimun If You Only Drank",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=966038",
+      "transcriptId": "02060aae-1932-4ec7-810f-1b84456386f4",
+      "originalSegment": 4,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "Yet, the רמב״ם in הלכות ברכות פרק ה׳ הלכה ח׳, the רמב״ם writes: אין מזמנין אלא על מי שאכל כזית פת ולמעלה. You need to eat a כזית פת. שבעה שאכלו פת ושלשה אוכלים עמהן ירק וכיוצא בו, מצטרפין לזמן בשם. If you have seven and three, that's a good thing, they can still do a זימון with אלקינו. והוא שיהא מברך מאוכלי הפת, provided the guy leading the bentching is one of the people that washed. אבל, says the רמב״ם, ששה שאכלו פת וארבעה ירק, אין מצטרפין, עד שיהיו אוכלי הפת רוב הניכר. The רמב״ם פסקנס the הלכה that you need a רובא דמינכר, that it needs to דווקא be seven; six people washing is not enough.",
+          "startMs": 143000,
+          "endMs": 186000
+        }
+      ],
+      "expectedRefs": [
+        "Mishneh Torah, Blessings 5:8"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Explicit work, laws, chapter and halacha; quoted Hebrew is evidence, not a separate source."
+    },
+    {
+      "shiurId": "1181377",
+      "title": "Ten Minute Halacha - Eating Meat on Yom Tov",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1181377",
+      "transcriptId": "75d4f5de-d0d7-401a-bef0-66fe6dfc38ce",
+      "originalSegment": 0,
+      "originalStartChar": 210,
+      "segments": [
+        {
+          "text": "a דין or a or or a requirement that a person has to have meat on יום טוב, or can you have milchig יום טוב meals? So the גמ׳ in מסכת פסחים tells us that בזמן שבית המקדש קיים אין שמחה אלא בבשר, that when the בית המקדש was around, the only way to fulfill the מצוה of שמחת יום טוב was by bringing קרבנות and having the בשר of the קרבנות. עכשיו שאין בית המקדש קיים אין שמחה אלא ביין. Now that there's no בית המקדש, the way that one experiences שמחה is דווקא with יין. So תוס׳ in דף ק״ט עמוד ב׳ in מסכת פסחים, דיבור המתחיל ״במה״, says that בזמן המקדש it was only meat, and בזמן הזה, it's only wine that gives us שמחת יום טוב, meaning that when the גמ׳ says בזמן שבית המקדש קיים אין שמחה אלא בבשר, it meant that's all you needed was the בשר of the קרבנות. עכשיו, we no longer have בשר, we no no longer need בשר for the מצוה of שמחת יום טוב. Now, instead of ",
+          "startMs": 0,
+          "endMs": 573000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "Pesachim lacks a Gemara daf. The Tosafot citation includes daf, amud and DH Bameh, but Bameh was not found at the cited 109b in the live Sefaria text. Do not change the daf or link the whole page."
+    },
+    {
+      "shiurId": "1168944",
+      "title": "Ten Minute Halacha - Wine With Sugar Added for Kiddush",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1168944",
+      "transcriptId": "9b3e49ba-ed23-4d44-bd9f-4a192d56bc3b",
+      "originalSegment": 5,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "The ירושלמי in the 10th פרק of מסכת פסחים tells us that they're that you're allowed to say קידוש on wine that's יין קונדיטון, which has honey and peppers and other things mixed into the wine. And that's how a number of ראשונים פסקן. The שו״ת הרשב״א in חלק א׳ סימן כ״ד, the רמב״ן, the ריטב״א, both on that גמ׳ in מסכת בבא בתרא, the תשובות הריב״ש in סימן י׳, all פסקן that even if there's דבש mixed into the wine, you're allowed to use such wine for for קידוש. And they bring a ראיה from that from that ירושלמי. And this is what's quoted by the בית יוסף in אורח חיים סימן רע״ב, and in the שולחן ערוך over there in סעיף ח׳ that you're allowed to be מקדש. שולחן ערוך says both with wine that has sugar added, as well as with יין מבושל.",
+          "startMs": 187000,
+          "endMs": 234000
+        }
+      ],
+      "expectedRefs": [
+        "Teshuvot haRashba part I 24",
+        "Teshuvot HaRivash 10"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Yerushalmi perek lacks halacha. Rashba and Rivash responsa are complete citations. Ramban/Ritva lack individual locations. Shulchan Arukh over there requires external context. Sefaria Linker canonical name independently confirms the responsum, but /api/ref returns HTTP 500 for this ref; record an upstream failure, not a guessed link."
+    },
+    {
+      "shiurId": "1181153",
+      "title": "Ten Minute Halacha - Mezuzah on a Walk In Closet",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1181153",
+      "transcriptId": "2a47c920-5df5-4a6e-83a3-323d210757ff",
+      "originalSegment": 6,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "However, the ט״ז in אורח חיים סימן תרל״ד ס״ק ב׳ reads this רמב״ם entirely differently. The ט״ז says: I understand, this is how the טור reads the רמב״ם, this is how the בית יוסף reads the רמב״ם, but:\nותמהתי הרבה על כסות עינים שראיתי לרבותינו בזה.\nHe says, \"I'm in—I'm astonished by how their eyes have been covered up, and they're not able to read a רמב״ם straight. I don't understand.\"\nהיכי הבינו הרא״ש ואחריו הטור ובית יוסף מדברי הרמב״ם שאין צריך שיהא ד׳ ברוחב וד׳ באורך?\nHow could it be that the רא״ש, the טור, and the בית יוסף all didn't know how to read a רמב״ם, that the רמב״ם is saying that you don't need a minimum of four אמות of width and four אמות of length?\nדאם כן, מאי שנא מסוכה דבעינן ריבוע ממש, כמו שכתב בדברי בית יוסף עצמו?\nבית יוסף himself says that when it comes to סוכה, if you hold the סוכה needs to be ד׳ על ד׳ אמות—it's a three-w",
+          "startMs": 107000,
+          "endMs": 176000
+        }
+      ],
+      "expectedRefs": [
+        "Turei Zahav on Shulchan Arukh, Orach Chayim 634:2"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Taz has explicit Orach Chayim, siman and seif katan. Other commentators are named without locations."
+    },
+    {
+      "shiurId": "1180975",
+      "title": "Ten Minute Halacha - Giving a Child Two Names",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1180975",
+      "transcriptId": "18d7502c-455d-44ae-bae1-58b4f1ec1c70",
+      "originalSegment": 32,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "The the the גמ׳ says that one of the ways of removing a גזירה רעה against a person is, the גמ׳ ראש השנה דף ט״ז and תענית דף ט״ז and בבא קמא דף קכ״ה, is to change a person's name. So the the the the the the מנהג already appears in בית יוסף in יורה דעה סימן של״ח, he says that it was fairly common practice to change someone's name in the face of a terrible illness in the hopes that they're going to remove the terrible decree against that person. but there usually it's with consultation of גדולים, because we try not, you know, we the מדרש says that when parents name a child, there's a sense of רוח הקודש. That's when the baby is young. Who has that רוח הקודש later on? So you know, the only the only people that have a level of רוח הקודש are שוטים, right? Deranged people, the גמ׳ says, so why or you need to have a big צדיק who you're going to tr",
+          "startMs": 1034000,
+          "endMs": 1089000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "All Talmud mentions omit amud. Beit Yosef siman alone does not identify an individual commentary entry."
+    },
+    {
+      "shiurId": "873935",
+      "title": "Ten Minute Halacha - How Many String Should Be Techeiles and How Many White?",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=873935",
+      "transcriptId": "ca25a38f-bdd3-4c8a-8f0a-6beeded3892a",
+      "originalSegment": 10,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "The רמב״ם, in הלכות ציצית פרק א׳ הלכה ו׳, writes, יהא אחד משמונה החוטין חוט תכלת, והשבעה לבנים. He says one of the eight should be תכלת, the other seven should be white, which means a half a string is תכלת; you fold it over and then it turns into one of the eight. The חכמי לוניל asked the רמב״ם about this. כסף משנה quotes the תשובה that he, that the רמב״ם gave, that פתיל, the רמב״ם says פתיל means אחד, not שנים, against תוס׳ who understood that פתיל means שנים.",
+          "startMs": 251000,
+          "endMs": 286000
+        }
+      ],
+      "expectedRefs": [
+        "Mishneh Torah, Fringes 1:6"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Explicit laws of tzitzit, chapter and halacha. Unnumbered teshuva and Tosafot mentions are omitted."
+    },
+    {
+      "shiurId": "938071",
+      "title": "Ten Minute Halacha - Frozen or Forbidden Challah for Lechem Mishnah",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=938071",
+      "transcriptId": "a6aced5b-053f-4be7-a33a-614511e3100d",
+      "originalSegment": 1,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "So let's start at the very beginning. The גמ׳ in מסכת ברכות דף ל״ט: and in שבת דף קי״ז: tells us that there's an obligation to have two loaves of bread for המוציא, and we derive that obligation from the מן, which is described as לחם משנה, which we assume means two loaves. The ט״ז even understands that this is a requirement מדאורייתא, even though the מגן אברהם seems to disagree and assumes that it's a requirement מדרבנן. But everyone agrees that it's a requirement. The גמ׳ then tells us about different אמוראים and what they did with their חלות, how they cut their חלה. That רב כהנא would be בוצע על שתי ככרות, but would only eat one of them. So he had a לחם משנה, but he would only actually cut into one of them. And the שולחן ערוך in רע״ד סעיף א׳ says that that's what you're supposed to do, because the שולחן ערוך talks about which חלה you're ",
+          "startMs": 51000,
+          "endMs": 110000
+        }
+      ],
+      "expectedRefs": [
+        "Berakhot 39b",
+        "Shabbat 117b"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Both Hebrew daf-colon citations are complete. Shulchan Arukh omits its section; do not infer Orach Chayim from the subject."
+    },
+    {
+      "shiurId": "945677",
+      "title": "Ten Minute Halacha - Salt on the Table",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=945677",
+      "transcriptId": "ca27f257-2f10-4f98-84b2-798b3589abd2",
+      "originalSegment": 5,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "So the source is today's דף. The גמ׳ in ברכות on דף מ. discusses—the context of the גמ׳ is what kinds of comments are you allowed to make after reciting the ברכה before eating bread, meaning what would not constitute a הפסק between the ברכה and the eating.",
+          "startMs": 50000,
+          "endMs": 65000
+        }
+      ],
+      "expectedRefs": [
+        "Berakhot 40a"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Hebrew daf-dot notation explicitly names amud a."
+    },
+    {
+      "shiurId": "936169",
+      "title": "Ten Minute Halacha - Shalom Aleichem",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=936169",
+      "transcriptId": "94e88ab9-9bab-4a81-95ce-09158acd3b69",
+      "originalSegment": 2,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "There is a גמ׳ in מסכת שבת on דף קי״ט ע״ב where the גמ׳ tells us:",
+          "startMs": 18000,
+          "endMs": 22000
+        }
+      ],
+      "expectedRefs": [
+        "Shabbat 119b"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Explicit Shabbat 119b."
+    },
+    {
+      "shiurId": "1132407",
+      "title": "Ten Minute Halacha - Deciding To Stay in Chutz L'Aretz In Middle of Yom Tov Sheini",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1132407",
+      "transcriptId": "1296d86d-8e6e-45c7-93a3-5501bbd54406",
+      "originalSegment": 4,
+      "originalStartChar": 59,
+      "segments": [
+        {
+          "text": "e יום טוב or is it the moment that you're in right now? What's קובע your חיוב of יום טוב? ראיה number one he has from a גמ׳ in יבמות דף לג ע״א, where the גמ׳ tries to come up with a case where a person becomes חייב in מלאכת שבת and חייב in in in the איסור of of a זר serving in the בית המקדש, working in the בית המקדש, simultaneously. Meaning normally, if a person is not a כהן, you're not allowed to do עבודה in the בית המקדש, right? It's an איסור of זר ששימש. But and and normally, there's an איסור of מלאכה, that anything that's not for the sake of the of a proper עבודה is an איסור of מלאכה on שבת that you're going to be otherwise doing in the בית המקדש. But normally, your חיוב in שבת comes first, right? When שבת started, you became חייב in שבת. And then when you go into the בית המקדש and you start doing the עבודה and you're not a כהן, you'l",
+          "startMs": 265000,
+          "endMs": 414000
+        }
+      ],
+      "expectedRefs": [
+        "Yevamot 33a"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Explicit Yevamot 33a."
+    },
+    {
+      "shiurId": "954761",
+      "title": "Ten Minute Halacha - Shabbos Clothing",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=954761",
+      "transcriptId": "36c398e7-1ee1-4db9-8a8d-9701b3de4d94",
+      "originalSegment": 23,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "There's also another ראיה that the אחרונים bring in the ספר שו״ת הרב״ז—not רדב״ז, רב״ז—חלק א׳ סימן י״ב, he quotes from the משנה מסכת כתובות דף ס״ד ע״ב, that a person has to provide his wife with shoes every יום טוב. And רש״י says, for each of the שלש רגלים. So the גמרא says, the גמרא explains over there on פ״ה on on on דף ס״ה ע״ב, that the תנא's talking about a case that they live in a mountainous region where they they wear out the shoes very quickly, and therefore you're going to have to buy her three new pairs of shoes a year anyway because they wear out their shoes so quickly. Might as well attach it to יום טוב, might as well do it on יום טוב where it's going to be very nice for her. So the תנא's telling us, give it דווקא on יום טוב. Why not say give her two new pairs of shoes every יום טוב, one for שבת shoes, one for weekday shoes? א",
+          "startMs": 826000,
+          "endMs": 884000
+        }
+      ],
+      "expectedRefs": [
+        "Ketubot 64b"
+      ],
+      "unavailableCitations": [
+        "Responsa HaRavaz 1:12"
+      ],
+      "reviewNote": "First Ketubot daf/amud is explicit. The second daf is context-dependent and is excluded. Unavailable Harbaz citation is recorded separately."
+    },
+    {
+      "shiurId": "929649",
+      "title": "RTC Dvar Halacha - Eating Meat At A Kattan's Siyum",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=929649",
+      "transcriptId": "1265f510-2cfc-4a5e-88da-4ebfe8efccde",
+      "originalSegment": 1,
+      "originalStartChar": 5,
+      "segments": [
+        {
+          "text": " are a couple of ראיות, a couple of proofs that could be brought to try to show whether it is or isn't. One ראיה is the גמ׳ tells us in מסכת פסחים that if you have a child who becomes בר מצוה between פסח ראשון and פסח שני, sometime in that month between פסח ראשון and פסח שני, and he already was included in a קרבן פסח on פסח ראשון, he doesn't need פסח שני because it counted already, even though פסח ראשון he was still 12 years old. So maybe that's an indication that that that you don't need to be מחוייב in the מצוה, you don't need to be a גדול in order for the מצוה to count. But it could be that that's an exception, that's based on a פסוק, that's based on a special דרשה.",
+          "startMs": 64000,
+          "endMs": 111000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "Pesachim without daf; uncited verse and derasha do not identify sources."
+    },
+    {
+      "shiurId": "1096193",
+      "title": "Ten Minute Halacha - Baking Matzah on Erev Pesach",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1096193",
+      "transcriptId": "949bc40f-a505-47cf-b83b-f783dce6c1fb",
+      "originalSegment": 24,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "As a matter of הלכה, the שולחן ערוך הרב writes that נהגו כל ישראל—there's a מנהג in כל ישראל, he says, to wait until after חצות היום to bake your מצות. But then he says if that's too difficult, then it's okay: ״כל זה אינו אלא מנהג לכתחילה, בדיעבד אפילו מצת מצוה שנעשו כמה חדשים לפני הפסח יכול לצאת בהן ידי חובתו לכתחילה״. מעיקר הדין we're יוצא with מצות. Most of the מצה bakeries are done baking by פורים already, and we're perfectly fine with that.",
+          "startMs": 746000,
+          "endMs": 774000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "Unnamed Shulchan Arukh HaRav passage; no location. Do not search the quotation for a source."
+    },
+    {
+      "shiurId": "876238",
+      "title": "Ten Minute Halacha - Amazon Subscribe and Save Over Pesach",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=876238",
+      "transcriptId": "f168ee7a-c96f-4b71-9300-1ddfa067bf89",
+      "originalSegment": 10,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "However, he also quotes ויש מקילים בדבר based on the חתם סופר, where the חתם סופר in a תשובה in אורח חיים, סימן קט״ו writes: דלא מצינו איסור רוצה בקיומו, אלא כשרוצה להשתכר ולהרויח על ידי זה. That רוצה בקיומו is only when you plan on making money off of something, but not when you just want to have it for convenience' sake. That's a little bit difficult also, because the case in שולחן ערוך is not where you're trying to make money off of it, unless you consider the fact that you are making money off of it by renting your pot. Meaning, it would then turn out that according to the שולחן ערוך, if you would lend your pot to someone where you're not trying to be מרויח, then it would not be called רוצה בקיומו even though your pot would break if the חמץ were not there? a little bit difficult to read that into the שולחן ערוך.",
+          "startMs": 557000,
+          "endMs": 604000
+        }
+      ],
+      "expectedRefs": [
+        "Responsa Chatam Sofer, Orach Chayim 115"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Chatam Sofer names Orach Chayim and responsum 115. The numbered responsum is complete even when the API schema has paragraph levels."
+    },
+    {
+      "shiurId": "968391",
+      "title": "Ten Minute Halacha - Issur Melacha and Mitzvas Simcha for a Kallah During Sheva Berachos",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=968391",
+      "transcriptId": "3566ed5a-af27-415c-9598-3bde41304e14",
+      "originalSegment": 2,
+      "originalStartChar": 194,
+      "segments": [
+        {
+          "text": "of course it applies to the כלה the same way it applies to the חתן, but it's not really so פשוט. The רמב״ם in the tenth פרק of הלכות אישות הלכה י״ב and the שולחן ערוך in סימן ס״ד, when they mention the איסור מלאכה during שבע ברכות and the חובת שמחה during שבע ברכות, really only mention the חתן. They do not mention the כלה.",
+          "startMs": 60000,
+          "endMs": 92000
+        }
+      ],
+      "expectedRefs": [
+        "Mishneh Torah, Marriage 10:12"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Explicit Mishneh Torah Marriage 10:12. Shulchan Arukh siman 64 lacks section and seif."
+    },
+    {
+      "shiurId": "938870",
+      "title": "Ten Minute Halacha - Must We Have Sheva Berachos Meals on All Seven Days?",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=938870",
+      "transcriptId": "35825887-6fdd-4ab6-84bf-3d7622fa47e9",
+      "originalSegment": 7,
+      "originalStartChar": 378,
+      "segments": [
+        {
+          "text": " from other פוסקים that say the same way. He quotes a תשובות הרי בשמים תשובה and a תשובות חסד לאברהם in תנינא, אבן העזר סימן ל״ד, where Rav Asher suggests that they it's based on a הלכה in שולחן ערוך, in אבן העזר סימן ס״ב, סעיף י״ב. שולחן ערוך says that המשמשין, יש אומרים שאין מברכין שבע ברכות, ויש אומרים שמברכין, ולזה הד— I'm sorry, I'm sorry, המשמשים האוכלים אחר סעודת נישואין, the משמשים, the the waiters that sit down to eat after the סעודה is over, so יש אומרים שאין מברכין שבע ברכות, ויש אומרים שמברכין, ולזה הדעת נוטה, says the שולחן ערוך. That the דעת is נוטה that they should say the שבע ברכות even though the חתן וכלה are already gone presumably.",
+          "startMs": 183000,
+          "endMs": 240000
+        }
+      ],
+      "expectedRefs": [
+        "Shulchan Arukh, Even HaEzer 62:12"
+      ],
+      "unavailableCitations": [
+        "Responsa Chesed LeAvraham, second edition, Even HaEzer 34"
+      ],
+      "reviewNote": "Shulchan Arukh Even HaEzer 62:12 is complete. The named Chesed LeAvraham responsum is tracked as unavailable; unnumbered Harei Besamim is incomplete."
+    },
+    {
+      "shiurId": "1102552",
+      "title": "Ten Minute Halacha - Besamim and Talis Under a Chupah",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1102552",
+      "transcriptId": "837d4697-9e50-4269-a720-11c8cea6931f",
+      "originalSegment": 12,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "I always thought that the basis for that מנהג was that it's a הלכה פסוקה in שולחן ערוך—I didn't find this anywhere, but it's a הלכה פסוקה in שולחן ערוך that when a person buys a טלית, a new טלית, you're supposed to say שהחיינו. A הלכה פסוקה in שולחן ערוך not on טלית קטן. One of the more common questions I'm asked, someone says, \"I'm putting on תכלת for the first time, so should I say שהחיינו?\" So if it's on a טלית גדול, yes, because you say a שהחיינו on a new טלית גדול. If it's on a טלית קטן, no, because you don't say שהחיינו on a new טלית קטן. \"Ay, what about for the מצוה of תכלת, do you say שהחיינו on that?\" So the practice generally is we do not recite a שהחיינו the first time we're doing any random מצוה, only where there's a tradition to recite a שהחיינו.",
+          "startMs": 344000,
+          "endMs": 381000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "Shulchan Arukh and quotation without a location."
+    },
+    {
+      "shiurId": "1136111",
+      "title": "Is Eggplant Kosher (and Which Beracha Should One Say)?",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1136111",
+      "transcriptId": "3698a9ac-1881-4ede-a7d4-70209c74ff33",
+      "originalSegment": 5,
+      "originalStartChar": 251,
+      "segments": [
+        {
+          "text": "in from year to year, it's האדמה. If the branches remain from year to year, then it is then it is העץ. So שולחן ערוך in סימן ר״ג סעיף א׳ פסקנס on produce grown in the ground, you say האדמה, and then in סעיף ב׳ he says that strawberries that grow on a bush, you also say האדמה. And the רמ״א says, cuz the שולחן ערוך פסקנס like the גאונים, that the definition of a tree is something that the that the trunk remains intact from year to year. If the trunk doesn't remain intact from year to year, then that is a vegetable. And therefore the שולחן ערוך פסקנס explicitly in סימן ר״ג סעיף ג׳ that you say האדמה on bananas, because the roots remain from year to year and therefore and and and only the roots remain from year to year, but the trunk does not, and therefore that is a האדמה.",
+          "startMs": 216000,
+          "endMs": 277000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "Shulchan Arukh numbers without naming Orach Chayim; subsequent seif and repeated references depend on context."
+    },
+    {
+      "shiurId": "1110548",
+      "title": "Ten Minute Halacha - Eating on Erev Yom Kippur",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1110548",
+      "transcriptId": "0a53f8f6-8075-41b5-a627-5e428584db98",
+      "originalSegment": 17,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "A seventh explanation is really explicit in the מדרש. The מדרש writes: ״אית לכון חד יום דכל חוביכון דאתון עבדין כל יומא שתא מתכפר לכון, וכד הוה אתי, לית אתון צריכין ליקריה?״ That we have one day where all the עבירות that we did for the whole year הקב״ה is מכפר for us, so that day is going to come, we're not going to be מכבד it? So the way to be מכבד יום הכיפורים—you can't be מכבד it with אכילה ושתיה on יום הכיפורים, so we're מכבד the day because it's so special that we achieve כפרה by eating on ערב יום כיפור.",
+          "startMs": 407000,
+          "endMs": 439000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "Unnamed midrash quotation; no location."
+    },
+    {
+      "shiurId": "1140474",
+      "title": "Ten Minute Halacha - The Proper Beracha on Acai Bowls",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1140474",
+      "transcriptId": "0e7ebe8d-ef2f-4985-a2e5-b3de31b9d8da",
+      "originalSegment": 14,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "The הלכה is, you don't need a ברכה on the טפל when you can identify the עיקר. The שו״ע in סימן ר״ב סעיף א׳ says this הלכה, that עיקר וטפל, if there are two foods that are mixed together, ברכה is only said on the עיקר. The משנה ברורה סעיף קטן א׳ over there says that how do we define the עיקר? It's the primary food. And if there are a lot of ingredients and they all seem to be equally primary, then the biggest one is the, the עיקר, the one that's the most volume is the עיקר.",
+          "startMs": 444000,
+          "endMs": 470000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "Shulchan Arukh omits Orach Chayim. Mishnah Berurah seif katan depends on earlier context."
+    },
+    {
+      "shiurId": "1173273",
+      "title": "Ten Minute Halacha - Washing Vegetables on Shabbos",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1173273",
+      "transcriptId": "cc635fae-86b0-40ac-b6dd-6123de440d90",
+      "originalSegment": 16,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "Another ראיה he quotes is that the רשב״א in שבת דף קט״ו says that when חז״ל allow כניבת ירק, doing something with a vegetable on יום כיפור afternoon, it means rinsing vegetables with water. So you see apparently that that's permitted on a day that you're not allowed to do מלאכה. Another ראיה he has, שולחן ערוך in שי״ח סעיף ד׳ says that you're allowed to rinse salted fish with cold water on שבת. So apparently you're rinsing off whatever extra salt or whatever you don't want on that fish. And the משנה ברורה quotes a ר״ן in שי״ח סעיף קטן י׳ that you're allowed to wash off blood from pieces of meat on שבת as well.",
+          "startMs": 488000,
+          "endMs": 524000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "Rashba omits amud and individual comment. Shulchan Arukh omits its section; Ran citation must not become a base-work link."
+    },
+    {
+      "shiurId": "1005067",
+      "title": "Ten Minute Halacha - Chosson and Kallah Fasting on a Taanis During Sheva Berachos",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1005067",
+      "transcriptId": "e9297c63-4e2a-4d06-a2e3-3e51157c9874",
+      "originalSegment": 20,
+      "originalStartChar": 233,
+      "segments": [
+        {
+          "text": " שיום טוב שלו הוא. That that a person should not be משלים the תענית on the day of his ברית, and he brings a ראיה from a גמ׳ in עירובין דף מ׳ ע״א, that רבי אלעזר ברבי צדוק says: אני הייתי מבני סנאה בן בנימין, and תשעה באב fell on שבת and was נדחה to יום ראשון, ולא השלמנוהו because it was יום טוב שלנו הוא. That when it's a day of a personal יו״ט, you don't complete the fast.",
+          "startMs": 672000,
+          "endMs": 711000
+        }
+      ],
+      "expectedRefs": [
+        "Eruvin 40a"
+      ],
+      "unavailableCitations": [],
+      "reviewNote": "Explicit Eruvin daf 40 amud a."
+    },
+    {
+      "shiurId": "1055211",
+      "title": "Ten Minute Halacha - Foie Gras",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1055211",
+      "transcriptId": "39ed58ea-0bf4-4bd5-874b-d15865014ca0",
+      "originalSegment": 29,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "חזון איש was also opposed to, to this in ארץ ישראל, according to Rav Wosner in שבט הלוי יורה דעה חלק ט׳ סימן קנ״ג. And the ציץ אליעזר in חלק י״ב סימן נ״ב writes: ״ובדיקת הושט קשה לבדוק,״ it's too difficult of a בדיקה to do, to check the esophagus, ״וכמה פעמים מצינו בפוסקים שאיננו בקיאין,״ a lot of times we find in פוסקים that there are things we're just not expert at, ״ובדיקת הושט היא בדיקה קשה לפנינו,״ it's just very hard to do, ״ואין אנו יכולין לומר אם יש שם נקב בושט או הבריא,״ we don't know if there's a hole in the ושט or if it got, if it got healed over, ״בוודאי אין להגיס דעתו בהוראה להתיר,״ so a person shouldn't have the גאוה to be מקיל about this, ״ולומר כי הוא בקי, וחלילה לאיש רב וצעיר להרים יד בהוראה זו להתיר ולחלוק על גדולי עולם מדורי דורות ז״ל וכו׳.״ He says and we can't go against all the גדולים who אסר'ד it.",
+          "startMs": 673000,
+          "endMs": 726000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [
+        "Shevet HaLevi 9:153",
+        "Tzitz Eliezer 12:52"
+      ],
+      "reviewNote": "Two fully named responsa are absent from the Sefaria library response; keep them out of accepted links."
+    },
+    {
+      "shiurId": "1140331",
+      "title": "Ten Minute Halacha - Saying Korbanos at Mincha",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1140331",
+      "transcriptId": "f5f21298-b83f-4317-a2dc-74265879f006",
+      "originalSegment": 17,
+      "originalStartChar": 74,
+      "segments": [
+        {
+          "text": " do with saying קרבנות. There are no קרבנות in the רמב״ם's description. However, in הלכות תמידין ומוספין, at the end of פרק ו׳ of הלכות תמידין ומוספין, the רמב״ם writes that the עבודה in the afternoon was the same as the עבודה in the morning, except for the הרמת הדשן and the סידור המערכה and the פייסות, which were only done in the morning. But otherwise, as far as the קרבנות, the סדר עבודה is exactly the same, so you would imagine you would have those in the in the afternoon as well. But the רמב״ם apparently didn't have it at מנחה.",
+          "startMs": 471000,
+          "endMs": 504000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "Mishneh Torah chapter six lacks halacha."
+    },
+    {
+      "shiurId": "1151241",
+      "title": "Ten Minute Halacha - The Beracha on Craisins (Cranberries)",
+      "teacher": "Rabbi Aryeh Lebowitz",
+      "url": "https://yutorah.vercel.app/?shiur=1151241",
+      "transcriptId": "7563bba8-bcd1-415c-a5d8-e46955232410",
+      "originalSegment": 5,
+      "originalStartChar": 0,
+      "segments": [
+        {
+          "text": "שולחן ערוך in סימן ר״ג סעיף ב׳ פסקנ's that we say האדמה on strawberries that grow on a bush, and the רמ״א says, yeah, because we פסקן like the גאונים, that the definition of a tree is something that bears fruits from the trunk, but if the fruits are regenerated every year from the roots, that it continues to regenerate every year, but only from the roots, then the ברכה is going to be האדמה. So the שולחן ערוך says that's why the ברכה on a banana is האדמה.",
+          "startMs": 127000,
+          "endMs": 154000
+        }
+      ],
+      "expectedRefs": [],
+      "unavailableCitations": [],
+      "reviewNote": "Shulchan Arukh omits section and subsequent Rema has no individual comment."
+    }
+  ]
+}

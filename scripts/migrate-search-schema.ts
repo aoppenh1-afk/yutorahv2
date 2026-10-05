@@ -11,6 +11,7 @@ export function titleSchemaStatements(directory = resolve('drizzle')) {
     '0002_title_vocabulary.sql',
     '0003_title_import_checkpoint.sql',
     '0004_title_autocomplete.sql',
+    '0005_sources.sql',
   ]
     .flatMap((name) =>
       readFileSync(resolve(directory, name), 'utf8')
@@ -26,10 +27,10 @@ export function titleSchemaStatements(directory = resolve('drizzle')) {
           "INSERT OR IGNORE INTO search_title_cursors(name,next) VALUES('title-autocomplete-v1',1);"
       )
         return sql;
-      if (!/^CREATE (?:VIRTUAL TABLE|TABLE|TRIGGER)\s/i.test(sql))
+      if (!/^CREATE (?:VIRTUAL TABLE|TABLE|TRIGGER|INDEX)\s/i.test(sql))
         throw new Error('Title schema setup accepts additive migrations only.');
       return sql.replace(
-        /^CREATE (VIRTUAL TABLE|TABLE|TRIGGER)\s/i,
+        /^CREATE (VIRTUAL TABLE|TABLE|TRIGGER|INDEX)(?: IF NOT EXISTS)?\s/i,
         'CREATE $1 IF NOT EXISTS ',
       );
     });
@@ -61,6 +62,20 @@ export async function migrateTitleSchema(db: SearchDatabase) {
     .all();
 }
 
+export async function migrateSourcesSchema(db: SearchDatabase) {
+  // Epoch milliseconds require bigint in PostgreSQL; SQLite integer is 64-bit.
+  await db
+    .prepare(
+      'CREATE TABLE IF NOT EXISTS sources_runs (id text PRIMARY KEY,payload text NOT NULL,lease bigint NOT NULL DEFAULT 0,expires bigint NOT NULL)',
+    )
+    .run();
+  await db
+    .prepare(
+      'CREATE INDEX IF NOT EXISTS sources_runs_expires ON sources_runs (expires)',
+    )
+    .run();
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
@@ -71,6 +86,20 @@ if (
     const pool = postgresSearchPool(process.env.SEARCH_DATABASE_URL);
     try {
       const db = postgresSearchDatabase(pool);
+      // Owner-created tables let the normal website role run without DDL access.
+      try {
+        await db
+          .prepare('SELECT id,payload,lease,expires FROM sources_runs LIMIT 0')
+          .all();
+      } catch {
+        try {
+          await migrateSourcesSchema(db);
+        } catch {
+          throw new Error(
+            'Apply db/search-postgres/002_sources.sql with the search schema owner and grant the website search role SELECT, INSERT, UPDATE, DELETE before deploying.',
+          );
+        }
+      }
       await db
         .prepare('SELECT id,title,terms FROM search_title_catalog LIMIT 0')
         .all();

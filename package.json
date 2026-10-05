@@ -15,6 +15,8 @@
     "test:learning": "node --test tests/learning.test.mjs tests/discovery.test.mjs tests/trending.test.mjs",
     "test:api": "node --test tests/upstream.test.mjs",
     "test:player": "node --test tests/player.test.mjs",
+    "test:sources": "tsx --test tests/sources.test.ts",
+    "sources:evaluate": "tsx scripts/evaluate-sources.ts",
     "test:live": "node --test tests/live-api.test.mjs",
     "test:search": "node tests/search.test.mjs && node --test tests/complete-search.test.mjs tests/d1-http.test.mjs tests/title-index.test.mjs tests/autocomplete.test.mjs",
     "trending:warm": "tsx scripts/warm-trending.ts",

@@ -31,7 +31,7 @@ export function d1HttpDatabase(config: {
   async function execute(queries: Query[]): Promise<Result[]> {
     if (!queries.length) return [];
     config.beforeRequest?.();
-    const response = await fetch(endpoint, {
+    const options = {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${config.token}`,
@@ -43,7 +43,9 @@ export function d1HttpDatabase(config: {
       signal: config.signal
         ? AbortSignal.any([config.signal, AbortSignal.timeout(30000)])
         : AbortSignal.timeout(30000),
-    });
+      cache: 'no-store' as const,
+    };
+    const response = await fetch(endpoint, options);
     if (!response.ok) {
       // Classify known database failures without echoing upstream text, SQL,
       // bound values, or credentials into application logs.

@@ -1,0 +1,153 @@
+{
+  "task_id": "c616dc56-d762-4afc-b410-c2958987a92a",
+  "state": "SUCCESS",
+  "ready": true,
+  "result": {
+    "title": { "results": [], "refData": {}, "debugData": [] },
+    "body": {
+      "results": [
+        {
+          "startChar": 42,
+          "endChar": 52,
+          "text": "Shabbat 2b",
+          "linkFailed": false,
+          "refs": ["Shabbat 2b"]
+        },
+        {
+          "startChar": 54,
+          "endChar": 75,
+          "text": "Tosafot on Shabbat 2b",
+          "linkFailed": false,
+          "refs": ["Tosafot on Shabbat 2b"]
+        },
+        {
+          "startChar": 81,
+          "endChar": 104,
+          "text": "Tosafot on Shabbat 2b:1",
+          "linkFailed": false,
+          "refs": ["Tosafot on Shabbat 2b:1"]
+        },
+        {
+          "startChar": 106,
+          "endChar": 117,
+          "text": "Genesis 1:1",
+          "linkFailed": false,
+          "refs": ["Genesis 1:1"]
+        },
+        {
+          "startChar": 119,
+          "endChar": 129,
+          "text": "\u05d1\u05e8\u05d0\u05e9\u05d9\u05ea \u05d0:\u05d0",
+          "linkFailed": false,
+          "refs": ["Genesis 1:1"]
+        }
+      ],
+      "refData": {
+        "Shabbat 2b": {
+          "heRef": "\u05e9\u05d1\u05ea \u05d1\u05f3 \u05d1",
+          "url": "Shabbat.2b",
+          "primaryCategory": "Talmud"
+        },
+        "Tosafot on Shabbat 2b": {
+          "heRef": "\u05ea\u05d5\u05e1\u05e4\u05d5\u05ea \u05e2\u05dc \u05e9\u05d1\u05ea \u05d1\u05f3 \u05d1",
+          "url": "Tosafot_on_Shabbat.2b",
+          "primaryCategory": "Commentary"
+        },
+        "Tosafot on Shabbat 2b:1": {
+          "heRef": "\u05ea\u05d5\u05e1\u05e4\u05d5\u05ea \u05e2\u05dc \u05e9\u05d1\u05ea \u05d1\u05f3 \u05d1:\u05d0\u05f3",
+          "url": "Tosafot_on_Shabbat.2b.1",
+          "primaryCategory": "Commentary"
+        },
+        "Genesis 1:1": {
+          "heRef": "\u05d1\u05e8\u05d0\u05e9\u05d9\u05ea \u05d0\u05f3:\u05d0\u05f3",
+          "url": "Genesis.1.1",
+          "primaryCategory": "Tanakh"
+        }
+      },
+      "debugData": [
+        [
+          {
+            "orig_part_strs": ["Shabbat", "2b"],
+            "orig_part_types": ["NAMED", "NUMBERED"],
+            "final_part_strs": ["Shabbat", "2b"],
+            "final_part_types": ["NAMED", "NUMBERED"],
+            "resolved_part_strs": ["Shabbat", "2b"],
+            "resolved_part_types": ["NAMED", "NUMBERED"],
+            "resolved_part_classes": ["RawRefPart", "RawRefPart"],
+            "context_ref": null,
+            "context_type": null
+          }
+        ],
+        [
+          {
+            "orig_part_strs": ["Tosafot", "Shabbat", "2b"],
+            "orig_part_types": ["NAMED", "NAMED", "NUMBERED"],
+            "final_part_strs": ["Tosafot", "Shabbat", "2b"],
+            "final_part_types": ["NAMED", "NAMED", "NUMBERED"],
+            "resolved_part_strs": ["Tosafot", "Shabbat", "2b"],
+            "resolved_part_types": ["NAMED", "NAMED", "NUMBERED"],
+            "resolved_part_classes": ["RawRefPart", "RawRefPart", "RawRefPart"],
+            "context_ref": null,
+            "context_type": null
+          }
+        ],
+        [
+          {
+            "orig_part_strs": ["Tosafot", "Shabbat", "2b", "1"],
+            "orig_part_types": ["NAMED", "NAMED", "NUMBERED", "NUMBERED"],
+            "final_part_strs": ["Tosafot", "Shabbat", "2b", "1"],
+            "final_part_types": ["NAMED", "NAMED", "NUMBERED", "NUMBERED"],
+            "resolved_part_strs": ["Tosafot", "Shabbat", "2b", "1"],
+            "resolved_part_types": ["NAMED", "NAMED", "NUMBERED", "NUMBERED"],
+            "resolved_part_classes": [
+              "RawRefPart",
+              "RawRefPart",
+              "RawRefPart",
+              "RawRefPart"
+            ],
+            "context_ref": null,
+            "context_type": null
+          }
+        ],
+        [
+          {
+            "orig_part_strs": ["Genesis", "1", "1"],
+            "orig_part_types": ["NAMED", "NUMBERED", "NUMBERED"],
+            "final_part_strs": ["Genesis", "1", "1"],
+            "final_part_types": ["NAMED", "NUMBERED", "NUMBERED"],
+            "resolved_part_strs": ["Genesis", "1", "1"],
+            "resolved_part_types": ["NAMED", "NUMBERED", "NUMBERED"],
+            "resolved_part_classes": ["RawRefPart", "RawRefPart", "RawRefPart"],
+            "context_ref": null,
+            "context_type": null
+          }
+        ],
+        [
+          {
+            "orig_part_strs": [
+              "\u05d1\u05e8\u05d0\u05e9\u05d9\u05ea",
+              "\u05d0",
+              "\u05d0"
+            ],
+            "orig_part_types": ["NAMED", "NUMBERED", "NUMBERED"],
+            "final_part_strs": [
+              "\u05d1\u05e8\u05d0\u05e9\u05d9\u05ea",
+              "\u05d0",
+              "\u05d0"
+            ],
+            "final_part_types": ["NAMED", "NUMBERED", "NUMBERED"],
+            "resolved_part_strs": [
+              "\u05d1\u05e8\u05d0\u05e9\u05d9\u05ea",
+              "\u05d0",
+              "\u05d0"
+            ],
+            "resolved_part_types": ["NAMED", "NUMBERED", "NUMBERED"],
+            "resolved_part_classes": ["RawRefPart", "RawRefPart", "RawRefPart"],
+            "context_ref": null,
+            "context_type": null
+          }
+        ]
+      ]
+    }
+  }
+}

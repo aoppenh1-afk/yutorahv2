@@ -1,0 +1,6166 @@
+{
+  "recordedAt": "2026-10-02T21:01:18.100Z",
+  "linker": {
+    "873935": {
+      "en": {
+        "results": [
+          {
+            "startChar": 4,
+            "endChar": 9,
+            "text": "רמב״ם",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 14,
+            "endChar": 40,
+            "text": "הלכות ציצית פרק א׳ הלכה ו׳",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "רמב״ם"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "רמב״ם"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "הלכות",
+                "ציצית",
+                "פרק",
+                "א׳ הלכה ו׳"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "הלכות",
+                "ציצית",
+                "פרק",
+                "א׳ הלכה ו׳"
+              ],
+              "final_part_types": [
+                "IBID",
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 4,
+            "endChar": 9,
+            "text": "רמב״ם",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 14,
+            "endChar": 40,
+            "text": "הלכות ציצית פרק א׳ הלכה ו׳",
+            "linkFailed": false,
+            "refs": [
+              "Mishneh Torah, Fringes 1:6"
+            ]
+          },
+          {
+            "startChar": 308,
+            "endChar": 316,
+            "text": "כסף משנה",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {
+          "Mishneh Torah, Fringes 1:6": {
+            "heRef": "משנה תורה, הלכות ציצית א׳:ו׳",
+            "url": "Mishneh_Torah,_Fringes.1.6",
+            "primaryCategory": "Halakhah"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "רמב״ם"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "רמב״ם"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "הלכות ציצית",
+                "פרק א׳",
+                "הלכה ו׳"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "הלכות ציצית",
+                "פרק א׳",
+                "הלכה ו׳"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "הלכות ציצית",
+                "פרק א׳",
+                "הלכה ו׳"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "כסף משנה"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "כסף משנה"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "876238": {
+      "en": {
+        "results": [
+          {
+            "startChar": 53,
+            "endChar": 61,
+            "text": "חתם סופר",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 96,
+            "endChar": 116,
+            "text": "אורח חיים, סימן קט״ו",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 381,
+            "endChar": 391,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 584,
+            "endChar": 594,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 816,
+            "endChar": 826,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "חתם",
+                "סופר"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "חתם",
+                "סופר"
+              ],
+              "final_part_types": [
+                "IBID",
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "אורח חיים",
+                "סימן",
+                "קט״ו"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "אורח חיים",
+                "סימן",
+                "קט״ו"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 73,
+            "endChar": 81,
+            "text": "חתם סופר",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 87,
+            "endChar": 92,
+            "text": "תשובה",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 96,
+            "endChar": 116,
+            "text": "אורח חיים, סימן קט״ו",
+            "linkFailed": false,
+            "refs": [
+              "Shulchan Arukh, Orach Chayim 115"
+            ]
+          },
+          {
+            "startChar": 381,
+            "endChar": 391,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 584,
+            "endChar": 594,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 816,
+            "endChar": 826,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {
+          "Shulchan Arukh, Orach Chayim 115": {
+            "heRef": "שולחן ערוך, אורח חיים קט״ו",
+            "url": "Shulchan_Arukh,_Orach_Chayim.115",
+            "primaryCategory": "Halakhah"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "חתם סופר"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "חתם סופר"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "תשובה"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "תשובה"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "אורח חיים",
+                "סימן קט״ו"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "אורח חיים",
+                "סימן קט״ו"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "אורח חיים",
+                "סימן קט״ו"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "909946": {
+      "en": {
+        "results": [
+          {
+            "startChar": 21,
+            "endChar": 43,
+            "text": "מסכת כריתות דף כ״א ע״ב",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "מסכת",
+                "כריתות",
+                "דף",
+                "כ״א ע״ב"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "מסכת",
+                "כריתות",
+                "דף",
+                "כ״א ע״ב"
+              ],
+              "final_part_types": [
+                "IBID",
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 21,
+            "endChar": 43,
+            "text": "מסכת כריתות דף כ״א ע״ב",
+            "linkFailed": false,
+            "refs": [
+              "Keritot 21b"
+            ]
+          }
+        ],
+        "refData": {
+          "Keritot 21b": {
+            "heRef": "כריתות כ״א ב",
+            "url": "Keritot.21b",
+            "primaryCategory": "Talmud"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "מסכת כריתות",
+                "דף כ״א ע״ב"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "מסכת כריתות",
+                "דף כ״א ע״ב"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "מסכת כריתות",
+                "דף כ״א ע״ב"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "929649": {
+      "en": {
+        "results": [
+          {
+            "startChar": 136,
+            "endChar": 146,
+            "text": "מסכת פסחים",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "מסכת פסחים"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "מסכת פסחים"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [],
+        "refData": {},
+        "debugData": []
+      }
+    },
+    "936169": {
+      "en": {
+        "results": [
+          {
+            "startChar": 18,
+            "endChar": 29,
+            "text": "מסכת שבת on",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 30,
+            "endChar": 41,
+            "text": "דף קי״ט ע״ב",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "מסכת שבת"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "מסכת שבת"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "דף",
+                "קי״ט ע״ב"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "דף",
+                "קי״ט ע״ב"
+              ],
+              "final_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 18,
+            "endChar": 41,
+            "text": "מסכת שבת on דף קי״ט ע״ב",
+            "linkFailed": false,
+            "refs": [
+              "Shabbat 119b"
+            ]
+          }
+        ],
+        "refData": {
+          "Shabbat 119b": {
+            "heRef": "שבת קי״ט ב",
+            "url": "Shabbat.119b",
+            "primaryCategory": "Talmud"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "מסכת שבת",
+                "דף קי״ט ע״ב"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "מסכת שבת",
+                "דף קי״ט ע״ב"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "מסכת שבת",
+                "דף קי״ט ע״ב"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "938071": {
+      "en": {
+        "results": [
+          {
+            "startChar": 49,
+            "endChar": 66,
+            "text": "מסכת ברכות דף ל״ט",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 75,
+            "endChar": 86,
+            "text": "שבת דף קי״ז",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 277,
+            "endChar": 280,
+            "text": "ט״ז",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 726,
+            "endChar": 739,
+            "text": "שולחן ערוך in",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 740,
+            "endChar": 752,
+            "text": "רע״ד סעיף א׳",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 810,
+            "endChar": 820,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "מסכת ברכות",
+                "דף",
+                "ל״ט"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "מסכת ברכות",
+                "דף",
+                "ל״ט"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שבת",
+                "דף",
+                "קי״ז"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "שבת",
+                "דף",
+                "קי״ז"
+              ],
+              "final_part_types": [
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "ט״ז"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "ט״ז"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "רע"
+              ],
+              "orig_part_types": [
+                "IBID"
+              ],
+              "final_part_strs": [
+                "רע"
+              ],
+              "final_part_types": [
+                "IBID"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 49,
+            "endChar": 67,
+            "text": "מסכת ברכות דף ל״ט:",
+            "linkFailed": false,
+            "refs": [
+              "Berakhot 39b"
+            ]
+          },
+          {
+            "startChar": 75,
+            "endChar": 87,
+            "text": "שבת דף קי״ז:",
+            "linkFailed": false,
+            "refs": [
+              "Shabbat 117b"
+            ]
+          },
+          {
+            "startChar": 726,
+            "endChar": 736,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 740,
+            "endChar": 752,
+            "text": "רע״ד סעיף א׳",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 810,
+            "endChar": 820,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {
+          "Berakhot 39b": {
+            "heRef": "ברכות ל״ט ב",
+            "url": "Berakhot.39b",
+            "primaryCategory": "Talmud"
+          },
+          "Shabbat 117b": {
+            "heRef": "שבת קי״ז ב",
+            "url": "Shabbat.117b",
+            "primaryCategory": "Talmud"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "מסכת ברכות",
+                "דף ל״ט:"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "מסכת ברכות",
+                "דף ל״ט:"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "מסכת ברכות",
+                "דף ל״ט:"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שבת",
+                "דף קי״ז:"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "שבת",
+                "דף קי״ז:"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "שבת",
+                "דף קי״ז:"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "רע״ד",
+                "סעיף א׳"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "רע״ד",
+                "סעיף א׳"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "938870": {
+      "en": {
+        "results": [
+          {
+            "startChar": 111,
+            "endChar": 128,
+            "text": "אבן העזר סימן ל״ד",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 189,
+            "endChar": 199,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 204,
+            "endChar": 232,
+            "text": "אבן העזר סימן ס״ב, סעיף י״ב.",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "אבן",
+                "העזר",
+                "סימן",
+                "ל״ד"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "אבן",
+                "העזר",
+                "סימן",
+                "ל״ד"
+              ],
+              "final_part_types": [
+                "IBID",
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "אבן",
+                "העזר",
+                "סימן",
+                "ס״ב",
+                "י״ב."
+              ],
+              "orig_part_types": [
+                "IBID",
+                "IBID",
+                "IBID",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "אבן",
+                "העזר",
+                "סימן",
+                "ס״ב",
+                "י״ב."
+              ],
+              "final_part_types": [
+                "IBID",
+                "IBID",
+                "IBID",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 54,
+            "endChar": 76,
+            "text": "תשובות הרי בשמים תשובה",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 83,
+            "endChar": 103,
+            "text": "תשובות חסד לאברהם in",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 104,
+            "endChar": 128,
+            "text": "תנינא, אבן העזר סימן ל״ד",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 189,
+            "endChar": 199,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 204,
+            "endChar": 231,
+            "text": "אבן העזר סימן ס״ב, סעיף י״ב",
+            "linkFailed": false,
+            "refs": [
+              "Shulchan Arukh, Even HaEzer 62:12"
+            ]
+          },
+          {
+            "startChar": 233,
+            "endChar": 243,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 249,
+            "endChar": 253,
+            "text": "that",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 537,
+            "endChar": 547,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {
+          "Shulchan Arukh, Even HaEzer 62:12": {
+            "heRef": "שולחן ערוך, אבן העזר ס״ב:י״ב",
+            "url": "Shulchan_Arukh,_Even_HaEzer.62.12",
+            "primaryCategory": "Halakhah"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "תשובות הרי בשמים תשובה"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "תשובות הרי בשמים תשובה"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "תשובות חסד"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "תשובות חסד"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "תנינא",
+                "אבן העזר",
+                "סימן ל״ד"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "תנינא",
+                "אבן העזר",
+                "סימן ל״ד"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "אבן העזר",
+                "סימן ס״ב",
+                "סעיף י״ב"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "אבן העזר",
+                "סימן ס״ב",
+                "סעיף י״ב"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "אבן העזר",
+                "סימן ס״ב",
+                "סעיף י״ב"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "that"
+              ],
+              "orig_part_types": [
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "that"
+              ],
+              "final_part_types": [
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "945677": {
+      "en": {
+        "results": [],
+        "refData": {},
+        "debugData": []
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 49,
+            "endChar": 53,
+            "text": "דף מ",
+            "linkFailed": false,
+            "refs": [
+              "Berakhot 40"
+            ]
+          }
+        ],
+        "refData": {
+          "Berakhot 40": {
+            "heRef": "ברכות מ׳",
+            "url": "Berakhot.40",
+            "primaryCategory": "Talmud"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "דף מ"
+              ],
+              "orig_part_types": [
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "דף מ"
+              ],
+              "final_part_types": [
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "berakhot",
+                "דף מ"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "TermContext",
+                "RawRefPart"
+              ],
+              "context_ref": "Berakhot",
+              "context_type": "IBID"
+            }
+          ]
+        ]
+      }
+    },
+    "954761": {
+      "en": {
+        "results": [
+          {
+            "startChar": 56,
+            "endChar": 80,
+            "text": "ספר שו״ת הרב״ז—not רדב״ז",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 140,
+            "endChar": 150,
+            "text": "דף ס״ד ע״ב",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 280,
+            "endChar": 284,
+            "text": "גמרא",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 321,
+            "endChar": 331,
+            "text": "דף ס״ה ע״ב",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "ספר",
+                "שו״ת הרב״ז",
+                "רדב״ז"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "ספר",
+                "שו״ת הרב״ז",
+                "רדב״ז"
+              ],
+              "final_part_types": [
+                "IBID",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "דף",
+                "ס״ד ע״ב"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "דף",
+                "ס״ד ע״ב"
+              ],
+              "final_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "גמרא"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "גמרא"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "דף",
+                "ס״ה ע״ב"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "דף",
+                "ס״ה ע״ב"
+              ],
+              "final_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 60,
+            "endChar": 70,
+            "text": "שו״ת הרב״ז",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 75,
+            "endChar": 80,
+            "text": "רדב״ז",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 82,
+            "endChar": 86,
+            "text": "רב״ז",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 87,
+            "endChar": 102,
+            "text": "חלק א׳ סימן י״ב",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 123,
+            "endChar": 150,
+            "text": "משנה מסכת כתובות דף ס״ד ע״ב",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 321,
+            "endChar": 331,
+            "text": "דף ס״ה ע״ב",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 815,
+            "endChar": 824,
+            "text": "שבת shoes",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "שו״ת הרב״ז"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שו״ת הרב״ז"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "רדב״ז"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "רדב״ז"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "רב״ז"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "רב״ז"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "חלק א׳",
+                "סימן י״ב"
+              ],
+              "orig_part_types": [
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "חלק א׳",
+                "סימן י״ב"
+              ],
+              "final_part_types": [
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "משנה מסכת כתובות",
+                "דף ס״ד ע״ב"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "משנה מסכת כתובות",
+                "דף ס״ד ע״ב"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "דף ס״ה ע״ב"
+              ],
+              "orig_part_types": [
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "דף ס״ה ע״ב"
+              ],
+              "final_part_types": [
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שבת",
+                "shoes"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "שבת",
+                "shoes"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "966038": {
+      "en": {
+        "results": [
+          {
+            "startChar": 9,
+            "endChar": 14,
+            "text": "רמב״ם",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 18,
+            "endChar": 44,
+            "text": "הלכות ברכות פרק ה׳ הלכה ח׳",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 401,
+            "endChar": 406,
+            "text": "רמב״ם",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 480,
+            "endChar": 491,
+            "text": "רמב״ם פסקנס",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "רמב״ם"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "רמב״ם"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "הלכות",
+                "ברכות"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "IBID"
+              ],
+              "final_part_strs": [
+                "הלכות",
+                "ברכות"
+              ],
+              "final_part_types": [
+                "IBID",
+                "IBID"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "רמב״ם"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "רמב״ם"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "רמב״ם פסקנס"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "רמב״ם פסקנס"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 9,
+            "endChar": 17,
+            "text": "רמב״ם in",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 18,
+            "endChar": 44,
+            "text": "הלכות ברכות פרק ה׳ הלכה ח׳",
+            "linkFailed": false,
+            "refs": [
+              "Mishneh Torah, Blessings 5:8"
+            ]
+          }
+        ],
+        "refData": {
+          "Mishneh Torah, Blessings 5:8": {
+            "heRef": "משנה תורה, הלכות ברכות ה׳:ח׳",
+            "url": "Mishneh_Torah,_Blessings.5.8",
+            "primaryCategory": "Halakhah"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "רמב״ם",
+                "in"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "DH"
+              ],
+              "final_part_strs": [
+                "רמב״ם",
+                "in"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "DH"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "הלכות ברכות",
+                "פרק ה׳",
+                "הלכה ח׳"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "הלכות ברכות",
+                "פרק ה׳",
+                "הלכה ח׳"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "הלכות ברכות",
+                "פרק ה׳",
+                "הלכה ח׳"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "968391": {
+      "en": {
+        "results": [
+          {
+            "startChar": 101,
+            "endChar": 147,
+            "text": "רמב״ם in the tenth פרק of הלכות אישות הלכה י״ב",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 170,
+            "endChar": 178,
+            "text": "סימן ס״ד",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "רמב״ם",
+                "י״ב"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "רמב״ם",
+                "י״ב"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "סימן",
+                "ס״ד"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "סימן",
+                "ס״ד"
+              ],
+              "final_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 120,
+            "endChar": 126,
+            "text": "פרק of",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 127,
+            "endChar": 147,
+            "text": "הלכות אישות הלכה י״ב",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 156,
+            "endChar": 166,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 170,
+            "endChar": 178,
+            "text": "סימן ס״ד",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "פרק of"
+              ],
+              "orig_part_types": [
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "פרק of"
+              ],
+              "final_part_types": [
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "הלכות אישות",
+                "הלכה י״ב"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "הלכות אישות",
+                "הלכה י״ב"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "סימן ס״ד"
+              ],
+              "orig_part_types": [
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "סימן ס״ד"
+              ],
+              "final_part_types": [
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1005067": {
+      "en": {
+        "results": [
+          {
+            "startChar": 127,
+            "endChar": 144,
+            "text": "עירובין דף מ׳ ע״א",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "עירובין",
+                "דף",
+                "מ׳ ע״א"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "עירובין",
+                "דף",
+                "מ׳ ע״א"
+              ],
+              "final_part_types": [
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 127,
+            "endChar": 144,
+            "text": "עירובין דף מ׳ ע״א",
+            "linkFailed": false,
+            "refs": [
+              "Eruvin 40a"
+            ]
+          }
+        ],
+        "refData": {
+          "Eruvin 40a": {
+            "heRef": "עירובין מ׳ א",
+            "url": "Eruvin.40a",
+            "primaryCategory": "Talmud"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "עירובין",
+                "דף מ׳ ע״א"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "עירובין",
+                "דף מ׳ ע״א"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "עירובין",
+                "דף מ׳ ע״א"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1055211": {
+      "en": {
+        "results": [
+          {
+            "startChar": 137,
+            "endChar": 153,
+            "text": "חלק י״ב סימן נ״ב",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "חלק",
+                "י״ב סימן נ״ב"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "חלק",
+                "י״ב סימן נ״ב"
+              ],
+              "final_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 0,
+            "endChar": 8,
+            "text": "חזון איש",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 79,
+            "endChar": 113,
+            "text": "שבט הלוי יורה דעה חלק ט׳ סימן קנ״ג",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 123,
+            "endChar": 133,
+            "text": "ציץ אליעזר",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 137,
+            "endChar": 153,
+            "text": "חלק י״ב סימן נ״ב",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "חזון איש"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "חזון איש"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שבט הלוי",
+                "יורה דעה",
+                "חלק ט׳",
+                "סימן קנ״ג"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "שבט הלוי",
+                "יורה דעה",
+                "חלק ט׳",
+                "סימן קנ״ג"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "ציץ אליעזר"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "ציץ אליעזר"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "חלק י״ב",
+                "סימן נ״ב"
+              ],
+              "orig_part_types": [
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "חלק י״ב",
+                "סימן נ״ב"
+              ],
+              "final_part_types": [
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1096193": {
+      "en": {
+        "results": [],
+        "refData": {},
+        "debugData": []
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 25,
+            "endChar": 35,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1102552": {
+      "en": {
+        "results": [
+          {
+            "startChar": 76,
+            "endChar": 86,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 141,
+            "endChar": 151,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 244,
+            "endChar": 254,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 76,
+            "endChar": 86,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 141,
+            "endChar": 151,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 244,
+            "endChar": 254,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1110548": {
+      "en": {
+        "results": [
+          {
+            "startChar": 48,
+            "endChar": 52,
+            "text": "מדרש",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "מדרש"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "מדרש"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [],
+        "refData": {},
+        "debugData": []
+      }
+    },
+    "1119184": {
+      "en": {
+        "results": [],
+        "refData": {},
+        "debugData": []
+      },
+      "he": {
+        "results": [],
+        "refData": {},
+        "debugData": []
+      }
+    },
+    "1132407": {
+      "en": {
+        "results": [
+          {
+            "startChar": 127,
+            "endChar": 142,
+            "text": "יבמות דף לג ע״א",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "יבמות",
+                "דף",
+                "לג",
+                "ע״א"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "IBID",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "יבמות",
+                "דף",
+                "לג",
+                "ע״א"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "IBID",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 127,
+            "endChar": 142,
+            "text": "יבמות דף לג ע״א",
+            "linkFailed": false,
+            "refs": [
+              "Yevamot 33a"
+            ]
+          }
+        ],
+        "refData": {
+          "Yevamot 33a": {
+            "heRef": "יבמות ל״ג א",
+            "url": "Yevamot.33a",
+            "primaryCategory": "Talmud"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "יבמות",
+                "דף לג ע״א"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "יבמות",
+                "דף לג ע״א"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "יבמות",
+                "דף לג ע״א"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1136111": {
+      "en": {
+        "results": [
+          {
+            "startChar": 106,
+            "endChar": 142,
+            "text": "שולחן ערוך in סימן ר״ג סעיף א׳ פסקנס",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 202,
+            "endChar": 209,
+            "text": "סעיף ב׳",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 537,
+            "endChar": 553,
+            "text": "שולחן ערוך פסקנס",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 568,
+            "endChar": 584,
+            "text": "סימן ר״ג סעיף ג׳",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך",
+                "סימן",
+                "ר״ג סעיף א׳ פסקנס"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך",
+                "סימן",
+                "ר״ג סעיף א׳ פסקנס"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "סעיף ב׳"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "סעיף ב׳"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך",
+                "פסקנס"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך",
+                "פסקנס"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "סימן",
+                "ר״ג סעיף ג׳"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "סימן",
+                "ר״ג סעיף ג׳"
+              ],
+              "final_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 106,
+            "endChar": 116,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 120,
+            "endChar": 136,
+            "text": "סימן ר״ג סעיף א׳",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 207,
+            "endChar": 209,
+            "text": "ב׳",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 304,
+            "endChar": 314,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 537,
+            "endChar": 547,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 568,
+            "endChar": 584,
+            "text": "סימן ר״ג סעיף ג׳",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "סימן ר״ג",
+                "סעיף א׳"
+              ],
+              "orig_part_types": [
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "סימן ר״ג",
+                "סעיף א׳"
+              ],
+              "final_part_types": [
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "ב׳"
+              ],
+              "orig_part_types": [
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "ב׳"
+              ],
+              "final_part_types": [
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "סימן ר״ג",
+                "סעיף ג׳"
+              ],
+              "orig_part_types": [
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "סימן ר״ג",
+                "סעיף ג׳"
+              ],
+              "final_part_types": [
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1140331": {
+      "en": {
+        "results": [
+          {
+            "startChar": 51,
+            "endChar": 56,
+            "text": "רמב״ם",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 84,
+            "endChar": 150,
+            "text": "הלכות תמידין ומוספין, at the end of פרק ו׳ of הלכות תמידין ומוספין",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "רמב״ם"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "רמב״ם"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "הלכות תמידין ומוספין"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "הלכות תמידין ומוספין"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 120,
+            "endChar": 126,
+            "text": "פרק ו׳",
+            "linkFailed": false,
+            "refs": [
+              "Mishneh Torah, Daily Offerings and Additional Offerings 6"
+            ]
+          }
+        ],
+        "refData": {
+          "Mishneh Torah, Daily Offerings and Additional Offerings 6": {
+            "heRef": "משנה תורה, הלכות תמידים ומוספין ו׳",
+            "url": "Mishneh_Torah,_Daily_Offerings_and_Additional_Offerings.6",
+            "primaryCategory": "Halakhah"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "פרק ו׳"
+              ],
+              "orig_part_types": [
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "פרק ו׳"
+              ],
+              "final_part_types": [
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "mishneh-torah",
+                "daily-offerings-and-additional-offerings",
+                "פרק ו׳"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "TermContext",
+                "TermContext",
+                "RawRefPart"
+              ],
+              "context_ref": "Mishneh Torah, Daily Offerings and Additional Offerings",
+              "context_type": "IBID"
+            }
+          ]
+        ]
+      }
+    },
+    "1140474": {
+      "en": {
+        "results": [
+          {
+            "startChar": 90,
+            "endChar": 105,
+            "text": "סימן ר״ב סעיף א",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "סימן",
+                "ר״ב סעיף א"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "סימן",
+                "ר״ב סעיף א"
+              ],
+              "final_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 82,
+            "endChar": 86,
+            "text": "שו״ע",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 90,
+            "endChar": 106,
+            "text": "סימן ר״ב סעיף א׳",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 222,
+            "endChar": 244,
+            "text": "משנה ברורה סעיף קטן א׳",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "שו״ע"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שו״ע"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "סימן ר״ב",
+                "סעיף א׳"
+              ],
+              "orig_part_types": [
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "סימן ר״ב",
+                "סעיף א׳"
+              ],
+              "final_part_types": [
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "משנה ברורה",
+                "סעיף קטן א׳"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "משנה ברורה",
+                "סעיף קטן א׳"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1151241": {
+      "en": {
+        "results": [
+          {
+            "startChar": 0,
+            "endChar": 35,
+            "text": "שולחן ערוך in סימן ר״ג סעיף ב׳ פסקנ",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 401,
+            "endChar": 411,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך",
+                "סימן",
+                "ר״ג סעיף ב׳ פסקנ"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך",
+                "סימן",
+                "ר״ג סעיף ב׳ פסקנ"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 0,
+            "endChar": 30,
+            "text": "שולחן ערוך in סימן ר״ג סעיף ב׳",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 401,
+            "endChar": 411,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך",
+                "סימן ר״ג",
+                "סעיף ב׳"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך",
+                "סימן ר״ג",
+                "סעיף ב׳"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1168944": {
+      "en": {
+        "results": [
+          {
+            "startChar": 237,
+            "endChar": 248,
+            "text": "שו״ת הרשב״א",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 252,
+            "endChar": 272,
+            "text": "חלק א׳ סימן כ״ד, the",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 312,
+            "endChar": 325,
+            "text": "מסכת בבא בתרא",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 555,
+            "endChar": 574,
+            "text": "אורח חיים סימן רע״ב",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 587,
+            "endChar": 597,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 612,
+            "endChar": 618,
+            "text": "סעיף ח",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "שו״ת הרשב״א"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שו״ת הרשב״א"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "חלק",
+                "א׳ סימן",
+                "כ״ד"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "חלק",
+                "א׳ סימן",
+                "כ״ד"
+              ],
+              "final_part_types": [
+                "IBID",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "מסכת בבא בתרא"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "מסכת בבא בתרא"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "אורח",
+                "חיים",
+                "סימן",
+                "רע״ב"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "אורח",
+                "חיים",
+                "סימן",
+                "רע״ב"
+              ],
+              "final_part_types": [
+                "IBID",
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "סעיף",
+                "ח"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "סעיף",
+                "ח"
+              ],
+              "final_part_types": [
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 219,
+            "endChar": 226,
+            "text": "ראשונים",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 237,
+            "endChar": 267,
+            "text": "שו״ת הרשב״א in חלק א׳ סימן כ״ד",
+            "linkFailed": false,
+            "refs": [
+              "Teshuvot haRashba part I 24"
+            ]
+          },
+          {
+            "startChar": 331,
+            "endChar": 355,
+            "text": "תשובות הריב״ש in סימן י׳",
+            "linkFailed": false,
+            "refs": [
+              "Teshuvot HaRivash 10"
+            ]
+          },
+          {
+            "startChar": 543,
+            "endChar": 554,
+            "text": "בית יוסף in",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 555,
+            "endChar": 574,
+            "text": "אורח חיים סימן רע״ב",
+            "linkFailed": false,
+            "refs": [
+              "Shulchan Arukh, Orach Chayim 272"
+            ]
+          },
+          {
+            "startChar": 587,
+            "endChar": 597,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 617,
+            "endChar": 619,
+            "text": "ח׳",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 652,
+            "endChar": 662,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {
+          "Teshuvot haRashba part I 24": {
+            "heRef": "שו\"ת הרשב\"א חלק א כ״ד",
+            "url": "Teshuvot_haRashba_part_I.24",
+            "primaryCategory": "Responsa"
+          },
+          "Teshuvot HaRivash 10": {
+            "heRef": "תשובות הריב\"ש י׳",
+            "url": "Teshuvot_HaRivash.10",
+            "primaryCategory": "Responsa"
+          },
+          "Shulchan Arukh, Orach Chayim 272": {
+            "heRef": "שולחן ערוך, אורח חיים ער״ב",
+            "url": "Shulchan_Arukh,_Orach_Chayim.272",
+            "primaryCategory": "Halakhah"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "ראשונים"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "ראשונים"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שו״ת הרשב״א",
+                "חלק א׳",
+                "סימן כ״ד"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "שו״ת הרשב״א",
+                "חלק א׳",
+                "סימן כ״ד"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "שו״ת הרשב״א",
+                "חלק א׳",
+                "סימן כ״ד"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "תשובות הריב״ש",
+                "סימן י׳"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "תשובות הריב״ש",
+                "סימן י׳"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "תשובות הריב״ש",
+                "סימן י׳"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "בית יוסף",
+                "in"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "בית יוסף",
+                "in"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "אורח חיים",
+                "סימן רע״ב"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "אורח חיים",
+                "סימן רע״ב"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "אורח חיים",
+                "סימן רע״ב"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "ח׳"
+              ],
+              "orig_part_types": [
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "ח׳"
+              ],
+              "final_part_types": [
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1172454": {
+      "en": {
+        "results": [
+          {
+            "startChar": 9,
+            "endChar": 14,
+            "text": "רמב״ם",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "רמב״ם"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "רמב״ם"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 9,
+            "endChar": 43,
+            "text": "רמב״ם in הלכות מילה פרק א׳ הלכה ב׳",
+            "linkFailed": false,
+            "refs": [
+              "Mishneh Torah, Circumcision 1:2"
+            ]
+          }
+        ],
+        "refData": {
+          "Mishneh Torah, Circumcision 1:2": {
+            "heRef": "משנה תורה, הלכות מילה א׳:ב׳",
+            "url": "Mishneh_Torah,_Circumcision.1.2",
+            "primaryCategory": "Halakhah"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "רמב״ם",
+                "הלכות מילה",
+                "פרק א׳",
+                "הלכה ב׳"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "רמב״ם",
+                "הלכות מילה",
+                "פרק א׳",
+                "הלכה ב׳"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "רמב״ם",
+                "הלכות מילה",
+                "פרק א׳",
+                "הלכה ב׳"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart",
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1173273": {
+      "en": {
+        "results": [
+          {
+            "startChar": 301,
+            "endChar": 314,
+            "text": "שולחן ערוך in",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 315,
+            "endChar": 327,
+            "text": "שי״ח סעיף ד׳",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 527,
+            "endChar": 543,
+            "text": "שי״ח סעיף קטן י׳",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שי״ח סעיף ד׳"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שי״ח סעיף ד׳"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שי״ח סעיף קטן י׳"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שי״ח סעיף קטן י׳"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 44,
+            "endChar": 55,
+            "text": "שבת דף קט״ו",
+            "linkFailed": false,
+            "refs": [
+              "Shabbat 115"
+            ]
+          },
+          {
+            "startChar": 301,
+            "endChar": 311,
+            "text": "שולחן ערוך",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 315,
+            "endChar": 327,
+            "text": "שי״ח סעיף ד׳",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 527,
+            "endChar": 543,
+            "text": "שי״ח סעיף קטן י׳",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {
+          "Shabbat 115": {
+            "heRef": "שבת קט״ו",
+            "url": "Shabbat.115",
+            "primaryCategory": "Talmud"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "שבת",
+                "דף קט״ו"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "שבת",
+                "דף קט״ו"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "שבת",
+                "דף קט״ו"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שולחן ערוך"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "שולחן ערוך"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שי״ח",
+                "סעיף ד׳"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "שי״ח",
+                "סעיף ד׳"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "שי״ח",
+                "סעיף קטן י׳"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "שי״ח",
+                "סעיף קטן י׳"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1180522": {
+      "en": {
+        "results": [
+          {
+            "startChar": 53,
+            "endChar": 67,
+            "text": "מסכת עבודה זרה",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 71,
+            "endChar": 76,
+            "text": "דף לא",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 779,
+            "endChar": 797,
+            "text": "יורה דעה סימן קט״ז",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "מסכת עבודה"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "מסכת עבודה"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "דף",
+                "לא"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "דף",
+                "לא"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "יורה",
+                "דעה",
+                "סימן",
+                "קט״ז"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "יורה",
+                "דעה",
+                "סימן",
+                "קט״ז"
+              ],
+              "final_part_types": [
+                "IBID",
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 71,
+            "endChar": 76,
+            "text": "דף לא",
+            "linkFailed": false,
+            "refs": [
+              "Avodah Zarah 31"
+            ]
+          },
+          {
+            "startChar": 779,
+            "endChar": 797,
+            "text": "יורה דעה סימן קט״ז",
+            "linkFailed": false,
+            "refs": [
+              "Shulchan Arukh, Yoreh De'ah 116"
+            ]
+          }
+        ],
+        "refData": {
+          "Avodah Zarah 31": {
+            "heRef": "עבודה זרה ל״א",
+            "url": "Avodah_Zarah.31",
+            "primaryCategory": "Talmud"
+          },
+          "Shulchan Arukh, Yoreh De'ah 116": {
+            "heRef": "שולחן ערוך, יורה דעה קט״ז",
+            "url": "Shulchan_Arukh,_Yoreh_De'ah.116",
+            "primaryCategory": "Halakhah"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "דף לא"
+              ],
+              "orig_part_types": [
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "דף לא"
+              ],
+              "final_part_types": [
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "avodah-zarah",
+                "דף לא"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "TermContext",
+                "RawRefPart"
+              ],
+              "context_ref": "Avodah Zarah",
+              "context_type": "IBID"
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "יורה דעה",
+                "סימן קט״ז"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "יורה דעה",
+                "סימן קט״ז"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "יורה דעה",
+                "סימן קט״ז"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1180975": {
+      "en": {
+        "results": [
+          {
+            "startChar": 115,
+            "endChar": 127,
+            "text": "תענית דף ט״ז",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 132,
+            "endChar": 148,
+            "text": "בבא קמא דף קכ״ה,",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "תענית",
+                "דף",
+                "ט״ז"
+              ],
+              "orig_part_types": [
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "תענית",
+                "דף",
+                "ט״ז"
+              ],
+              "final_part_types": [
+                "IBID",
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "בבא קמא",
+                "דף",
+                "קכ״ה"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "בבא קמא",
+                "דף",
+                "קכ״ה"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 91,
+            "endChar": 110,
+            "text": "גמ׳ ראש השנה דף ט״ז",
+            "linkFailed": false,
+            "refs": [
+              "Rosh Hashanah 16"
+            ]
+          },
+          {
+            "startChar": 115,
+            "endChar": 127,
+            "text": "תענית דף ט״ז",
+            "linkFailed": false,
+            "refs": [
+              "Taanit 16"
+            ]
+          },
+          {
+            "startChar": 132,
+            "endChar": 147,
+            "text": "בבא קמא דף קכ״ה",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 242,
+            "endChar": 260,
+            "text": "יורה דעה סימן של״ח",
+            "linkFailed": false,
+            "refs": [
+              "Shulchan Arukh, Yoreh De'ah 338"
+            ]
+          }
+        ],
+        "refData": {
+          "Rosh Hashanah 16": {
+            "heRef": "ראש השנה ט״ז",
+            "url": "Rosh_Hashanah.16",
+            "primaryCategory": "Talmud"
+          },
+          "Taanit 16": {
+            "heRef": "תענית ט״ז",
+            "url": "Taanit.16",
+            "primaryCategory": "Talmud"
+          },
+          "Shulchan Arukh, Yoreh De'ah 338": {
+            "heRef": "שולחן ערוך, יורה דעה של״ח",
+            "url": "Shulchan_Arukh,_Yoreh_De'ah.338",
+            "primaryCategory": "Halakhah"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "גמ׳ ראש השנה",
+                "דף ט״ז"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "גמ׳ ראש השנה",
+                "דף ט״ז"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "גמ׳ ראש השנה",
+                "דף ט״ז"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "תענית",
+                "דף ט״ז"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "תענית",
+                "דף ט״ז"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "תענית",
+                "דף ט״ז"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "בבא קמא",
+                "דף קכ״ה"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "בבא קמא",
+                "דף קכ״ה"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "יורה דעה",
+                "סימן של״ח"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "יורה דעה",
+                "סימן של״ח"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "יורה דעה",
+                "סימן של״ח"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "RawRefPart"
+              ],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1181153": {
+      "en": {
+        "results": [
+          {
+            "startChar": 13,
+            "endChar": 46,
+            "text": "ט״ז in אורח חיים סימן תרל״ד ס״ק ב",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 187,
+            "endChar": 192,
+            "text": "רמב״ם",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "ט״ז",
+                "תרל״ד ס״ק ב"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "ט״ז",
+                "תרל״ד ס״ק ב"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "רמב״ם"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "רמב״ם"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 20,
+            "endChar": 47,
+            "text": "אורח חיים סימן תרל״ד ס״ק ב׳",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "אורח חיים",
+                "סימן תרל״ד",
+                "ס״ק ב׳"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "אורח חיים",
+                "סימן תרל״ד",
+                "ס״ק ב׳"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1181377": {
+      "en": {
+        "results": [
+          {
+            "startChar": 127,
+            "endChar": 137,
+            "text": "מסכת פסחים",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 466,
+            "endChar": 491,
+            "text": "תוס׳ in דף ק״ט עמוד ב׳ in",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 492,
+            "endChar": 502,
+            "text": "מסכת פסחים",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {},
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "מסכת פסחים"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "מסכת פסחים"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "תוס׳ in",
+                "דף",
+                "ק״ט עמוד ב׳ in"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "IBID",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "תוס׳ in",
+                "דף",
+                "ק״ט עמוד ב׳ in"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "IBID",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "מסכת פסחים"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "מסכת פסחים"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      },
+      "he": {
+        "results": [
+          {
+            "startChar": 102,
+            "endChar": 105,
+            "text": "טוב",
+            "linkFailed": true,
+            "refs": null
+          },
+          {
+            "startChar": 466,
+            "endChar": 488,
+            "text": "תוס׳ in דף ק״ט עמוד ב׳",
+            "linkFailed": false,
+            "refs": [
+              "Tosafot on Pesachim 109b"
+            ]
+          },
+          {
+            "startChar": 492,
+            "endChar": 516,
+            "text": "מסכת פסחים, דיבור המתחיל",
+            "linkFailed": true,
+            "refs": null
+          }
+        ],
+        "refData": {
+          "Tosafot on Pesachim 109b": {
+            "heRef": "תוספות על פסחים ק״ט ב",
+            "url": "Tosafot_on_Pesachim.109b",
+            "primaryCategory": "Commentary"
+          }
+        },
+        "debugData": [
+          [
+            {
+              "orig_part_strs": [
+                "טוב"
+              ],
+              "orig_part_types": [
+                "NAMED"
+              ],
+              "final_part_strs": [
+                "טוב"
+              ],
+              "final_part_types": [
+                "NAMED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "תוס׳",
+                "דף ק״ט עמוד ב׳"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "תוס׳",
+                "דף ק״ט עמוד ב׳"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [
+                "תוס׳",
+                "pesachim",
+                "דף ק״ט עמוד ב׳"
+              ],
+              "resolved_part_types": [
+                "NAMED",
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_classes": [
+                "RawRefPart",
+                "TermContext",
+                "RawRefPart"
+              ],
+              "context_ref": "Pesachim",
+              "context_type": "IBID"
+            }
+          ],
+          [
+            {
+              "orig_part_strs": [
+                "מסכת פסחים",
+                "דיבור המתחיל"
+              ],
+              "orig_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "final_part_strs": [
+                "מסכת פסחים",
+                "דיבור המתחיל"
+              ],
+              "final_part_types": [
+                "NAMED",
+                "NUMBERED"
+              ],
+              "resolved_part_strs": [],
+              "resolved_part_types": [],
+              "resolved_part_classes": [],
+              "context_ref": null,
+              "context_type": null
+            }
+          ]
+        ]
+      }
+    },
+    "1189252": {
+      "en": {
+        "results": [],
+        "refData": {},
+        "debugData": []
+      },
+      "he": {
+        "results": [],
+        "refData": {},
+        "debugData": []
+      }
+    }
+  },
+  "metadata": {
+    "Shulchan Arukh, Yoreh De'ah 116": {
+      "is_ref": true,
+      "normalized": "Shulchan Arukh, Yoreh De'ah 116",
+      "hebrew": "שולחן ערוך, יורה דעה קט״ז",
+      "url_ref": "Shulchan_Arukh,_Yoreh_De'ah.116",
+      "index_title": "Shulchan Arukh, Yoreh De'ah",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Shulchan Arukh, Yoreh De'ah"
+        ],
+        "first_available_section_ref": "Shulchan Arukh, Yoreh De'ah 116",
+        "prev_section_ref": "Shulchan Arukh, Yoreh De'ah 115",
+        "next_section_ref": "Shulchan Arukh, Yoreh De'ah 117",
+        "first_subref": "Shulchan Arukh, Yoreh De'ah 116:1",
+        "last_subref": "Shulchan Arukh, Yoreh De'ah 116:7"
+      },
+      "depth": 2,
+      "address_types": [
+        "Siman",
+        "Seif"
+      ],
+      "section_names": [
+        "Siman",
+        "Seif"
+      ],
+      "start_indexes": [
+        116
+      ],
+      "start_labels": [
+        "116"
+      ],
+      "end_indexes": [
+        116
+      ],
+      "end_labels": [
+        "116"
+      ]
+    },
+    "Mishneh Torah, Circumcision 1:2": {
+      "is_ref": true,
+      "normalized": "Mishneh Torah, Circumcision 1:2",
+      "hebrew": "משנה תורה, הלכות מילה א׳:ב׳",
+      "url_ref": "Mishneh_Torah,_Circumcision.1.2",
+      "index_title": "Mishneh Torah, Circumcision",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Mishneh Torah, Circumcision",
+          "Mishneh Torah, Circumcision 1"
+        ],
+        "first_available_section_ref": "Mishneh Torah, Circumcision 1:2",
+        "prev_segment_ref": "Mishneh Torah, Circumcision 1:1",
+        "next_segment_ref": "Mishneh Torah, Circumcision 1:3"
+      },
+      "depth": 2,
+      "address_types": [
+        "Perek",
+        "Halakhah"
+      ],
+      "section_names": [
+        "Chapter",
+        "Halakhah"
+      ],
+      "start_indexes": [
+        1,
+        2
+      ],
+      "start_labels": [
+        "1",
+        "2"
+      ],
+      "end_indexes": [
+        1,
+        2
+      ],
+      "end_labels": [
+        "1",
+        "2"
+      ]
+    },
+    "Keritot 21b": {
+      "is_ref": true,
+      "normalized": "Keritot 21b",
+      "hebrew": "כריתות כ״א ב",
+      "url_ref": "Keritot.21b",
+      "index_title": "Keritot",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Keritot"
+        ],
+        "first_available_section_ref": "Keritot 21b",
+        "prev_section_ref": "Keritot 21a",
+        "next_section_ref": "Keritot 22a",
+        "first_subref": "Keritot 21b:1",
+        "last_subref": "Keritot 21b:18"
+      },
+      "depth": 2,
+      "address_types": [
+        "Talmud",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Line"
+      ],
+      "start_indexes": [
+        42
+      ],
+      "start_labels": [
+        "21b"
+      ],
+      "end_indexes": [
+        42
+      ],
+      "end_labels": [
+        "21b"
+      ]
+    },
+    "Mishneh Torah, Blessings 5:8": {
+      "is_ref": true,
+      "normalized": "Mishneh Torah, Blessings 5:8",
+      "hebrew": "משנה תורה, הלכות ברכות ה׳:ח׳",
+      "url_ref": "Mishneh_Torah,_Blessings.5.8",
+      "index_title": "Mishneh Torah, Blessings",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Mishneh Torah, Blessings",
+          "Mishneh Torah, Blessings 5"
+        ],
+        "first_available_section_ref": "Mishneh Torah, Blessings 5:8",
+        "prev_segment_ref": "Mishneh Torah, Blessings 5:7",
+        "next_segment_ref": "Mishneh Torah, Blessings 5:9"
+      },
+      "depth": 2,
+      "address_types": [
+        "Perek",
+        "Halakhah"
+      ],
+      "section_names": [
+        "Chapter",
+        "Halakhah"
+      ],
+      "start_indexes": [
+        5,
+        8
+      ],
+      "start_labels": [
+        "5",
+        "8"
+      ],
+      "end_indexes": [
+        5,
+        8
+      ],
+      "end_labels": [
+        "5",
+        "8"
+      ]
+    },
+    "Shulchan Arukh, Orach Chayim 272": {
+      "is_ref": true,
+      "normalized": "Shulchan Arukh, Orach Chayim 272",
+      "hebrew": "שולחן ערוך, אורח חיים ער״ב",
+      "url_ref": "Shulchan_Arukh,_Orach_Chayim.272",
+      "index_title": "Shulchan Arukh, Orach Chayim",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Shulchan Arukh, Orach Chayim"
+        ],
+        "first_available_section_ref": "Shulchan Arukh, Orach Chayim 272",
+        "prev_section_ref": "Shulchan Arukh, Orach Chayim 271",
+        "next_section_ref": "Shulchan Arukh, Orach Chayim 273",
+        "first_subref": "Shulchan Arukh, Orach Chayim 272:1",
+        "last_subref": "Shulchan Arukh, Orach Chayim 272:10"
+      },
+      "depth": 2,
+      "address_types": [
+        "Siman",
+        "Seif"
+      ],
+      "section_names": [
+        "Siman",
+        "Seif"
+      ],
+      "start_indexes": [
+        272
+      ],
+      "start_labels": [
+        "272"
+      ],
+      "end_indexes": [
+        272
+      ],
+      "end_labels": [
+        "272"
+      ]
+    },
+    "Teshuvot HaRivash 10": {
+      "is_ref": true,
+      "normalized": "Teshuvot HaRivash 10",
+      "hebrew": "תשובות הריב\"ש י׳",
+      "url_ref": "Teshuvot_HaRivash.10",
+      "index_title": "Teshuvot HaRivash",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Teshuvot HaRivash"
+        ],
+        "first_available_section_ref": "Teshuvot HaRivash 10",
+        "prev_section_ref": "Teshuvot HaRivash 9",
+        "next_section_ref": "Teshuvot HaRivash 11",
+        "first_subref": "Teshuvot HaRivash 10:1",
+        "last_subref": "Teshuvot HaRivash 10:2"
+      },
+      "depth": 2,
+      "address_types": [
+        "Siman",
+        "Seif"
+      ],
+      "section_names": [
+        "Teshuva",
+        "Paragraph"
+      ],
+      "start_indexes": [
+        10
+      ],
+      "start_labels": [
+        "10"
+      ],
+      "end_indexes": [
+        10
+      ],
+      "end_labels": [
+        "10"
+      ]
+    },
+    "Rosh Hashanah 16": {
+      "is_ref": true,
+      "normalized": "Rosh Hashanah 16",
+      "hebrew": "ראש השנה ט״ז",
+      "url_ref": "Rosh_Hashanah.16",
+      "index_title": "Rosh Hashanah",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Rosh Hashanah"
+        ],
+        "first_available_section_ref": "Rosh Hashanah 16",
+        "prev_section_ref": "Rosh Hashanah 15b",
+        "next_section_ref": "Rosh Hashanah 17a"
+      },
+      "depth": 2,
+      "address_types": [
+        "Talmud",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Line"
+      ],
+      "start_indexes": [
+        31
+      ],
+      "start_labels": [
+        "16a"
+      ],
+      "end_indexes": [
+        32
+      ],
+      "end_labels": [
+        "16b"
+      ]
+    },
+    "Shulchan Arukh, Yoreh De'ah 338": {
+      "is_ref": true,
+      "normalized": "Shulchan Arukh, Yoreh De'ah 338",
+      "hebrew": "שולחן ערוך, יורה דעה של״ח",
+      "url_ref": "Shulchan_Arukh,_Yoreh_De'ah.338",
+      "index_title": "Shulchan Arukh, Yoreh De'ah",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Shulchan Arukh, Yoreh De'ah"
+        ],
+        "first_available_section_ref": "Shulchan Arukh, Yoreh De'ah 338",
+        "prev_section_ref": "Shulchan Arukh, Yoreh De'ah 337",
+        "next_section_ref": "Shulchan Arukh, Yoreh De'ah 339",
+        "first_subref": "Shulchan Arukh, Yoreh De'ah 338:1",
+        "last_subref": "Shulchan Arukh, Yoreh De'ah 338:2"
+      },
+      "depth": 2,
+      "address_types": [
+        "Siman",
+        "Seif"
+      ],
+      "section_names": [
+        "Siman",
+        "Seif"
+      ],
+      "start_indexes": [
+        338
+      ],
+      "start_labels": [
+        "338"
+      ],
+      "end_indexes": [
+        338
+      ],
+      "end_labels": [
+        "338"
+      ]
+    },
+    "Taanit 16": {
+      "is_ref": true,
+      "normalized": "Taanit 16",
+      "hebrew": "תענית ט״ז",
+      "url_ref": "Taanit.16",
+      "index_title": "Taanit",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Taanit"
+        ],
+        "first_available_section_ref": "Taanit 16",
+        "prev_section_ref": "Taanit 15b",
+        "next_section_ref": "Taanit 17a"
+      },
+      "depth": 2,
+      "address_types": [
+        "Talmud",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Line"
+      ],
+      "start_indexes": [
+        31
+      ],
+      "start_labels": [
+        "16a"
+      ],
+      "end_indexes": [
+        32
+      ],
+      "end_labels": [
+        "16b"
+      ]
+    },
+    "Mishneh Torah, Fringes 1:6": {
+      "is_ref": true,
+      "normalized": "Mishneh Torah, Fringes 1:6",
+      "hebrew": "משנה תורה, הלכות ציצית א׳:ו׳",
+      "url_ref": "Mishneh_Torah,_Fringes.1.6",
+      "index_title": "Mishneh Torah, Fringes",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Mishneh Torah, Fringes",
+          "Mishneh Torah, Fringes 1"
+        ],
+        "first_available_section_ref": "Mishneh Torah, Fringes 1:6",
+        "prev_segment_ref": "Mishneh Torah, Fringes 1:5",
+        "next_segment_ref": "Mishneh Torah, Fringes 1:7"
+      },
+      "depth": 2,
+      "address_types": [
+        "Perek",
+        "Halakhah"
+      ],
+      "section_names": [
+        "Chapter",
+        "Halakhah"
+      ],
+      "start_indexes": [
+        1,
+        6
+      ],
+      "start_labels": [
+        "1",
+        "6"
+      ],
+      "end_indexes": [
+        1,
+        6
+      ],
+      "end_labels": [
+        "1",
+        "6"
+      ]
+    },
+    "Shabbat 117b": {
+      "is_ref": true,
+      "normalized": "Shabbat 117b",
+      "hebrew": "שבת קי״ז ב",
+      "url_ref": "Shabbat.117b",
+      "index_title": "Shabbat",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Shabbat"
+        ],
+        "first_available_section_ref": "Shabbat 117b",
+        "prev_section_ref": "Shabbat 117a",
+        "next_section_ref": "Shabbat 118a",
+        "first_subref": "Shabbat 117b:1",
+        "last_subref": "Shabbat 117b:11"
+      },
+      "depth": 2,
+      "address_types": [
+        "Talmud",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Line"
+      ],
+      "start_indexes": [
+        234
+      ],
+      "start_labels": [
+        "117b"
+      ],
+      "end_indexes": [
+        234
+      ],
+      "end_labels": [
+        "117b"
+      ]
+    },
+    "Berakhot 39b": {
+      "is_ref": true,
+      "normalized": "Berakhot 39b",
+      "hebrew": "ברכות ל״ט ב",
+      "url_ref": "Berakhot.39b",
+      "index_title": "Berakhot",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Berakhot"
+        ],
+        "first_available_section_ref": "Berakhot 39b",
+        "prev_section_ref": "Berakhot 39a",
+        "next_section_ref": "Berakhot 40a",
+        "first_subref": "Berakhot 39b:1",
+        "last_subref": "Berakhot 39b:11"
+      },
+      "depth": 2,
+      "address_types": [
+        "Talmud",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Line"
+      ],
+      "start_indexes": [
+        78
+      ],
+      "start_labels": [
+        "39b"
+      ],
+      "end_indexes": [
+        78
+      ],
+      "end_labels": [
+        "39b"
+      ]
+    },
+    "Shabbat 119b": {
+      "is_ref": true,
+      "normalized": "Shabbat 119b",
+      "hebrew": "שבת קי״ט ב",
+      "url_ref": "Shabbat.119b",
+      "index_title": "Shabbat",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Shabbat"
+        ],
+        "first_available_section_ref": "Shabbat 119b",
+        "prev_section_ref": "Shabbat 119a",
+        "next_section_ref": "Shabbat 120a",
+        "first_subref": "Shabbat 119b:1",
+        "last_subref": "Shabbat 119b:11"
+      },
+      "depth": 2,
+      "address_types": [
+        "Talmud",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Line"
+      ],
+      "start_indexes": [
+        238
+      ],
+      "start_labels": [
+        "119b"
+      ],
+      "end_indexes": [
+        238
+      ],
+      "end_labels": [
+        "119b"
+      ]
+    },
+    "Yevamot 33a": {
+      "is_ref": true,
+      "normalized": "Yevamot 33a",
+      "hebrew": "יבמות ל״ג א",
+      "url_ref": "Yevamot.33a",
+      "index_title": "Yevamot",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Yevamot"
+        ],
+        "first_available_section_ref": "Yevamot 33a",
+        "prev_section_ref": "Yevamot 32b",
+        "next_section_ref": "Yevamot 33b",
+        "first_subref": "Yevamot 33a:1",
+        "last_subref": "Yevamot 33a:10"
+      },
+      "depth": 2,
+      "address_types": [
+        "Talmud",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Line"
+      ],
+      "start_indexes": [
+        65
+      ],
+      "start_labels": [
+        "33a"
+      ],
+      "end_indexes": [
+        65
+      ],
+      "end_labels": [
+        "33a"
+      ]
+    },
+    "Shulchan Arukh, Orach Chayim 115": {
+      "is_ref": true,
+      "normalized": "Shulchan Arukh, Orach Chayim 115",
+      "hebrew": "שולחן ערוך, אורח חיים קט״ו",
+      "url_ref": "Shulchan_Arukh,_Orach_Chayim.115",
+      "index_title": "Shulchan Arukh, Orach Chayim",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Shulchan Arukh, Orach Chayim"
+        ],
+        "first_available_section_ref": "Shulchan Arukh, Orach Chayim 115",
+        "prev_section_ref": "Shulchan Arukh, Orach Chayim 114",
+        "next_section_ref": "Shulchan Arukh, Orach Chayim 116",
+        "first_subref": "Shulchan Arukh, Orach Chayim 115:1",
+        "last_subref": "Shulchan Arukh, Orach Chayim 115:1"
+      },
+      "depth": 2,
+      "address_types": [
+        "Siman",
+        "Seif"
+      ],
+      "section_names": [
+        "Siman",
+        "Seif"
+      ],
+      "start_indexes": [
+        115
+      ],
+      "start_labels": [
+        "115"
+      ],
+      "end_indexes": [
+        115
+      ],
+      "end_labels": [
+        "115"
+      ]
+    },
+    "Shulchan Arukh, Even HaEzer 62:12": {
+      "is_ref": true,
+      "normalized": "Shulchan Arukh, Even HaEzer 62:12",
+      "hebrew": "שולחן ערוך, אבן העזר ס״ב:י״ב",
+      "url_ref": "Shulchan_Arukh,_Even_HaEzer.62.12",
+      "index_title": "Shulchan Arukh, Even HaEzer",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Shulchan Arukh, Even HaEzer",
+          "Shulchan Arukh, Even HaEzer",
+          "Shulchan Arukh, Even HaEzer 62"
+        ],
+        "first_available_section_ref": "Shulchan Arukh, Even HaEzer 62:12",
+        "prev_segment_ref": "Shulchan Arukh, Even HaEzer 62:11",
+        "next_segment_ref": "Shulchan Arukh, Even HaEzer 62:13"
+      },
+      "depth": 2,
+      "address_types": [
+        "Siman",
+        "Seif"
+      ],
+      "section_names": [
+        "Siman",
+        "Seif"
+      ],
+      "start_indexes": [
+        62,
+        12
+      ],
+      "start_labels": [
+        "62",
+        "12"
+      ],
+      "end_indexes": [
+        62,
+        12
+      ],
+      "end_labels": [
+        "62",
+        "12"
+      ]
+    },
+    "Eruvin 40a": {
+      "is_ref": true,
+      "normalized": "Eruvin 40a",
+      "hebrew": "עירובין מ׳ א",
+      "url_ref": "Eruvin.40a",
+      "index_title": "Eruvin",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Eruvin"
+        ],
+        "first_available_section_ref": "Eruvin 40a",
+        "prev_section_ref": "Eruvin 39b",
+        "next_section_ref": "Eruvin 40b",
+        "first_subref": "Eruvin 40a:1",
+        "last_subref": "Eruvin 40a:17"
+      },
+      "depth": 2,
+      "address_types": [
+        "Talmud",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Line"
+      ],
+      "start_indexes": [
+        79
+      ],
+      "start_labels": [
+        "40a"
+      ],
+      "end_indexes": [
+        79
+      ],
+      "end_labels": [
+        "40a"
+      ]
+    }
+  },
+  "metadataStatus": {
+    "Teshuvot haRashba part I 24": 500,
+    "Shulchan Arukh, Orach Chayim 115": 200,
+    "Shulchan Arukh, Even HaEzer 62:12": 200,
+    "Eruvin 40a": 200
+  }
+}

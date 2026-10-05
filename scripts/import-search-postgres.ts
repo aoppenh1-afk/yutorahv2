@@ -19,6 +19,7 @@ const child = spawn(
     '--dbname',
     url.toString(),
     '--file=db/search-postgres/001_search.sql',
+    '--file=db/search-postgres/002_sources.sql',
     '--file=' + copyPath,
   ],
   {
