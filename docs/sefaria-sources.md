@@ -41,36 +41,39 @@ Reviewed Sefaria's documentation, implementation, and live endpoints on 2026-10-
   confirmed Python Unicode character offsets: emoji consume one offset, unlike
   JavaScript's UTF-16 string indexes.
 
-A link requires one successful, unambiguous result whose exact character span
-matches the original transcript. Debug data must contain no context ref, ibid,
-or inferred resolution parts. Reference metadata must then describe a sufficiently
-specific location:
+A link requires an identifiable work and a numbered location validated by Sefaria.
+The Linker pass checks exact transcript spans and rejects ambiguous or inferred
+resolutions. A separate spoken-citation parser recovers explicit names and locations
+spread across nearby words, sentences, or segments. It proposes only addresses
+present in the transcript and validates each proposal against reference metadata.
+The linked location keeps the detail the speaker actually supplied:
 
-| Mention                                                  | Behavior                                                      |
-| -------------------------------------------------------- | ------------------------------------------------------------- |
-| Gemara Shabbos / מסכת פסחים                              | Omit: missing daf and amud                                    |
-| Shabbat 2                                                | Omit: Sefaria may default the missing amud                    |
-| Shabbos 2b / שבת ב ע״ב                                   | Accept the canonical Shabbat 2b                               |
-| Tosfos daf 2b                                            | Omit: missing tractate and individual comment                 |
-| Tosfos on Shabbos 2b                                     | Omit: whole commentary page                                   |
-| Tosafot on Shabbat 2b:1                                  | Accept a specific commentary entry                            |
-| Commentary with a dibbur hamatchil                       | Accept only if Sefaria resolves one explicit individual entry |
-| Genesis 1                                                | Omit: chapter only                                            |
-| Genesis 1:1 / בראשית א:א                                 | Accept; deduplicate under Genesis 1:1                         |
-| Ibid. / שם / inferred references                         | Omit, even if Sefaria resolves them                           |
-| Multiple matches or disagreement between language models | Omit                                                          |
+| Mention                                                  | Behavior                                               |
+| -------------------------------------------------------- | ------------------------------------------------------ |
+| Gemara Shabbos / מסכת פסחים                              | Omit: missing a numbered location                      |
+| Menachos 37 / Shabbat 2                                  | Accept the whole daf, including both amudim            |
+| Shabbos 2b / שבת ב ע״ב                                   | Accept the canonical Shabbat 2b                        |
+| Tosfos daf 2b                                            | Omit: missing tractate                                 |
+| Tosfos on Shabbos 2b                                     | Accept the commentary page                             |
+| Tosafot on Shabbat 2b:1                                  | Accept a specific commentary entry                     |
+| Commentary with a dibbur hamatchil                       | Link the resolved entry, or the explicitly named page  |
+| Genesis 1                                                | Accept the chapter                                     |
+| Genesis 1:1 / בראשית א:א                                 | Accept; deduplicate under Genesis 1:1                  |
+| Ibid. / שם / inferred references                         | Omit, even if Sefaria resolves them                    |
+| Multiple matches or disagreement between language models | Omit                                                   |
+| Shulchan Aruch in auruch chaim ... In siman 37           | Accept Shulchan Arukh, Orach Chayim 37                 |
+| Mishnah Berurah ... siman thirty seven, sif katan daled  | Accept Mishnah Berurah 37:4                            |
+| Shulchan Aruch ... siman 37, sif katan daled             | Accept siman 37; do not invent a commentator or seif 4 |
+| Orach Chaim siman 37 without a work name                 | Omit: section alone cannot select Shulchan Arukh       |
 
-Talmud citations require an explicit amud in the detected wording, including
-Hebrew daf-dot/daf-colon notation. Ranges across dapim require explicit, matching
-daf/amud endpoints; a side elsewhere in the citation is insufficient. A Talmud
-commentary also needs an entry below the daf. Tosafot's schema can have a third
-dimension for paragraphs within that entry, so `2b:1` is accepted without
-inventing `:1:1`. Other works require all address levels: verse, mishnah, halacha,
-individual non-Talmud commentary, etc. A numbered responsum is a complete
-bibliographic source even when Sefaria adds paragraph dimensions beneath it. A partially recognized Gemara citation
-immediately following a Tosfos/Rashi/Ramban/Rashba/Ritva/Ran/Rosh/Maharsha prefix
-is suppressed, including possessive and spoken phrases such as “Tosfos’s comment
-on” and “Rashi says in”.
+An explicit amud, verse, seif, halacha, or commentary entry remains specific.
+A missing amud links both sides of the named daf. Whole-daf ranges also include
+both sides; a mixed range expands only its unspecified endpoint. A side supplied
+silently by the Linker is never accepted as though the speaker supplied it.
+Chapter, siman and commentary-page references are useful sources in their own
+right. A commentary name stays attached to the commentary, including phrases
+such as "Tosfos's comment on" and "Rashi says in". A partially recognized base
+Gemara match is suppressed when the speaker named a commentary.
 
 ## Pipeline and storage
 
@@ -80,9 +83,15 @@ website and tests call this same interface. `sourcesResponse` reads the transcri
 through the existing server-side gateway. Client-supplied prose is ignored, and
 `/api/source-text` refuses refs absent from that transcript's accepted list.
 
-Input is split into at most 12,000 Unicode characters with 256-character overlaps.
-Original segment text and offsets are retained; no transliteration rewrite, LLM
-source generation, quotation search, or related-source expansion is involved.
+Input is split into at most 12,000 Unicode characters with 512-character overlaps.
+Original segment text and offsets are retained. Spoken recovery recognizes common
+tractate and halachic work aliases, English cardinal/ordinal numbers, transliterated
+Hebrew letters and Hebrew numerals. Named source and location parts may be at
+most 450 characters apart, with at most 40 tokens after a name. Another named
+source ends the search window. Segment start times may span at most two minutes,
+with no gap over 30 seconds. Only the source and address words are highlighted;
+intervening explanations stay plain. There is no LLM source generation,
+quotation search, or related-source expansion.
 Matches crossing adjacent segments retain all highlight spans and the first
 segment's seek position. Repeated canonical refs retain distinct occurrences;
 overlap/model duplicates do not create duplicate timestamps.
@@ -91,7 +100,7 @@ Each request completes a bounded pass and checkpoints it in `sources_runs` in
 the **search database**, not the read-only transcription database. A lease prevents
 simultaneous visitors from submitting the same pending chunk twice. The key
 includes policy version, transcript ID, text, and segment timings. Cold servers
-can resume; corrected transcripts produce fresh runs. Completed runs last seven
+can resume; corrected transcripts produce fresh runs. Completed runs last thirty
 days. A short published-transcript snapshot is cached for 60 seconds in SQL
 and reused by polls and text requests, so corrected or removed transcripts are
 rechecked within a minute. A requested revision mismatch forces an immediate
@@ -104,6 +113,9 @@ lease expires after a minute; an expired five-minute Sefaria task can be restart
 automatically on retry. Every save checks both the lease owner and expiry; a
 stale request cannot publish unsaved results or release a replacement owner’s
 lease. The UI polls every two seconds and can resume after its poll budget.
+An unavailable metadata lookup preserves the other verified references from its
+pass and retries the failed reference after remaining candidates. A persistent
+upstream error stays visible and can prevent the run from completing.
 Transient network errors and HTTP 429/5xx are retried up to four times with
 exponential backoff and Retry-After (seconds or HTTP dates), bounded to one minute.
 Changing shiur or hiding the reader cancels waits and requests.
@@ -117,9 +129,10 @@ are counted once for the first 2,000 distinct omission keys.
 ## Remaining gaps and intentional limits
 
 - **Find Refs finds citations, not the provenance of an arbitrary quotation.**
-  An uncited quotation, shorthand, transcription mistake, or unresolved dibbur
-  hamatchil may be missed. There is no fuzzy full-text fallback that could add a
-  source the speaker never cited. Precision is prioritized over coverage.
+  An uncited quotation, an alias outside the spoken parser's catalog, a transcription
+  mistake, or an unresolved dibbur hamatchil may be missed. An explicitly named
+  commentary page can still be linked when its individual entry cannot be resolved.
+  There is no fuzzy full-text fallback that could add a source the speaker never cited.
 - Even an explicit, recognized citation can have been transcribed incorrectly
   or misquoted by the speaker. We identify references; we do not certify that the
   speech matches the source text. The interface labels the result as automatic.
@@ -134,16 +147,16 @@ are counted once for the first 2,000 distinct omission keys.
   than assigning one license to all content.
 - Sheet text is limited to eight nonempty segments and 12,000 characters per edition,
   in excerpt mode. Complete mode allows up to 500 segments and 200,000 characters
-per edition, still labeling any shortened text and linking its complete citation.
-Upstream JSON downloads are capped at four million bytes before parsing. Extraction accepts
+  per edition, still labeling any shortened text and linking its complete citation.
+  Upstream JSON downloads are capped at four million bytes before parsing. Extraction accepts
   transcripts up to two million UTF-16 characters and displays up to 100 unique
   sources, 50 occurrences per source and 300 total occurrences, with a notice when
-limits are reached. Per-model candidate queues and metadata caches are bounded;
-SQL payloads cannot exceed 900,000 bytes.
+  limits are reached. Per-model candidate queues and metadata caches are bounded;
+  SQL payloads cannot exceed 900,000 bytes.
 - Opening Sources sends transcript chunks to Sefaria. No tracking metadata,
   credentials, generated notes, or shiur title is sent. Opening the sheet sends
   only accepted canonical refs. Text requests share the published-transcript
-snapshot and accepted whitelist. The external API must be available; retries
+  snapshot and accepted whitelist. The external API must be available; retries
   preserve progress and upstream errors stay server-side.
 
 ## Deployment
@@ -213,16 +226,17 @@ keywords. All 30 happen to be Rabbi Aryeh Lebowitz; this is not a random or
 representative estimate for the archive. Review was performed by the Codex agent;
 independent human review is pending.
 
-The baseline accepts 10 of 18 complete citations whose canonical works are in
-Sefaria, with zero incorrect links relative to these annotations (precision 100%,
-recall 55.6%). Eight citations are missed. One sample fails because
-`/api/ref/Teshuvot haRashba part I 24` consistently returns HTTP 500; this also
-blocks its otherwise recognized Rivash citation. Other misses are unrecognized
-wording or refs that Sefaria resolved using context despite a complete citation
-in the excerpt. Four additional fully named citations were unavailable in the
-library lookup and are reported separately from recall. These figures describe
-this reviewed excerpt set, not a guarantee for arbitrary transcripts or audio
-accuracy. No uncited source was added to improve coverage.
+The original policy accepted 10 of 18 complete citations. The 2026-10-06 review
+adds seven explicitly named broad references to the annotations, bringing the
+expected set to 25. Spoken recovery and the broader policy accept 24 of those 25,
+with zero incorrect links relative to the annotations. The remaining reference,
+`Teshuvot haRashba part I 24`, has a recorded HTTP 500 metadata failure. Its Rivash
+and Beit Yosef neighbors are now preserved despite that failure. Four additional
+fully named citations were unavailable in the library lookup and are reported
+separately. These figures describe this bounded, agent-reviewed excerpt set and
+its revised acceptance policy. They are not an archive-wide accuracy estimate.
+Missing metadata was recorded on 2026-10-06; the original Linker responses were
+retained.
 
 Run `npm run sources:evaluate` to reproduce the report offline. Run
 `npm run sources:evaluate -- --record --output REPORT.json` to collect missing

@@ -6155,12 +6155,464 @@
       "end_labels": [
         "40a"
       ]
+    },
+    "Avodah Zarah 31b": {
+      "is_ref": true,
+      "normalized": "Avodah Zarah 31b",
+      "hebrew": "עבודה זרה ל״א ב",
+      "url_ref": "Avodah_Zarah.31b",
+      "index_title": "Avodah Zarah",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Avodah Zarah"
+        ],
+        "first_available_section_ref": "Avodah Zarah 31b",
+        "prev_section_ref": "Avodah Zarah 31a",
+        "next_section_ref": "Avodah Zarah 32a",
+        "first_subref": "Avodah Zarah 31b:1",
+        "last_subref": "Avodah Zarah 31b:12"
+      },
+      "depth": 2,
+      "address_types": [
+        "Talmud",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Line"
+      ],
+      "start_indexes": [
+        62
+      ],
+      "start_labels": [
+        "31b"
+      ],
+      "end_indexes": [
+        62
+      ],
+      "end_labels": [
+        "31b"
+      ]
+    },
+    "Tosafot on Pesachim 109b": {
+      "is_ref": true,
+      "normalized": "Tosafot on Pesachim 109b",
+      "hebrew": "תוספות על פסחים ק״ט ב",
+      "url_ref": "Tosafot_on_Pesachim.109b",
+      "index_title": "Tosafot on Pesachim",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Tosafot on Pesachim"
+        ],
+        "first_available_section_ref": "Tosafot on Pesachim 109b:1",
+        "first_subref": "Tosafot on Pesachim 109b:1",
+        "last_subref": "Tosafot on Pesachim 109b:6"
+      },
+      "depth": 3,
+      "address_types": [
+        "Talmud",
+        "Integer",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Line",
+        "Comment"
+      ],
+      "start_indexes": [
+        218
+      ],
+      "start_labels": [
+        "109b"
+      ],
+      "end_indexes": [
+        218
+      ],
+      "end_labels": [
+        "109b"
+      ]
+    },
+    "Beit Yosef, Orach Chayim 272": {
+      "is_ref": true,
+      "normalized": "Beit Yosef, Orach Chayim 272",
+      "hebrew": "בית יוסף, אורח חיים ער״ב",
+      "url_ref": "Beit_Yosef,_Orach_Chayim.272",
+      "index_title": "Beit Yosef",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Beit Yosef",
+          "Beit Yosef, Orach Chayim"
+        ],
+        "first_available_section_ref": "Beit Yosef, Orach Chayim 272:1",
+        "first_subref": "Beit Yosef, Orach Chayim 272:1",
+        "last_subref": "Beit Yosef, Orach Chayim 272:20"
+      },
+      "depth": 3,
+      "address_types": [
+        "Siman",
+        "Integer",
+        "Integer"
+      ],
+      "section_names": [
+        "Siman",
+        "Seif Katan",
+        "Paragraph"
+      ],
+      "start_indexes": [
+        272
+      ],
+      "start_labels": [
+        "272"
+      ],
+      "end_indexes": [
+        272
+      ],
+      "end_labels": [
+        "272"
+      ]
+    },
+    "Turei Zahav on Shulchan Arukh, Orach Chayim 634:2": {
+      "is_ref": true,
+      "normalized": "Turei Zahav on Shulchan Arukh, Orach Chayim 634:2",
+      "hebrew": "טורי זהב על שולחן ערוך אורח חיים תרל״ד:ב׳",
+      "url_ref": "Turei_Zahav_on_Shulchan_Arukh,_Orach_Chayim.634.2",
+      "index_title": "Turei Zahav on Shulchan Arukh, Orach Chayim",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Turei Zahav on Shulchan Arukh, Orach Chayim",
+          "Turei Zahav on Shulchan Arukh, Orach Chayim 634"
+        ],
+        "first_available_section_ref": "Turei Zahav on Shulchan Arukh, Orach Chayim 634:2",
+        "prev_segment_ref": "Turei Zahav on Shulchan Arukh, Orach Chayim 634:1",
+        "next_segment_ref": "Turei Zahav on Shulchan Arukh, Orach Chayim 635:1"
+      },
+      "depth": 2,
+      "address_types": [
+        "Siman",
+        "Seif"
+      ],
+      "section_names": [
+        "Siman",
+        "Seif"
+      ],
+      "start_indexes": [
+        634,
+        2
+      ],
+      "start_labels": [
+        "634",
+        "2"
+      ],
+      "end_indexes": [
+        634,
+        2
+      ],
+      "end_labels": [
+        "634",
+        "2"
+      ]
+    },
+    "Bava Kamma 125": {
+      "is_ref": false
+    },
+    "Beit Yosef, Yoreh De'ah 338": {
+      "is_ref": true,
+      "normalized": "Beit Yosef, Yoreh De'ah 338",
+      "hebrew": "בית יוסף, יורה דעה של״ח",
+      "url_ref": "Beit_Yosef,_Yoreh_De'ah.338",
+      "index_title": "Beit Yosef",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Beit Yosef",
+          "Beit Yosef, Yoreh De'ah"
+        ],
+        "first_available_section_ref": "Beit Yosef, Yoreh De'ah 338:1",
+        "first_subref": "Beit Yosef, Yoreh De'ah 338:1",
+        "last_subref": "Beit Yosef, Yoreh De'ah 338:5"
+      },
+      "depth": 3,
+      "address_types": [
+        "Siman",
+        "Integer",
+        "Integer"
+      ],
+      "section_names": [
+        "Siman",
+        "Seif Katan",
+        "Paragraph"
+      ],
+      "start_indexes": [
+        338
+      ],
+      "start_labels": [
+        "338"
+      ],
+      "end_indexes": [
+        338
+      ],
+      "end_labels": [
+        "338"
+      ]
+    },
+    "Berakhot 40a": {
+      "is_ref": true,
+      "normalized": "Berakhot 40a",
+      "hebrew": "ברכות מ׳ א",
+      "url_ref": "Berakhot.40a",
+      "index_title": "Berakhot",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Berakhot"
+        ],
+        "first_available_section_ref": "Berakhot 40a",
+        "prev_section_ref": "Berakhot 39b",
+        "next_section_ref": "Berakhot 40b",
+        "first_subref": "Berakhot 40a:1",
+        "last_subref": "Berakhot 40a:15"
+      },
+      "depth": 2,
+      "address_types": [
+        "Talmud",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Line"
+      ],
+      "start_indexes": [
+        79
+      ],
+      "start_labels": [
+        "40a"
+      ],
+      "end_indexes": [
+        79
+      ],
+      "end_labels": [
+        "40a"
+      ]
+    },
+    "Rashba on Shabbat 115": {
+      "is_ref": true,
+      "normalized": "Rashba on Shabbat 115",
+      "hebrew": "רשב״א על שבת קט״ו",
+      "url_ref": "Rashba_on_Shabbat.115",
+      "index_title": "Rashba on Shabbat",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Rashba on Shabbat"
+        ],
+        "first_available_section_ref": "Rashba on Shabbat 115",
+        "prev_section_ref": "Rashba on Shabbat 114b",
+        "next_section_ref": "Rashba on Shabbat 116a"
+      },
+      "depth": 2,
+      "address_types": [
+        "Talmud",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Comment"
+      ],
+      "start_indexes": [
+        229
+      ],
+      "start_labels": [
+        "115a"
+      ],
+      "end_indexes": [
+        230
+      ],
+      "end_labels": [
+        "115b"
+      ]
+    },
+    "Ketubot 64b": {
+      "is_ref": true,
+      "normalized": "Ketubot 64b",
+      "hebrew": "כתובות ס״ד ב",
+      "url_ref": "Ketubot.64b",
+      "index_title": "Ketubot",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Ketubot"
+        ],
+        "first_available_section_ref": "Ketubot 64b",
+        "prev_section_ref": "Ketubot 64a",
+        "next_section_ref": "Ketubot 65a",
+        "first_subref": "Ketubot 64b:1",
+        "last_subref": "Ketubot 64b:18"
+      },
+      "depth": 2,
+      "address_types": [
+        "Talmud",
+        "Integer"
+      ],
+      "section_names": [
+        "Daf",
+        "Line"
+      ],
+      "start_indexes": [
+        128
+      ],
+      "start_labels": [
+        "64b"
+      ],
+      "end_indexes": [
+        128
+      ],
+      "end_labels": [
+        "64b"
+      ]
+    },
+    "Responsa Chatam Sofer, Orach Chayim 115": {
+      "is_ref": true,
+      "normalized": "Responsa Chatam Sofer, Orach Chayim 115",
+      "hebrew": "שו\"ת חתם סופר, אורח חיים קט״ו",
+      "url_ref": "Responsa_Chatam_Sofer,_Orach_Chayim.115",
+      "index_title": "Responsa Chatam Sofer",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Responsa Chatam Sofer",
+          "Responsa Chatam Sofer, Orach Chayim"
+        ],
+        "first_available_section_ref": "Responsa Chatam Sofer, Orach Chayim 115",
+        "prev_section_ref": "Responsa Chatam Sofer, Orach Chayim 114",
+        "next_section_ref": "Responsa Chatam Sofer, Orach Chayim 116",
+        "first_subref": "Responsa Chatam Sofer, Orach Chayim 115:1",
+        "last_subref": "Responsa Chatam Sofer, Orach Chayim 115:3"
+      },
+      "depth": 2,
+      "address_types": [
+        "Siman",
+        "Integer"
+      ],
+      "section_names": [
+        "Teshuva",
+        "Paragraph"
+      ],
+      "start_indexes": [
+        115
+      ],
+      "start_labels": [
+        "115"
+      ],
+      "end_indexes": [
+        115
+      ],
+      "end_labels": [
+        "115"
+      ]
+    },
+    "Mishneh Torah, Marriage 10:12": {
+      "is_ref": true,
+      "normalized": "Mishneh Torah, Marriage 10:12",
+      "hebrew": "משנה תורה, הלכות אישות י׳:י״ב",
+      "url_ref": "Mishneh_Torah,_Marriage.10.12",
+      "index_title": "Mishneh Torah, Marriage",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Mishneh Torah, Marriage",
+          "Mishneh Torah, Marriage 10"
+        ],
+        "first_available_section_ref": "Mishneh Torah, Marriage 10:12",
+        "prev_segment_ref": "Mishneh Torah, Marriage 10:11",
+        "next_segment_ref": "Mishneh Torah, Marriage 10:13"
+      },
+      "depth": 2,
+      "address_types": [
+        "Perek",
+        "Halakhah"
+      ],
+      "section_names": [
+        "Chapter",
+        "Halakhah"
+      ],
+      "start_indexes": [
+        10,
+        12
+      ],
+      "start_labels": [
+        "10",
+        "12"
+      ],
+      "end_indexes": [
+        10,
+        12
+      ],
+      "end_labels": [
+        "10",
+        "12"
+      ]
+    },
+    "Mishneh Torah, Daily Offerings and Additional Offerings 6": {
+      "is_ref": true,
+      "normalized": "Mishneh Torah, Daily Offerings and Additional Offerings 6",
+      "hebrew": "משנה תורה, הלכות תמידים ומוספין ו׳",
+      "url_ref": "Mishneh_Torah,_Daily_Offerings_and_Additional_Offerings.6",
+      "index_title": "Mishneh Torah, Daily Offerings and Additional Offerings",
+      "node_type": "JaggedArrayNode",
+      "navigation_refs": {
+        "shortest_path_to_root": [
+          "Mishneh Torah, Daily Offerings and Additional Offerings"
+        ],
+        "first_available_section_ref": "Mishneh Torah, Daily Offerings and Additional Offerings 6",
+        "prev_section_ref": "Mishneh Torah, Daily Offerings and Additional Offerings 5",
+        "next_section_ref": "Mishneh Torah, Daily Offerings and Additional Offerings 7",
+        "first_subref": "Mishneh Torah, Daily Offerings and Additional Offerings 6:1",
+        "last_subref": "Mishneh Torah, Daily Offerings and Additional Offerings 6:11"
+      },
+      "depth": 2,
+      "address_types": [
+        "Perek",
+        "Halakhah"
+      ],
+      "section_names": [
+        "Chapter",
+        "Halakhah"
+      ],
+      "start_indexes": [
+        6
+      ],
+      "start_labels": [
+        "6"
+      ],
+      "end_indexes": [
+        6
+      ],
+      "end_labels": [
+        "6"
+      ]
     }
   },
   "metadataStatus": {
     "Teshuvot haRashba part I 24": 500,
     "Shulchan Arukh, Orach Chayim 115": 200,
     "Shulchan Arukh, Even HaEzer 62:12": 200,
-    "Eruvin 40a": 200
-  }
+    "Eruvin 40a": 200,
+    "Avodah Zarah 31b": 200,
+    "Tosafot on Pesachim 109b": 200,
+    "Beit Yosef, Orach Chayim 272": 200,
+    "Turei Zahav on Shulchan Arukh, Orach Chayim 634:2": 200,
+    "Bava Kamma 125": 200,
+    "Beit Yosef, Yoreh De'ah 338": 200,
+    "Berakhot 40a": 200,
+    "Rashba on Shabbat 115": 200,
+    "Ketubot 64b": 200,
+    "Responsa Chatam Sofer, Orach Chayim 115": 200,
+    "Mishneh Torah, Marriage 10:12": 200,
+    "Mishneh Torah, Daily Offerings and Additional Offerings 6": 200
+  },
+  "metadataUpdatedAt": "2026-10-06T19:41:06.658Z"
 }

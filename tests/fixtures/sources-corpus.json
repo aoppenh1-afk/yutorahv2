@@ -1,7 +1,7 @@
 {
   "collectedAt": "2026-10-02",
   "reviewedBy": "Codex agent; independent human review pending",
-  "scope": "30 citation-bearing excerpts from 30 published transcripts; selected by citation keywords, not a random sample. All sampled shiurim are Rabbi Aryeh Lebowitz. Expected references were annotated before replaying Linker output.",
+  "scope": "30 citation-bearing excerpts from 30 published transcripts; selected by citation keywords, not a random sample. All sampled shiurim are Rabbi Aryeh Lebowitz. Expected references were annotated before replaying Linker output. On 2026-10-06, annotations were expanded to include explicitly named whole dapim, simanim and commentary pages before evaluating the broader policy.",
   "samples": [
     {
       "shiurId": "1180522",
@@ -140,9 +140,11 @@
           "endMs": 573000
         }
       ],
-      "expectedRefs": [],
+      "expectedRefs": [
+        "Tosafot on Pesachim 109b"
+      ],
       "unavailableCitations": [],
-      "reviewNote": "Pesachim lacks a Gemara daf. The Tosafot citation includes daf, amud and DH Bameh, but Bameh was not found at the cited 109b in the live Sefaria text. Do not change the daf or link the whole page."
+      "reviewNote": "Tosafot, daf 109 amud b and tractate Pesachim are explicitly spoken with the location before the tractate. Link the commentary page. The named DH Bameh was not found there; do not invent a specific comment or alter the daf."
     },
     {
       "shiurId": "1168944",
@@ -161,10 +163,11 @@
       ],
       "expectedRefs": [
         "Teshuvot haRashba part I 24",
-        "Teshuvot HaRivash 10"
+        "Teshuvot HaRivash 10",
+        "Beit Yosef, Orach Chayim 272"
       ],
       "unavailableCitations": [],
-      "reviewNote": "Yerushalmi perek lacks halacha. Rashba and Rivash responsa are complete citations. Ramban/Ritva lack individual locations. Shulchan Arukh over there requires external context. Sefaria Linker canonical name independently confirms the responsum, but /api/ref returns HTTP 500 for this ref; record an upstream failure, not a guessed link."
+      "reviewNote": "Beit Yosef names Orach Chayim and siman 272, which now qualifies as a broad commentary source. Rashba and Rivash responsa remain complete; the recorded Rashba metadata HTTP 500 is still an upstream failure."
     },
     {
       "shiurId": "1181153",
@@ -202,9 +205,13 @@
           "endMs": 1089000
         }
       ],
-      "expectedRefs": [],
+      "expectedRefs": [
+        "Rosh Hashanah 16",
+        "Taanit 16",
+        "Beit Yosef, Yoreh De'ah 338"
+      ],
       "unavailableCitations": [],
-      "reviewNote": "All Talmud mentions omit amud. Beit Yosef siman alone does not identify an individual commentary entry."
+      "reviewNote": "The two named Gemara dapim omit amud and should link both sides. Beit Yosef explicitly names Yoreh Deah and siman 338, a useful broad commentary reference. Bava Kamma 125 is outside the tractate and must remain unresolved."
     },
     {
       "shiurId": "873935",
@@ -529,9 +536,11 @@
           "endMs": 524000
         }
       ],
-      "expectedRefs": [],
+      "expectedRefs": [
+        "Rashba on Shabbat 115"
+      ],
       "unavailableCitations": [],
-      "reviewNote": "Rashba omits amud and individual comment. Shulchan Arukh omits its section; Ran citation must not become a base-work link."
+      "reviewNote": "Rashba explicitly names Shabbat daf 115 without an amud or individual entry. Link the broad commentary daf. The Shulchan Arukh section is absent; the Ran mention cannot become a base-work link."
     },
     {
       "shiurId": "1005067",
@@ -591,9 +600,11 @@
           "endMs": 504000
         }
       ],
-      "expectedRefs": [],
+      "expectedRefs": [
+        "Mishneh Torah, Daily Offerings and Additional Offerings 6"
+      ],
       "unavailableCitations": [],
-      "reviewNote": "Mishneh Torah chapter six lacks halacha."
+      "reviewNote": "Rambam explicitly names Hilchot Temidin uMusafin and chapter six, separated by a few words. Link the chapter without inventing a halacha."
     },
     {
       "shiurId": "1151241",
@@ -614,5 +625,6 @@
       "unavailableCitations": [],
       "reviewNote": "Shulchan Arukh omits section and subsequent Rema has no individual comment."
     }
-  ]
+  ],
+  "policyReviewedAt": "2026-10-06"
 }

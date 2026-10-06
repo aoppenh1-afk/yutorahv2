@@ -9,6 +9,7 @@ import {
   type RefMetadata,
   type SefariaFetch,
 } from './sefaria';
+import { spokenCitations } from './spoken-sources';
 
 export type SourceTranscript = {
   transcriptId: string;
@@ -60,7 +61,7 @@ type Candidate = {
   ref: string;
   category: string;
   occurrence: SourceOccurrence;
-  language?: 'en' | 'he';
+  language?: 'en' | 'he' | 'spoken';
 };
 type State = {
   cursor: number;
@@ -79,9 +80,9 @@ type State = {
   done: boolean;
 };
 type Row = { payload: string; lease: number; expires: number };
-const policyVersion = 5;
+const policyVersion = 6;
 const chunkSize = 12000;
-const overlap = 256;
+const overlap = 512;
 const cacheDuration = 30 * 24 * 60 * 60 * 1000;
 
 export class SourcesLimitError extends Error {}
@@ -263,7 +264,7 @@ export async function advanceSources(
     if (state.candidates.length) {
       const candidates = state.candidates.slice(0, 4);
       const refs = [...new Set(candidates.map((c) => c.ref))];
-      const checkedRefs = await Promise.all(
+      const checkedRefs = await Promise.allSettled(
         refs.map(async (ref) => ({
           ref,
           meta: Object.hasOwn(state.metadata, ref)
@@ -271,10 +272,21 @@ export async function advanceSources(
             : await refMetadata(ref, fetcher),
         })),
       );
-      const checked = candidates.map((c) => ({
-        c,
-        meta: checkedRefs.find((item) => item.ref === c.ref)!.meta,
-      }));
+      const failed = candidates.filter(
+        (c) => checkedRefs[refs.indexOf(c.ref)].status === 'rejected',
+      );
+      if (failed.length === candidates.length) {
+        const failure = checkedRefs.find(
+          (result) => result.status === 'rejected',
+        )!;
+        throw failure.reason;
+      }
+      const checked = candidates.flatMap((c) => {
+        const result = checkedRefs[refs.indexOf(c.ref)];
+        return result.status === 'fulfilled'
+          ? [{ c, meta: result.value.meta }]
+          : [];
+      });
       for (const { c, meta } of checked) {
         if (
           !Object.hasOwn(state.metadata, c.ref) &&
@@ -286,7 +298,12 @@ export async function advanceSources(
         const reason =
           !meta || !url
             ? 'unresolved'
-            : specificityReason(meta, c.category, c.occurrence.mention);
+            : c.language === 'spoken' && meta.normalized !== c.ref
+              ? 'invalid_match'
+              : specificityReason(
+                  meta,
+                  c.language === 'spoken' ? c.ref : c.occurrence.mention,
+                );
         if (reason || !meta || !url) {
           omit(state, { ...c.occurrence, reason: reason || 'unresolved' });
           continue;
@@ -319,6 +336,9 @@ export async function advanceSources(
           source.occurrences.push(c.occurrence);
       }
       state.candidates.splice(0, candidates.length);
+      // One unavailable ref must not discard the verified refs from the same pass.
+      // Retry failed refs after the remaining candidates, with the usual upstream backoff.
+      state.candidates.push(...failed);
     } else if (state.cursor < chars.length || state.task) {
       const start = state.cursor;
       let end = Math.min(chars.length, start + chunkSize);
@@ -370,6 +390,83 @@ export async function advanceSources(
         state.task = null;
         state.language++;
         if (state.language >= languages.length) {
+          const spoken = spokenCitations(chunk).flatMap(
+            (citation): Candidate[] => {
+              const from =
+                start + Array.from(chunk.slice(0, citation.start)).length;
+              const to =
+                start + Array.from(chunk.slice(0, citation.end)).length;
+              const occurrence = sourceOccurrence(
+                chars,
+                from,
+                to,
+                transcript,
+                segmentOffsets,
+                citation.ranges.map((range) => ({
+                  start: start + Array.from(chunk.slice(0, range.start)).length,
+                  end: start + Array.from(chunk.slice(0, range.end)).length,
+                })),
+              );
+              if (!occurrence) return [];
+              const firstSegment = occurrence.spans[0].segmentIndex;
+              const lastSegment = occurrence.spans.at(-1)!.segmentIndex;
+              if (
+                transcript.segments[lastSegment].startMs -
+                  transcript.segments[firstSegment].startMs >
+                120000
+              )
+                return [];
+              for (let i = firstSegment + 1; i <= lastSegment; i++)
+                if (
+                  transcript.segments[i].startMs -
+                    transcript.segments[i - 1].endMs >
+                  30000
+                )
+                  return [];
+              // Retain genuine model disagreements. Only replace an agreeing parse or a default amud.
+              const matching = state.proposals.filter((candidate) =>
+                overlaps(candidate.occurrence, occurrence),
+              );
+              if (
+                matching.some(
+                  (candidate) =>
+                    candidate.ref !== citation.ref &&
+                    candidate.ref.replace(/(\d+)[ab]$/u, '$1') !==
+                      citation.ref &&
+                    !(
+                      citation.category === 'Commentary' &&
+                      candidate.category !== 'Commentary' &&
+                      occurrence.offset < candidate.occurrence.offset
+                    ),
+                )
+              )
+                return [];
+              // A more precise linker span includes the entire spoken reference.
+              if (
+                matching.some(
+                  (candidate) =>
+                    candidate.ref === citation.ref &&
+                    candidate.occurrence.offset <= from &&
+                    candidate.occurrence.offset +
+                      Array.from(candidate.occurrence.mention).length >=
+                      to,
+                )
+              )
+                return [];
+              state.proposals = state.proposals.filter(
+                (candidate) => !matching.includes(candidate),
+              );
+              return [
+                {
+                  ref: citation.ref,
+                  category: citation.category,
+                  occurrence,
+                  language: 'spoken',
+                },
+              ];
+            },
+          );
+          state.proposals.push(...spoken);
           // A disagreement between models at the same citation is ambiguous.
           const proposals = state.proposals;
           state.candidates = proposals.filter((candidate, index) => {
@@ -482,26 +579,18 @@ function omit(state: State, omission: SourceOmission) {
 
 function specificityReason(
   meta: RefMetadata,
-  category: string,
   mention: string,
 ): OmissionReason | null {
   if (meta.node_type !== 'JaggedArrayNode') return 'unresolved';
   const talmud = meta.address_types[0] === 'Talmud';
-  const commentary = category === 'Commentary';
-  // A numbered responsum is a complete bibliographic source; extra dimensions may be paragraphs.
-  const required = talmud
-    ? commentary
-      ? Math.max(2, meta.depth - 1)
-      : 1
-    : category === 'Responsa' && meta.address_types[0] === 'Siman'
-      ? 1
-      : meta.depth;
+  // A cited chapter, siman, daf or commentary page is useful at the detail actually spoken.
+  const required = 1;
   if (
     required < 1 ||
     meta.start_indexes.length < required ||
     meta.end_indexes.length < required
   )
-    return commentary ? 'missing_comment' : 'missing_location';
+    return 'missing_location';
   if (talmud) {
     const markers = [
       ...mention.matchAll(
@@ -509,11 +598,21 @@ function specificityReason(
       ),
     ];
     if (
-      !markers.length ||
       !/^\d+[ab]$/.test(meta.start_labels[0]) ||
       !/^\d+[ab]$/.test(meta.end_labels[0])
     )
       return 'missing_amud';
+    if (!markers.length) {
+      // The whole daf must contain both sides, never a side supplied by the linker.
+      const range = meta.normalized.match(/\s(\d+)(?:-(\d+))?$/u);
+      return range &&
+        meta.start_labels[0] === range[1] + 'a' &&
+        meta.end_labels[0] === (range[2] || range[1]) + 'b' &&
+        meta.start_labels[0].endsWith('a') &&
+        meta.end_labels[0].endsWith('b')
+        ? null
+        : 'missing_amud';
+    }
     const sides = markers.map((m) => {
       const side = (
         m[1] ||
@@ -644,6 +743,17 @@ function candidatesFrom(
       reject('invalid_match');
       continue;
     }
+    if (
+      /^(?:Shulchan Arukh,|Tur,|Beit Yosef,)/u.test(ref) &&
+      !/(?:\bshulch[ao]n\s+(?:aruch|arukh|oruch)|שולחן\s+ערוך|שו[״"׳']ע|\btur\b|טור|bei[st]\s+yose[fp]h?|בית\s+יוסף)/iu.test(
+        mention,
+      )
+    ) {
+      // A section name such as Orach Chayim alone does not identify its author/work.
+      // Nearby explicit names can still be recovered by the spoken citation pass.
+      reject('inferred');
+      continue;
+    }
     const prefix = chars.slice(Math.max(start, from - 100), from).join('');
     // Only inspect the immediately preceding phrase, not an earlier sentence's commentator.
     const phrase = prefix.split(/[.!?;\n]/u).at(-1)!;
@@ -660,23 +770,62 @@ function candidatesFrom(
       reject('limit');
       continue;
     }
-    const spans: SourceOccurrence['spans'] = [];
-    let startMs = 0,
-      endMs = 0;
-    for (
-      let segmentIndex = segmentAt(from);
-      segmentIndex < transcript.segments.length &&
-      segmentOffsets[segmentIndex] < to;
-      segmentIndex++
-    ) {
-      const segment = transcript.segments[segmentIndex];
-      const points = chars.slice(
-        segmentOffsets[segmentIndex],
-        segmentOffsets[segmentIndex] + Array.from(segment.text).length,
-      );
-      const base = segmentOffsets[segmentIndex];
-      const left = Math.max(from, base),
-        right = Math.min(to, base + points.length);
+    const occurrence = sourceOccurrence(
+      chars,
+      from,
+      to,
+      transcript,
+      segmentOffsets,
+    );
+    if (!occurrence) {
+      reject('invalid_match');
+      continue;
+    }
+    candidates.push({ ref, category: data.primaryCategory, occurrence });
+  }
+  return { candidates, omissions };
+}
+
+function overlaps(a: SourceOccurrence, b: SourceOccurrence) {
+  return (
+    a.offset < b.offset + Array.from(b.mention).length &&
+    b.offset < a.offset + Array.from(a.mention).length
+  );
+}
+
+function sourceOccurrence(
+  chars: string[],
+  from: number,
+  to: number,
+  transcript: SourceTranscript,
+  segmentOffsets: number[],
+  ranges = [{ start: from, end: to }],
+): SourceOccurrence | null {
+  const spans: SourceOccurrence['spans'] = [];
+  let startMs = 0,
+    endMs = 0;
+  let left = 0,
+    right = segmentOffsets.length;
+  while (left < right) {
+    const middle = (left + right) >>> 1;
+    if (segmentOffsets[middle] <= from) left = middle + 1;
+    else right = middle;
+  }
+  for (
+    let segmentIndex = Math.max(0, left - 1);
+    segmentIndex < transcript.segments.length &&
+    segmentOffsets[segmentIndex] < to;
+    segmentIndex++
+  ) {
+    const segment = transcript.segments[segmentIndex];
+    const points = chars.slice(
+      segmentOffsets[segmentIndex],
+      segmentOffsets[segmentIndex] + Array.from(segment.text).length,
+    );
+    const base = segmentOffsets[segmentIndex];
+    for (const range of ranges) {
+      const left = Math.max(range.start, base),
+        right = Math.min(range.end, base + points.length);
       if (right <= left) continue;
       if (!spans.length) startMs = segment.startMs;
       endMs = segment.endMs;
@@ -686,15 +835,14 @@ function candidatesFrom(
         endChar: points.slice(0, right - base).join('').length,
       });
     }
-    if (!spans.length) {
-      reject('invalid_match');
-      continue;
-    }
-    candidates.push({
-      ref,
-      category: data.primaryCategory,
-      occurrence: { offset: from, startMs, endMs, mention, spans },
-    });
   }
-  return { candidates, omissions };
+  return spans.length
+    ? {
+        offset: from,
+        startMs,
+        endMs,
+        mention: chars.slice(from, to).join(''),
+        spans,
+      }
+    : null;
 }

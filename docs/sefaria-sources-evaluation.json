@@ -1,14 +1,14 @@
 {
-  "scope": "30 citation-bearing excerpts from 30 published transcripts; selected by citation keywords, not a random sample. All sampled shiurim are Rabbi Aryeh Lebowitz. Expected references were annotated before replaying Linker output.",
+  "scope": "30 citation-bearing excerpts from 30 published transcripts; selected by citation keywords, not a random sample. All sampled shiurim are Rabbi Aryeh Lebowitz. Expected references were annotated before replaying Linker output. On 2026-10-06, annotations were expanded to include explicitly named whole dapim, simanim and commentary pages before evaluating the broader policy.",
   "reviewedBy": "Codex agent; independent human review pending",
   "recordedAt": "2026-10-02T21:01:18.100Z",
   "sampleCount": 30,
-  "expected": 18,
-  "accepted": 10,
+  "expected": 25,
+  "accepted": 24,
   "incorrect": 0,
-  "missed": 8,
+  "missed": 1,
   "precision": 1,
-  "recall": 0.5555555555555556,
+  "recall": 0.96,
   "unavailableCitations": 4,
   "failedSamples": 1,
   "cases": [
@@ -96,14 +96,15 @@
     },
     {
       "shiurId": "1140331",
-      "expected": [],
-      "accepted": [],
+      "expected": [
+        "Mishneh Torah, Daily Offerings and Additional Offerings 6"
+      ],
+      "accepted": [
+        "Mishneh Torah, Daily Offerings and Additional Offerings 6"
+      ],
       "incorrect": [],
       "missed": [],
-      "omissionCounts": {
-        "unresolved": 2,
-        "inferred": 1
-      }
+      "omissionCounts": {}
     },
     {
       "shiurId": "1140474",
@@ -129,13 +130,16 @@
       "shiurId": "1168944",
       "expected": [
         "Teshuvot haRashba part I 24",
-        "Teshuvot HaRivash 10"
+        "Teshuvot HaRivash 10",
+        "Beit Yosef, Orach Chayim 272"
       ],
-      "accepted": [],
+      "accepted": [
+        "Teshuvot HaRivash 10",
+        "Beit Yosef, Orach Chayim 272"
+      ],
       "incorrect": [],
       "missed": [
-        "Teshuvot haRashba part I 24",
-        "Teshuvot HaRivash 10"
+        "Teshuvot haRashba part I 24"
       ],
       "error": "Sefaria is temporarily unavailable."
     },
@@ -153,13 +157,16 @@
     },
     {
       "shiurId": "1173273",
-      "expected": [],
-      "accepted": [],
+      "expected": [
+        "Rashba on Shabbat 115"
+      ],
+      "accepted": [
+        "Rashba on Shabbat 115"
+      ],
       "incorrect": [],
       "missed": [],
       "omissionCounts": {
-        "unresolved": 3,
-        "partial_commentary": 1
+        "unresolved": 3
       }
     },
     {
@@ -167,27 +174,32 @@
       "expected": [
         "Avodah Zarah 31b"
       ],
-      "accepted": [],
-      "incorrect": [],
-      "missed": [
+      "accepted": [
         "Avodah Zarah 31b"
       ],
-      "omissionCounts": {
-        "unresolved": 2,
-        "inferred": 1,
-        "missing_location": 1
-      }
-    },
-    {
-      "shiurId": "1180975",
-      "expected": [],
-      "accepted": [],
       "incorrect": [],
       "missed": [],
       "omissionCounts": {
         "unresolved": 1,
-        "missing_amud": 2,
-        "missing_location": 1
+        "inferred": 1
+      }
+    },
+    {
+      "shiurId": "1180975",
+      "expected": [
+        "Rosh Hashanah 16",
+        "Taanit 16",
+        "Beit Yosef, Yoreh De'ah 338"
+      ],
+      "accepted": [
+        "Rosh Hashanah 16",
+        "Taanit 16",
+        "Beit Yosef, Yoreh De'ah 338"
+      ],
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {
+        "unresolved": 1
       }
     },
     {
@@ -195,24 +207,27 @@
       "expected": [
         "Turei Zahav on Shulchan Arukh, Orach Chayim 634:2"
       ],
-      "accepted": [],
-      "incorrect": [],
-      "missed": [
+      "accepted": [
         "Turei Zahav on Shulchan Arukh, Orach Chayim 634:2"
       ],
+      "incorrect": [],
+      "missed": [],
       "omissionCounts": {
-        "unresolved": 3
+        "unresolved": 1
       }
     },
     {
       "shiurId": "1181377",
-      "expected": [],
-      "accepted": [],
+      "expected": [
+        "Tosafot on Pesachim 109b"
+      ],
+      "accepted": [
+        "Tosafot on Pesachim 109b"
+      ],
       "incorrect": [],
       "missed": [],
       "omissionCounts": {
-        "unresolved": 4,
-        "inferred": 1
+        "unresolved": 2
       }
     },
     {
@@ -234,7 +249,7 @@
       "incorrect": [],
       "missed": [],
       "omissionCounts": {
-        "unresolved": 2
+        "unresolved": 1
       }
     },
     {
@@ -242,14 +257,13 @@
       "expected": [
         "Responsa Chatam Sofer, Orach Chayim 115"
       ],
-      "accepted": [],
-      "incorrect": [],
-      "missed": [
+      "accepted": [
         "Responsa Chatam Sofer, Orach Chayim 115"
       ],
+      "incorrect": [],
+      "missed": [],
       "omissionCounts": {
-        "unresolved": 6,
-        "missing_location": 1
+        "unresolved": 4
       }
     },
     {
@@ -313,7 +327,7 @@
       "incorrect": [],
       "missed": [],
       "omissionCounts": {
-        "unresolved": 8
+        "unresolved": 7
       }
     },
     {
@@ -321,27 +335,25 @@
       "expected": [
         "Berakhot 40a"
       ],
-      "accepted": [],
-      "incorrect": [],
-      "missed": [
+      "accepted": [
         "Berakhot 40a"
       ],
-      "omissionCounts": {
-        "inferred": 1
-      }
+      "incorrect": [],
+      "missed": [],
+      "omissionCounts": {}
     },
     {
       "shiurId": "954761",
       "expected": [
         "Ketubot 64b"
       ],
-      "accepted": [],
-      "incorrect": [],
-      "missed": [
+      "accepted": [
         "Ketubot 64b"
       ],
+      "incorrect": [],
+      "missed": [],
       "omissionCounts": {
-        "unresolved": 10
+        "unresolved": 8
       }
     },
     {
@@ -355,7 +367,7 @@
       "incorrect": [],
       "missed": [],
       "omissionCounts": {
-        "unresolved": 3
+        "unresolved": 2
       }
     },
     {
@@ -363,13 +375,13 @@
       "expected": [
         "Mishneh Torah, Marriage 10:12"
       ],
-      "accepted": [],
-      "incorrect": [],
-      "missed": [
+      "accepted": [
         "Mishneh Torah, Marriage 10:12"
       ],
+      "incorrect": [],
+      "missed": [],
       "omissionCounts": {
-        "unresolved": 5
+        "unresolved": 2
       }
     }
   ]

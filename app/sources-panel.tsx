@@ -24,7 +24,7 @@ const omissionLabels: Record<OmissionReason, string> = {
   unresolved: 'Not resolved by Sefaria',
   ambiguous: 'Ambiguous reference',
   inferred: 'Requires an inferred location',
-  missing_location: 'Missing a complete location',
+  missing_location: 'Missing a numbered location',
   missing_amud: 'Missing an explicit amud',
   missing_comment: 'Missing an individual comment',
   incomplete_range: 'Incomplete range endpoints',
@@ -58,10 +58,11 @@ export function SourcesPanel({
   return (
     <div className="study-sources">
       <p className="study-note-label">
-        Explicit transcript citations linked through Sefaria. Incomplete,
-        ambiguous, and context-filled references are omitted. Timestamps mark
-        the start of the transcript segment. Quoted passages without a complete
-        citation are not identified.
+        Sources mentioned in the transcript, linked through Sefaria. A daf,
+        chapter, siman, or commentary page can be linked without a more specific
+        location. Nearby spoken details are joined when the work is clear.
+        Timestamps mark the start of the transcript segment. Uncited quotations
+        and ambiguous references are omitted.
       </p>
       {error ? (
         <output className="study-state">
@@ -131,9 +132,9 @@ export function SourcesPanel({
       ) : (
         result?.status === 'ready' && (
           <p className="study-state">
-            No complete, unambiguous citations were found. A source may have
-            been mentioned without enough detail, or Sefaria may not have
-            recognized it.
+            No identifiable citations were found. A source may have been
+            mentioned without enough detail, or Sefaria may not have recognized
+            it.
           </p>
         )
       )}

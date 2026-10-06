@@ -32,6 +32,7 @@ import { sourceEditions } from '../lib/source-sheet';
 import { preparePublishedSources } from '../apps/worker/src/source-preparation';
 import { evaluateSourcesCorpus } from '../scripts/evaluate-sources';
 import type { SearchDatabase, SearchStatement } from '../lib/search-storage';
+import { spokenCitations } from '../lib/spoken-sources';
 
 function database() {
   const sqlite = new DatabaseSync(':memory:');
@@ -157,7 +158,7 @@ function metadata(
 ): RefMetadata {
   const match = ref.match(/\s(\d+[ab]?)(?::(\d+))?(?::(\d+))?$/);
   const labels = match ? match.slice(1).filter(Boolean) : [];
-  const talmud = ref.includes('Shabbat');
+  const talmud = /(?:Shabbat|Menachot|Berakhot|Eruvin)/u.test(ref);
   return {
     is_ref: true,
     normalized: ref,
@@ -169,13 +170,23 @@ function metadata(
       ? ['Talmud', 'Integer', 'Integer']
       : ['Perek', 'Pasuk'],
     start_indexes: labels.map((label, i) =>
-      talmud && i === 0 ? 4 : Number(label),
+      talmud && i === 0
+        ? parseInt(label) * 2 - (label.endsWith('b') ? 0 : 1)
+        : Number(label),
     ),
     end_indexes: labels.map((label, i) =>
-      talmud && i === 0 ? 4 : Number(label),
+      talmud && i === 0
+        ? parseInt(label) * 2 - (label.endsWith('a') ? 1 : 0)
+        : Number(label),
     ),
-    start_labels: labels,
-    end_labels: labels,
+    start_labels:
+      talmud && labels.length === 1 && /^\d+$/u.test(labels[0])
+        ? [labels[0] + 'a']
+        : labels,
+    end_labels:
+      talmud && labels.length === 1 && /^\d+$/u.test(labels[0])
+        ? [labels[0] + 'b']
+        : labels,
     ...options,
   };
 }
@@ -239,6 +250,284 @@ async function finish(
   throw new Error('Extraction did not finish');
 }
 
+void test('a daf without an amud links the entire daf rather than guessing a side', async () => {
+  const mock = sefariaMock(
+    (body) =>
+      bodyResults(body, [
+        { mention: 'Menachos 37', ref: 'Menachot 37a', category: 'Talmud' },
+      ]),
+    {
+      'Menachot 37': metadata('Menachot 37', {
+        depth: 1,
+        address_types: ['Talmud'],
+        start_indexes: [73],
+        end_indexes: [74],
+        start_labels: ['37a'],
+        end_labels: ['37b'],
+      }),
+      'Menachot 37a': metadata('Menachot 37a', {
+        depth: 1,
+        address_types: ['Talmud'],
+        start_indexes: [73],
+        end_indexes: [73],
+        start_labels: ['37a'],
+        end_labels: ['37a'],
+      }),
+    },
+  );
+  const result = await finish(
+    database(),
+    transcript('See Menachos 37.'),
+    mock.fetcher,
+  );
+  assert.deepEqual(
+    result.sources.map((source) => source.ref),
+    ['Menachot 37'],
+  );
+  assert.equal(result.sources[0].occurrences[0].mention, 'Menachos 37');
+});
+
+void test('spoken Shulchan Aruch locations are recovered across intervening words and segments', async () => {
+  const t = transcript(
+    '😀 It says in shulchan aruch in auruch chaim the answer.',
+    'In siman 37 sif katan daled.',
+  );
+  const mock = sefariaMock(
+    () => ({ results: [], refData: {}, debugData: [] }),
+    {
+      'Shulchan Arukh, Orach Chayim 37': metadata(
+        'Shulchan Arukh, Orach Chayim 37',
+        {
+          depth: 2,
+          address_types: ['Siman', 'Seif'],
+          start_indexes: [37],
+          end_indexes: [37],
+          start_labels: ['37'],
+          end_labels: ['37'],
+        },
+      ),
+    },
+  );
+  const result = await finish(database(), t, mock.fetcher);
+  assert.deepEqual(
+    result.sources.map((source) => source.ref),
+    ['Shulchan Arukh, Orach Chayim 37'],
+  );
+  assert.equal(result.sources[0].occurrences[0].startMs, 0);
+  assert.deepEqual(
+    result.sources[0].occurrences[0].spans.map((span) =>
+      t.segments[span.segmentIndex].text.slice(span.startChar, span.endChar),
+    ),
+    ['shulchan aruch', 'auruch chaim', 'siman 37'],
+  );
+});
+
+void test('spoken names, English numbers, Hebrew numerals, amud words and seif katan are validated without a linker match', async () => {
+  for (const [mention, ref, category] of [
+    ['Menachos 37', 'Menachot 37', 'Talmud'],
+    [
+      'Menachos discusses this question. Look at daf thirty seven.',
+      'Menachot 37',
+      'Talmud',
+    ],
+    ['Menachos daf thirty-seven amud beis', 'Menachot 37b', 'Talmud'],
+    ['Look at daf thirty seven in Menachos', 'Menachot 37', 'Talmud'],
+    ['מנחות דף ל״ז ע״א', 'Menachot 37a', 'Talmud'],
+    ['ראש השנה דף ט״ז', 'Rosh Hashanah 16', 'Talmud'],
+    [
+      'Mishna Berura says in siman thirty seven seif katan daled',
+      'Mishnah Berurah 37:4',
+      'Commentary',
+    ],
+    [
+      'Mishnah Berurah siman three hundred and twenty-eight sif katan yud',
+      'Mishnah Berurah 328:10',
+      'Commentary',
+    ],
+    ['משנה ברורה בסימן ל״ז סעיף קטן ד׳', 'Mishnah Berurah 37:4', 'Commentary'],
+    [
+      'Shulchan Aruch in Orach Chaim explains it. In siman 37 sif beis',
+      'Shulchan Arukh, Orach Chayim 37:2',
+      'Halakhah',
+    ],
+    [
+      'Shulchan Aruch in Yoreh Deah siman 116',
+      "Shulchan Arukh, Yoreh De'ah 116",
+      'Halakhah',
+    ],
+    ['Tosfos on Menachos 37b', 'Tosafot on Menachot 37b', 'Commentary'],
+    [
+      'Tosfos in daf thirty seven amud beis in Menachos',
+      'Tosafot on Menachot 37b',
+      'Commentary',
+    ],
+    [
+      'Rambam in Hilchos Brachos perek five halacha eight',
+      'Mishneh Torah, Blessings 5:8',
+      'Halakhah',
+    ],
+    [
+      'רמב״ם in the tenth פרק of הלכות אישות הלכה י״ב',
+      'Mishneh Torah, Marriage 10:12',
+      'Halakhah',
+    ],
+    [
+      'Chasam Sofer in Orach Chaim siman 115',
+      'Responsa Chatam Sofer, Orach Chayim 115',
+      'Responsa',
+    ],
+  ]) {
+    const talmud = category === 'Talmud' || ref.includes(' on Menachot');
+    const labels = ref
+      .match(/\s(\d+[ab]?)(?::(\d+))?$/)!
+      .slice(1)
+      .filter(Boolean);
+    const mock = sefariaMock(
+      () => ({ results: [], refData: {}, debugData: [] }),
+      {
+        [ref]: metadata(ref, {
+          address_types: talmud
+            ? ['Talmud', 'Integer']
+            : ['Siman', 'SeifKatan'],
+          start_indexes: labels.map((label) => parseInt(label)),
+          end_indexes: labels.map((label) => parseInt(label)),
+          start_labels:
+            talmud && !/[ab]$/u.test(labels[0]) ? [labels[0] + 'a'] : labels,
+          end_labels:
+            talmud && !/[ab]$/u.test(labels[0]) ? [labels[0] + 'b'] : labels,
+        }),
+      },
+    );
+    const result = await finish(database(), transcript(mention), mock.fetcher);
+    assert.deepEqual(
+      result.sources.map((s) => s.ref),
+      [ref],
+      mention,
+    );
+    assert.equal(result.sources[0].category, category, mention);
+  }
+});
+
+void test('spoken recovery does not borrow locations from another source, distant segments, or missing sections', async () => {
+  for (const mention of [
+    'Shulchan Aruch in siman 37.',
+    'Shulchan Aruch HaRav in Orach Chaim siman 37.',
+    'Menachos. Mishnah Berurah siman 37.',
+    'Mishnah Berurah ' + 'word '.repeat(60) + 'siman 37.',
+    'Mishnah Shabbos perek two.',
+    'Yerushalmi Shabbos daf 37.',
+    'Shabbos 37 minutes after sunset.',
+    'Menachos 37th birthday.',
+  ]) {
+    assert.deepEqual(
+      spokenCitations(mention).map((c) => c.ref),
+      mention === 'Menachos. Mishnah Berurah siman 37.'
+        ? ['Mishnah Berurah 37']
+        : [],
+      mention,
+    );
+    const mock = sefariaMock(() => ({
+      results: [],
+      refData: {},
+      debugData: [],
+    }));
+    const result = await finish(database(), transcript(mention), mock.fetcher);
+    assert.ok(
+      result.sources.every((s) => s.ref === 'Mishnah Berurah 37'),
+      mention,
+    );
+    assert.ok(!result.sources.some((s) => s.category === 'Talmud'), mention);
+  }
+  const t = transcript('Menachos.', 'Look at daf 37.');
+  t.segments[1].startMs = 240000;
+  t.segments[1].endMs = 250000;
+  const mock = sefariaMock(() => ({ results: [], refData: {}, debugData: [] }));
+  assert.equal((await finish(database(), t, mock.fetcher)).sources.length, 0);
+  assert.deepEqual(
+    spokenCitations(
+      "The Gemara in Eruvin daf forty amud aleph says that Tisha B'Av fell on Shabbos.",
+    ).map((c) => c.ref),
+    ['Eruvin 40a'],
+  );
+});
+
+void test('a spoken citation spanning overlapping chunks keeps one occurrence and only its source words', async () => {
+  const text =
+    'a '.repeat(5950) +
+    'Shulchan Aruch in Orach Chaim ' +
+    'explanation '.repeat(10) +
+    'in siman 37. ' +
+    'b '.repeat(100);
+  const mock = sefariaMock(() => ({ results: [], refData: {}, debugData: [] }));
+  const t = transcript(text);
+  const result = await finish(database(), t, mock.fetcher);
+  assert.deepEqual(
+    result.sources.map((source) => source.ref),
+    ['Shulchan Arukh, Orach Chayim 37'],
+  );
+  assert.equal(result.sources[0].occurrences.length, 1);
+  assert.deepEqual(
+    result.sources[0].occurrences[0].spans.map((span) =>
+      text.slice(span.startChar, span.endChar),
+    ),
+    ['Shulchan Aruch', 'Orach Chaim', 'siman 37'],
+  );
+});
+
+void test('whole-daf ranges retain both sides and mixed ranges expand only the unspecified endpoint', async () => {
+  for (const [mention, ref, from, to] of [
+    ['Menachos 37-38', 'Menachot 37-38', '37a', '38b'],
+    ['Menachos 37a through 38', 'Menachot 37a-38b', '37a', '38b'],
+    ['Menachos 37 through 38a', 'Menachot 37a-38a', '37a', '38a'],
+  ]) {
+    const mock = sefariaMock(
+      () => ({ results: [], refData: {}, debugData: [] }),
+      {
+        [ref]: metadata(ref, {
+          address_types: ['Talmud', 'Integer'],
+          start_indexes: [73],
+          end_indexes: [76],
+          start_labels: [from],
+          end_labels: [to],
+        }),
+      },
+    );
+    const result = await finish(database(), transcript(mention), mock.fetcher);
+    assert.deepEqual(
+      result.sources.map((s) => s.ref),
+      [ref],
+      mention,
+    );
+  }
+});
+
+void test('a section name alone cannot silently select Shulchan Arukh or turn Beit Yosef into the base work', async () => {
+  for (const [body, expected] of [
+    ['Orach Chaim siman 37.', []],
+    [
+      'The Beit Yosef in Orach Chaim explains it in siman 37.',
+      ['Beit Yosef, Orach Chayim 37'],
+    ],
+  ] as const) {
+    const mock = sefariaMock((text) =>
+      bodyResults(text, [
+        {
+          mention: body.startsWith('Orach')
+            ? 'Orach Chaim siman 37'
+            : 'Orach Chaim explains it in siman 37',
+          ref: 'Shulchan Arukh, Orach Chayim 37',
+          category: 'Halakhah',
+        },
+      ]),
+    );
+    const result = await finish(database(), transcript(body), mock.fetcher);
+    assert.deepEqual(
+      result.sources.map((source) => source.ref),
+      expected,
+    );
+  }
+});
+
 void test('recorded live Sefaria response: only explicit sources, canonical dedupe, and transcript timestamps', async () => {
   // Recorded 2026-10-02 from /find-refs?debug=1&with_text=0, then /async/{task}.
   const body =
@@ -251,10 +540,15 @@ void test('recorded live Sefaria response: only explicit sources, canonical dedu
   const result = await finish(db, transcript(body), mock.fetcher);
   assert.deepEqual(
     result.sources.map((s) => s.ref),
-    ['Shabbat 2b', 'Tosafot on Shabbat 2b:1', 'Genesis 1:1'],
+    [
+      'Shabbat 2b',
+      'Tosafot on Shabbat 2b',
+      'Tosafot on Shabbat 2b:1',
+      'Genesis 1:1',
+    ],
   );
-  assert.equal(result.sources[2].occurrences.length, 2);
-  assert.equal(result.omitted, 1);
+  assert.equal(result.sources[3].occurrences.length, 2);
+  assert.equal(result.omitted, 0);
   assert.equal(result.progress, 100);
   assert.ok(
     result.sources.every((s) => s.url.startsWith('https://www.sefaria.org/')),
@@ -273,7 +567,7 @@ void test('recorded live Sefaria response: only explicit sources, canonical dedu
   );
 });
 
-void test('missing daf, missing amud, chapter-only citations, and unspecified Tosfos comments are omitted', async () => {
+void test('named chapters, whole dapim and commentary pages are retained while missing works and locations are omitted', async () => {
   const body =
     'Gemara Shabbos. Shabbat 2. Tosfos daf 2b. Tosfos Shabbos 2b. Genesis 1. Shabbos 2b.';
   const mock = sefariaMock((text) =>
@@ -302,10 +596,10 @@ void test('missing daf, missing amud, chapter-only citations, and unspecified To
   const result = await finish(database(), transcript(body), mock.fetcher);
   assert.deepEqual(
     result.sources.map((s) => s.ref),
-    ['Shabbat 2b'],
+    ['Shabbat 2', 'Tosafot on Shabbat 2b', 'Genesis 1', 'Shabbat 2b'],
   );
   assert.equal(
-    result.sources[0].occurrences.length,
+    result.sources[3].occurrences.length,
     1,
     'a partial Gemara match inside Tosfos is not shown',
   );
@@ -488,6 +782,39 @@ void test('transient metadata failures preserve progress and release the lease f
   assert.equal(
     mock.calls.filter((url) => url.includes('/find-refs')).length,
     1,
+  );
+});
+
+void test('one failing reference does not discard other validated sources in the same metadata pass', async () => {
+  const db = database(),
+    t = transcript('Genesis 1:1. Exodus 1:1.');
+  const mock = sefariaMock((body) =>
+    bodyResults(body, [
+      { mention: 'Genesis 1:1', ref: 'Genesis 1:1' },
+      { mention: 'Exodus 1:1', ref: 'Exodus 1:1' },
+    ]),
+  );
+  const failing: typeof fetch = async (input, init) => {
+    const url = input instanceof Request ? input.url : input.toString();
+    if (url.includes('/ref/Genesis'))
+      throw new Error('temporary upstream failure');
+    return mock.fetcher(input, init);
+  };
+  await advanceSources(db, t, failing);
+  const partial = await advanceSources(db, t, failing);
+  assert.equal(partial.status, 'pending');
+  assert.deepEqual(
+    partial.sources.map((source) => source.ref),
+    ['Exodus 1:1'],
+  );
+  await assert.rejects(
+    advanceSources(db, t, failing),
+    /temporary upstream failure/,
+  );
+  const result = await finish(db, t, mock.fetcher);
+  assert.deepEqual(
+    result.sources.map((source) => source.ref),
+    ['Genesis 1:1', 'Exodus 1:1'],
   );
 });
 
@@ -768,9 +1095,10 @@ void test('partial commentary wording never turns a comment into a base Gemara l
       transcript(prefix + 'Shabbat 2b.'),
       mock.fetcher,
     );
-    assert.equal(result.sources.length, 0, prefix);
-    assert.equal(result.omissionCounts.partial_commentary, 1, prefix);
-    assert.equal(result.omissions[0].mention, 'Shabbat 2b');
+    assert.equal(result.sources.length, 1, prefix);
+    assert.equal(result.sources[0].category, 'Commentary', prefix);
+    assert.ok(result.sources[0].ref.endsWith(' on Shabbat 2b'), prefix);
+    assert.equal(result.omitted, 0, prefix);
   }
 });
 
@@ -790,13 +1118,15 @@ void test('omissions expose evidence and reasons once across both language model
   const t = transcript('Genesis 1. Shabbat 2. Exodus 1:1. שם.');
   const result = await finish(database(), t, mock.fetcher);
   assert.deepEqual(result.omissionCounts, {
-    missing_location: 1,
-    missing_amud: 1,
     ambiguous: 1,
     inferred: 1,
   });
-  assert.equal(result.omitted, 4);
-  assert.equal(result.omissions.length, 4);
+  assert.deepEqual(
+    result.sources.map((s) => s.ref),
+    ['Genesis 1', 'Shabbat 2'],
+  );
+  assert.equal(result.omitted, 2);
+  assert.equal(result.omissions.length, 2);
   assert.ok(result.omissions.every((o) => o.startMs === 0 && o.mention));
 });
 
@@ -1139,17 +1469,17 @@ void test('post-publication preparation polls the shared endpoint and never fail
 void test('30 published-transcript excerpts preserve precision and report measured coverage gaps', async () => {
   const report = await evaluateSourcesCorpus();
   assert.equal(report.sampleCount, 30);
-  assert.equal(report.expected, 18);
+  assert.equal(report.expected, 25);
   assert.equal(
     report.incorrect,
     0,
     'no source absent from the reviewed excerpt may appear',
   );
   assert.ok(
-    report.accepted >= 10,
-    'accepted complete citations must not regress',
+    report.accepted >= 24,
+    'recognized citations and broad source references must not regress',
   );
-  assert.ok(report.missed <= 8);
+  assert.ok(report.missed <= 1);
   assert.equal(
     report.failedSamples,
     1,
