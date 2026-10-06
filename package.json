@@ -71,7 +71,7 @@
     "@vitejs/plugin-rsc": "0.5.26",
     "braces": "file:vendor/yutorah-braces-3.0.4-yutorah.0.tgz",
     "nitro": "3.0.260903-beta",
-    "oxfmt": "0.61.0",
+    "oxfmt": "0.67.0",
     "oxlint": "1.76.0",
     "oxlint-tsgolint": "7.0.2001",
     "playwright": "1.58.2",
@@ -83,6 +83,9 @@
   },
   "overrides": {
     "braces": "$braces",
+    "miniflare": {
+      "sharp": "0.35.5"
+    },
     "vinext": {
       "image-size": "2.0.3"
     }

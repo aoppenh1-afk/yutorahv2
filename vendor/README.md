@@ -26,3 +26,13 @@ The direct development dependency lets the override reference `$braces` and
 resolve the local archive from the project root. All transitive consumers use
 the same patched copy. Replace the archive and override with a maintained
 upstream version when an official fix becomes available; retain the regressions.
+
+## Miniflare image dependency
+
+`package.json` overrides only Miniflare's `sharp` dependency to `0.35.5`.
+Both installed Miniflare `5.20260926.1-alpha` and the latest published
+`5.20261006.0-alpha` checked on 2026-10-06 pin `0.35.4`. Sharp `0.35.5` bundles the librsvg
+`2.63.2` fix for [GHSA-wq5f-xc86-pv6w](https://github.com/advisories/GHSA-wq5f-xc86-pv6w).
+Remove this override once the installed Miniflare pins a patched Sharp version.
+Keep `npm run audit` enabled; verify clean installation, image decoding/encoding,
+both deployment builds, and the browser/pipeline tests when changing the pin.
