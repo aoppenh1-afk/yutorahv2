@@ -30,7 +30,6 @@ void test(
   async (t) => {
     const schema = 'worker_' + randomUUID().replaceAll('-', '');
     const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
-    await admin.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
     await admin.query(`CREATE SCHEMA ${schema}`);
     const pool = new Pool({
       connectionString: process.env.TEST_DATABASE_URL,
@@ -40,9 +39,15 @@ void test(
     const store = new TranscriptionStore(pool);
     const sql = await readFile('db/transcription/001_initial.sql', 'utf8');
     await pool.query(sql);
-    await pool.query(await readFile('db/transcription/002_catalog_cursor.sql', 'utf8'));
-    await pool.query(await readFile('db/transcription/003_tolerant_search.sql', 'utf8'));
-    await pool.query(await readFile('db/transcription/004_operator_notes.sql', 'utf8'));
+    await pool.query(
+      await readFile('db/transcription/002_catalog_cursor.sql', 'utf8'),
+    );
+    await pool.query(
+      await readFile('db/transcription/003_tolerant_search.sql', 'utf8'),
+    );
+    await pool.query(
+      await readFile('db/transcription/004_operator_notes.sql', 'utf8'),
+    );
     const skill = await readFile(
       'packages/transcription/skills/lectern-transcription/SKILL.md',
       'utf8',
@@ -73,6 +78,66 @@ void test(
       return j;
     };
     try {
+      await t.test(
+        'oversized completion remains recoverable and a repaired transcript can complete',
+        async () => {
+          await enqueue();
+          const job = await claimed();
+          await store.manifest(job, 'publication-boundary', 'audio', manifest);
+          await store
+            .checkpoints(job, 'publication-boundary')
+            .save(0, range, [segment()]);
+          for (const segments of [
+            Array.from({ length: 5001 }, (_, i) => ({
+              ...segment('Boundary'),
+              startMs: i,
+              endMs: i + 1,
+            })),
+            Array.from({ length: 300 }, (_, i) => ({
+              ...segment('ש'.repeat(16000)),
+              startMs: i,
+              endMs: i + 1,
+            })),
+          ]) {
+            await assert.rejects(
+              store.complete(job, {
+                schemaVersion: 1,
+                durationMs: 10000,
+                text: '',
+                segments,
+              }),
+              (error: unknown) =>
+                error instanceof Failure &&
+                error.code === 'publication_invalid',
+            );
+            assert.notEqual(
+              (
+                await pool.query(
+                  'SELECT status FROM transcription_jobs WHERE id=$1',
+                  [job.id],
+                )
+              ).rows[0].status,
+              'completed',
+            );
+            assert.equal(await store.publicContent(job.shiur_id), null);
+            assert.ok(
+              await store
+                .checkpoints(job, 'publication-boundary')
+                .load(0, range),
+            );
+          }
+          await store.complete(job, {
+            schemaVersion: 1,
+            durationMs: 10000,
+            text: 'Size boundary repaired',
+            segments: [segment('Size boundary repaired')],
+          });
+          assert.equal(
+            (await store.publicContent(job.shiur_id))!.segments[0].text,
+            'Size boundary repaired',
+          );
+        },
+      );
       await t.test(
         'enqueue is idempotent and concurrent claims are exclusive',
         async () => {
@@ -159,85 +224,111 @@ void test(
           await store.cancel(next.id);
         },
       );
-      await t.test('exhausted crashed job fails without blocking queued jobs', async () => {
-        const exhaustedId = await enqueue();
-        const exhausted = await claimed();
-        assert.equal(exhausted.id, exhaustedId);
-        const nextId = await enqueue();
-        await pool.query(
-          "UPDATE transcription_jobs SET attempt=5,lease_until=now()-interval '1 second' WHERE id=$1",
-          [exhaustedId],
-        );
-        const next = await claimed();
-        assert.equal(next.id, nextId);
-        const state = await pool.query(
-          'SELECT status,error,completed_at FROM transcription_jobs WHERE id=$1',
-          [exhaustedId],
-        );
-        assert.equal(state.rows[0].status, 'failed');
-        assert.deepEqual(state.rows[0].error, { code: 'attempts_exhausted' });
-        assert.ok(state.rows[0].completed_at);
-        await store.cancel(nextId);
-      });
-      await t.test('idle database pool failure exits the search service nonzero', async () => {
-        const portPicker = createServer();
-        portPicker.listen(0, '127.0.0.1');
-        await once(portPicker, 'listening');
-        const address = portPicker.address();
-        assert.ok(address && typeof address !== 'string');
-        await new Promise<void>((resolve) => portPicker.close(() => resolve()));
-        const token = 'c'.repeat(48);
-        const appName = `pool_failure_${randomUUID().replaceAll('-', '')}`;
-        const databaseUrl = new URL(process.env.TEST_DATABASE_URL!);
-        databaseUrl.searchParams.set('options', `-c search_path=${schema},public`);
-        databaseUrl.searchParams.set('application_name', appName);
-        const child = fork('apps/worker/src/cli.ts', ['serve-search'], {
-          execArgv: ['--import', 'tsx'],
-          env: {
-            ...process.env,
-            DATABASE_URL: databaseUrl.href,
-            TRANSCRIPT_API_PORT: String(address.port),
-            TRANSCRIPT_API_TOKEN: token,
-          },
-          stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-        });
-        let output = '';
-        child.stdout?.on('data', (data: Buffer) => { output += data.toString(); });
-        const exited = once(child, 'close');
-        const watchdog = setTimeout(() => child.kill('SIGKILL'), 5000);
-        try {
-          const url = `http://127.0.0.1:${address.port}`;
-          let ready = false;
-          for (let i = 0; i < 60; i++) {
-            try {
-              const response = await fetch(`${url}/health`, {
-                headers: { Authorization: `Bearer ${token}` },
-              });
-              if (response.ok) { ready = true; break; }
-            } catch { /* Service is still starting. */ }
-            await delay(50);
-          }
-          assert.ok(ready, 'search service must start');
-          const response = await fetch(`${url}/v1/transcripts/search?q=חזרה`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          assert.equal(response.status, 200);
-          await response.arrayBuffer();
-          const backends = await admin.query<{ pid: number }>(
-            'SELECT pid FROM pg_stat_activity WHERE application_name=$1',
-            [appName],
+      await t.test(
+        'exhausted crashed job fails without blocking queued jobs',
+        async () => {
+          const exhaustedId = await enqueue();
+          const exhausted = await claimed();
+          assert.equal(exhausted.id, exhaustedId);
+          const nextId = await enqueue();
+          await pool.query(
+            "UPDATE transcription_jobs SET attempt=5,lease_until=now()-interval '1 second' WHERE id=$1",
+            [exhaustedId],
           );
-          assert.equal(backends.rowCount, 1);
-          await admin.query('SELECT pg_terminate_backend($1)', [backends.rows[0].pid]);
-          const [exitCode] = await exited;
-          assert.equal(exitCode, 1);
-          assert.match(output, /"event":"worker_stopped","code":"lease_lost"/);
-        } finally {
-          clearTimeout(watchdog);
-          child.kill('SIGKILL');
-          await exited;
-        }
-      });
+          const next = await claimed();
+          assert.equal(next.id, nextId);
+          const state = await pool.query(
+            'SELECT status,error,completed_at FROM transcription_jobs WHERE id=$1',
+            [exhaustedId],
+          );
+          assert.equal(state.rows[0].status, 'failed');
+          assert.deepEqual(state.rows[0].error, { code: 'attempts_exhausted' });
+          assert.ok(state.rows[0].completed_at);
+          await store.cancel(nextId);
+        },
+      );
+      await t.test(
+        'idle database pool failure exits the search service nonzero',
+        async () => {
+          const portPicker = createServer();
+          portPicker.listen(0, '127.0.0.1');
+          await once(portPicker, 'listening');
+          const address = portPicker.address();
+          assert.ok(address && typeof address !== 'string');
+          await new Promise<void>((resolve) =>
+            portPicker.close(() => resolve()),
+          );
+          const token = 'c'.repeat(48);
+          const appName = `pool_failure_${randomUUID().replaceAll('-', '')}`;
+          const databaseUrl = new URL(process.env.TEST_DATABASE_URL!);
+          databaseUrl.searchParams.set(
+            'options',
+            `-c search_path=${schema},public`,
+          );
+          databaseUrl.searchParams.set('application_name', appName);
+          const child = fork('apps/worker/src/cli.ts', ['serve-search'], {
+            execArgv: ['--import', 'tsx'],
+            env: {
+              ...process.env,
+              DATABASE_URL: databaseUrl.href,
+              TRANSCRIPT_API_PORT: String(address.port),
+              TRANSCRIPT_API_TOKEN: token,
+            },
+            stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+          });
+          let output = '';
+          child.stdout?.on('data', (data: Buffer) => {
+            output += data.toString();
+          });
+          const exited = once(child, 'close');
+          const watchdog = setTimeout(() => child.kill('SIGKILL'), 5000);
+          try {
+            const url = `http://127.0.0.1:${address.port}`;
+            let ready = false;
+            for (let i = 0; i < 60; i++) {
+              try {
+                const response = await fetch(`${url}/health`, {
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                if (response.ok) {
+                  ready = true;
+                  break;
+                }
+              } catch {
+                /* Service is still starting. */
+              }
+              await delay(50);
+            }
+            assert.ok(ready, 'search service must start');
+            const response = await fetch(
+              `${url}/v1/transcripts/search?q=חזרה`,
+              {
+                headers: { Authorization: `Bearer ${token}` },
+              },
+            );
+            assert.equal(response.status, 200);
+            await response.arrayBuffer();
+            const backends = await admin.query<{ pid: number }>(
+              'SELECT pid FROM pg_stat_activity WHERE application_name=$1',
+              [appName],
+            );
+            assert.equal(backends.rowCount, 1);
+            await admin.query('SELECT pg_terminate_backend($1)', [
+              backends.rows[0].pid,
+            ]);
+            const [exitCode] = await exited;
+            assert.equal(exitCode, 1);
+            assert.match(
+              output,
+              /"event":"worker_stopped","code":"lease_lost"/,
+            );
+          } finally {
+            clearTimeout(watchdog);
+            child.kill('SIGKILL');
+            await exited;
+          }
+        },
+      );
       await t.test(
         'final publication is atomic, searchable in Hebrew/English, and links to time',
         async () => {
@@ -463,7 +554,11 @@ void test(
               shiurMediaType: 'MP3',
               downloadURL: `https://shiurim.yutorah.net/${start + i}.MP3`,
             }));
-          const pages = [docs(3000000, 30, today), docs(3000030, 30, today), docs(3000060, 1, old)];
+          const pages = [
+            docs(3000000, 30, today),
+            docs(3000030, 30, today),
+            docs(3000060, 1, old),
+          ];
           const fetched: number[] = [];
           const fetchPage = async (page: number) => {
             fetched.push(page);
@@ -481,13 +576,19 @@ void test(
             store,
             version,
             new AbortController().signal,
-            async () => [{
-              ...pages[0][0],
-              downloadURL: 'https://download.yutorah.org/3000000.mp3',
-            }],
+            async () => [
+              {
+                ...pages[0][0],
+                downloadURL: 'https://download.yutorah.org/3000000.mp3',
+              },
+            ],
           );
           assert.equal(
-            (await pool.query("SELECT count(*)::int AS n FROM transcription_jobs WHERE shiur_id='3000000'")).rows[0].n,
+            (
+              await pool.query(
+                "SELECT count(*)::int AS n FROM transcription_jobs WHERE shiur_id='3000000'",
+              )
+            ).rows[0].n,
             1,
           );
           const resumed = new TranscriptionStore(pool);
@@ -509,7 +610,11 @@ void test(
             fetchPage,
           });
           assert.equal(
-            (await pool.query("SELECT count(*)::int AS n FROM transcription_jobs WHERE shiur_id='3000060'")).rows[0].n,
+            (
+              await pool.query(
+                "SELECT count(*)::int AS n FROM transcription_jobs WHERE shiur_id='3000060'",
+              )
+            ).rows[0].n,
             1,
           );
           const backfill = await backfillPages(
@@ -524,8 +629,13 @@ void test(
           const priorities = await pool.query(
             "SELECT DISTINCT priority FROM transcription_jobs WHERE shiur_id LIKE '3000%'",
           );
-          assert.deepEqual(priorities.rows.map((r) => r.priority), [0]);
-          await pool.query("DELETE FROM transcription_shiurim WHERE id LIKE '3000%'");
+          assert.deepEqual(
+            priorities.rows.map((r) => r.priority),
+            [0],
+          );
+          await pool.query(
+            "DELETE FROM transcription_shiurim WHERE id LIKE '3000%'",
+          );
         },
       );
       await t.test(

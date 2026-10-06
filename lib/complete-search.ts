@@ -11,7 +11,8 @@ import {
 } from './yutorah';
 import type { SearchResponse } from './api-types';
 import type { SearchDatabase, SearchStatement } from './search-storage';
-import { relevanceScore, searchText } from './search-discovery';
+import { searchText } from './search-discovery';
+import { createRelevanceScorer } from '../packages/yutorah-core/src/search-ranking.js';
 import {
   interpretSpacing,
   searchRetrieval,
@@ -20,6 +21,7 @@ import {
 import { changedTitleStatements, titleVocabulary } from './title-index';
 
 import { BoundedCache } from './bounded-cache';
+import { performanceSample } from './performance-metrics';
 
 type Run = {
   id: string;
@@ -28,6 +30,7 @@ type Run = {
   next: number;
   created: number;
   lease: number;
+  owner: string;
   scanned: number;
 };
 const pageSize = 30;
@@ -215,6 +218,7 @@ async function searchPass(
         next: 1,
         created: Date.now(),
         lease: 0,
+        owner: '',
         scanned: 0,
       };
       if (run.total > 50000)
@@ -277,15 +281,17 @@ async function searchPass(
     );
   const pages = Math.ceil(run.total / pageSize);
   if (run.next <= pages) {
-    const lease = Date.now() + 30000;
+    const owner = crypto.randomUUID();
+    const lease = Date.now() + 60000;
     const acquired = await db
       .prepare(
-        'UPDATE search_runs SET lease = ? WHERE id = ? AND lease < ? AND next = ?',
+        'UPDATE search_runs SET lease = ?, owner = ? WHERE id = ? AND lease < ? AND next = ?',
       )
-      .bind(lease, run.id, Date.now(), run.next)
+      .bind(lease, owner, run.id, Date.now(), run.next)
       .run();
     if (acquired.meta.changes) {
       try {
+        const started = performance.now();
         const end = Math.min(pages + 1, run.next + 4);
         const settled = await Promise.allSettled(
           Array.from({ length: end - run.next }, (_, i) =>
@@ -297,6 +303,7 @@ async function searchPass(
                 ),
           ),
         );
+        const readMs = performance.now() - started;
         // Wait for every read before releasing the lease. Permanent errors and
         // changed/incomplete pages still invalidate the whole pass.
         const failure = settled.find((result) => result.status === 'rejected');
@@ -336,6 +343,9 @@ async function searchPass(
         const stalls = prefix ? 0 : (storedPlan.stalls || 0) + 1;
         const updatedPlan = JSON.stringify({ ...JSON.parse(run.plan), stalls });
         const learnedTitles: { id: number; title: string }[] = [];
+        const score = createRelevanceScorer(
+          expansion!.searchTerm || plan.phrase || '',
+        );
         const rawRows = batches.flatMap((b, i) => {
           return b.response.docs.map((raw, j) => {
             const s = normalize(raw);
@@ -352,7 +362,7 @@ async function searchPass(
               ),
               s.language,
               mediaKind(s),
-              relevanceScore(s, expansion!.searchTerm || plan.phrase || ''),
+              score(s),
               Date.parse(s.date) || 0,
               s.duration,
               searchText(s.title),
@@ -376,13 +386,24 @@ async function searchPass(
             return [...row, key, Number(JSON.parse(payload).views) || 0];
           }),
         );
-        const statements: SearchStatement[] = await changedTitleStatements(
-          db,
-          learnedTitles,
-        );
+        // Lock the run before checking ownership on PostgreSQL. D1 serializes
+        // the batch. Evaluate expiry on the database clock after pool/lock waits.
+        const statements: SearchStatement[] = [
+          db
+            .prepare('UPDATE search_runs SET lease=lease WHERE id=?')
+            .bind(run.id),
+          db
+            .prepare(`INSERT INTO search_pass_guards(run,owner,valid) VALUES(?,?,CASE WHEN EXISTS(
+            SELECT 1 FROM search_runs WHERE id=? AND owner=? AND next=?
+            AND lease>CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)
+          ) THEN 1 ELSE 0 END)`)
+            .bind(run.id, owner, run.id, owner, run.next),
+          ...(await changedTitleStatements(db, learnedTitles)),
+        ];
         const entries = [...documents];
-        for (let i = 0; i < entries.length; i += 30) {
-          const group = entries.slice(i, i + 30);
+        const documentBatch = db.dialect === 'postgres' ? 120 : 30;
+        for (let i = 0; i < entries.length; i += documentBatch) {
+          const group = entries.slice(i, i + documentBatch);
           statements.push(
             db
               .prepare(
@@ -397,8 +418,9 @@ async function searchPass(
               ),
           );
         }
-        for (let i = 0; i < rows.length; i += 7) {
-          const group = rows.slice(i, i + 7);
+        const hitBatch = db.dialect === 'postgres' ? 120 : 7;
+        for (let i = 0; i < rows.length; i += hitBatch) {
+          const group = rows.slice(i, i + hitBatch);
           statements.push(
             db
               .prepare(
@@ -410,7 +432,7 @@ async function searchPass(
         statements.push(
           db
             .prepare(
-              'UPDATE search_runs SET next = ?, plan = ?, scanned = ?, lease = 0, created = CASE WHEN ? THEN ? ELSE created END WHERE id = ? AND lease = ?',
+              'UPDATE search_runs SET next = ?, plan = ?, scanned = ?, lease = 0, created = CASE WHEN ? THEN ? ELSE created END WHERE id = ? AND owner = ? AND next = ?',
             )
             .bind(
               next,
@@ -419,10 +441,38 @@ async function searchPass(
               next > pages ? 1 : 0,
               Date.now(),
               run.id,
-              lease,
+              owner,
+              run.next,
             ),
         );
+        // Assert the accepted cursor as part of the transaction, not after it.
+        statements.push(
+          db
+            .prepare(`UPDATE search_pass_guards SET valid=CASE WHEN EXISTS(
+            SELECT 1 FROM search_runs WHERE id=? AND owner=? AND next=? AND scanned=? AND lease=0
+          ) THEN 1 ELSE 0 END WHERE run=? AND owner=?`)
+            .bind(
+              run.id,
+              owner,
+              next,
+              run.scanned + rows.length,
+              run.id,
+              owner,
+            ),
+          db
+            .prepare('DELETE FROM search_pass_guards WHERE run=? AND owner=?')
+            .bind(run.id, owner),
+        );
+        const preparedMs = performance.now() - started - readMs;
+        const commitStarted = performance.now();
         await db.batch(statements);
+        performanceSample('search_pass', {
+          upstreamMs: readMs,
+          cpuMs: preparedMs,
+          commitMs: performance.now() - commitStarted,
+          statements: statements.length,
+          scanned: rows.length,
+        });
         run.next = next;
         if (next > pages) run.created = Date.now();
         run.scanned += rows.length;
@@ -440,14 +490,23 @@ async function searchPass(
       } catch (e) {
         await db
           .prepare(
-            'UPDATE search_runs SET lease = 0 WHERE id = ? AND lease = ?',
+            'UPDATE search_runs SET lease = 0 WHERE id = ? AND owner = ?',
           )
-          .bind(run.id, lease)
+          .bind(run.id, owner)
           .run();
+        if (
+          e instanceof Error &&
+          /search_pass_owned|search_pass_guards|CHECK constraint failed: valid/i.test(
+            e.message,
+          )
+        )
+          throw new SearchBusyError(
+            'The search pass lost its lease. Retry shortly.',
+          );
         if (e instanceof SearchChangedError)
           await db
-            .prepare('DELETE FROM search_runs WHERE id = ?')
-            .bind(run.id)
+            .prepare('DELETE FROM search_runs WHERE id = ? AND owner = ?')
+            .bind(run.id, owner)
             .run();
         if (
           e instanceof Error &&
@@ -569,8 +628,12 @@ export async function completeSearch(
     runId,
   ]);
   const cached = state.cache.get(key);
-  if (cached) return structuredClone(cached);
+  if (cached) {
+    performanceSample('search_cache', { hit: 1 });
+    return structuredClone(cached);
+  }
   let promise = state.pending.get(key);
+  performanceSample('search_cache', { hit: 0, coalesced: promise ? 1 : 0 });
   if (!promise && state.pending.size >= 32)
     throw new SearchBusyError('Search is busy. Please retry shortly.');
   if (!promise) {

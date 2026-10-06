@@ -8,6 +8,7 @@ import {
   type RuntimeConfig,
 } from '../../../packages/antigravity-acp/src/runtime.js';
 import { SessionPool } from '../../../packages/antigravity-acp/src/pool.js';
+import { performanceSample } from '../../../lib/performance-metrics.js';
 import type { ACPClient } from '../../../packages/antigravity-acp/src/client.js';
 import {
   recoverConversations,
@@ -146,11 +147,14 @@ export async function processJob(
   const source = join(root, 'source.audio');
   try {
     await store.stage(job, 'downloading');
+    const started = performance.now();
     const url = await media.resolveMedia(job.shiur_id, job.source_url, signal);
     await media.downloadAudio(url, source, signal);
+    const downloaded = performance.now();
     await store.stage(job, 'preparing');
     const info = await inspectAudio(source, signal);
     const audioHash = await hashFile(source, signal);
+    const inspected = performance.now();
     const preparationIdentity = await audioPreparationIdentity(signal, root);
     const key = fingerprint({
       jobId: job.id,
@@ -165,6 +169,14 @@ export async function processJob(
     const ranges =
       store.savedManifest(job, key, info.durationMs)?.ranges ??
       (await prepareRanges(source, info, signal));
+    performanceSample('audio_preparation', {
+      attempt: job.attempt,
+      downloadMs: downloaded - started,
+      inspectMs: inspected - downloaded,
+      prepareMs: performance.now() - inspected,
+      bytes: info.bytes,
+      ranges: ranges.length,
+    });
     await store.manifest(job, key, audioHash, {
       version: 1,
       durationMs: info.durationMs,
@@ -408,6 +420,7 @@ export async function runWorker(
     let nextProbe = 0;
     let idleMs = Math.max(5000, config.pollMs);
     let claimQueue = Promise.resolve();
+    let preferTranscription = true;
     const claim = async () => {
       const previous = claimQueue;
       let release!: () => void;
@@ -422,11 +435,26 @@ export async function runWorker(
             await notesStore.enqueueMissing(config.notes, config.selectedOnly);
             nextNotesScan = Date.now() + 15 * 60_000;
           }
+          // Alternate successful admissions while both queues have work.
+          // A single lane remains fair; idle capacity belongs to either queue.
+          if (preferTranscription) {
+            const job = await store.claim(config.selectedOnly);
+            if (job) {
+              preferTranscription = false;
+              return { job };
+            }
+          }
           const notes = await notesStore.claim(config.selectedOnly);
-          if (notes) return { notes };
+          if (notes) {
+            preferTranscription = true;
+            return { notes };
+          }
         }
         const job = await store.claim(config.selectedOnly);
-        if (job) return { job };
+        if (job) {
+          preferTranscription = false;
+          return { job };
+        }
         nextProbe = Date.now() + idleMs;
         idleMs = Math.min(10 * 60_000, idleMs * 2);
         return null;

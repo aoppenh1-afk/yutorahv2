@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import { parseSearch, type Directory } from '@/lib/yutorah';
 import type { LibraryState } from '@/lib/library';
-import { noFilters, type Filters } from './advanced-search';
+import { noFilters, type Filters } from '@/lib/search-filters';
 
 export function SearchTools({
   query,

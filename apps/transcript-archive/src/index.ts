@@ -112,6 +112,23 @@ const worker = {
         const version = url.searchParams.get('version') ?? undefined;
         if (version && !/^[a-f0-9]{64}$/.test(version))
           return reply({ error: 'Invalid version' }, 400);
+        const conditional = request.headers.get('If-None-Match');
+        if (conditional) {
+          const metadata = await archive.contentMetadata(id, version);
+          if (metadata && conditional === '"' + metadata.version + '"')
+            return new Response(null, {
+              status: 304,
+              headers: {
+                ETag: conditional,
+                'X-Content-Type-Options': 'nosniff',
+                'Cache-Control': fresh
+                  ? 'no-store'
+                  : version
+                    ? 'public, max-age=31536000, immutable'
+                    : contentCacheControl,
+              },
+            });
+        }
         const body = await archive.contentBody(id, version);
         // The publisher verified this immutable JSON before activating it.
         // Avoid parsing and serializing large transcripts in the 10 ms Worker.

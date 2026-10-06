@@ -10,11 +10,13 @@ export async function preparePublishedSources(
     fetcher?: typeof fetch;
     wait?: (ms: number, signal: AbortSignal) => Promise<void>;
     report?: (event: { event: string; code?: string }) => void;
+    transcriptId?: string;
+    version?: string;
   } = {},
 ) {
   const url = dependencies.url || process.env.SOURCES_PREPARE_URL;
   const token = dependencies.token || process.env.SOURCES_PREPARE_TOKEN;
-  if (!url || !token) return;
+  if (!url || !token) return false;
   const report = dependencies.report || (() => {});
   try {
     const target = new URL(url);
@@ -43,7 +45,13 @@ export async function preparePublishedSources(
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ shiurId }),
+          body: JSON.stringify({
+            shiurId,
+            ...(dependencies.transcriptId
+              ? { transcriptId: dependencies.transcriptId }
+              : {}),
+            ...(dependencies.version ? { version: dependencies.version } : {}),
+          }),
           signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
         });
       } catch {
@@ -60,11 +68,18 @@ export async function preparePublishedSources(
           status?: unknown;
           transcriptId?: unknown;
         } | null;
-        if (data?.status !== 'ready' || typeof data.transcriptId !== 'string')
+        if (
+          data?.status !== 'ready' ||
+          typeof data.transcriptId !== 'string' ||
+          (dependencies.transcriptId &&
+            data.transcriptId !== dependencies.transcriptId)
+        )
           throw new Error('Unsupported preparation response');
         report({ event: 'sources_prepared' });
-        return;
+        return true;
       }
+      // Superseded transcript identities are finished, not retried indefinitely.
+      if (response.status === 409) return true;
       if (![202, 429, 500, 502, 503, 504].includes(response.status))
         throw new Error('Preparation rejected');
       if (response.status === 202) failures = 0;
@@ -82,4 +97,5 @@ export async function preparePublishedSources(
     if (!signal.aborted)
       report({ event: 'sources_preparation_deferred', code: 'unavailable' });
   }
+  return false;
 }

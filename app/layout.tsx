@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Lora } from 'next/font/google';
 import './globals.css';
 import './redesign.css';
 import './mobile.css';
+import { PerformanceMonitor } from './performance-monitor';
 const sans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 const mono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
 const editorial = Lora({
@@ -27,6 +28,7 @@ export default function RootLayout({
         className={`${sans.variable} ${mono.variable} ${editorial.variable}`}
       >
         {children}
+        <PerformanceMonitor />
       </body>
     </html>
   );

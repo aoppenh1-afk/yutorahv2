@@ -82,8 +82,9 @@ The legacy D1 HTTP schema helper also supports interrupted and repeated setup.
 For PostgreSQL/Vercel, apply `db/search-postgres/002_autocomplete.sql` once using
 the search schema's migration owner before deploying the website. It creates an
 expression index over existing titles without changing title data, vocabulary,
-or import hashes. The Vercel build checks that the index exists and gives the
-migration path if it is missing. Website credentials retain their existing
+or import hashes. The separate read-only `npm run search:schema:check` verifies the index
+and gives the migration command if it is missing. Builds have no database
+side effects. Website credentials retain their existing
 permissions. The feature does not require a new search service or external API
 key.
 

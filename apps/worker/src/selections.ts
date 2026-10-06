@@ -283,74 +283,77 @@ export async function scanSelections(
         // Validate chronological ordering once, including non-audio records.
         catalogRecords(page.docs);
         let budgetReached = false;
-        for (let index = offset; index < page.docs.length; index++) {
+        for (let start = offset; start < page.docs.length; start += 10) {
           checkAbort(signal);
-          const audio = catalogRecords([page.docs[index]]).records[0];
-          if (audio) {
-            const current = await selection.target(target.id);
+          const group = page.docs.slice(start, start + 10);
+          let committed = 0;
+          await transaction(store.pool, async (client) => {
+            const current = (
+              await client.query<Target>(
+                'SELECT * FROM transcription_targets WHERE id=$1 FOR UPDATE',
+                [target.id],
+              )
+            ).rows[0];
             if (
               !current?.enabled ||
               current.teacher_filter !== target.teacher_filter ||
               current.imported >= current.recording_limit
             ) {
               budgetReached = true;
-              break;
+              return;
             }
-            const jobId = await store.enqueue(
-              {
-                id: audio.id,
-                title: audio.title,
-                teacher: audio.teacher,
-                mediaUrl: audio.mediaUrl,
-                sourceRevision: audio.sourceRevision,
-              },
-              p,
-            );
-            let addedToTarget = false;
-            await transaction(store.pool, async (client) => {
-              const currentTarget = (
-                await client.query<Target>(
-                  'SELECT * FROM transcription_targets WHERE id=$1 FOR UPDATE',
-                  [target.id],
+            const records: ReturnType<typeof catalogRecords>['records'] = [];
+            let processed = 0;
+            // Associations already present do not consume the remaining budget.
+            const existing = new Set(
+              (
+                await client.query<{
+                  shiur_id: string;
+                  source_revision: string;
+                }>(
+                  `SELECT j.shiur_id,j.source_revision FROM transcription_target_jobs tj JOIN transcription_jobs j ON j.id=tj.job_id
+              WHERE tj.target_id=$1 AND j.transcription_version=$2 AND j.shiur_id=ANY($3::text[])`,
+                  [
+                    target.id,
+                    p.id,
+                    catalogRecords(group).records.map((audio) => audio.id),
+                  ],
                 )
-              ).rows[0];
-              if (
-                !currentTarget.enabled ||
-                currentTarget.teacher_filter !== target.teacher_filter
-              ) {
-                budgetReached = true;
-                return;
-              }
-              const count = currentTarget.imported;
-              if (count >= currentTarget.recording_limit) {
-                budgetReached = true;
-                return;
-              }
-              const added = await client.query(
-                'INSERT INTO transcription_target_jobs(target_id,job_id) VALUES($1,$2) ON CONFLICT DO NOTHING',
-                [target.id, jobId],
-              );
-              accepted += added.rowCount ?? 0;
-              addedToTarget = !!added.rowCount;
-              await client.query(
-                'UPDATE transcription_targets SET next_page=$2,page_offset=$3,upstream_total=$4,last_scan_at=now(),error=NULL WHERE id=$1',
-                [target.id, pageNumber, index + 1, page.total],
-              );
-            });
-            if (addedToTarget) workWake(store.pool).notify();
-            if (budgetReached) break;
-          } else {
-            await store.pool.query(
-              'UPDATE transcription_targets SET next_page=$2,page_offset=$3,upstream_total=$4,last_scan_at=now(),error=NULL WHERE id=$1 AND enabled AND teacher_filter IS NOT DISTINCT FROM $5',
-              [
-                target.id,
-                pageNumber,
-                index + 1,
-                page.total,
-                target.teacher_filter,
-              ],
+              ).rows.map((row) => row.shiur_id + ':' + row.source_revision),
             );
-          }
+            let remaining = current.recording_limit - current.imported;
+            for (const raw of group) {
+              const audio = catalogRecords([raw]).records[0];
+              const identity = audio
+                ? audio.id + ':' + audio.sourceRevision
+                : '';
+              if (audio && !existing.has(identity)) {
+                if (remaining <= 0) {
+                  budgetReached = true;
+                  break;
+                }
+                remaining--;
+                existing.add(identity);
+              }
+              if (audio) records.push(audio);
+              processed++;
+            }
+            const ids = await store.enqueueBatch(records, p, 0, client);
+            if (ids.length) {
+              const added = await client.query(
+                'INSERT INTO transcription_target_jobs(target_id,job_id) SELECT $1,unnest($2::uuid[]) ON CONFLICT DO NOTHING',
+                [target.id, ids],
+              );
+              committed = added.rowCount ?? 0;
+            }
+            await client.query(
+              'UPDATE transcription_targets SET next_page=$2,page_offset=$3,upstream_total=$4,last_scan_at=now(),error=NULL WHERE id=$1',
+              [target.id, pageNumber, start + processed, page.total],
+            );
+          });
+          accepted += committed;
+          workWake(store.pool).notify();
+          if (budgetReached) break;
         }
         if (budgetReached) break;
         const exhausted = pageNumber * 30 >= page.total || !page.docs.length;

@@ -46,6 +46,7 @@ export async function transcriptDatabaseGateway(
     Response.json(body, {
       status,
       headers: {
+        ...(status === 503 ? { 'Retry-After': '2' } : {}),
         'Cache-Control':
           status === 200 && params.get('fresh') !== 'true'
             ? path === '/v1/transcripts/search' || path.endsWith('/status')
@@ -63,7 +64,10 @@ export async function transcriptDatabaseGateway(
     const raw = reader ?? databaseReader();
     let source = readers.get(raw);
     if (!source) {
-      source = createCachedTranscriptReader(raw);
+      source = createCachedTranscriptReader(raw, {
+        maxPending: 4,
+        maxQueued: 16,
+      });
       readers.set(raw, source);
     }
     const statusId = path.match(/^\/v1\/transcripts\/(\d{1,12})\/status$/)?.[1];

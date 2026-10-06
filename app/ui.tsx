@@ -122,7 +122,7 @@ function Portrait({
 }
 // Verified original photographs; provenance is in public/images/teachers/README.md.
 const playerPortraits: Record<number, string> = {
-  80714: '/images/teachers/aryeh-lebowitz.jpg',
+  80714: '/images/teachers/aryeh-lebowitz-640.jpg',
 };
 function PlayerPortrait({
   src,
@@ -141,6 +141,8 @@ function PlayerPortrait({
         <img
           className="avatar"
           src={original}
+          srcSet={`${original.replace('-640.', '-320.')} 320w, ${original} 640w, ${original.replace('-640.', '-960.')} 960w`}
+          sizes="(max-width: 767px) 280px, 320px"
           alt=""
           loading="lazy"
           decoding="async"

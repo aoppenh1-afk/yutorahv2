@@ -18,7 +18,6 @@ void test(
   async () => {
     const schema = 'website_' + randomUUID().replaceAll('-', '');
     const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
-    await admin.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
     await admin.query(`CREATE SCHEMA ${schema}`);
     const pool = new Pool({
       connectionString: process.env.TEST_DATABASE_URL,

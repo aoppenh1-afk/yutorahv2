@@ -17,6 +17,10 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Choose a valid shiur.' }, { status: 400 });
     const url = new URL('/api/sources', request.url);
     url.searchParams.set('id', shiurId);
+    if (typeof body.transcriptId === 'string')
+      url.searchParams.set('revision', body.transcriptId);
+    if (typeof body.version === 'string')
+      url.searchParams.set('version', body.version);
     return await sourcesResponse(new Request(url), {
       db: searchDatabase(),
       status: (id) =>

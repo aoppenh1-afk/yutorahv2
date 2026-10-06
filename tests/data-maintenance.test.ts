@@ -9,8 +9,88 @@ import { tmpdir } from 'node:os';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { Pool } from 'pg';
 import { setTimeout as delay } from 'node:timers/promises';
-import { retainPublishedStorage } from '../packages/transcription/src/retention';
+import {
+  retainPublishedStorage,
+  publicationRetentionBacklog,
+} from '../packages/transcription/src/retention';
 import { runPublisher } from '../packages/transcription/src/publication';
+
+void test(
+  'retention drains more than 100 eligible jobs across bounded passes and preserves protected data',
+  { skip: !process.env.TEST_DATABASE_URL },
+  async () => {
+    const schema = 'retention_' + randomUUID().replaceAll('-', '');
+    const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
+    await admin.query(`CREATE SCHEMA ${schema}`);
+    const pool = new Pool({
+      connectionString: process.env.TEST_DATABASE_URL,
+      options: `-c search_path=${schema},public`,
+    });
+    try {
+      for (const file of (await readdir('db/transcription')).sort())
+        await pool.query(await readFile('db/transcription/' + file, 'utf8'));
+      await pool.query(
+        "INSERT INTO transcription_versions(id,pipeline_version,skill_hash,skill_text,model,runtime,settings) VALUES('fixture','fixture',$1,'fixture','fixture','fixture','{}')",
+        ['a'.repeat(64)],
+      );
+      const rows = Array.from({ length: 106 }, (_, i) => ({
+        id: String(i + 1),
+        job: randomUUID(),
+        transcript: randomUUID(),
+        age: i === 103 ? 2 : 8,
+        status: i === 105 ? 'queued' : 'completed',
+      }));
+      const records = JSON.stringify(rows);
+      await pool.query(
+        "INSERT INTO transcription_shiurim(id,title,teacher) SELECT id,'Fixture','Fixture' FROM jsonb_to_recordset($1) x(id text)",
+        [records],
+      );
+      await pool.query(
+        "INSERT INTO transcription_jobs(id,shiur_id,transcription_version,source_revision,skill_hash,model,status,completed_at) SELECT job,id,'fixture','fixture','fixture','fixture',status,now()-age*interval '1 day' FROM jsonb_to_recordset($1) x(id text,job uuid,age int,status text)",
+        [records],
+      );
+      await pool.query(
+        "INSERT INTO transcripts(id,job_id,shiur_id,duration_ms,text,fingerprint) SELECT transcript,job,id,1000,'Preserved public text','fixture' FROM jsonb_to_recordset($1) x(id text,job uuid,transcript uuid)",
+        [records],
+      );
+      await pool.query(
+        "INSERT INTO transcription_chunks(job_id,fingerprint,chunk_index,payload,digest) SELECT job,'fixture',0,'{}','fixture' FROM jsonb_to_recordset($1) x(job uuid)",
+        [records],
+      );
+      await pool.query(
+        'UPDATE transcription_shiurim h SET active_transcript_id=x.transcript,latest_job_id=x.job FROM jsonb_to_recordset($1) x(id text,job uuid,transcript uuid) WHERE h.id=x.id',
+        [records],
+      );
+      await pool.query(
+        "UPDATE transcript_publications SET published_generation=generation,content_changed=false WHERE shiur_id<>'105'",
+      );
+      const before = await publicationRetentionBacklog(pool);
+      assert.equal(before.jobs, 103);
+      assert.ok(before.oldestMs >= 8 * 86400000);
+      assert.equal((await retainPublishedStorage(pool, true)).checkpoints, 100);
+      assert.equal((await publicationRetentionBacklog(pool)).jobs, 3);
+      assert.equal((await retainPublishedStorage(pool, true)).checkpoints, 3);
+      assert.equal((await publicationRetentionBacklog(pool)).jobs, 0);
+      assert.deepEqual(
+        (
+          await pool.query(
+            'SELECT shiur_id FROM transcription_jobs j JOIN transcription_chunks c ON c.job_id=j.id ORDER BY shiur_id',
+          )
+        ).rows.map((row) => row.shiur_id),
+        ['104', '105', '106'],
+      );
+      assert.equal(
+        (await pool.query('SELECT COUNT(*)::int AS n FROM transcripts')).rows[0]
+          .n,
+        106,
+      );
+    } finally {
+      await pool.end();
+      await admin.query(`DROP SCHEMA ${schema} CASCADE`);
+      await admin.end();
+    }
+  },
+);
 
 void test(
   'maintenance preserves active, recent and unpublished versions and verifies backups before pruning',

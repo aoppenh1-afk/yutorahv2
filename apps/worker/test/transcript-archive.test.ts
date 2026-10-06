@@ -11,6 +11,9 @@ import {
 import { D1ContentObjects } from '../../../packages/transcription/src/d1-content.js';
 import {
   publicContent,
+  publishableContent,
+  publicationLimits,
+  PublicationValidationError,
   type PublicContent,
 } from '../../../packages/transcription/src/public-content.js';
 import worker from '../../transcript-archive/src/index.js';
@@ -24,6 +27,7 @@ async function database() {
   for (const file of (await readdir('db/transcript-archive')).sort())
     sqlite.exec(await readFile(`db/transcript-archive/${file}`, 'utf8'));
   let reads = 0;
+  let bodyReads = 0;
   let chunkWrites = 0;
   class Statement implements ArchiveStatement {
     constructor(
@@ -35,6 +39,8 @@ async function database() {
     }
     async all<T>() {
       reads++;
+      if (/SELECT[^;]*\bbody\b[^;]*FROM archive_content_chunks/i.test(this.sql))
+        bodyReads++;
       return {
         results: sqlite.prepare(this.sql).all(...(this.args as never[])) as T[],
       };
@@ -63,7 +69,13 @@ async function database() {
       }
     },
   };
-  return { db, sqlite, reads: () => reads, chunkWrites: () => chunkWrites };
+  return {
+    db,
+    sqlite,
+    reads: () => reads,
+    bodyReads: () => bodyReads,
+    chunkWrites: () => chunkWrites,
+  };
 }
 const fixture = (
   text = 'Quantum halacha includes חזרה.',
@@ -87,6 +99,211 @@ const fixture = (
     },
   ],
   notes: { status: 'queued', markdown: null },
+});
+
+void test('publication boundaries preserve all text and count multibyte encoded bytes', () => {
+  const content = fixture();
+  content.segments = Array.from({ length: 5000 }, (_, i) => ({
+    startMs: i,
+    endMs: i + 1,
+    text: 'שלום',
+    speaker: null,
+  }));
+  assert.equal(publishableContent(content).content.segments.length, 5000);
+  assert.throws(
+    () =>
+      publishableContent({
+        ...content,
+        segments: [...content.segments, content.segments[0]],
+      }),
+    PublicationValidationError,
+  );
+  content.segments = [{ ...content.segments[0], text: 'ש'.repeat(64000) }];
+  assert.equal(
+    publishableContent(content).content.segments[0].text.length,
+    64000,
+  );
+  assert.throws(
+    () =>
+      publishableContent({
+        ...content,
+        segments: [{ ...content.segments[0], text: 'ש'.repeat(64001) }],
+      }),
+    PublicationValidationError,
+  );
+  const withNotes = {
+    ...fixture(),
+    notes: { status: 'completed', markdown: '' },
+  };
+  const remaining =
+    publicationLimits.bytes -
+    Buffer.byteLength(JSON.stringify(publicContent(withNotes)));
+  withNotes.notes.markdown =
+    'ש'.repeat(Math.floor(remaining / 2)) + (remaining % 2 ? 'a' : '');
+  assert.equal(
+    Buffer.byteLength(publishableContent(withNotes).text),
+    publicationLimits.bytes,
+  );
+  withNotes.notes.markdown += 'ש';
+  assert.throws(
+    () => publishableContent(withNotes),
+    PublicationValidationError,
+  );
+});
+
+void test('bounded index maintenance resumes across corrections and retains immutable historical content', async () => {
+  const { db, sqlite } = await database();
+  class BudgetedArchive extends TranscriptArchive {
+    override cleanupIndex() {
+      return super.cleanupIndex(1, 2000);
+    }
+  }
+  try {
+    const archive = new BudgetedArchive(db, new D1ContentObjects(db));
+    const large = (text: string) => ({
+      ...fixture(),
+      segments: Array.from({ length: 250 }, (_, i) => ({
+        startMs: i * 100,
+        endMs: (i + 1) * 100,
+        text,
+        speaker: null,
+      })),
+    });
+    const first = await archive.publish({
+      generation: 1,
+      content: large('Original halacha'),
+    });
+    const second = await archive.publish({
+      generation: 2,
+      content: large('Corrected halacha'),
+    });
+    await archive.publish({ generation: 3, content: large('Final halacha') });
+    assert.ok(
+      Number(
+        sqlite.prepare('SELECT COUNT(*) AS n FROM archive_segments').get()!.n,
+      ) > 250,
+    );
+    const restarted = new TranscriptArchive(db, new D1ContentObjects(db));
+    let passes = 0;
+    while ((await restarted.cleanupIndex(1, 2000)).pending)
+      assert.ok(++passes < 10);
+    assert.equal(
+      sqlite.prepare('SELECT COUNT(*) AS n FROM archive_segments').get()!.n,
+      250,
+    );
+    assert.equal(
+      sqlite
+        .prepare('SELECT COUNT(DISTINCT version) AS n FROM archive_segments')
+        .get()!.n,
+      1,
+    );
+    assert.equal(
+      (await restarted.content('42', first.version))!.segments.length,
+      250,
+    );
+    assert.equal(
+      (await restarted.content('42', second.version))!.segments[0].text,
+      'Corrected halacha',
+    );
+    assert.equal((await restarted.search('original')).length, 0);
+    assert.equal(
+      (await restarted.content('42'))!.segments[249].text,
+      'Final halacha',
+    );
+  } finally {
+    sqlite.close();
+  }
+});
+
+void test('cold conditional reads validate versions and authorization without loading body chunks', async () => {
+  const { db, sqlite, bodyReads } = await database();
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'caches');
+  Object.defineProperty(globalThis, 'caches', {
+    configurable: true,
+    value: { default: { match: async () => undefined, put: async () => {} } },
+  });
+  try {
+    const archive = new TranscriptArchive(db, new D1ContentObjects(db));
+    const first = await archive.publish({ generation: 1, content: fixture() });
+    const env = { DB: db, READ_TOKEN: 'r'.repeat(48) };
+    const ctx = { waitUntil: (_promise: Promise<unknown>) => {} };
+    const request = (etag: string, suffix = '', token = env.READ_TOKEN) =>
+      new Request('https://archive.example/v1/transcripts/42' + suffix, {
+        headers: {
+          Authorization: 'Bearer ' + token,
+          'If-None-Match': '"' + etag + '"',
+        },
+      });
+    const before = bodyReads();
+    for (const suffix of ['', '?version=' + first.version, '?fresh=true']) {
+      const response = await worker.fetch(
+        request(first.version, suffix),
+        env,
+        ctx,
+      );
+      assert.equal(response.status, 304);
+      assert.equal(response.headers.get('ETag'), '"' + first.version + '"');
+      if (suffix === '?fresh=true')
+        assert.equal(response.headers.get('Cache-Control'), 'no-store');
+    }
+    assert.equal(bodyReads(), before);
+    assert.equal(
+      (await worker.fetch(request(first.version, '', 'bad'), env, ctx)).status,
+      401,
+    );
+    assert.equal(bodyReads(), before);
+    assert.equal(
+      (
+        await worker.fetch(
+          request('a'.repeat(64), '?version=' + 'a'.repeat(64)),
+          env,
+          ctx,
+        )
+      ).status,
+      404,
+    );
+    const second = await archive.publish({
+      generation: 2,
+      content: fixture('Corrected'),
+    });
+    assert.equal(
+      (await worker.fetch(request(first.version), env, ctx)).status,
+      200,
+    );
+    const correctedReads = bodyReads();
+    assert.equal(
+      (await worker.fetch(request(second.version), env, ctx)).status,
+      304,
+    );
+    assert.equal(
+      (
+        await worker.fetch(
+          request(first.version, '?version=' + first.version),
+          env,
+          ctx,
+        )
+      ).status,
+      304,
+    );
+    assert.equal(bodyReads(), correctedReads);
+    sqlite
+      .prepare('DELETE FROM archive_content_chunks WHERE object_key=?')
+      .run(`transcripts/42/${first.version}.json`);
+    assert.equal(
+      (
+        await worker.fetch(
+          request(first.version, '?version=' + first.version),
+          env,
+          ctx,
+        )
+      ).status,
+      404,
+    );
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'caches', original);
+    else Reflect.deleteProperty(globalThis, 'caches');
+    sqlite.close();
+  }
 });
 
 void test('packed initial spelling index preserves typo search and later publications', async () => {

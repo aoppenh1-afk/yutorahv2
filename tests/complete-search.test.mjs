@@ -77,6 +77,68 @@ test.after(() => {
   globalThis.fetch = realFetch;
 });
 
+void test('a stale pass rolls back hits, documents and title learning after a peer claims the lease', async () => {
+  const raw = database();
+  let stolen = false;
+  const db = {
+    ...raw,
+    async batch(statements) {
+      const run = await raw
+        .prepare('SELECT * FROM search_runs WHERE lease>0')
+        .first();
+      if (run && !stolen) {
+        stolen = true;
+        await raw
+          .prepare('UPDATE search_runs SET owner=?,lease=? WHERE id=?')
+          .bind('peer-owner', Date.now() + 60000, run.id)
+          .run();
+      }
+      return raw.batch(statements);
+    },
+  };
+  await assert.rejects(completeSearch(db, 'teshuva', {}), /lost its lease/);
+  const run = await raw.prepare('SELECT * FROM search_runs').first();
+  assert.equal(run.next, 1);
+  assert.equal(run.scanned, 0);
+  assert.equal(run.owner, 'peer-owner');
+  assert.ok(run.lease > Date.now());
+  for (const table of [
+    'search_hits',
+    'search_documents',
+    'search_title_catalog',
+    'search_pass_guards',
+  ])
+    assert.equal(
+      (await raw.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first()).n,
+      0,
+      table,
+    );
+  await raw.prepare('UPDATE search_runs SET lease=0').run();
+  const resumed = await completeSearch({ ...raw }, 'teshuva', {}, 1, run.id);
+  assert.equal(resumed.scanned, 120);
+  assert.equal(resumed.complete, false);
+});
+
+void test('expiry without another claimant rejects every mutation using the database clock', async () => {
+  const raw = database();
+  const db = {
+    ...raw,
+    async batch(statements) {
+      await raw.prepare('UPDATE search_runs SET lease=1 WHERE lease>0').run();
+      return raw.batch(statements);
+    },
+  };
+  await assert.rejects(completeSearch(db, 'teshuva', {}), /lost its lease/);
+  assert.equal(
+    (await raw.prepare('SELECT COUNT(*) AS n FROM search_hits').first()).n,
+    0,
+  );
+  assert.equal(
+    (await raw.prepare('SELECT scanned FROM search_runs').first()).scanned,
+    0,
+  );
+});
+
 void test('cold concurrent callers share one durable scan across database wrappers', async (t) => {
   const db = database();
   const peer = { ...db };
@@ -85,39 +147,86 @@ void test('cold concurrent callers share one durable scan across database wrappe
     const url = new URL(input);
     if (url.pathname.includes('/browse/')) return Response.json([]);
     pages++;
-    await new Promise(resolve => setTimeout(resolve, 5));
-    const page=Number(url.searchParams.get('start'));
-    return Response.json({response:{docs:records.slice((page-1)*30,page*30),numFound:records.length}});
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const page = Number(url.searchParams.get('start'));
+    return Response.json({
+      response: {
+        docs: records.slice((page - 1) * 30, page * 30),
+        numFound: records.length,
+      },
+    });
   });
-  const results=await Promise.all([completeSearch(db,'teshuva',{}),completeSearch(peer,'teshuva',{})]);
-  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM search_runs').first()).n,1);
-  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM search_hits').first()).n,120);
-  assert.equal(pages,4);
-  const first=results.find(result=>result.run);
-  const completed=await completeSearch(peer,'teshuva',{},1,first.run);
-  assert.equal(completed.complete,true);
-  assert.equal(completed.scanned,181);
-  assert.equal(pages,7);
+  const results = await Promise.all([
+    completeSearch(db, 'teshuva', {}),
+    completeSearch(peer, 'teshuva', {}),
+  ]);
+  assert.equal(
+    (await db.prepare('SELECT COUNT(*) AS n FROM search_runs').first()).n,
+    1,
+  );
+  assert.equal(
+    (await db.prepare('SELECT COUNT(*) AS n FROM search_hits').first()).n,
+    120,
+  );
+  assert.equal(pages, 4);
+  const first = results.find((result) => result.run);
+  const completed = await completeSearch(peer, 'teshuva', {}, 1, first.run);
+  assert.equal(completed.complete, true);
+  assert.equal(completed.scanned, 181);
+  assert.equal(pages, 7);
 });
 
 void test('overlapping scans share immutable documents and warmed completed pages need no SQL', async () => {
-  const raw=database();
-  let reads=0;
-  const db={...raw,prepare(sql){reads++;return raw.prepare(sql);}};
-  let first=await completeSearch(db,'teshuva',{});
-  first=await completeSearch(db,'teshuva',{},1,first.run);
-  let second=await completeSearch(db,'quantum',{});
-  second=await completeSearch(db,'quantum',{},1,second.run);
-  assert.equal((await raw.prepare('SELECT COUNT(*) AS n FROM search_documents').first()).n,181);
-  assert.equal((await raw.prepare('SELECT COUNT(*) AS n FROM search_hits').first()).n,362);
-  assert.equal((await raw.prepare("SELECT COUNT(*) AS n FROM search_hits WHERE payload<>''").first()).n,0);
-  const usage=await raw.prepare("SELECT bytes FROM search_cache_usage WHERE name='documents'").first();
-  assert.equal(usage.bytes,(await raw.prepare('SELECT SUM(length(CAST(payload AS BLOB))) AS bytes FROM search_documents').first()).bytes);
-  const before=reads;
-  const cached=await completeSearch(db,'teshuva',{},1,first.run);
-  assert.equal(reads,before);
-  cached.items[0].title='Local mutation';
-  assert.notEqual((await completeSearch(db,'teshuva',{},1,first.run)).items[0].title,'Local mutation');
+  const raw = database();
+  let reads = 0;
+  const db = {
+    ...raw,
+    prepare(sql) {
+      reads++;
+      return raw.prepare(sql);
+    },
+  };
+  let first = await completeSearch(db, 'teshuva', {});
+  first = await completeSearch(db, 'teshuva', {}, 1, first.run);
+  let second = await completeSearch(db, 'quantum', {});
+  second = await completeSearch(db, 'quantum', {}, 1, second.run);
+  assert.equal(
+    (await raw.prepare('SELECT COUNT(*) AS n FROM search_documents').first()).n,
+    181,
+  );
+  assert.equal(
+    (await raw.prepare('SELECT COUNT(*) AS n FROM search_hits').first()).n,
+    362,
+  );
+  assert.equal(
+    (
+      await raw
+        .prepare("SELECT COUNT(*) AS n FROM search_hits WHERE payload<>''")
+        .first()
+    ).n,
+    0,
+  );
+  const usage = await raw
+    .prepare("SELECT bytes FROM search_cache_usage WHERE name='documents'")
+    .first();
+  assert.equal(
+    usage.bytes,
+    (
+      await raw
+        .prepare(
+          'SELECT SUM(length(CAST(payload AS BLOB))) AS bytes FROM search_documents',
+        )
+        .first()
+    ).bytes,
+  );
+  const before = reads;
+  const cached = await completeSearch(db, 'teshuva', {}, 1, first.run);
+  assert.equal(reads, before);
+  cached.items[0].title = 'Local mutation';
+  assert.notEqual(
+    (await completeSearch(db, 'teshuva', {}, 1, first.run)).items[0].title,
+    'Local mutation',
+  );
 });
 
 void test('a timed-out candidate page recovers without losing filters, candidates, or the scan cursor', async (t) => {

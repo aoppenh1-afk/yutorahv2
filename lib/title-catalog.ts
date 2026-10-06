@@ -10,10 +10,16 @@ import { indexTitleStatements } from './title-index';
 export async function refreshTitleCatalog(db: SearchDatabase, maxPages = 4) {
   if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 1000)
     throw new RangeError('Choose between 1 and 1000 archive pages per pass.');
+  await db
+    .prepare(
+      "INSERT INTO search_title_cursors(name,next) VALUES('archive',1) ON CONFLICT(name) DO NOTHING",
+    )
+    .run();
   const cursor = await db
     .prepare("SELECT next FROM search_title_cursors WHERE name='archive'")
     .first<{ next: number }>();
   let next = cursor?.next ?? 1;
+  let expected = next;
   let scanned = 0,
     total = 0,
     complete = false;
@@ -52,19 +58,39 @@ export async function refreshTitleCatalog(db: SearchDatabase, maxPages = 4) {
   for (let i = 0; i < maxPages; i++) {
     const page = await fetchPage(next);
     total = page.numFound;
+    const owner = crypto.randomUUID();
     await db.batch([
+      db.prepare(
+        "UPDATE search_title_cursors SET next=next WHERE name='archive'",
+      ),
+      db
+        .prepare(
+          "INSERT INTO search_pass_guards(run,owner,valid) SELECT 'title-refresh',?,CASE WHEN EXISTS(SELECT 1 FROM search_title_cursors WHERE name='archive' AND next=?) THEN 1 ELSE 0 END",
+        )
+        .bind(owner, expected),
       ...indexTitleStatements(
         db,
         page.docs.map((raw) => normalize(raw)),
       ),
       db
         .prepare(
-          "INSERT INTO search_title_cursors (name,next) VALUES ('archive',?) ON CONFLICT(name) DO UPDATE SET next=excluded.next",
+          "UPDATE search_title_cursors SET next=? WHERE name='archive' AND next=?",
         )
-        .bind(next + 1),
+        .bind(next + 1, expected),
+      db
+        .prepare(
+          "UPDATE search_pass_guards SET valid=CASE WHEN EXISTS(SELECT 1 FROM search_title_cursors WHERE name='archive' AND next=?) THEN 1 ELSE 0 END WHERE run='title-refresh' AND owner=?",
+        )
+        .bind(next + 1, owner),
+      db
+        .prepare(
+          "DELETE FROM search_pass_guards WHERE run='title-refresh' AND owner=?",
+        )
+        .bind(owner),
     ]);
     scanned += page.docs.length;
     next++;
+    expected = next;
     if ((next - 1) * 30 >= total) {
       complete = true;
       break;

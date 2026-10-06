@@ -426,12 +426,17 @@ export function intentLabels(term: string): string[] {
  */
 export function interpretSpacing(
   term: string,
-  names: string[] = [],
+  names: string[] | Map<string, Set<string>> = [],
 ): {
   term: string;
   labels: string[];
 } {
-  const readings = names.length ? spacingReadings(names) : null;
+  const readings =
+    names instanceof Map
+      ? names
+      : names.length
+        ? prepareSpacingVocabulary(names)
+        : null;
   const tokens = [...term.matchAll(/"[^"]*"|[\p{L}\p{M}\p{N}'’״׳]+/gu)];
   const labels: string[] = [];
   let result = '',
@@ -463,7 +468,7 @@ export function interpretSpacing(
   return { term: result + term.slice(end), labels: [...new Set(labels)] };
 }
 
-function spacingReadings(names: string[]) {
+export function prepareSpacingVocabulary(names: string[]) {
   const readings = new Map<string, Set<string>>();
   for (const name of names) {
     const normalized = searchText(name);
@@ -485,7 +490,7 @@ function spacingReadings(names: string[]) {
 
 // Shared language data is immutable. Rebuilding it for every directory row
 // turned even an empty filter into a long browser task.
-const baseSpacingReadings = spacingReadings([
+const baseSpacingReadings = prepareSpacingVocabulary([
   ...aliases.keys(),
   ...conceptForms.keys(),
   ...spacingPhrases,
@@ -596,7 +601,49 @@ export function matchQuery(
   minPrefix = 3,
 ): boolean {
   if (!query.trim()) return true;
-  const spaced = interpretSpacing(query, spacingNames(text)).term;
+  return createQueryMatcher(query, minPrefix)(prepareSearchText(text));
+}
+
+export type MatchText = {
+  normalized: string;
+  words: { word: string; index: number }[];
+};
+export type PreparedSearchText = MatchText & {
+  spacing: Map<string, Set<string>>;
+};
+export function prepareMatchText(text: string): MatchText {
+  const normalized = searchText(text);
+  const all = normalized
+    .split(' ')
+    .filter(Boolean)
+    .map((word, index) => ({ word, index }));
+  const subjects = all.filter(({ word }) => !connectingWords.has(word));
+  return { normalized, words: subjects.length ? subjects : all };
+}
+export function prepareSearchText(text: string): PreparedSearchText {
+  const prepared = prepareMatchText(text);
+  return {
+    ...prepared,
+    spacing: prepareSpacingVocabulary(spacingNames(prepared.normalized)),
+  };
+}
+/** Query work is shared, while spacing repairs retain each candidate's vocabulary. */
+export function createQueryMatcher(query: string, minPrefix = 3) {
+  const interpretations = new Map<string, string[]>();
+  return (text: PreparedSearchText) => {
+    if (!query.trim()) return true;
+    const spaced = interpretSpacing(query, text.spacing).term;
+    let terms = interpretations.get(spaced);
+    if (!terms) {
+      terms = queryTerms(spaced);
+      if (interpretations.size >= 100)
+        interpretations.delete(interpretations.keys().next().value!);
+      interpretations.set(spaced, terms);
+    }
+    return terms.every((term) => textMatchScore(text, term, minPrefix) > 0);
+  };
+}
+function queryTerms(spaced: string) {
   let terms = interpretedQueryTerms.get(spaced);
   if (!terms) {
     terms = searchTerms(interpretSearchRequest(spaced).term);
@@ -604,7 +651,7 @@ export function matchQuery(
       interpretedQueryTerms.delete(interpretedQueryTerms.keys().next().value!);
     interpretedQueryTerms.set(spaced, terms);
   }
-  return terms.every((term) => textMatchScore(text, term, minPrefix) > 0);
+  return terms;
 }
 
 const interpretedQueryTerms = new Map<string, string[]>();
@@ -621,7 +668,7 @@ function spacingNames(text: string): string[] {
  * alternatives. Lower related scores keep direct wording ahead of expansion.
  */
 export function textMatchScore(
-  text: string,
+  text: string | MatchText,
   term: string,
   minPrefix = 3,
 ): number {
@@ -633,17 +680,13 @@ export function textMatchScore(
 
 /** Subject matches and word positions, shared by coverage and proximity ranking. */
 export function textMatchEvidence(
-  text: string,
+  text: string | MatchText,
   term: string,
   minPrefix = 3,
 ): { score: number; start: number; end: number }[] {
   if (!searchText(term)) return [];
-  const all = searchText(text)
-    .split(' ')
-    .filter(Boolean)
-    .map((word, index) => ({ word, index }));
-  const subjects = all.filter(({ word }) => !connectingWords.has(word));
-  const words = subjects.length ? subjects : all;
+  const words = (typeof text === 'string' ? prepareMatchText(text) : text)
+    .words;
   return relatedSearchTerms(term).flatMap((form, index) => {
     const tokens = searchWords(form);
     // A compound concept must occur together: unrelated mentions of "lashon"

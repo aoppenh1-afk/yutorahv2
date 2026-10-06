@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { Failure } from '../../antigravity-acp/src/errors.js';
-import { transaction } from './store.js';
+import { transaction, TranscriptionStore } from './store.js';
+import { publishableContent } from './public-content.js';
 import { workWake } from './work-wake.js';
 import type { NotesProfile } from './notes.js';
 
@@ -78,6 +79,25 @@ export class NotesStore {
         [job.id, job.lease_token],
       );
       if (!owned.rowCount) throw new Failure('lease_lost');
+      const id = (
+        await client.query<{ shiur_id: string }>(
+          'SELECT shiur_id FROM transcripts WHERE id=$1',
+          [job.transcript_id],
+        )
+      ).rows[0]?.shiur_id;
+      const content = id
+        ? await new TranscriptionStore(this.pool).publicContent(id, client)
+        : null;
+      if (content?.transcriptId === job.transcript_id) {
+        try {
+          publishableContent({
+            ...content,
+            notes: { status: 'completed', markdown },
+          });
+        } catch {
+          throw new Failure('publication_invalid');
+        }
+      }
       await client.query(
         `INSERT INTO transcript_notes(id,transcript_id,markdown) VALUES($1,$2,$3)`,
         [job.id, job.transcript_id, markdown],

@@ -1,4 +1,21 @@
 import type { Pool } from 'pg';
+const eligibleFrom = `FROM transcription_jobs j JOIN transcripts t ON t.job_id=j.id
+    JOIN transcription_shiurim h ON h.active_transcript_id=t.id
+    JOIN transcript_publications p ON p.shiur_id=h.id
+    WHERE j.status='completed' AND j.completed_at<now()-interval '7 days'
+    AND p.generation=p.published_generation AND NOT p.content_changed
+    AND (EXISTS(SELECT 1 FROM transcription_chunks c WHERE c.job_id=j.id) OR EXISTS(SELECT 1 FROM notes_jobs n JOIN transcript_notes content ON content.id=n.id WHERE n.transcript_id=t.id AND n.status='completed' AND n.completed_at<now()-interval '7 days' AND n.cleaned_text IS NOT NULL))`;
+export async function publicationRetentionBacklog(pool: Pool) {
+  const row = (
+    await pool.query<{ jobs: string; oldest: Date | null }>(
+      `SELECT count(*) AS jobs,min(j.completed_at) AS oldest ${eligibleFrom}`,
+    )
+  ).rows[0];
+  return {
+    jobs: Number(row.jobs),
+    oldestMs: row.oldest ? Math.max(0, Date.now() - row.oldest.getTime()) : 0,
+  };
+}
 
 /** Keep every retryable checkpoint. Cleanup requires an acknowledged active
  * publication, completed jobs, and a seven-day recovery window. */
@@ -7,12 +24,7 @@ export async function retainPublishedStorage(
   apply = false,
   limit = 100,
 ) {
-  const eligible = `SELECT j.id FROM transcription_jobs j JOIN transcripts t ON t.job_id=j.id
-    JOIN transcription_shiurim h ON h.active_transcript_id=t.id
-    JOIN transcript_publications p ON p.shiur_id=h.id
-    WHERE j.status='completed' AND j.completed_at<now()-interval '7 days'
-    AND p.generation=p.published_generation AND NOT p.content_changed
-    AND (EXISTS(SELECT 1 FROM transcription_chunks c WHERE c.job_id=j.id) OR EXISTS(SELECT 1 FROM notes_jobs n JOIN transcript_notes content ON content.id=n.id WHERE n.transcript_id=t.id AND n.status='completed' AND n.completed_at<now()-interval '7 days' AND n.cleaned_text IS NOT NULL)) LIMIT $1`;
+  const eligible = `SELECT j.id ${eligibleFrom} ORDER BY j.completed_at LIMIT $1`;
   const ids = (await pool.query<{ id: string }>(eligible, [limit])).rows.map(
     (row) => row.id,
   );

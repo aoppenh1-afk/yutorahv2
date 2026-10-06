@@ -106,83 +106,45 @@ export async function migrateEfficiencySchema(db: SearchDatabase) {
   }
 }
 
+export async function migrateFencingSchema(db: SearchDatabase) {
+  const columns = (
+    await db.prepare('PRAGMA table_info(search_runs)').all<{ name: string }>()
+  ).results;
+  if (!columns.some((column) => column.name === 'owner'))
+    await db
+      .prepare(
+        "ALTER TABLE search_runs ADD COLUMN owner text NOT NULL DEFAULT ''",
+      )
+      .run();
+  await db
+    .prepare(`CREATE TABLE IF NOT EXISTS search_pass_guards (run text NOT NULL,owner text NOT NULL,
+    valid integer NOT NULL CONSTRAINT search_pass_owned CHECK(valid=1),PRIMARY KEY(run,owner))`)
+    .run();
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
-  if (process.env.SEARCH_DATABASE_URL) {
-    const { postgresSearchDatabase, postgresSearchPool } =
-      await import('../lib/search-postgres');
-    const pool = postgresSearchPool(process.env.SEARCH_DATABASE_URL);
-    try {
-      const db = postgresSearchDatabase(pool);
-      // Owner-created tables let the normal website role run without DDL access.
-      try {
-        await db
-          .prepare('SELECT id,payload,lease,expires FROM sources_runs LIMIT 0')
-          .all();
-      } catch {
-        try {
-          await migrateSourcesSchema(db);
-        } catch {
-          throw new Error(
-            'Apply db/search-postgres/002_sources.sql with the search schema owner and grant the website search role SELECT, INSERT, UPDATE, DELETE before deploying.',
-          );
-        }
-      }
-      await db
-        .prepare('SELECT id,title,terms FROM search_title_catalog LIMIT 0')
-        .all();
-      await db.prepare('SELECT key,term FROM search_title_keys LIMIT 0').all();
-      try {
-        await db
-          .prepare('SELECT id,next,scanned FROM search_runs LIMIT 0')
-          .all();
-        await db
-          .prepare('SELECT key,payload FROM search_documents LIMIT 0')
-          .all();
-        await db
-          .prepare('SELECT name,bytes FROM search_cache_usage LIMIT 0')
-          .all();
-        await db
-          .prepare(
-            'SELECT fingerprint,owner FROM search_creation_leases LIMIT 0',
-          )
-          .all();
-      } catch {
-        throw new Error(
-          'Apply db/search-postgres/003_efficiency.sql with the schema owner and grant the website role access to the new tables before deploying.',
-        );
-      }
-      const index = await pool.query(
-        "SELECT 1 FROM pg_indexes WHERE schemaname='yutorah_search' AND indexname='search_title_autocomplete'",
-      );
-      if (!index.rowCount)
-        throw new Error(
-          'Apply db/search-postgres/002_autocomplete.sql with the search migration owner before deploying.',
-        );
-      console.log('Managed PostgreSQL search schema ready.');
-    } finally {
-      await pool.end();
-    }
+  if (process.env.SEARCH_MIGRATION_DATABASE_URL) {
+    const { migratePostgresSearch } = await import('./migrate-postgres-search');
+    await migratePostgresSearch(process.env.SEARCH_MIGRATION_DATABASE_URL);
+  } else if (process.env.SEARCH_DATABASE_URL) {
+    throw new Error(
+      'Set SEARCH_MIGRATION_DATABASE_URL to the search schema owner connection. Runtime credentials are not migration credentials.',
+    );
   } else {
-    const config = {
+    const db = d1HttpDatabase({
       accountId: process.env.CLOUDFLARE_ACCOUNT_ID || '',
       databaseId: process.env.SEARCH_D1_DATABASE_ID || '',
       token: process.env.SEARCH_D1_API_TOKEN || '',
-    };
-    if (
-      !process.env.VERCEL &&
-      !config.accountId &&
-      !config.databaseId &&
-      !config.token
-    ) {
-      console.log('Local Vercel build: remote search migrations skipped.');
-    } else {
-      const db = d1HttpDatabase(config);
-      await migrateTitleSchema(db);
-      await migrateEfficiencySchema(db);
-      console.log('Search title schema ready.');
-    }
+    });
+    // Initial D1 provisioning uses wrangler migrations apply. This owner-only
+    // command upgrades an existing deployment and is safe to retry.
+    await migrateTitleSchema(db);
+    await migrateEfficiencySchema(db);
+    await migrateFencingSchema(db);
+    const { checkSearchSchema } = await import('./check-search-schema');
+    await checkSearchSchema(db);
   }
 }

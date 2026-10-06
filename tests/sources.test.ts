@@ -15,7 +15,10 @@ import {
   type LinkerDebug,
   type RefMetadata,
 } from '../lib/sefaria';
-import { sourceHighlights } from '../lib/source-highlights';
+import {
+  sourceHighlights,
+  indexSourceHighlights,
+} from '../lib/source-highlights';
 import { renderSourceSheet } from '../lib/source-sheet';
 import {
   postgresSearchSql,
@@ -379,6 +382,18 @@ void test('Hebrew, emoji, repeated mentions, and cross-segment citations retain 
     ),
     ['Genesis'],
   );
+  const indexed = indexSourceHighlights(result.sources);
+  for (const index of [0, 1, 2])
+    assert.deepEqual(
+      indexed.get(index),
+      sourceHighlights(result.sources, index),
+    );
+  const overlap = structuredClone(result.sources[0]);
+  overlap.ref = 'Overlapping reference';
+  overlap.occurrences[0].spans[0].startChar++;
+  const withOverlap = indexSourceHighlights([...result.sources, overlap]);
+  assert.equal(withOverlap.get(0)!.length, 1);
+  assert.equal(withOverlap.get(0)![0].ref, result.sources[0].ref);
 });
 
 void test('bounded overlapping chunks retain a boundary citation once without inventing sources', async () => {

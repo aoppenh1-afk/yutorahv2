@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
@@ -28,6 +28,7 @@ const server = externalOrigin
       { stdio: 'ignore' },
     );
 let browser;
+const cssCoverage = new Map();
 try {
   for (let attempt = 0; ; attempt++) {
     try {
@@ -101,22 +102,54 @@ async function openPlayer(viewport, stalled = false, options = {}) {
     teacherId: options.teacherId || shiur.teacherId,
     teacher: options.teacher || shiur.teacher,
   };
-  await context.addInitScript((s) => {
-    if (!localStorage.getItem('yutorah-learning-v1'))
-      localStorage.setItem(
-        'yutorah-learning-v1',
-        JSON.stringify({
-          last: s,
-          history: [{ shiur: s, seconds: 42, duration: 120 }],
-          queue: [{ ...s, id: 900002 }],
-        }),
-      );
-  }, recording);
+  await context.addInitScript(
+    ({ s, initialLibrary }) => {
+      if (!localStorage.getItem('yutorah-learning-v1'))
+        localStorage.setItem(
+          'yutorah-learning-v1',
+          JSON.stringify({
+            last: s,
+            history: [{ shiur: s, seconds: 42, duration: 120 }],
+            queue: [{ ...s, id: 900002 }],
+            ...initialLibrary,
+          }),
+        );
+    },
+    { s: recording, initialLibrary: options.initialLibrary },
+  );
+  await context.route('**/api/home', (route) =>
+    route.fulfill({
+      json: {
+        featured: [],
+        recent: [],
+        daily: [],
+        series: [],
+        total: 0,
+        hebrewDate: '',
+        daf: '',
+        nach: '',
+        mishna: '',
+        fetchedAt: new Date().toISOString(),
+      },
+    }),
+  );
+  await context.route('**/api/directory', (route) =>
+    route.fulfill({ json: { teachers: [], series: [], topics: [] } }),
+  );
+  await context.route('**/api/related?*', (route) =>
+    route.fulfill({ json: { items: [], partial: false } }),
+  );
+  await context.route('**/api/feed?*', (route) =>
+    route.fulfill({ json: { items: [], partial: false } }),
+  );
+  await context.route('**/api/autocomplete?*', (route) =>
+    route.fulfill({ json: { suggestions: [] } }),
+  );
   await context.route('**/api/shiur?id=900001', (route) =>
     route.fulfill({ json: recording }),
   );
   if (options.missingHighResolution)
-    await context.route('**/images/teachers/aryeh-lebowitz.jpg', (route) =>
+    await context.route('**/images/teachers/aryeh-lebowitz-*.jpg', (route) =>
       route.fulfill({ status: 404, body: '' }),
     );
   await context.route(
@@ -158,6 +191,54 @@ async function openPlayer(viewport, stalled = false, options = {}) {
       .catch(() => {});
   });
   const page = await context.newPage();
+  if (process.env.PERFORMANCE_CSS_REPORT) {
+    const cdp = await context.newCDPSession(page);
+    const sheets = new Map();
+    cdp.on('CSS.styleSheetAdded', ({ header }) => {
+      if (header.sourceURL.includes('/_next/static/css/'))
+        sheets.set(header.styleSheetId, {
+          ...header,
+          // A stylesheet may disappear during navigation before fixture cleanup.
+          text: cdp
+            .send('CSS.getStyleSheetText', {
+              styleSheetId: header.styleSheetId,
+            })
+            .then(({ text }) => text)
+            .catch(() => null),
+        });
+    });
+    await cdp.send('DOM.enable');
+    await cdp.send('CSS.enable');
+    await cdp.send('CSS.startRuleUsageTracking');
+    const close = context.close.bind(context);
+    context.close = async () => {
+      try {
+        const { ruleUsage } = await cdp
+          .send('CSS.stopRuleUsageTracking')
+          .catch(() => ({ ruleUsage: [] }));
+        for (const [id, sheet] of sheets) {
+          const text = await sheet.text;
+          if (text === null) continue;
+          const key = new URL(sheet.sourceURL).pathname;
+          const entry = cssCoverage.get(key) ?? {
+            characters: text.length,
+            ranges: new Map(),
+          };
+          for (const rule of ruleUsage.filter(
+            (rule) => rule.styleSheetId === id && rule.used,
+          ))
+            entry.ranges.set(`${rule.startOffset}:${rule.endOffset}`, [
+              rule.startOffset,
+              rule.endOffset,
+            ]);
+          cssCoverage.set(key, entry);
+        }
+      } finally {
+        await close();
+      }
+    };
+  }
+  await options.onPage?.(page, context);
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
   await page
     .getByRole('region', { name: 'Audio player', exact: true })
@@ -217,6 +298,560 @@ async function closeAndVerify(page, minSeconds = 42) {
 
 void test('player controls stop playback and the phone dialog stays inside the built viewport', async (t) => {
   try {
+    for (const follows of [0, 10, 100]) {
+      await t.test(
+        `Home bounds initial requests for ${follows} follows and Following can load every source`,
+        async () => {
+          const requests = [];
+          const { context, page } = await openPlayer(
+            { width: 1280, height: 800 },
+            false,
+            {
+              initialLibrary: {
+                following: Array.from({ length: follows }, (_, i) => ({
+                  kind: 'teacher',
+                  id: i + 1,
+                  name: 'Teacher ' + (i + 1),
+                })),
+                history: [],
+              },
+              onPage: (page) => {
+                page.on('request', (request) => requests.push(request.url()));
+              },
+            },
+          );
+          try {
+            await page
+              .getByRole('heading', { name: 'The Torah library.', exact: true })
+              .waitFor();
+            await page.waitForTimeout(100);
+            const feeds = () =>
+              requests.filter((url) => url.includes('/api/feed?'));
+            assert.ok(feeds().length <= 1);
+            for (const url of feeds())
+              assert.ok(
+                [...new URL(url).searchParams.values()]
+                  .join(',')
+                  .split(',')
+                  .filter(Boolean).length <= 8,
+              );
+            assert.equal(
+              requests.filter((url) => url.includes('/api/discover?')).length,
+              0,
+            );
+            assert.equal(
+              requests.filter((url) =>
+                /\/(transcript-reader|react-markdown|sources-panel|advanced-search|secondary-screens)-[^/]+\.js/.test(
+                  url,
+                ),
+              ).length,
+              0,
+            );
+            if (follows > 8) {
+              await page
+                .getByLabel('Discovery views')
+                .getByRole('button', { name: 'Following', exact: true })
+                .click();
+              while (
+                await page
+                  .getByRole('button', { name: /^Load more followed sources/ })
+                  .count()
+              ) {
+                await page
+                  .getByRole('button', { name: /^Load more followed sources/ })
+                  .click();
+                await page.waitForTimeout(30);
+              }
+              await page.waitForFunction(
+                () => !document.querySelector('.feed-loading'),
+              );
+              await page.waitForTimeout(100);
+              const ids = new Set(
+                feeds().flatMap(
+                  (url) =>
+                    new URL(url).searchParams
+                      .get('teacher')
+                      ?.split(',')
+                      .filter(Boolean) ?? [],
+                ),
+              );
+              assert.equal(ids.size, follows);
+              assert.equal(
+                feeds().length,
+                Math.ceil(follows / 8),
+                'ready batches are reused when Following grows',
+              );
+            }
+          } finally {
+            await context.close();
+          }
+        },
+      );
+    }
+    await t.test(
+      'a slow homepage leaves the shell and saved library usable',
+      async () => {
+        let release;
+        const held = new Promise((resolve) => {
+          release = resolve;
+        });
+        const start = Date.now();
+        const { context, page } = await openPlayer(
+          { width: 1280, height: 800 },
+          false,
+          {
+            initialLibrary: { saved: [shiur] },
+            onPage: async (_page, context) => {
+              await context.route('**/api/home', async (route) => {
+                await held;
+                await route
+                  .fulfill({
+                    status: 503,
+                    json: { error: 'Fixture unavailable' },
+                  })
+                  .catch(() => {});
+              });
+            },
+          },
+        );
+        try {
+          assert.ok(
+            Date.now() - start < 5000,
+            'player and shell do not await the blocked homepage',
+          );
+          await page
+            .locator('.nav-button')
+            .filter({ hasText: 'Saved shiurim' })
+            .click();
+          await page
+            .getByRole('heading', { name: '1 saved shiur', exact: true })
+            .waitFor();
+          assert.equal(
+            await page.locator('audio').evaluate((audio) => audio.paused),
+            false,
+          );
+        } finally {
+          release();
+          await context.close();
+        }
+      },
+    );
+    await t.test(
+      'failed secondary chunks leave navigation and playback usable',
+      async () => {
+        const { context, page } = await openPlayer(
+          { width: 1280, height: 800 },
+          false,
+          {
+            onPage: async (_page, context) => {
+              await context.route('**/secondary-screens-*.js', (route) =>
+                route.abort(),
+              );
+            },
+          },
+        );
+        try {
+          await page
+            .locator('.nav-button')
+            .filter({ hasText: 'Saved shiurim' })
+            .click();
+          await page
+            .getByText('This screen could not load.', { exact: false })
+            .waitFor();
+          assert.equal(
+            await page.locator('audio').evaluate((audio) => audio.paused),
+            false,
+          );
+          await page
+            .locator('.nav-button')
+            .filter({ hasText: 'Search' })
+            .click();
+          await page.locator('#main-search').waitFor();
+        } finally {
+          await context.close();
+        }
+      },
+    );
+    await t.test(
+      '1,000 loaded results and 5,000 transcript segments stay bounded during 60 seconds of clock updates',
+      async () => {
+        const items = Array.from({ length: 1000 }, (_, i) => ({
+          ...shiur,
+          id: 10000 + i,
+          title: 'Large fixture ' + i,
+        }));
+        const segments = Array.from({ length: 5000 }, (_, i) => ({
+          startMs: i * 24,
+          endMs: (i + 1) * 24,
+          text: 'Timed segment ' + i,
+          speaker: null,
+        }));
+        const { context, page } = await openPlayer(
+          { width: 1280, height: 800 },
+          false,
+          {
+            initialLibrary: {
+              saved: items,
+              queue: items.slice(0, 100),
+              history: [
+                { shiur, seconds: 42, duration: 120 },
+                ...items.slice(0, 199).map((recording) => ({
+                  shiur: recording,
+                  seconds: 12,
+                  duration: 120,
+                })),
+              ],
+              playlists: Array.from({ length: 10 }, (_, i) => ({
+                id: String(i),
+                name: 'Large playlist ' + i,
+                items: items.slice(i * 100, (i + 1) * 100),
+              })),
+            },
+            onPage: async (_page, context) => {
+              await context.addInitScript(() => {
+                sessionStorage.setItem('yutorah-performance-sample', '1');
+                window.libraryWrites = 0;
+                window.mobileListeners = 0;
+                // oxlint-disable-next-line typescript/unbound-method -- The wrapper passes its original receiver with .call.
+                const setItem = Storage.prototype.setItem;
+                Storage.prototype.setItem = function (key, value) {
+                  if (key === 'yutorah-learning-v1') window.libraryWrites++;
+                  return setItem.call(this, key, value);
+                };
+                // oxlint-disable-next-line typescript/unbound-method -- The wrapper passes its original receiver with .call.
+                const add = MediaQueryList.prototype.addEventListener;
+                // oxlint-disable-next-line typescript/unbound-method -- The wrapper passes its original receiver with .call.
+                const remove = MediaQueryList.prototype.removeEventListener;
+                MediaQueryList.prototype.addEventListener = function (
+                  type,
+                  ...args
+                ) {
+                  if (type === 'change' && /max-width.*767px/.test(this.media))
+                    window.mobileListeners++;
+                  return add.call(this, type, ...args);
+                };
+                MediaQueryList.prototype.removeEventListener = function (
+                  type,
+                  ...args
+                ) {
+                  if (type === 'change' && /max-width.*767px/.test(this.media))
+                    window.mobileListeners--;
+                  return remove.call(this, type, ...args);
+                };
+              });
+              await context.route('**/api/search?*', (route) =>
+                route.fulfill({
+                  json: {
+                    items,
+                    total: 1000,
+                    scanned: 1000,
+                    sourceTotal: 1000,
+                    complete: true,
+                    nextPage: null,
+                    filtered: false,
+                    plan: {
+                      term: 'fixture',
+                      original: 'fixture',
+                      max: 0,
+                      language: '',
+                      format: '',
+                      teacherId: 0,
+                      teacherName: '',
+                      seriesId: 0,
+                      seriesName: '',
+                      topicId: 0,
+                      labels: [],
+                      sort: 'relevance',
+                    },
+                    facets: { teachers: [], topics: [], series: [] },
+                  },
+                }),
+              );
+              await context.route('**/api/transcript?*', (route) =>
+                route.fulfill({
+                  json: {
+                    id: '900001',
+                    transcriptId: 'fixture-large',
+                    version: 'a'.repeat(64),
+                    title: shiur.title,
+                    teacher: shiur.teacher,
+                    durationMs: 120000,
+                    createdAt: '2026-10-05T00:00:00Z',
+                    segments,
+                    notes: {
+                      status: 'completed',
+                      markdown: '# Complete notes',
+                    },
+                  },
+                }),
+              );
+            },
+          },
+        );
+        try {
+          await page
+            .locator('.nav-button')
+            .filter({ hasText: 'Search' })
+            .click();
+          await page.locator('#main-search').fill('fixture');
+          await page.locator('#main-search').press('Enter');
+          await page.locator('.shiur-row').first().waitFor();
+          assert.equal(await page.locator('.shiur-row').count(), 60);
+          assert.equal(await page.evaluate(() => window.mobileListeners), 1);
+          await page
+            .getByRole('navigation', { name: 'List pages' })
+            .getByRole('button', { name: 'Next', exact: true })
+            .click();
+          await page.getByText('61–120 of 1,000', { exact: true }).waitFor();
+          assert.equal(await page.locator('.shiur-row').count(), 60);
+          await page
+            .getByRole('button', { name: 'Open shiur details and notes' })
+            .click();
+          await page.locator('.study-segment').first().waitFor();
+          assert.equal(await page.locator('.study-segment').count(), 100);
+          assert.equal(
+            await page
+              .getByRole('link', { name: 'Open complete text' })
+              .count(),
+            1,
+          );
+          await page
+            .getByRole('navigation', { name: 'Transcript pages' })
+            .getByRole('button', { name: 'Next', exact: true })
+            .click();
+          assert.equal(
+            await page.evaluate(() => document.activeElement.className),
+            'study-transcript',
+          );
+          const first = Number(
+            (
+              await page.locator('.study-segment p').first().textContent()
+            ).match(/\d+/)[0],
+          );
+          await page.locator('.study-time').first().click();
+          await page.waitForFunction(
+            (seconds) =>
+              Math.abs(document.querySelector('audio').currentTime - seconds) <
+              1,
+            first * 0.024,
+          );
+          await page.evaluate(() => {
+            window.clockSeconds = document.querySelector('audio').currentTime;
+            Object.defineProperty(
+              document.querySelector('audio'),
+              'currentTime',
+              {
+                configurable: true,
+                get: () => window.clockSeconds,
+                set: (seconds) => {
+                  window.clockSeconds = seconds;
+                },
+              },
+            );
+            Object.defineProperty(document, 'hidden', {
+              configurable: true,
+              get: () => window.performanceHidden ?? false,
+            });
+          });
+          const report = async () => {
+            const request = page.waitForRequest('**/api/performance');
+            await page.evaluate(() => {
+              window.performanceHidden = true;
+              document.dispatchEvent(new Event('visibilitychange'));
+              window.performanceHidden = false;
+              document.dispatchEvent(new Event('visibilitychange'));
+            });
+            return (await request).postDataJSON().metrics;
+          };
+          const before = await report();
+          assert.ok(
+            before.viewCommits > 0,
+            'the sampled application commit counter is enabled',
+          );
+          await page.clock.install();
+          for (let i = 0; i < 60; i++) {
+            await page.evaluate((i) => {
+              window.clockSeconds = 10 + i;
+              document
+                .querySelector('audio')
+                .dispatchEvent(new Event('timeupdate'));
+            }, i);
+            await page.clock.runFor(1000);
+          }
+          const after = await report();
+          assert.ok(
+            after.viewCommits - before.viewCommits <= 4,
+            JSON.stringify({ before, after }),
+          );
+          assert.ok(
+            after.libraryWrites - before.libraryWrites <= 4,
+            JSON.stringify({ before, after }),
+          );
+          console.log(
+            JSON.stringify({
+              event: 'large_playback_fixture',
+              clockUpdates: 60,
+              loadedResults: 1000,
+              transcriptSegments: 5000,
+              visibleResults: 60,
+              visibleSegments: 100,
+              viewCommits: after.viewCommits - before.viewCommits,
+              libraryWrites: after.libraryWrites - before.libraryWrites,
+            }),
+          );
+          assert.equal(
+            await page.locator('audio').evaluate((audio) => audio.paused),
+            false,
+          );
+          assert.equal(await page.locator('.study-segment').count(), 100);
+          await page
+            .locator('.detail-sheet')
+            .getByRole('button', { name: 'Close', exact: true })
+            .click();
+          await page
+            .getByRole('button', { name: 'Pause', exact: true })
+            .click();
+          const stored = await page.evaluate(() =>
+            JSON.parse(localStorage.getItem('yutorah-learning-v1')),
+          );
+          assert.equal(stored.version, 2);
+          assert.ok(
+            stored.history.find((progress) => progress.shiurId === 900001)
+              .seconds >= 68,
+          );
+        } finally {
+          await context.close();
+        }
+      },
+    );
+    await t.test(
+      'cross-tab edits preserve buffered progress, legacy timestamps, and in-memory edits when storage fails',
+      async () => {
+        const { context, page } = await openPlayer({
+          width: 1280,
+          height: 800,
+        });
+        const remote = { ...shiur, id: 900003, title: 'Saved in another tab' };
+        try {
+          const other = await context.newPage();
+          await other.goto(origin, { waitUntil: 'domcontentloaded' });
+          await other
+            .getByRole('region', { name: 'Audio player', exact: true })
+            .waitFor();
+          await page.waitForTimeout(5100);
+          await page.evaluate(() => {
+            Object.defineProperty(
+              document.querySelector('audio'),
+              'currentTime',
+              {
+                configurable: true,
+                get: () => 66,
+              },
+            );
+            document
+              .querySelector('audio')
+              .dispatchEvent(new Event('timeupdate'));
+          });
+          // Simulate a still-open v1 tab: its membership edit has no progress timestamp.
+          await other.evaluate(
+            ({ recording, remote }) => {
+              localStorage.setItem(
+                'yutorah-learning-v1',
+                JSON.stringify({
+                  saved: [remote],
+                  history: [{ shiur: recording, seconds: 1, duration: 120 }],
+                  last: recording,
+                }),
+              );
+            },
+            { recording: shiur, remote },
+          );
+          await page
+            .getByRole('button', { name: 'Open saved shiurim' })
+            .click();
+          await page
+            .locator('.shiur-row')
+            .getByRole('button', { name: remote.title, exact: true })
+            .waitFor();
+          await page
+            .getByRole('button', { name: 'Pause', exact: true })
+            .click();
+          const stored = await page.evaluate(() =>
+            JSON.parse(localStorage.getItem('yutorah-learning-v1')),
+          );
+          assert.equal(stored.version, 2);
+          assert.deepEqual(stored.saved, [remote.id]);
+          assert.equal(
+            stored.history.find((progress) => progress.shiurId === shiur.id)
+              .seconds,
+            66,
+          );
+          await page.evaluate(() => {
+            // oxlint-disable-next-line typescript/unbound-method -- The wrapper passes its original receiver with .call.
+            const setItem = Storage.prototype.setItem;
+            Storage.prototype.setItem = function (key, value) {
+              if (key === 'yutorah-learning-v1')
+                throw new Error('Fixture storage quota');
+              return setItem.call(this, key, value);
+            };
+          });
+          await page
+            .getByRole('button', { name: 'Save playing shiur', exact: true })
+            .click();
+          await page.waitForFunction(
+            () => document.querySelectorAll('.shiur-row').length === 2,
+          );
+          await page
+            .getByText(
+              'Your browser could not save changes. Free some device storage and try again.',
+            )
+            .waitFor();
+          assert.equal(
+            await page.locator('audio').evaluate((audio) => audio.paused),
+            true,
+          );
+          assert.deepEqual(
+            await page.evaluate(
+              () =>
+                JSON.parse(localStorage.getItem('yutorah-learning-v1')).saved,
+            ),
+            [remote.id],
+          );
+        } finally {
+          await context.close();
+        }
+      },
+    );
+    await t.test(
+      'a shared shiur link opens with one detail request',
+      async () => {
+        const { context, page } = await openPlayer({
+          width: 1280,
+          height: 800,
+        });
+        let details = 0;
+        try {
+          await context.route('**/api/shiur?id=900001', (route) => {
+            details++;
+            return route.fulfill({ json: shiur });
+          });
+          await page.goto(origin + '/?shiur=900001&t=42', {
+            waitUntil: 'domcontentloaded',
+          });
+          await page
+            .getByRole('dialog', { name: 'Shiur details', exact: true })
+            .waitFor();
+          await page
+            .getByRole('region', {
+              name: 'Transcript, study notes, and sources',
+            })
+            .waitFor();
+          assert.equal(details, 1);
+        } finally {
+          await context.close();
+        }
+      },
+    );
     for (const viewport of [
       { width: 320, height: 568 },
       { width: 390, height: 844 },
@@ -584,7 +1219,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
     }
     for (const missingHighResolution of [false, true]) {
       await t.test(
-        `Lebowitz portrait is large and uses the verified original, missing=${missingHighResolution}`,
+        `Lebowitz portrait uses a display-sized derivative of the verified original, missing=${missingHighResolution}`,
         async () => {
           const { context, page } = await openPlayer(
             { width: 390, height: 844 },
@@ -621,12 +1256,21 @@ void test('player controls stop playback and the phone dialog stays inside the b
               assert.equal(pixels.naturalWidth, 240);
             } else {
               assert.ok(
-                pixels.source.endsWith('/images/teachers/aryeh-lebowitz.jpg'),
+                /\/images\/teachers\/aryeh-lebowitz-(320|640|960)\.jpg$/.test(
+                  pixels.source,
+                ),
               );
-              assert.equal(pixels.naturalWidth, 5602);
-              assert.equal(pixels.naturalHeight, 3735);
-              assert.ok(pixels.width * 3 <= pixels.naturalWidth);
-              assert.ok(pixels.height * 3 <= pixels.naturalHeight);
+              const bitmapWidth = Number(
+                pixels.source.match(/-(\d+)\.jpg$/)[1],
+              );
+              assert.equal(bitmapWidth, 960);
+              assert.ok(pixels.width * 3 <= bitmapWidth);
+              // A width-descriptor srcset reports density-corrected intrinsic dimensions.
+              assert.ok(pixels.naturalWidth <= 320);
+              assert.ok(
+                Math.abs(pixels.naturalWidth / pixels.naturalHeight - 1.5) <
+                  0.02,
+              );
             }
           } finally {
             await context.close();
@@ -859,6 +1503,28 @@ void test('player controls stop playback and the phone dialog stays inside the b
       );
     }
   } finally {
+    if (process.env.PERFORMANCE_CSS_REPORT) {
+      const report = [...cssCoverage].map(([path, entry]) => {
+        let used = 0,
+          end = 0;
+        for (const [start, next] of [...entry.ranges.values()].sort(
+          (a, b) => a[0] - b[0],
+        )) {
+          used += Math.max(0, next - Math.max(end, start));
+          end = Math.max(end, next);
+        }
+        return {
+          path,
+          characters: entry.characters,
+          usedRuleCharacters: used,
+          usedPercent: +((100 * used) / entry.characters).toFixed(2),
+        };
+      });
+      await writeFile(
+        process.env.PERFORMANCE_CSS_REPORT,
+        JSON.stringify(report, null, 2),
+      );
+    }
     await browser.close();
     server?.kill();
     if (state) await rm(state, { recursive: true, force: true });

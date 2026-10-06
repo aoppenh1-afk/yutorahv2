@@ -18,6 +18,69 @@ const fixture = (id: string, text = 'A published transcript') => ({
   notes: null,
 });
 
+void test('shared admission bounds active and queued loads, coalesces duplicates and cancels abandoned queued work', async () => {
+  const releases: (() => void)[] = [];
+  const started: string[] = [];
+  const reader = createCachedTranscriptReader(
+    {
+      content: async (id) => {
+        started.push(id);
+        await new Promise<void>((resolve) => releases.push(resolve));
+        return fixture(id);
+      },
+      search: async () => {
+        started.push('search');
+        await new Promise<void>((resolve) => releases.push(resolve));
+        return [];
+      },
+    },
+    { maxPending: 2, maxQueued: 2 },
+  );
+  const first = reader.content('1'),
+    second = reader.search('fixture');
+  const duplicate = reader.content('1');
+  const abort = new AbortController();
+  const abandoned = reader.content('3', false, abort.signal);
+  const queued = reader.content('4');
+  const excess = reader.content('5');
+  await assert.rejects(excess, /busy/);
+  assert.deepEqual(started, ['1', 'search']);
+  abort.abort();
+  await assert.rejects(abandoned, { name: 'AbortError' });
+  releases.shift()!();
+  await first;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(started, ['1', 'search', '4']);
+  releases.splice(0).forEach((release) => release());
+  await Promise.all([second, duplicate, queued]);
+  assert.equal(started.filter((id) => id === '1').length, 1);
+});
+
+void test('failed loads return permits and queue timeout leaves no waiting work', async () => {
+  let release!: () => void;
+  const reader = createCachedTranscriptReader(
+    {
+      content: async (id) => {
+        if (id === '1') {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          throw new Error('fixture failure');
+        }
+        return fixture(id);
+      },
+      search: async () => [],
+    },
+    { maxPending: 1, maxQueued: 1, queueTimeoutMs: 10 },
+  );
+  const active = reader.content('1');
+  const failed = assert.rejects(active, /fixture failure/);
+  await assert.rejects(reader.content('2'), /busy/);
+  release();
+  await failed;
+  assert.equal((await reader.content('3'))?.id, '3');
+});
+
 void test('concurrent website reads use one database query and return separate usable responses', async () => {
   let calls = 0;
   const source: TranscriptReader = {
@@ -172,8 +235,9 @@ void test('pending reads share work while distinct pending keys stay bounded', a
   const shared = reader.content('1');
   const second = reader.content('2');
   await Promise.resolve();
-  assert.deepEqual(calls.sort(), ['1', '2']);
+  assert.deepEqual(calls, ['1']);
   resolve();
   assert.deepEqual(await first, await shared);
   await second;
+  assert.deepEqual(calls, ['1', '2']);
 });

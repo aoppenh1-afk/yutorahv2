@@ -202,6 +202,7 @@ export function normalize(raw: RawShiur): Shiur {
     materials: [],
   };
 }
+import { performanceSample } from './performance-metrics';
 const cache = new Map<string, { until: number; data: unknown }>();
 const pending = new Map<string, Promise<unknown>>();
 export async function upstream<T>(path: string, ttl = 120): Promise<T> {
@@ -209,11 +210,18 @@ export async function upstream<T>(path: string, ttl = 120): Promise<T> {
   // cached response or another scan's request when checking upstream totals.
   if (ttl <= 0) return (await fetchUpstream(path)) as T;
   const hit = cache.get(path);
-  if (hit && hit.until > Date.now()) return hit.data as T;
+  if (hit && hit.until > Date.now()) {
+    performanceSample('upstream_cache', { hit: 1 });
+    return hit.data as T;
+  }
   if (hit) cache.delete(path);
   const requestKey = JSON.stringify([path, ttl]);
   const existing = pending.get(requestKey);
-  if (existing) return (await existing) as T;
+  if (existing) {
+    performanceSample('upstream_cache', { coalesced: 1 });
+    return (await existing) as T;
+  }
+  performanceSample('upstream_cache', { hit: 0 });
   const request = fetchUpstream(path).then((data) => {
     if (!cache.has(path) && cache.size >= 36)
       cache.delete(cache.keys().next().value!);
@@ -228,7 +236,11 @@ export async function upstream<T>(path: string, ttl = 120): Promise<T> {
   }
 }
 async function fetchUpstream(path: string): Promise<unknown> {
+  const started = performance.now();
   let data = await readUpstream(path);
+  performanceSample('upstream_read', {
+    durationMs: performance.now() - started,
+  });
   if (path.startsWith('search/')) {
     const search = data as SearchResponse;
     const f = search.facet_counts?.facet_fields || {};

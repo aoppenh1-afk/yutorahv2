@@ -1,6 +1,7 @@
 import { Failure } from '../../antigravity-acp/src/errors.js';
 import type { Range, Segment, Settings, Transcript } from './types.js';
 import { cleanTranscript } from './cleanup.js';
+import { publicationLimits } from './public-content.js';
 
 export function parseTranscript(
   output: string,
@@ -74,7 +75,11 @@ export function validSegments(
   value: unknown,
   durationMs: number,
 ): value is Segment[] {
-  if (!Array.isArray(value) || !value.length || value.length > 100_000)
+  if (
+    !Array.isArray(value) ||
+    !value.length ||
+    value.length > publicationLimits.segments
+  )
     return false;
   let previous = 0;
   return value.every((s) => {
@@ -87,7 +92,7 @@ export function validSegments(
       s.endMs > durationMs ||
       typeof s.text !== 'string' ||
       !s.text.trim() ||
-      s.text.length > 4 * 1024 * 1024 ||
+      s.text.length > publicationLimits.segmentCharacters ||
       !(
         s.speaker === null ||
         (typeof s.speaker === 'string' && s.speaker.length <= 40)

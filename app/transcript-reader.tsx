@@ -1,12 +1,17 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
-import Markdown from 'react-markdown';
+import { useEffect, useRef, useState, useMemo, lazy } from 'react';
+import { ScreenBoundary } from './screen-boundary';
+import { useActiveSegment } from './playback';
+const Markdown = lazy(() => import('react-markdown'));
+const SourcesPanel = lazy(() =>
+  import('./sources-panel').then((m) => ({ default: m.SourcesPanel })),
+);
 import { Download, Loader2 } from 'lucide-react';
 import { BoundedCache } from '@/lib/bounded-cache';
 import { timeLabel } from '@/lib/library';
 import type { ContentStatus } from '../packages/transcription/src/public-content';
-import { sourceHighlights } from '@/lib/source-highlights';
-import { SourcesPanel, useTranscriptSources } from './sources-panel';
+import { indexSourceHighlights } from '@/lib/source-highlights';
+import { useTranscriptSources } from '@/hooks/use-transcript-sources';
 
 type Content = {
   id: string;
@@ -47,6 +52,7 @@ export function TranscriptReader({
     shiurId,
     content?.transcriptId,
     sourcesEnabled,
+    content?.version,
   );
   useEffect(() => {
     const abort = new AbortController();
@@ -203,6 +209,16 @@ export function TranscriptReader({
     >
       <h3>Transcript &amp; study tools</h3>
       <div className="study-tabs">
+        {content && (
+          <a
+            className="text-button"
+            href={`/api/transcript-text?id=${shiurId}${content.version ? '&version=' + content.version : ''}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open complete text
+          </a>
+        )}
         <button
           type="button"
           aria-pressed={tab === 'transcript'}
@@ -255,97 +271,60 @@ export function TranscriptReader({
           </button>
         </output>
       ) : content && tab === 'transcript' ? (
-        <div className="study-transcript">
-          {content.segments.map((segment, index) => {
-            const spans = sourceHighlights(
-              sources.result?.transcriptId === content.transcriptId
-                ? sources.result.sources
-                : [],
-              index,
-            );
-            let position = 0;
-            const text = spans.flatMap((span) => {
-              const before = segment.text.slice(position, span.startChar);
-              position = span.endChar;
-              return [
-                before,
-                <a
-                  className="transcript-source-link"
-                  key={`${span.startChar}-${span.ref}`}
-                  href={span.url}
-                  title={span.ref}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {segment.text.slice(span.startChar, span.endChar)}
-                </a>,
-              ];
-            });
-            text.push(segment.text.slice(position));
-            return (
-              <div
-                className="study-segment"
-                key={`${segment.startMs}-${index}`}
-              >
-                <button
-                  className="study-time"
-                  type="button"
-                  aria-label={`Play from ${timeLabel(segment.startMs / 1000)}`}
-                  onClick={() => onSeek(segment.startMs / 1000)}
-                >
-                  {timeLabel(segment.startMs / 1000)}
-                </button>
-                <p dir="auto">
-                  {segment.speaker && <strong>{segment.speaker}: </strong>}
-                  {text}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-      ) : content && tab === 'sources' ? (
-        <SourcesPanel
-          key={content.transcriptId}
+        <TranscriptSegments
+          key={content.transcriptId + ':' + (content.version ?? '')}
+          content={content}
+          sources={sources}
           shiurId={shiurId}
-          title={content.title}
-          teacher={content.teacher}
-          result={sources.result}
-          error={sources.error}
-          recovering={sources.recovering}
-          onRetry={sources.retry}
           onSeek={onSeek}
         />
+      ) : content && tab === 'sources' ? (
+        <ScreenBoundary>
+          <SourcesPanel
+            key={content.transcriptId}
+            shiurId={shiurId}
+            title={content.title}
+            teacher={content.teacher}
+            result={sources.result}
+            error={sources.error}
+            recovering={sources.recovering}
+            onRetry={sources.retry}
+            onSeek={onSeek}
+          />
+        </ScreenBoundary>
       ) : content?.notes?.markdown ? (
         <div className="study-markdown" dir="auto">
           <p className="study-note-label">
             Automatically generated from this shiur’s transcript.
           </p>
-          <Markdown
-            skipHtml
-            allowedElements={[
-              'h1',
-              'h2',
-              'h3',
-              'p',
-              'ul',
-              'ol',
-              'li',
-              'strong',
-              'em',
-              'a',
-              'code',
-              'br',
-            ]}
-            components={{
-              a: ({ children, ...props }) => (
-                <a {...props} target="_blank" rel="noreferrer">
-                  {children}
-                </a>
-              ),
-            }}
-          >
-            {content.notes.markdown}
-          </Markdown>
+          <ScreenBoundary>
+            <Markdown
+              skipHtml
+              allowedElements={[
+                'h1',
+                'h2',
+                'h3',
+                'p',
+                'ul',
+                'ol',
+                'li',
+                'strong',
+                'em',
+                'a',
+                'code',
+                'br',
+              ]}
+              components={{
+                a: ({ children, ...props }) => (
+                  <a {...props} target="_blank" rel="noreferrer">
+                    {children}
+                  </a>
+                ),
+              }}
+            >
+              {content.notes.markdown}
+            </Markdown>
+          </ScreenBoundary>
         </div>
       ) : (
         <output className="study-state">
@@ -358,5 +337,125 @@ export function TranscriptReader({
         </output>
       )}
     </section>
+  );
+}
+
+function TranscriptSegments({
+  content,
+  sources,
+  shiurId,
+  onSeek,
+}: {
+  content: Content;
+  sources: ReturnType<typeof useTranscriptSources>;
+  shiurId: number;
+  onSeek: (seconds: number) => void;
+}) {
+  const highlights = useMemo(
+    () =>
+      indexSourceHighlights(
+        sources.result?.transcriptId === content.transcriptId
+          ? sources.result.sources
+          : [],
+      ),
+    [sources.result, content.transcriptId],
+  );
+  const [selected, setSelected] = useState(0);
+  const [follow, setFollow] = useState(true);
+  const anchor = useRef<HTMLDivElement>(null);
+  const go = (next: number) => {
+    setFollow(false);
+    setSelected(next);
+    anchor.current?.focus({ preventScroll: true });
+    anchor.current?.scrollIntoView({ block: 'start' });
+  };
+  const active = useActiveSegment(shiurId, content.segments);
+  const page =
+    follow && active >= 0
+      ? Math.floor(active / 100)
+      : Math.min(selected, Math.floor((content.segments.length - 1) / 100));
+  return (
+    <div className="study-transcript" ref={anchor} tabIndex={-1}>
+      {content.segments
+        .slice(page * 100, (page + 1) * 100)
+        .map((segment, offset) => {
+          const index = page * 100 + offset;
+          const spans = highlights.get(index) ?? [];
+          let position = 0;
+          const text = spans.flatMap((span) => {
+            const before = segment.text.slice(position, span.startChar);
+            position = span.endChar;
+            return [
+              before,
+              <a
+                className="transcript-source-link"
+                key={`${span.startChar}-${span.ref}`}
+                href={span.url}
+                title={span.ref}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {segment.text.slice(span.startChar, span.endChar)}
+              </a>,
+            ];
+          });
+          text.push(segment.text.slice(position));
+          return (
+            <div
+              className="study-segment"
+              aria-current={index === active ? 'true' : undefined}
+              key={`${segment.startMs}-${index}`}
+            >
+              <button
+                className="study-time"
+                type="button"
+                aria-label={`Play from ${timeLabel(segment.startMs / 1000)}`}
+                onClick={() => onSeek(segment.startMs / 1000)}
+              >
+                {timeLabel(segment.startMs / 1000)}
+              </button>
+              <p dir="auto">
+                {segment.speaker && <strong>{segment.speaker}: </strong>}
+                {text}
+              </p>
+            </div>
+          );
+        })}
+      {content.segments.length > 100 && (
+        <nav className="list-pagination" aria-label="Transcript pages">
+          <button
+            type="button"
+            className="outline-button"
+            disabled={page === 0}
+            onClick={() => go(page - 1)}
+          >
+            Previous
+          </button>
+          <output>
+            Segments {page * 100 + 1}–
+            {Math.min(content.segments.length, (page + 1) * 100)} of{' '}
+            {content.segments.length.toLocaleString()}
+          </output>
+          <button
+            type="button"
+            className="outline-button"
+            disabled={(page + 1) * 100 >= content.segments.length}
+            onClick={() => go(page + 1)}
+          >
+            Next
+          </button>
+          {active >= 0 && (
+            <button
+              type="button"
+              className="text-button"
+              aria-pressed={follow}
+              onClick={() => setFollow(true)}
+            >
+              Follow playback
+            </button>
+          )}
+        </nav>
+      )}
+    </div>
   );
 }

@@ -14,6 +14,8 @@ import {
 import { defaultSettings } from '../../../packages/transcription/src/types.js';
 import { retainPublishedStorage } from '../../../packages/transcription/src/retention.js';
 import { publicContent } from '../../../packages/transcription/src/public-content.js';
+import { preparePendingSources } from '../../../packages/transcription/src/source-preparation.js';
+import { PublicationValidationError } from '../../../packages/transcription/src/public-content.js';
 
 void test('D1 publication configuration is disabled until complete, and never enables R2', () => {
   assert.equal(publicationTarget({}), undefined);
@@ -216,7 +218,190 @@ void test(
       const done = (await pool.query('SELECT * FROM transcript_publications'))
         .rows[0];
       assert.equal(done.generation, done.published_generation);
-      const generationBefore = done.generation;
+      await t.test(
+        'blocked Sources preparation owns no connection and cannot delay the next publication; retries survive restart',
+        async () => {
+          let release!: (ready: boolean) => void;
+          let started!: () => void;
+          const waiting = new Promise<void>((resolve) => {
+            started = resolve;
+          });
+          const blocked = preparePendingSources(
+            pool,
+            async () => {
+              started();
+              return new Promise<boolean>((resolve) => {
+                release = resolve;
+              });
+            },
+            controller.signal,
+          );
+          await waiting;
+          assert.equal(
+            pool.idleCount,
+            pool.totalCount,
+            'preparation has released its SQL client',
+          );
+          try {
+            await pool.query(
+              "UPDATE transcription_shiurim SET title='Next publication' WHERE id='42'",
+            );
+            assert.equal(
+              await publishPending(
+                pool,
+                {
+                  publish: async (value) => ({
+                    id: '42',
+                    generation: value.generation,
+                    version: 'c'.repeat(64),
+                    applied: true,
+                  }),
+                },
+                controller.signal,
+              ),
+              1,
+            );
+            assert.equal(
+              (
+                await pool.query(
+                  'SELECT COUNT(*)::int AS n FROM source_preparation_jobs',
+                )
+              ).rows[0].n,
+              2,
+            );
+          } finally {
+            release(false);
+            await blocked;
+          }
+          const deferred = (
+            await pool.query(
+              'SELECT * FROM source_preparation_jobs WHERE error IS NOT NULL',
+            )
+          ).rows[0];
+          assert.equal(deferred.error, 'preparation_unavailable');
+          assert.equal(deferred.owner, null);
+          assert.equal(deferred.attempt, 1);
+          await pool.query(
+            'UPDATE source_preparation_jobs SET available_at=now()',
+          );
+          const restarted = new Pool({
+            connectionString: process.env.TEST_DATABASE_URL,
+            options: `-c search_path=${schema},public`,
+            max: 1,
+          });
+          try {
+            const versions: string[] = [];
+            while (
+              await preparePendingSources(
+                restarted,
+                async (job) => {
+                  versions.push(job.version);
+                  return true;
+                },
+                controller.signal,
+              )
+            ) {}
+            assert.deepEqual(
+              new Set(versions),
+              new Set(['b'.repeat(64), 'c'.repeat(64)]),
+            );
+            assert.equal(
+              (
+                await restarted.query(
+                  'SELECT COUNT(*)::int AS n FROM source_preparation_jobs WHERE completed_at IS NULL',
+                )
+              ).rows[0].n,
+              0,
+            );
+          } finally {
+            await restarted.end();
+          }
+          await pool.query(
+            "UPDATE transcription_shiurim SET title='Corrected title' WHERE id='42'",
+          );
+          await publishPending(
+            pool,
+            {
+              publish: async (value) => ({
+                id: '42',
+                generation: value.generation,
+                version: 'd'.repeat(64),
+                applied: true,
+              }),
+            },
+            controller.signal,
+          );
+        },
+      );
+      await t.test(
+        'permanent publication errors wait for a repaired generation',
+        async () => {
+          await pool.query(
+            "UPDATE transcription_shiurim SET title='Invalid publication' WHERE id='42'",
+          );
+          let attempts = 0;
+          const invalid = {
+            publish: async () => {
+              attempts++;
+              throw new PublicationValidationError('Transcript is too large.');
+            },
+          };
+          assert.equal(
+            await publishPending(pool, invalid, controller.signal),
+            0,
+          );
+          assert.equal(
+            await publishPending(pool, invalid, controller.signal),
+            0,
+          );
+          assert.equal(attempts, 1);
+          assert.equal(
+            (
+              await pool.query(
+                "SELECT error,available_at::text FROM transcript_publications WHERE shiur_id='42'",
+              )
+            ).rows[0].available_at,
+            'infinity',
+          );
+          assert.equal(
+            (
+              await pool.query(
+                "SELECT error FROM transcript_publications WHERE shiur_id='42'",
+              )
+            ).rows[0].error,
+            'publication_invalid',
+          );
+          await pool.query(
+            "UPDATE transcription_shiurim SET title='Corrected title' WHERE id='42'",
+          );
+          assert.equal(
+            await publishPending(
+              pool,
+              {
+                publish: async (value) => ({
+                  id: '42',
+                  generation: value.generation,
+                  version: 'e'.repeat(64),
+                  applied: true,
+                }),
+              },
+              controller.signal,
+            ),
+            1,
+          );
+          assert.equal(
+            (
+              await pool.query(
+                "SELECT error FROM transcript_publications WHERE shiur_id='42'",
+              )
+            ).rows[0].error,
+            null,
+          );
+        },
+      );
+      const latest = (await pool.query('SELECT * FROM transcript_publications'))
+        .rows[0];
+      const generationBefore = latest.generation;
       await writer.enqueue(
         { id: '42', title: 'Corrected title', teacher: 'Rabbi Fixture' },
         p,

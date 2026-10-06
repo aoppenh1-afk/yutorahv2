@@ -5,7 +5,7 @@ import {
   transcriptSearchClauses,
 } from '../../yutorah-core/src/search.js';
 import { wordMatch } from '../../yutorah-core/src/search-matching.js';
-import { publicContent, type PublicContent } from './public-content.js';
+import { publishableContent, type PublicContent } from './public-content.js';
 import { spellingKeys, spellingBucket } from './spelling-base.js';
 
 export interface ArchiveStatement {
@@ -25,6 +25,7 @@ export interface ArchiveObjects {
     options?: { httpMetadata: { contentType: string; cacheControl: string } },
   ): Promise<unknown>;
   get(key: string): Promise<{ text(): Promise<string> } | null>;
+  has?(key: string): Promise<boolean>;
 }
 type Item = {
   id: string;
@@ -93,6 +94,62 @@ export class TranscriptArchive {
     const hash = version ?? item!.version;
     return { text, version: hash };
   }
+  async contentMetadata(id: string, version?: string) {
+    const item = version ? null : await this.item(id);
+    const hash = version ?? item?.version;
+    if (!hash) return null;
+    const verified = await this.db
+      .prepare(
+        'SELECT object_key,segments_key FROM archive_versions WHERE shiur_id=? AND version=?',
+      )
+      .bind(id, hash)
+      .first<{ object_key: string; segments_key: string | null }>();
+    if (
+      !verified ||
+      !this.objects.has ||
+      !(await this.objects.has(verified.object_key))
+    )
+      return null;
+    if (
+      verified.segments_key &&
+      !(await this.objects.has(verified.segments_key))
+    )
+      return null;
+    return { version: hash };
+  }
+
+  /** Derived indexes only; immutable text and historical URLs are retained. */
+  async cleanupIndex(maxBatches = 10, budgetMs = 2000) {
+    const started = Date.now();
+    const eligible = `EXISTS(SELECT 1 FROM archive_items a WHERE a.id=archive_segments.shiur_id
+      AND archive_segments.generation<a.generation AND archive_segments.version<>a.search_version)`;
+    let deleted = 0;
+    for (
+      let pass = 0;
+      pass < maxBatches && Date.now() - started < budgetMs;
+      pass++
+    ) {
+      const rows = (
+        await this.db
+          .prepare(
+            `SELECT rowid FROM archive_segments WHERE ${eligible} LIMIT 100`,
+          )
+          .all<{ rowid: number }>()
+      ).results;
+      if (!rows.length) return { deleted, pending: false };
+      await this.db
+        .prepare(
+          `DELETE FROM archive_segments WHERE rowid IN (SELECT value FROM json_each(?)) AND ${eligible}`,
+        )
+        .bind(JSON.stringify(rows.map((row) => row.rowid)))
+        .run();
+      deleted += rows.length;
+    }
+    const pending = !!(await this.db
+      .prepare(`SELECT rowid FROM archive_segments WHERE ${eligible} LIMIT 1`)
+      .first());
+    return { deleted, pending };
+  }
   private async expandObject(text: string) {
     if (!text.startsWith('{"format":2,')) return text;
     const manifest = JSON.parse(text) as {
@@ -144,10 +201,7 @@ export class TranscriptArchive {
     const { generation } = publication;
     if (!Number.isSafeInteger(generation) || generation < 1)
       throw new Error('Invalid generation.');
-    const content = publicContent(publication.content);
-    const text = JSON.stringify(content);
-    if (encode.encode(text).length > 8 * 1024 * 1024)
-      throw new Error('Transcript is too large.');
+    const { content, text } = publishableContent(publication.content);
     const version = await contentHash(text);
     // Notes and metadata updates reuse timed-text rows instead of rewriting
     // the FTS index. This matters to D1 Free's daily row-write allowance.
@@ -285,6 +339,17 @@ export class TranscriptArchive {
       );
       await this.db.batch(batch);
     }
+    await this.db
+      .prepare(
+        'INSERT OR IGNORE INTO archive_versions(shiur_id,version,object_key,segments_key) VALUES(?,?,?,?)',
+      )
+      .bind(
+        content.id,
+        version,
+        key,
+        `transcripts/${content.id}/segments/${searchVersion}.json`,
+      )
+      .run();
     // The pointer changes only after every object and search row exists. A stale
     // concurrent publisher cannot replace a newer generation.
     await this.db
@@ -310,13 +375,7 @@ export class TranscriptArchive {
       .run();
     const active = await this.item(content.id);
     if (!active) throw new Error('Publication activation failed.');
-    if (current?.search_version !== searchVersion)
-      await this.db
-        .prepare(
-          'DELETE FROM archive_segments WHERE rowid IN (SELECT rowid FROM archive_segments WHERE shiur_id=? AND generation<? AND version<>? LIMIT 100)',
-        )
-        .bind(content.id, active.generation, active.search_version)
-        .run();
+    if (current?.search_version !== searchVersion) await this.cleanupIndex();
     return {
       id: content.id,
       version: active.version,

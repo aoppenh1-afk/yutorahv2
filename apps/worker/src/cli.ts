@@ -31,6 +31,18 @@ import {
   publishPending,
   runPublisher,
 } from '../../../packages/transcription/src/publication.js';
+import { preparePublishedSources } from './source-preparation.js';
+const prepareSources =
+  process.env.SOURCES_PREPARE_URL && process.env.SOURCES_PREPARE_TOKEN
+    ? (
+        job: { shiur_id: string; transcript_id: string; version: string },
+        signal: AbortSignal,
+      ) =>
+        preparePublishedSources(job.shiur_id, signal, {
+          transcriptId: job.transcript_id,
+          version: job.version,
+        })
+    : undefined;
 
 const [command, ...args] = process.argv.slice(2);
 const controller = new AbortController();
@@ -157,7 +169,7 @@ async function main() {
     const target = publicationTarget();
     if (!target) throw new Failure('configuration');
     if (args.includes('--watch'))
-      await runPublisher(db.pool, target, controller.signal);
+      await runPublisher(db.pool, target, controller.signal, prepareSources);
     else
       log({
         event: 'transcripts_published',
@@ -198,7 +210,7 @@ async function main() {
   } else if (command === 'serve-operator') {
     const target = publicationTarget();
     publicationTask = target
-      ? runPublisher(db.pool, target, controller.signal)
+      ? runPublisher(db.pool, target, controller.signal, prepareSources)
       : undefined;
     const operator = new OperatorRuntime(db, {
       runtime,
@@ -238,7 +250,7 @@ async function main() {
     if (command === 'run') {
       const target = publicationTarget();
       publicationTask = target
-        ? runPublisher(db.pool, target, controller.signal)
+        ? runPublisher(db.pool, target, controller.signal, prepareSources)
         : undefined;
       const intervalMs = Number(process.env.CATALOG_POLL_MS ?? 300_000);
       const deepIntervalMs = Number(

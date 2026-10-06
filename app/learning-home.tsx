@@ -1,5 +1,11 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { BoundedCache } from '@/lib/bounded-cache';
+const feedBatches = new BoundedCache<{ items: Shiur[]; partial: boolean }>(
+  64,
+  4 * 1024 * 1024,
+);
 import {
   ArrowRight,
   Bookmark,
@@ -31,7 +37,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Avatar, SeriesCover, ShiurCard, ShiurRow, StatePanel } from './ui';
-import { noFilters, type Filters } from './advanced-search';
+import { noFilters, type Filters } from '@/lib/search-filters';
 import { MobileDiscover } from './mobile-discover';
 import type { Directory, HomeData, Shiur } from '@/lib/yutorah';
 import { mediaKind, selectHomeFeature } from '@/lib/yutorah';
@@ -50,36 +56,8 @@ import {
   type Follow,
 } from '@/lib/learning';
 
-export function FollowButton({
-  follow,
-  library,
-  onFollow,
-  compact = false,
-}: {
-  follow: Follow;
-  library: LibraryState;
-  onFollow: (follow: Follow) => void;
-  compact?: boolean;
-}) {
-  const following = library.following.some(
-    (f) => f.kind === follow.kind && f.id === follow.id,
-  );
-  return (
-    <button
-      className={
-        'follow-button ' +
-        (following ? 'is-following' : '') +
-        (compact ? ' compact-follow' : '')
-      }
-      onClick={() => onFollow(follow)}
-      aria-pressed={following}
-      aria-label={`${following ? 'Unfollow' : 'Follow'} ${follow.name}`}
-    >
-      {following ? <Check size={14} /> : <Plus size={14} />}
-      <span>{following ? 'Following' : 'Follow'}</span>
-    </button>
-  );
-}
+import { FollowButton } from './follow-button';
+export { FollowButton } from './follow-button';
 
 type Props = {
   home: HomeData | null;
@@ -133,6 +111,9 @@ export function LearningHome(props: Props) {
     activeId,
     playing = false,
   } = props;
+  const isMobile = useIsMobile();
+  const [mobileTrending, setMobileTrending] = useState(false);
+  const [sourceLimit, setSourceLimit] = useState(8);
   const [tab, setTab] = useState('for-you');
   const [minutes, setMinutes] = useState('all');
   const [limit, setLimit] = useState(8);
@@ -193,7 +174,9 @@ export function LearningHome(props: Props) {
     sources.map(({ kind, id }) => ({ kind, id })),
   );
   useEffect(() => {
-    const selected = JSON.parse(sourceQuery) as Pick<Follow, 'kind' | 'id'>[];
+    const selected = (
+      JSON.parse(sourceQuery) as Pick<Follow, 'kind' | 'id'>[]
+    ).slice(0, currentTab === 'following' ? sourceLimit : 8);
     const abort = new AbortController();
     setFeedItems([]);
     setFeedError(false);
@@ -212,15 +195,21 @@ export function LearningHome(props: Props) {
               .join(','),
           );
         try {
-          const res = await fetch('/api/feed?' + query, {
-            signal: abort.signal,
-          });
+          const cached =
+            refresh === 0 ? feedBatches.get(query.toString()) : undefined;
+          const res = cached
+            ? Response.json(cached)
+            : await fetch('/api/feed?' + query, {
+                signal: abort.signal,
+              });
           if (!res.ok) throw new Error('Feed unavailable');
           const data = (await res.json()) as {
             items: Shiur[];
             partial: boolean;
           };
           if (abort.signal.aborted) return;
+          if (!cached && !data.partial)
+            feedBatches.set(query.toString(), data, 5 * 60_000);
           collected = mergeShiurim([...collected, ...data.items]);
           setFeedItems(collected);
           if (data.partial) setFeedError(true);
@@ -233,9 +222,13 @@ export function LearningHome(props: Props) {
     };
     void load();
     return () => abort.abort();
-  }, [sourceQuery, refresh]);
+  }, [sourceQuery, refresh, currentTab, sourceLimit]);
 
   useEffect(() => {
+    if (currentTab !== 'trending' && !mobileTrending) {
+      setDiscoveryLoading(false);
+      return;
+    }
     const abort = new AbortController();
     setDiscoveryLoading(true);
     setDiscoveryError(false);
@@ -269,7 +262,15 @@ export function LearningHome(props: Props) {
         if (!abort.signal.aborted) setDiscoveryLoading(false);
       });
     return () => abort.abort();
-  }, [refresh, discoveryPass, trendingPeriod, trendingMinutes, discoveryKey]);
+  }, [
+    refresh,
+    discoveryPass,
+    trendingPeriod,
+    trendingMinutes,
+    discoveryKey,
+    currentTab,
+    mobileTrending,
+  ]);
 
   useEffect(() => {
     setRelatedItems([]);
@@ -472,8 +473,9 @@ export function LearningHome(props: Props) {
 
   return (
     <div className={'listening-home ' + (isHome ? 'has-mobile-home' : '')}>
-      {isHome && (
+      {isHome && isMobile && (
         <MobileDiscover
+          onTrending={() => setMobileTrending(true)}
           home={home}
           directory={directory}
           library={library}
@@ -495,807 +497,845 @@ export function LearningHome(props: Props) {
           onRefresh={refreshAll}
         />
       )}
-      <div className="discover-heading">
-        <div>
-          <span className="eyebrow">LEARNING, WHEREVER YOU ARE</span>
-          <h1>
-            {followingPage
-              ? 'Following'
-              : trendingPage
-                ? 'Trending in the library.'
-                : 'The Torah library.'}
-          </h1>
-          <p>
-            {followingPage
-              ? 'New learning from the teachers and subjects you follow.'
-              : trendingPage
-                ? 'Discover the recordings listeners are exploring.'
-                : 'Shiurim from Yeshiva University’s roshei yeshiva and Torah educators around the world.'}
-          </p>
-        </div>
-        <button
-          className="outline-button discover-preferences"
-          aria-label="Customize learning preferences"
-          onClick={() => setPreferences(true)}
-        >
-          <Settings2 size={16} />
-          <span>Learning preferences</span>
-        </button>
-      </div>
-      {!followingPage && !trendingPage && (
-        <div className="discovery-tabs" aria-label="Discovery views">
-          {[
-            { value: 'for-you', label: 'For you', icon: Sparkles },
-            { value: 'trending', label: 'Trending', icon: Flame },
-            { value: 'following', label: 'Following', icon: Users },
-            { value: 'latest', label: 'Recently added', icon: CalendarDays },
-            { value: 'continue', label: 'Continue learning', icon: History },
-          ].map(({ value, label, icon: Icon }) => (
-            <button
-              key={value}
-              aria-pressed={currentTab === value}
-              onClick={() => {
-                setTab(value);
-                setLimit(8);
-              }}
-            >
-              <Icon size={15} />
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-      {isHome && continuing.length > 0 && (
-        <section className="discovery-section resume-section">
-          {sectionHeading(
-            'Pick up where you left off',
-            undefined,
-            () => setTab('continue'),
-            'Your history',
-          )}
-          <div className="resume-card-grid">
-            {continuing.slice(0, 3).map((h) => (
-              <article className="listening-resume" key={h.shiur.id}>
-                <Avatar src={h.shiur.image} name={h.shiur.teacher} />
-                <div>
-                  <button onClick={() => onDetails(h.shiur)} dir="auto">
-                    {h.shiur.title}
-                  </button>
-                  <p>{h.shiur.teacher}</p>
-                  <progress
-                    value={h.seconds}
-                    max={h.duration || 1}
-                    aria-label={'Listening progress for ' + h.shiur.title}
-                  />
-                  <small>
-                    {h.duration > 0
-                      ? Math.max(1, Math.ceil((h.duration - h.seconds) / 60)) +
-                        ' min left'
-                      : 'Resume your shiur'}
-                  </small>
-                </div>
-                <button
-                  className="resume-control"
-                  aria-label={'Resume ' + h.shiur.title}
-                  onClick={() => onPlay(h.shiur, h.seconds)}
-                >
-                  <Play size={17} fill="currentColor" />
-                </button>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-      {isHome && (
+      {(!isHome || !isMobile) && (
         <>
-          <section
-            className="desktop-archive-feature"
-            aria-label="Featured shiur"
-          >
-            <div className="desktop-feature-heading">
-              <span>
-                FEATURED SHIUR
-                {pick?.category ? ' · ' + pick.category.toUpperCase() : ''}
-              </span>
-              {home && (
-                <span>
-                  <strong>{home.total.toLocaleString()}</strong> shiurim in the
-                  library
-                </span>
-              )}
+          <div className="discover-heading">
+            <div>
+              <span className="eyebrow">LEARNING, WHEREVER YOU ARE</span>
+              <h1>
+                {followingPage
+                  ? 'Following'
+                  : trendingPage
+                    ? 'Trending in the library.'
+                    : 'The Torah library.'}
+              </h1>
+              <p>
+                {followingPage
+                  ? 'New learning from the teachers and subjects you follow.'
+                  : trendingPage
+                    ? 'Discover the recordings listeners are exploring.'
+                    : 'Shiurim from Yeshiva University’s roshei yeshiva and Torah educators around the world.'}
+              </p>
             </div>
-            <div className="desktop-feature-main">
-              <div>
-                <h2>
-                  {pick ? (
-                    <button dir="auto" onClick={() => onDetails(pick)}>
-                      {pick.title}
-                    </button>
-                  ) : (
-                    'Explore the Torah library'
-                  )}
-                </h2>
-                {pick && <p>{pick.teacher}</p>}
-                <div className="desktop-feature-actions">
-                  {pick && (
-                    <button
-                      className="desktop-feature-play"
-                      onClick={() =>
-                        mediaKind(pick) === 'audio'
-                          ? onPlay(pick)
-                          : onDetails(pick)
-                      }
-                      aria-label={
-                        (activeId === pick.id && playing ? 'Pause ' : 'Play ') +
-                        pick.title
-                      }
-                    >
-                      {activeId === pick.id && playing ? (
-                        <Pause size={16} fill="currentColor" />
-                      ) : (
-                        <Play size={16} fill="currentColor" />
-                      )}
-                      {activeId === pick.id && playing ? 'Pause' : 'Listen'}
-                      {pick.duration > 0 && (
-                        <span>{Math.round(pick.duration / 60)} min</span>
-                      )}
-                    </button>
-                  )}
-                  <button
-                    className="desktop-feature-browse"
-                    onClick={() => onNavigate('search')}
-                  >
-                    Search the library <ArrowRight size={17} />
-                  </button>
-                </div>
-              </div>
-              {pick && (
-                <Avatar
-                  className="desktop-feature-portrait"
-                  src={pick.image}
-                  name={pick.teacher}
-                />
-              )}
-            </div>
-          </section>
-
-          <section className="discovery-section collections-section">
-            {sectionHeading(
-              'Explore the library',
-              undefined,
-              () => onNavigate('topics'),
-              'All topics',
-            )}
-            <div className="collection-grid">
-              <button
-                className="collection-tile collection-halacha"
-                onClick={() =>
-                  shortSeries
-                    ? onSearch('', {
-                        ...noFilters,
-                        series: String(shortSeries.id),
-                      })
-                    : onSearch('halacha', { ...noFilters, max: '10' })
-                }
-              >
-                <div className="collection-top">
-                  <Timer size={20} />
-                  <span>PRACTICAL HALACHA</span>
-                </div>
-                <h3>
-                  Ten Minute
-                  <br />
-                  Halacha
-                </h3>
-                <div className="collection-bottom">
-                  <span>
-                    {shortSeries
-                      ? 'The series you can return to daily'
-                      : 'Practical learning in 10 minutes'}
-                  </span>
-                  <ArrowRight size={18} />
-                </div>
-                <span className="collection-letter" lang="he">
-                  הלכה
-                </span>
-              </button>
-              <button
-                className="collection-tile collection-parsha"
-                onClick={() => onSearch(home?.parsha || 'parsha')}
-              >
-                <div className="collection-top">
-                  <BookOpen size={20} />
-                  <span>THE WEEKLY TORAH PORTION</span>
-                </div>
-                <h3>
-                  Parsha
-                  <br />
-                  perspectives
-                </h3>
-                <div className="collection-bottom">
-                  <span>{home?.parsha || 'Shiurim on the weekly parsha'}</span>
-                  <ArrowRight size={18} />
-                </div>
-                <span className="collection-letter" lang="he">
-                  פרשה
-                </span>
-              </button>
-              <button
-                className="collection-tile collection-daf"
-                onClick={() => onSearch(home?.daf || 'Daf Yomi')}
-              >
-                <div className="collection-top">
-                  <CalendarDays size={20} />
-                  <span>DAILY TALMUD STUDY</span>
-                </div>
-                <h3>
-                  Your daily
-                  <br />
-                  Daf Yomi
-                </h3>
-                <div className="collection-bottom">
-                  <span>{home?.daf || 'Daily learning'}</span>
-                  <ArrowRight size={18} />
-                </div>
-                <span className="collection-letter" lang="he">
-                  דף
-                </span>
-              </button>
-              <button
-                className="collection-tile collection-thought"
-                onClick={() => onSearch('machshava')}
-              >
-                <div className="collection-top">
-                  <Lightbulb size={20} />
-                  <span>JEWISH THOUGHT</span>
-                </div>
-                <h3>
-                  Jewish
-                  <br />
-                  thought
-                </h3>
-                <div className="collection-bottom">
-                  <span>Explore the questions that matter</span>
-                  <ArrowRight size={18} />
-                </div>
-                <span className="collection-letter" lang="he">
-                  מחשבה
-                </span>
-              </button>
-            </div>
-          </section>
-          {home && (
-            <section
-              className="daily-learning-band"
-              aria-label="Today's daily learning"
+            <button
+              className="outline-button discover-preferences"
+              aria-label="Customize learning preferences"
+              onClick={() => setPreferences(true)}
             >
-              <div className="daily-band-heading">
-                <CalendarDays size={20} />
-                <div>
-                  <h2>Today, in Torah</h2>
-                  <span lang="he" dir="rtl">
-                    {home.hebrewDate}
-                  </span>
-                </div>
-              </div>
+              <Settings2 size={16} />
+              <span>Learning preferences</span>
+            </button>
+          </div>
+          {!followingPage && !trendingPage && (
+            <div className="discovery-tabs" aria-label="Discovery views">
               {[
-                ['Daf Yomi', home.daf],
-                ['Mishna Yomi', home.mishna],
-                ['Nach Yomi', home.nach],
-              ]
-                .filter(([, value]) => value)
-                .map(([label, value]) => (
-                  <button key={label} onClick={() => onSearch(value)}>
-                    <span>
-                      <small>{label}</small>
-                      <strong>{value}</strong>
-                    </span>
-                    <ChevronRight size={17} />
-                  </button>
-                ))}
-            </section>
-          )}
-        </>
-      )}
-      {!home && (
-        <StatePanel
-          title="The library is taking a moment."
-          description="We couldn't load YUTorah's latest shiurim. Your saved learning is still available."
-        >
-          <button
-            className="primary-button"
-            onClick={onRefresh}
-            disabled={refreshing}
-          >
-            {refreshing && <Loader2 className="spin" size={15} />}Try again
-          </button>
-        </StatePanel>
-      )}
-      {currentTab === 'continue' ? (
-        <section className="discovery-section">
-          {sectionHeading(
-            'Continue learning',
-            'Your place is saved. Just press play.',
-            () => onNavigate('history'),
-            'Full history',
-          )}
-          {continuing.length ? (
-            continuing.map((h) => (
-              <ShiurRow
-                key={h.shiur.id}
-                shiur={h.shiur}
-                onPlay={(s) => onPlay(s, h.seconds)}
-                onDetails={onDetails}
-                onSave={onSave}
-                onQueue={onQueue}
-                saved={library.saved.some((s) => s.id === h.shiur.id)}
-                progress={h}
-              />
-            ))
-          ) : (
-            <StatePanel
-              title="Your place will be waiting here."
-              description="Start listening to a shiur. We'll remember where you pause, even after you close the page."
-            >
-              <button
-                className="primary-button"
-                onClick={() => setTab('for-you')}
-              >
-                Find a shiur
-                <ArrowRight size={16} />
-              </button>
-            </StatePanel>
-          )}
-        </section>
-      ) : currentTab === 'trending' ? (
-        <section className="discovery-section">
-          {sectionHeading(
-            'What listeners are exploring',
-            discovery?.partial
-              ? `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
-              : discovery
-                ? `Most viewed among ${discovery.total.toLocaleString()} matching shiurim${trendingPeriod === 'all' ? ' across the library' : ' in this date range'}.`
-                : 'View counts come directly from YUTorah.',
-          )}
-          <fieldset className="trending-periods" aria-label="Trending period">
-            {trendingPeriods.map(({ value, label }) => (
-              <button
-                key={value}
-                aria-pressed={trendingPeriod === value}
-                onClick={() => {
-                  setTrendingPeriod(value);
-                  setTrendingLimit(12);
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </fieldset>
-          <div className="discovery-toolbar">
-            <fieldset className="time-chips" aria-label="Trending length">
-              <Timer size={15} />
-              {['all', '10', '20', '30'].map((v) => (
+                { value: 'for-you', label: 'For you', icon: Sparkles },
+                { value: 'trending', label: 'Trending', icon: Flame },
+                { value: 'following', label: 'Following', icon: Users },
+                {
+                  value: 'latest',
+                  label: 'Recently added',
+                  icon: CalendarDays,
+                },
+                {
+                  value: 'continue',
+                  label: 'Continue learning',
+                  icon: History,
+                },
+              ].map(({ value, label, icon: Icon }) => (
                 <button
-                  key={v}
-                  aria-pressed={minutes === v}
+                  key={value}
+                  aria-pressed={currentTab === value}
                   onClick={() => {
-                    setMinutes(v);
-                    setTrendingLimit(12);
+                    setTab(value);
+                    setLimit(8);
                   }}
                 >
-                  {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
+                  <Icon size={15} />
+                  {label}
                 </button>
-              ))}
-            </fieldset>
-            <button
-              className="icon-button"
-              aria-label="Refresh trending"
-              onClick={refreshAll}
-              disabled={discoveryLoading}
-            >
-              <RefreshCw size={16} className={discoveryLoading ? 'spin' : ''} />
-            </button>
-          </div>
-          <p className="trending-source">
-            {trendingPeriod === 'all'
-              ? 'Ranked by total YUTorah views across the library.'
-              : `Ranked by total YUTorah views for shiurim uploaded in the past ${
-                  trendingPeriods.find((p) => p.value === trendingPeriod)!
-                    .days === 1
-                    ? '24 hours'
-                    : trendingPeriods.find((p) => p.value === trendingPeriod)!
-                        .days + ' days'
-                }.`}{' '}
-            Dates use YUTorah&apos;s upload date. View counts are lifetime
-            totals. Some source dates have day precision.
-          </p>
-          {discovery && (
-            <p className="trending-freshness">
-              {discovery.stale
-                ? 'Showing cached results while YUTorah is unavailable. '
-                : 'Updated '}
-              <time dateTime={discovery.fetchedAt}>
-                {new Date(discovery.fetchedAt).toLocaleString()}
-              </time>
-              {discoveryLoading && ' · Refreshing…'}
-              <span>
-                {' '}
-                · Upload window ends{' '}
-                <time dateTime={discovery.before}>
-                  {new Date(discovery.before).toLocaleString()}
-                </time>
-              </span>
-            </p>
-          )}
-          {discoveryLoading && !discovery ? (
-            <div className="discovery-loading">
-              <Loader2 size={18} className="spin" />
-              Finding trending shiurim…
-            </div>
-          ) : discoveryError && !discovery ? (
-            <StatePanel
-              title="Trending couldn't load."
-              description="YUTorah's popularity data is temporarily unavailable."
-            >
-              <button className="outline-button" onClick={refreshAll}>
-                Try again
-              </button>
-            </StatePanel>
-          ) : trending.length ? (
-            <>
-              {discoveryError && (
-                <output className="feed-notice">
-                  Refresh couldn&apos;t load. Showing the last chart for this
-                  range. <button onClick={refreshAll}>Try again</button>
-                </output>
-              )}
-              {trendingList(trendingLimit)}
-              {trending.length > trendingLimit && (
-                <button
-                  className="outline-button discovery-more"
-                  onClick={() => setTrendingLimit((n) => n + 12)}
-                >
-                  Show more <ArrowRight size={15} />
-                </button>
-              )}
-            </>
-          ) : (
-            <StatePanel
-              title={
-                discovery?.partial
-                  ? 'Indexing this range…'
-                  : 'No viewed shiurim match this range.'
-              }
-              description={
-                discovery?.partial
-                  ? 'The chart will update as more shiurim are indexed.'
-                  : 'Choose another period or length to see more shiurim.'
-              }
-            />
-          )}
-        </section>
-      ) : (
-        <section className="discovery-section recommended-section">
-          {sectionHeading(
-            currentTab === 'following'
-              ? 'From your follows'
-              : currentTab === 'latest'
-                ? 'Recently added'
-                : hasInterests
-                  ? 'Recommended for you'
-                  : 'Discover something new',
-            currentTab === 'following'
-              ? 'A selection from your teachers, topics, and series.'
-              : currentTab === 'latest'
-                ? 'New learning, straight from the YUTorah library.'
-                : hasInterests
-                  ? 'Inspired by what you listen to, save, and follow.'
-                  : 'Featured and recent shiurim from the YUTorah library.',
-            isHome ? () => setTab('latest') : undefined,
-            'New shiurim',
-          )}
-          {currentTab === 'following' && library.following.length > 0 && (
-            <div className="following-chips">
-              {library.following.map((f) => (
-                <div key={f.kind + f.id}>
-                  <button
-                    onClick={() =>
-                      onSearch('', { ...noFilters, [f.kind]: String(f.id) })
-                    }
-                  >
-                    {f.name}
-                  </button>
-                  <button
-                    aria-label={'Unfollow ' + f.name}
-                    onClick={() => onFollow(f)}
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
               ))}
             </div>
           )}
-          {(!followingPage || library.following.length > 0) && (
-            <div className="discovery-toolbar">
-              <div className="time-chips" aria-label="Time available">
-                <Timer size={15} />
-                {['all', '10', '20', '30'].map((v) => (
-                  <button
-                    key={v}
-                    aria-pressed={minutes === v}
-                    onClick={() => {
-                      setMinutes(v);
-                      setLimit(8);
-                    }}
-                  >
-                    {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
-                  </button>
+          {isHome && continuing.length > 0 && (
+            <section className="discovery-section resume-section">
+              {sectionHeading(
+                'Pick up where you left off',
+                undefined,
+                () => setTab('continue'),
+                'Your history',
+              )}
+              <div className="resume-card-grid">
+                {continuing.slice(0, 3).map((h) => (
+                  <article className="listening-resume" key={h.shiur.id}>
+                    <Avatar src={h.shiur.image} name={h.shiur.teacher} />
+                    <div>
+                      <button onClick={() => onDetails(h.shiur)} dir="auto">
+                        {h.shiur.title}
+                      </button>
+                      <p>{h.shiur.teacher}</p>
+                      <progress
+                        value={h.seconds}
+                        max={h.duration || 1}
+                        aria-label={'Listening progress for ' + h.shiur.title}
+                      />
+                      <small>
+                        {h.duration > 0
+                          ? Math.max(
+                              1,
+                              Math.ceil((h.duration - h.seconds) / 60),
+                            ) + ' min left'
+                          : 'Resume your shiur'}
+                      </small>
+                    </div>
+                    <button
+                      className="resume-control"
+                      aria-label={'Resume ' + h.shiur.title}
+                      onClick={() => onPlay(h.shiur, h.seconds)}
+                    >
+                      <Play size={17} fill="currentColor" />
+                    </button>
+                  </article>
                 ))}
               </div>
-              <button
-                className="icon-button"
-                aria-label="Refresh recommendations"
-                onClick={refreshAll}
-                disabled={feedLoading || refreshing}
+            </section>
+          )}
+          {isHome && (
+            <>
+              <section
+                className="desktop-archive-feature"
+                aria-label="Featured shiur"
               >
-                <RefreshCw
-                  size={16}
-                  className={feedLoading || refreshing ? 'spin' : ''}
-                />
-              </button>
-            </div>
+                <div className="desktop-feature-heading">
+                  <span>
+                    FEATURED SHIUR
+                    {pick?.category ? ' · ' + pick.category.toUpperCase() : ''}
+                  </span>
+                  {home && (
+                    <span>
+                      <strong>{home.total.toLocaleString()}</strong> shiurim in
+                      the library
+                    </span>
+                  )}
+                </div>
+                <div className="desktop-feature-main">
+                  <div>
+                    <h2>
+                      {pick ? (
+                        <button dir="auto" onClick={() => onDetails(pick)}>
+                          {pick.title}
+                        </button>
+                      ) : (
+                        'Explore the Torah library'
+                      )}
+                    </h2>
+                    {pick && <p>{pick.teacher}</p>}
+                    <div className="desktop-feature-actions">
+                      {pick && (
+                        <button
+                          className="desktop-feature-play"
+                          onClick={() =>
+                            mediaKind(pick) === 'audio'
+                              ? onPlay(pick)
+                              : onDetails(pick)
+                          }
+                          aria-label={
+                            (activeId === pick.id && playing
+                              ? 'Pause '
+                              : 'Play ') + pick.title
+                          }
+                        >
+                          {activeId === pick.id && playing ? (
+                            <Pause size={16} fill="currentColor" />
+                          ) : (
+                            <Play size={16} fill="currentColor" />
+                          )}
+                          {activeId === pick.id && playing ? 'Pause' : 'Listen'}
+                          {pick.duration > 0 && (
+                            <span>{Math.round(pick.duration / 60)} min</span>
+                          )}
+                        </button>
+                      )}
+                      <button
+                        className="desktop-feature-browse"
+                        onClick={() => onNavigate('search')}
+                      >
+                        Search the library <ArrowRight size={17} />
+                      </button>
+                    </div>
+                  </div>
+                  {pick && (
+                    <Avatar
+                      className="desktop-feature-portrait"
+                      src={pick.image}
+                      name={pick.teacher}
+                    />
+                  )}
+                </div>
+              </section>
+
+              <section className="discovery-section collections-section">
+                {sectionHeading(
+                  'Explore the library',
+                  undefined,
+                  () => onNavigate('topics'),
+                  'All topics',
+                )}
+                <div className="collection-grid">
+                  <button
+                    className="collection-tile collection-halacha"
+                    onClick={() =>
+                      shortSeries
+                        ? onSearch('', {
+                            ...noFilters,
+                            series: String(shortSeries.id),
+                          })
+                        : onSearch('halacha', { ...noFilters, max: '10' })
+                    }
+                  >
+                    <div className="collection-top">
+                      <Timer size={20} />
+                      <span>PRACTICAL HALACHA</span>
+                    </div>
+                    <h3>
+                      Ten Minute
+                      <br />
+                      Halacha
+                    </h3>
+                    <div className="collection-bottom">
+                      <span>
+                        {shortSeries
+                          ? 'The series you can return to daily'
+                          : 'Practical learning in 10 minutes'}
+                      </span>
+                      <ArrowRight size={18} />
+                    </div>
+                    <span className="collection-letter" lang="he">
+                      הלכה
+                    </span>
+                  </button>
+                  <button
+                    className="collection-tile collection-parsha"
+                    onClick={() => onSearch(home?.parsha || 'parsha')}
+                  >
+                    <div className="collection-top">
+                      <BookOpen size={20} />
+                      <span>THE WEEKLY TORAH PORTION</span>
+                    </div>
+                    <h3>
+                      Parsha
+                      <br />
+                      perspectives
+                    </h3>
+                    <div className="collection-bottom">
+                      <span>
+                        {home?.parsha || 'Shiurim on the weekly parsha'}
+                      </span>
+                      <ArrowRight size={18} />
+                    </div>
+                    <span className="collection-letter" lang="he">
+                      פרשה
+                    </span>
+                  </button>
+                  <button
+                    className="collection-tile collection-daf"
+                    onClick={() => onSearch(home?.daf || 'Daf Yomi')}
+                  >
+                    <div className="collection-top">
+                      <CalendarDays size={20} />
+                      <span>DAILY TALMUD STUDY</span>
+                    </div>
+                    <h3>
+                      Your daily
+                      <br />
+                      Daf Yomi
+                    </h3>
+                    <div className="collection-bottom">
+                      <span>{home?.daf || 'Daily learning'}</span>
+                      <ArrowRight size={18} />
+                    </div>
+                    <span className="collection-letter" lang="he">
+                      דף
+                    </span>
+                  </button>
+                  <button
+                    className="collection-tile collection-thought"
+                    onClick={() => onSearch('machshava')}
+                  >
+                    <div className="collection-top">
+                      <Lightbulb size={20} />
+                      <span>JEWISH THOUGHT</span>
+                    </div>
+                    <h3>
+                      Jewish
+                      <br />
+                      thought
+                    </h3>
+                    <div className="collection-bottom">
+                      <span>Explore the questions that matter</span>
+                      <ArrowRight size={18} />
+                    </div>
+                    <span className="collection-letter" lang="he">
+                      מחשבה
+                    </span>
+                  </button>
+                </div>
+              </section>
+              {home && (
+                <section
+                  className="daily-learning-band"
+                  aria-label="Today's daily learning"
+                >
+                  <div className="daily-band-heading">
+                    <CalendarDays size={20} />
+                    <div>
+                      <h2>Today, in Torah</h2>
+                      <span lang="he" dir="rtl">
+                        {home.hebrewDate}
+                      </span>
+                    </div>
+                  </div>
+                  {[
+                    ['Daf Yomi', home.daf],
+                    ['Mishna Yomi', home.mishna],
+                    ['Nach Yomi', home.nach],
+                  ]
+                    .filter(([, value]) => value)
+                    .map(([label, value]) => (
+                      <button key={label} onClick={() => onSearch(value)}>
+                        <span>
+                          <small>{label}</small>
+                          <strong>{value}</strong>
+                        </span>
+                        <ChevronRight size={17} />
+                      </button>
+                    ))}
+                </section>
+              )}
+            </>
           )}
-          {feedLoading && (
-            <output className="feed-loading">
-              <Loader2 size={14} className="spin" />
-              Finding learning from your follows…
-            </output>
-          )}
-          {feedError && (
-            <p className="feed-notice">
-              Some followed sources could not load.{' '}
-              <button onClick={refreshAll}>Try again</button>
-            </p>
-          )}
-          {currentTab === 'following' && !library.following.length ? (
+          {!home && (
             <StatePanel
-              title="Follow teachers and subjects"
-              description="Follow a teacher, topic, or series. Their latest shiurim will appear here."
+              title="The library is taking a moment."
+              description="We couldn't load YUTorah's latest shiurim. Your saved learning is still available."
             >
               <button
                 className="primary-button"
-                onClick={() => onNavigate('teachers')}
+                onClick={onRefresh}
+                disabled={refreshing}
               >
-                Discover teachers
-                <ArrowRight size={16} />
+                {refreshing && <Loader2 className="spin" size={15} />}Try again
               </button>
             </StatePanel>
-          ) : items.length ? (
-            <>
-              {cards(items, isHome ? Math.min(limit, 4) : limit)}
-              {items.length > (isHome ? Math.min(limit, 4) : limit) && (
-                <button
-                  className="outline-button discovery-more"
-                  onClick={() =>
-                    isHome ? setTab('latest') : setLimit((n) => n + 8)
-                  }
-                >
-                  More to discover
-                  <ArrowRight size={15} />
-                </button>
-              )}
-            </>
-          ) : (
-            !feedLoading && (
-              <StatePanel
-                title="A little more time opens more possibilities."
-                description="Choose a different time budget or explore another teacher."
-              >
-                <button
-                  className="outline-button"
-                  onClick={() => setMinutes('all')}
-                >
-                  See all lengths
-                </button>
-              </StatePanel>
-            )
           )}
-        </section>
-      )}
-      {isHome && (
-        <>
-          {anchor && (
-            <section className="discovery-section based-on-section">
+          {currentTab === 'continue' ? (
+            <section className="discovery-section">
               {sectionHeading(
-                'Keep the learning going',
-                `Because you listened to “${anchor.title}”`,
-                () => onDetails(anchor),
-                'View shiur',
+                'Continue learning',
+                'Your place is saved. Just press play.',
+                () => onNavigate('history'),
+                'Full history',
               )}
-              {relatedLoading && !followups.length ? (
-                <output className="feed-loading">
-                  <Loader2 size={14} className="spin" />
-                  Finding related series, topics, and teachers…
-                </output>
-              ) : followups.length ? (
-                cards(followups, 4)
+              {continuing.length ? (
+                continuing.map((h) => (
+                  <ShiurRow
+                    key={h.shiur.id}
+                    shiur={h.shiur}
+                    onPlay={(s) => onPlay(s, h.seconds)}
+                    onDetails={onDetails}
+                    onSave={onSave}
+                    onQueue={onQueue}
+                    saved={library.saved.some((s) => s.id === h.shiur.id)}
+                    progress={h}
+                  />
+                ))
               ) : (
-                <p className="discovery-muted">
-                  No related shiurim are available in this selection yet.{' '}
+                <StatePanel
+                  title="Your place will be waiting here."
+                  description="Start listening to a shiur. We'll remember where you pause, even after you close the page."
+                >
                   <button
-                    className="text-button"
-                    onClick={() =>
-                      onSearch('', {
-                        ...noFilters,
-                        teacher: String(anchor.teacherId),
-                      })
-                    }
+                    className="primary-button"
+                    onClick={() => setTab('for-you')}
                   >
-                    Explore this teacher
-                    <ArrowRight size={14} />
+                    Find a shiur
+                    <ArrowRight size={16} />
                   </button>
+                </StatePanel>
+              )}
+            </section>
+          ) : currentTab === 'trending' ? (
+            <section className="discovery-section">
+              {sectionHeading(
+                'What listeners are exploring',
+                discovery?.partial
+                  ? `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
+                  : discovery
+                    ? `Most viewed among ${discovery.total.toLocaleString()} matching shiurim${trendingPeriod === 'all' ? ' across the library' : ' in this date range'}.`
+                    : 'View counts come directly from YUTorah.',
+              )}
+              <fieldset
+                className="trending-periods"
+                aria-label="Trending period"
+              >
+                {trendingPeriods.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    aria-pressed={trendingPeriod === value}
+                    onClick={() => {
+                      setTrendingPeriod(value);
+                      setTrendingLimit(12);
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </fieldset>
+              <div className="discovery-toolbar">
+                <fieldset className="time-chips" aria-label="Trending length">
+                  <Timer size={15} />
+                  {['all', '10', '20', '30'].map((v) => (
+                    <button
+                      key={v}
+                      aria-pressed={minutes === v}
+                      onClick={() => {
+                        setMinutes(v);
+                        setTrendingLimit(12);
+                      }}
+                    >
+                      {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
+                    </button>
+                  ))}
+                </fieldset>
+                <button
+                  className="icon-button"
+                  aria-label="Refresh trending"
+                  onClick={refreshAll}
+                  disabled={discoveryLoading}
+                >
+                  <RefreshCw
+                    size={16}
+                    className={discoveryLoading ? 'spin' : ''}
+                  />
+                </button>
+              </div>
+              <p className="trending-source">
+                {trendingPeriod === 'all'
+                  ? 'Ranked by total YUTorah views across the library.'
+                  : `Ranked by total YUTorah views for shiurim uploaded in the past ${
+                      trendingPeriods.find((p) => p.value === trendingPeriod)!
+                        .days === 1
+                        ? '24 hours'
+                        : trendingPeriods.find(
+                            (p) => p.value === trendingPeriod,
+                          )!.days + ' days'
+                    }.`}{' '}
+                Dates use YUTorah&apos;s upload date. View counts are lifetime
+                totals. Some source dates have day precision.
+              </p>
+              {discovery && (
+                <p className="trending-freshness">
+                  {discovery.stale
+                    ? 'Showing cached results while YUTorah is unavailable. '
+                    : 'Updated '}
+                  <time dateTime={discovery.fetchedAt}>
+                    {new Date(discovery.fetchedAt).toLocaleString()}
+                  </time>
+                  {discoveryLoading && ' · Refreshing…'}
+                  <span>
+                    {' '}
+                    · Upload window ends{' '}
+                    <time dateTime={discovery.before}>
+                      {new Date(discovery.before).toLocaleString()}
+                    </time>
+                  </span>
                 </p>
               )}
-              {relatedError && (
+              {discoveryLoading && !discovery ? (
+                <div className="discovery-loading">
+                  <Loader2 size={18} className="spin" />
+                  Finding trending shiurim…
+                </div>
+              ) : discoveryError && !discovery ? (
+                <StatePanel
+                  title="Trending couldn't load."
+                  description="YUTorah's popularity data is temporarily unavailable."
+                >
+                  <button className="outline-button" onClick={refreshAll}>
+                    Try again
+                  </button>
+                </StatePanel>
+              ) : trending.length ? (
+                <>
+                  {discoveryError && (
+                    <output className="feed-notice">
+                      Refresh couldn&apos;t load. Showing the last chart for
+                      this range.{' '}
+                      <button onClick={refreshAll}>Try again</button>
+                    </output>
+                  )}
+                  {trendingList(trendingLimit)}
+                  {trending.length > trendingLimit && (
+                    <button
+                      className="outline-button discovery-more"
+                      onClick={() => setTrendingLimit((n) => n + 12)}
+                    >
+                      Show more <ArrowRight size={15} />
+                    </button>
+                  )}
+                </>
+              ) : (
+                <StatePanel
+                  title={
+                    discovery?.partial
+                      ? 'Indexing this range…'
+                      : 'No viewed shiurim match this range.'
+                  }
+                  description={
+                    discovery?.partial
+                      ? 'The chart will update as more shiurim are indexed.'
+                      : 'Choose another period or length to see more shiurim.'
+                  }
+                />
+              )}
+            </section>
+          ) : (
+            <section className="discovery-section recommended-section">
+              {sectionHeading(
+                currentTab === 'following'
+                  ? 'From your follows'
+                  : currentTab === 'latest'
+                    ? 'Recently added'
+                    : hasInterests
+                      ? 'Recommended for you'
+                      : 'Discover something new',
+                currentTab === 'following'
+                  ? 'A selection from your teachers, topics, and series.'
+                  : currentTab === 'latest'
+                    ? 'New learning, straight from the YUTorah library.'
+                    : hasInterests
+                      ? 'Inspired by what you listen to, save, and follow.'
+                      : 'Featured and recent shiurim from the YUTorah library.',
+                isHome ? () => setTab('latest') : undefined,
+                'New shiurim',
+              )}
+              {currentTab === 'following' && library.following.length > 0 && (
+                <div className="following-chips">
+                  {library.following.map((f) => (
+                    <div key={f.kind + f.id}>
+                      <button
+                        onClick={() =>
+                          onSearch('', { ...noFilters, [f.kind]: String(f.id) })
+                        }
+                      >
+                        {f.name}
+                      </button>
+                      <button
+                        aria-label={'Unfollow ' + f.name}
+                        onClick={() => onFollow(f)}
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(!followingPage || library.following.length > 0) && (
+                <div className="discovery-toolbar">
+                  <div className="time-chips" aria-label="Time available">
+                    <Timer size={15} />
+                    {['all', '10', '20', '30'].map((v) => (
+                      <button
+                        key={v}
+                        aria-pressed={minutes === v}
+                        onClick={() => {
+                          setMinutes(v);
+                          setLimit(8);
+                        }}
+                      >
+                        {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    className="icon-button"
+                    aria-label="Refresh recommendations"
+                    onClick={refreshAll}
+                    disabled={feedLoading || refreshing}
+                  >
+                    <RefreshCw
+                      size={16}
+                      className={feedLoading || refreshing ? 'spin' : ''}
+                    />
+                  </button>
+                </div>
+              )}
+              {feedLoading && (
+                <output className="feed-loading">
+                  <Loader2 size={14} className="spin" />
+                  Finding learning from your follows…
+                </output>
+              )}
+              {feedError && (
                 <p className="feed-notice">
-                  Some related learning could not load.{' '}
+                  Some followed sources could not load.{' '}
                   <button onClick={refreshAll}>Try again</button>
                 </p>
               )}
-            </section>
-          )}
-          <section className="discovery-section trending-section">
-            {sectionHeading(
-              'Trending in the library',
-              'Most viewed shiurim in the selected date range.',
-              () => onNavigate('trending'),
-              'Explore trending',
-            )}
-            {discoveryLoading && !discovery ? (
-              <div className="discovery-loading">
-                <Loader2 size={16} className="spin" />
-                Loading YUTorah view counts…
-              </div>
-            ) : discoveryError ? (
-              <p className="discovery-muted">
-                Popularity data couldn&apos;t load.{' '}
-                <button className="text-button" onClick={refreshAll}>
-                  Try again
+              {currentTab === 'following' && sourceLimit < sources.length && (
+                <button
+                  className="outline-button"
+                  onClick={() => setSourceLimit((n) => n + 8)}
+                >
+                  Load more followed sources (
+                  {Math.min(sourceLimit, sources.length)} of {sources.length})
                 </button>
-              </p>
-            ) : (
-              trendingList(6)
-            )}
-            {discovery && (
-              <p className="trending-source">
-                <Eye size={12} />
-                {discovery.partial ? (
-                  `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
-                ) : (
-                  <>
-                    Most viewed among {discovery.total.toLocaleString()}{' '}
-                    matching shiurim
-                    {discovery.period === 'all'
-                      ? ' across the library'
-                      : ' in this date range'}
-                    , using YUTorah&apos;s upload date.
-                  </>
+              )}
+              {currentTab === 'following' && !library.following.length ? (
+                <StatePanel
+                  title="Follow teachers and subjects"
+                  description="Follow a teacher, topic, or series. Their latest shiurim will appear here."
+                >
+                  <button
+                    className="primary-button"
+                    onClick={() => onNavigate('teachers')}
+                  >
+                    Discover teachers
+                    <ArrowRight size={16} />
+                  </button>
+                </StatePanel>
+              ) : items.length ? (
+                <>
+                  {cards(items, isHome ? Math.min(limit, 4) : limit)}
+                  {items.length > (isHome ? Math.min(limit, 4) : limit) && (
+                    <button
+                      className="outline-button discovery-more"
+                      onClick={() =>
+                        isHome ? setTab('latest') : setLimit((n) => n + 8)
+                      }
+                    >
+                      More to discover
+                      <ArrowRight size={15} />
+                    </button>
+                  )}
+                </>
+              ) : (
+                !feedLoading && (
+                  <StatePanel
+                    title="A little more time opens more possibilities."
+                    description="Choose a different time budget or explore another teacher."
+                  >
+                    <button
+                      className="outline-button"
+                      onClick={() => setMinutes('all')}
+                    >
+                      See all lengths
+                    </button>
+                  </StatePanel>
+                )
+              )}
+            </section>
+          )}
+          {isHome && (
+            <>
+              {anchor && (
+                <section className="discovery-section based-on-section">
+                  {sectionHeading(
+                    'Keep the learning going',
+                    `Because you listened to “${anchor.title}”`,
+                    () => onDetails(anchor),
+                    'View shiur',
+                  )}
+                  {relatedLoading && !followups.length ? (
+                    <output className="feed-loading">
+                      <Loader2 size={14} className="spin" />
+                      Finding related series, topics, and teachers…
+                    </output>
+                  ) : followups.length ? (
+                    cards(followups, 4)
+                  ) : (
+                    <p className="discovery-muted">
+                      No related shiurim are available in this selection yet.{' '}
+                      <button
+                        className="text-button"
+                        onClick={() =>
+                          onSearch('', {
+                            ...noFilters,
+                            teacher: String(anchor.teacherId),
+                          })
+                        }
+                      >
+                        Explore this teacher
+                        <ArrowRight size={14} />
+                      </button>
+                    </p>
+                  )}
+                  {relatedError && (
+                    <p className="feed-notice">
+                      Some related learning could not load.{' '}
+                      <button onClick={refreshAll}>Try again</button>
+                    </p>
+                  )}
+                </section>
+              )}
+              <section className="discovery-section trending-section">
+                {sectionHeading(
+                  'Trending in the library',
+                  'Most viewed shiurim in the selected date range.',
+                  () => onNavigate('trending'),
+                  'Explore trending',
                 )}
-                {discovery.stale && ' Showing cached results.'}
-              </p>
-            )}
-          </section>
-          {teachers.length > 0 && (
-            <section className="discovery-section teacher-shelf-section">
-              {sectionHeading(
-                'Teachers to know',
-                'Meet the teachers of the YUTorah community.',
-                () => onNavigate('teachers'),
-                'All teachers',
-              )}
-              <div className="teacher-shelf">
-                {teachers.map((t) => (
-                  <article key={t.id}>
-                    <button
-                      className="teacher-shelf-profile"
-                      onClick={() =>
-                        onSearch('', { ...noFilters, teacher: String(t.id) })
-                      }
-                    >
-                      <Avatar src={t.image} name={t.name} />
-                      <h3>{t.name}</h3>
-                      <p>{t.count.toLocaleString()} shiurim</p>
+                {discoveryLoading && !discovery ? (
+                  <div className="discovery-loading">
+                    <Loader2 size={16} className="spin" />
+                    Loading YUTorah view counts…
+                  </div>
+                ) : discoveryError ? (
+                  <p className="discovery-muted">
+                    Popularity data couldn&apos;t load.{' '}
+                    <button className="text-button" onClick={refreshAll}>
+                      Try again
                     </button>
-                    <FollowButton
-                      compact
-                      follow={{
-                        kind: 'teacher',
-                        id: t.id,
-                        name: t.name,
-                        image: t.image,
-                      }}
-                      library={library}
-                      onFollow={onFollow}
-                    />
-                  </article>
-                ))}
-              </div>
-            </section>
-          )}
-          {home && home.series.length > 0 && (
-            <section className="discovery-section series-shelf-section">
-              {sectionHeading(
-                'Go deeper with a series',
-                'Find a series to make part of your routine.',
-                () => onNavigate('series'),
-                'All series',
+                  </p>
+                ) : (
+                  trendingList(6)
+                )}
+                {discovery && (
+                  <p className="trending-source">
+                    <Eye size={12} />
+                    {discovery.partial ? (
+                      `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
+                    ) : (
+                      <>
+                        Most viewed among {discovery.total.toLocaleString()}{' '}
+                        matching shiurim
+                        {discovery.period === 'all'
+                          ? ' across the library'
+                          : ' in this date range'}
+                        , using YUTorah&apos;s upload date.
+                      </>
+                    )}
+                    {discovery.stale && ' Showing cached results.'}
+                  </p>
+                )}
+              </section>
+              {teachers.length > 0 && (
+                <section className="discovery-section teacher-shelf-section">
+                  {sectionHeading(
+                    'Teachers to know',
+                    'Meet the teachers of the YUTorah community.',
+                    () => onNavigate('teachers'),
+                    'All teachers',
+                  )}
+                  <div className="teacher-shelf">
+                    {teachers.map((t) => (
+                      <article key={t.id}>
+                        <button
+                          className="teacher-shelf-profile"
+                          onClick={() =>
+                            onSearch('', {
+                              ...noFilters,
+                              teacher: String(t.id),
+                            })
+                          }
+                        >
+                          <Avatar src={t.image} name={t.name} />
+                          <h3>{t.name}</h3>
+                          <p>{t.count.toLocaleString()} shiurim</p>
+                        </button>
+                        <FollowButton
+                          compact
+                          follow={{
+                            kind: 'teacher',
+                            id: t.id,
+                            name: t.name,
+                            image: t.image,
+                          }}
+                          library={library}
+                          onFollow={onFollow}
+                        />
+                      </article>
+                    ))}
+                  </div>
+                </section>
               )}
-              <div className="series-shelf">
-                {home.series.slice(0, 4).map((s) => (
-                  <article key={s.id}>
-                    <button
-                      onClick={() =>
-                        onSearch('', { ...noFilters, series: String(s.id) })
-                      }
-                    >
-                      <SeriesCover name={s.name} id={s.id} />
-                      <h3 dir="auto">{s.name}</h3>
-                      <p>
-                        {(
-                          directory?.series.find((series) => series.id === s.id)
-                            ?.count ?? s.count
-                        ).toLocaleString()}{' '}
-                        shiurim
-                      </p>
-                    </button>
-                    <FollowButton
-                      compact
-                      follow={{ kind: 'series', id: s.id, name: s.name }}
-                      library={library}
-                      onFollow={onFollow}
-                    />
-                  </article>
-                ))}
-              </div>
-            </section>
-          )}
-          <section className="learning-goal-band">
-            <span className="learning-goal-icon">
-              <Target size={27} />
-            </span>
-            <div className="learning-goal-copy">
-              <h2>A little learning, every day.</h2>
-              <p>
-                {stats.streak
-                  ? `${stats.streak} day streak. Keep it going.`
-                  : 'Set a small goal. Make time to return.'}
+              {home && home.series.length > 0 && (
+                <section className="discovery-section series-shelf-section">
+                  {sectionHeading(
+                    'Go deeper with a series',
+                    'Find a series to make part of your routine.',
+                    () => onNavigate('series'),
+                    'All series',
+                  )}
+                  <div className="series-shelf">
+                    {home.series.slice(0, 4).map((s) => (
+                      <article key={s.id}>
+                        <button
+                          onClick={() =>
+                            onSearch('', { ...noFilters, series: String(s.id) })
+                          }
+                        >
+                          <SeriesCover name={s.name} id={s.id} />
+                          <h3 dir="auto">{s.name}</h3>
+                          <p>
+                            {(
+                              directory?.series.find(
+                                (series) => series.id === s.id,
+                              )?.count ?? s.count
+                            ).toLocaleString()}{' '}
+                            shiurim
+                          </p>
+                        </button>
+                        <FollowButton
+                          compact
+                          follow={{ kind: 'series', id: s.id, name: s.name }}
+                          library={library}
+                          onFollow={onFollow}
+                        />
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
+              <section className="learning-goal-band">
+                <span className="learning-goal-icon">
+                  <Target size={27} />
+                </span>
+                <div className="learning-goal-copy">
+                  <h2>A little learning, every day.</h2>
+                  <p>
+                    {stats.streak
+                      ? `${stats.streak} day streak. Keep it going.`
+                      : 'Set a small goal. Make time to return.'}
+                  </p>
+                </div>
+                <div className="learning-goal-progress">
+                  <strong>
+                    {Math.floor(stats.today / 60)}
+                    <span> / {library.dailyGoal} min today</span>
+                  </strong>
+                  <progress
+                    aria-label="Daily learning goal"
+                    value={Math.min(stats.today / 60, library.dailyGoal)}
+                    max={library.dailyGoal}
+                  />
+                  <small>
+                    {Math.floor(stats.weekSeconds / 60)} minutes this week
+                  </small>
+                </div>
+                <button
+                  className="outline-button"
+                  onClick={() => setPreferences(true)}
+                >
+                  Set your goal
+                  <ArrowRight size={15} />
+                </button>
+              </section>
+              <p className="learning-local-note">
+                Your saved shiurim, progress, and follows stay on this device.
               </p>
-            </div>
-            <div className="learning-goal-progress">
-              <strong>
-                {Math.floor(stats.today / 60)}
-                <span> / {library.dailyGoal} min today</span>
-              </strong>
-              <progress
-                aria-label="Daily learning goal"
-                value={Math.min(stats.today / 60, library.dailyGoal)}
-                max={library.dailyGoal}
-              />
-              <small>
-                {Math.floor(stats.weekSeconds / 60)} minutes this week
-              </small>
-            </div>
-            <button
-              className="outline-button"
-              onClick={() => setPreferences(true)}
-            >
-              Set your goal
-              <ArrowRight size={15} />
-            </button>
-          </section>
-          <p className="learning-local-note">
-            Your saved shiurim, progress, and follows stay on this device.
-          </p>
+            </>
+          )}
         </>
       )}
       <Dialog open={preferences} onOpenChange={setPreferences}>

@@ -6524,3 +6524,5 @@ a {
 .detail-section .source-attribution { font-size: 10px; line-height: 1.6; color: #647383; overflow-wrap: anywhere; }
 .source-print-frame { position: fixed; width: 1px; height: 1px; border: 0; left: -10000px; top: 0; }
 @media (max-width: 640px) { .source-sheet-preview { padding: 14px; } .source-sheet-preview h4 { font-size: 21px; } }
+
+.list-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 1rem; padding: 1.5rem 0; grid-column: 1 / -1; }

@@ -1,5 +1,4 @@
 'use client';
-import { pollDelay } from '@/lib/poll-delay';
 import { useEffect, useRef, useState } from 'react';
 import {
   Download,
@@ -20,7 +19,7 @@ import {
   sourceEditions,
   type SheetLanguage,
 } from '@/lib/source-sheet';
-import { sourceRequest, sourceRetryDelay } from '@/lib/source-request';
+import { sourceRequest } from '@/lib/source-request';
 const omissionLabels: Record<OmissionReason, string> = {
   unresolved: 'Not resolved by Sefaria',
   ambiguous: 'Ambiguous reference',
@@ -34,72 +33,7 @@ const omissionLabels: Record<OmissionReason, string> = {
   limit: 'Sources limit reached',
 };
 
-export function useTranscriptSources(
-  shiurId: number,
-  transcriptId: string | undefined,
-  enabled: boolean,
-) {
-  const [result, setResult] = useState<SourcesResult | null>(null);
-  const [error, setError] = useState('');
-  const [retry, setRetry] = useState(0);
-  const [recovering, setRecovering] = useState(false);
-  useEffect(() => {
-    setResult(null);
-    setError('');
-    setRecovering(false);
-    if (!enabled || !transcriptId) return;
-    const abort = new AbortController();
-    let polls = 0;
-    const read = async () => {
-      try {
-        const response = await sourceRequest(
-          `/api/sources?id=${shiurId}&revision=${encodeURIComponent(transcriptId)}`,
-          abort.signal,
-          {
-            onRetry: () => {
-              if (!abort.signal.aborted) setRecovering(true);
-            },
-          },
-        );
-        const data = (await response.json()) as SourcesResult & {
-          error?: string;
-        };
-        if (!response.ok)
-          throw new Error(data.error || 'Sources are temporarily unavailable.');
-        if (data.transcriptId !== transcriptId)
-          throw new Error(
-            'The transcript has changed. Refresh the transcript to check its sources.',
-          );
-        if (abort.signal.aborted) return;
-        setResult(data);
-        setRecovering(false);
-        if (data.status === 'pending') {
-          if (++polls >= 300)
-            throw new Error(
-              'Sources are still being checked. Retry to continue.',
-            );
-          await pollDelay(
-            sourceRetryDelay(response.headers.get('Retry-After')),
-            abort.signal,
-          );
-          if (!abort.signal.aborted) void read();
-        }
-      } catch (error) {
-        if (!abort.signal.aborted)
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Sources are temporarily unavailable.',
-          );
-      }
-    };
-    void read();
-    return () => {
-      abort.abort();
-    };
-  }, [shiurId, transcriptId, enabled, retry]);
-  return { result, error, recovering, retry: () => setRetry((n) => n + 1) };
-}
+export { useTranscriptSources } from '@/hooks/use-transcript-sources';
 
 export function SourcesPanel({
   shiurId,

@@ -101,7 +101,11 @@ The Vercel runtime selects managed PostgreSQL when `SEARCH_DATABASE_URL` is set.
 and the shared module's SQL behavior. A small pool and a dedicated search role
 keep credentials server-side. The runtime role has CRUD access only to the
 `yutorah_search` schema; it cannot change transcription data or schema definitions.
-Builds check that the schema already exists, using that runtime role.
+Builds require no database connection. Apply owner migrations with
+`npm run search:schema:migrate`, then run `npm run search:schema:check` with
+the runtime role before activating the release. The owner command tracks
+applied files and serializes overlapping migrations. See the
+[performance release ordering](codebase-performance-implementation.md#release-ordering).
 
 Apply `db/search-postgres/001_search.sql` with a migration/owner connection.
 The logical spelling-key view has exactly the same keys as the SQLite index.

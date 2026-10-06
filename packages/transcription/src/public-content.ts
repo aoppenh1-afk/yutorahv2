@@ -26,6 +26,20 @@ export type ContentStatus = {
 export const contentCacheControl =
   'public, max-age=60, s-maxage=3600, stale-while-revalidate=300, stale-if-error=86400';
 export const statusCacheControl = 'public, max-age=0, s-maxage=15';
+export const publicationLimits = {
+  segments: 5000,
+  segmentCharacters: 64000,
+  bytes: 8 * 1024 * 1024,
+} as const;
+export class PublicationValidationError extends Error {}
+
+export function publishableContent(value: PublicContent) {
+  const content = publicContent(value);
+  const text = JSON.stringify(content);
+  if (new TextEncoder().encode(text).length > publicationLimits.bytes)
+    throw new PublicationValidationError('Transcript is too large.');
+  return { content, text };
+}
 
 export function pendingNotes(notes: { status: string } | null) {
   return !notes || ['queued', 'cleaning', 'generating'].includes(notes.status);
@@ -49,7 +63,7 @@ export function validatePublicContent(
     !Number.isFinite(Date.parse(c.createdAt)) ||
     !Array.isArray(c.segments) ||
     !c.segments.length ||
-    c.segments.length > 5000 ||
+    c.segments.length > publicationLimits.segments ||
     c.title.length > 2000 ||
     c.teacher.length > 1000 ||
     (c.mediaUrl != null &&
@@ -75,12 +89,12 @@ export function validatePublicContent(
         s.endMs > c.durationMs + 1000 ||
         typeof s.text !== 'string' ||
         !s.text.trim() ||
-        s.text.length > 64000 ||
+        s.text.length > publicationLimits.segmentCharacters ||
         (s.speaker !== null && typeof s.speaker !== 'string') ||
         (s.language != null && typeof s.language !== 'string'),
     )
   )
-    throw new Error('Invalid published transcript.');
+    throw new PublicationValidationError('Invalid published transcript.');
 }
 
 /** Explicit field selection keeps checkpoints and cleaned model inputs private. */

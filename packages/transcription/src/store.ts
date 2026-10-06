@@ -22,6 +22,7 @@ import { validRanges } from './planning.js';
 import { validSegments } from './transcript.js';
 import { cleanTranscript } from './cleanup.js';
 import { indexedSegments } from './search-index.js';
+import { publishableContent, publicationLimits } from './public-content.js';
 import {
   interpretSpacing,
   interpretSearchRequest,
@@ -112,6 +113,13 @@ export async function transaction<T>(
   }
 }
 
+export type CatalogInput = {
+  id: string;
+  title: string;
+  teacher: string;
+  mediaUrl?: string;
+  sourceRevision?: string;
+};
 export class TranscriptionStore {
   constructor(
     readonly pool: Pool,
@@ -158,19 +166,24 @@ export class TranscriptionStore {
     });
   }
 
-  /** Catalog ingestion and queue insertion are one transaction and idempotent. */
+  /** Bounded bulk ingestion keeps profile, recording and queue changes atomic. */
   async enqueue(
-    shiur: {
-      id: string;
-      title: string;
-      teacher: string;
-      mediaUrl?: string;
-      sourceRevision?: string;
-    },
+    shiur: CatalogInput,
     p: Profile,
     priority = 0,
   ): Promise<string> {
-    return transaction(this.pool, async (client) => {
+    return (await this.enqueueBatch([shiur], p, priority))[0];
+  }
+  async enqueueBatch(
+    items: CatalogInput[],
+    p: Profile,
+    priority = 0,
+    client?: PoolClient,
+  ): Promise<string[]> {
+    if (!items.length) return [];
+    if (items.length > 30)
+      throw new RangeError('Catalog batch exceeds 30 recordings.');
+    const work = async (client: PoolClient) => {
       await client.query(
         `INSERT INTO transcription_versions(id,pipeline_version,skill_hash,skill_text,model,runtime,settings)
         VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
@@ -184,39 +197,72 @@ export class TranscriptionStore {
           p.settings,
         ],
       );
+      const recordings = [
+        ...new Map(items.map((item) => [item.id, item])).values(),
+      ];
       await client.query(
-        `INSERT INTO transcription_shiurim(id,title,teacher,media_url) VALUES($1,$2,$3,$4)
-        ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,teacher=EXCLUDED.teacher,media_url=EXCLUDED.media_url,updated_at=now() WHERE ROW(transcription_shiurim.title,transcription_shiurim.teacher,transcription_shiurim.media_url) IS DISTINCT FROM ROW(EXCLUDED.title,EXCLUDED.teacher,EXCLUDED.media_url)`,
-        [shiur.id, shiur.title, shiur.teacher, shiur.mediaUrl ?? null],
+        `INSERT INTO transcription_shiurim(id,title,teacher,media_url)
+        SELECT x.id,x.title,x.teacher,x."mediaUrl" FROM jsonb_to_recordset($1::jsonb) AS x(id text,title text,teacher text,"mediaUrl" text)
+        ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,teacher=EXCLUDED.teacher,media_url=EXCLUDED.media_url,updated_at=now()
+        WHERE ROW(transcription_shiurim.title,transcription_shiurim.teacher,transcription_shiurim.media_url)
+        IS DISTINCT FROM ROW(EXCLUDED.title,EXCLUDED.teacher,EXCLUDED.media_url)`,
+        [JSON.stringify(recordings)],
       );
-      const result = await client.query<{ id: string }>(
+      const revision = (item: CatalogInput) =>
+        item.sourceRevision ?? item.mediaUrl ?? 'initial';
+      const entries = [
+        ...new Map(
+          items.map((item) => [
+            item.id + ':' + revision(item),
+            { ...item, sourceRevision: revision(item) },
+          ]),
+        ).values(),
+      ];
+      const result = await client.query<{
+        id: string;
+        shiur_id: string;
+        source_revision: string;
+      }>(
         `INSERT INTO transcription_jobs(id,shiur_id,transcription_version,source_revision,source_url,skill_hash,model,priority)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(shiur_id,transcription_version,source_revision)
-        DO UPDATE SET priority=greatest(transcription_jobs.priority,EXCLUDED.priority) RETURNING id`,
+        SELECT gen_random_uuid(),x.id,$2,x."sourceRevision",x."mediaUrl",$3,$4,$5
+        FROM jsonb_to_recordset($1::jsonb) AS x(id text,"sourceRevision" text,"mediaUrl" text)
+        ON CONFLICT(shiur_id,transcription_version,source_revision) DO UPDATE SET priority=greatest(transcription_jobs.priority,EXCLUDED.priority)
+        RETURNING id,shiur_id,source_revision`,
         [
-          randomUUID(),
-          shiur.id,
+          JSON.stringify(entries),
           p.id,
-          shiur.sourceRevision ?? shiur.mediaUrl ?? 'initial',
-          shiur.mediaUrl ?? null,
           p.skillHash,
           p.settings.model,
           priority,
         ],
       );
-      const id = result.rows[0].id;
-      // Re-ingesting an older duplicate must not demote a newer requested version.
-      await client.query(
-        `UPDATE transcription_shiurim s SET latest_job_id=$2 WHERE s.id=$1 AND s.latest_job_id IS DISTINCT FROM $2 AND
-        (s.latest_job_id IS NULL OR (SELECT created_at FROM transcription_jobs WHERE id=s.latest_job_id)
-          <= (SELECT created_at FROM transcription_jobs WHERE id=$2))`,
-        [shiur.id, id],
+      const ids = new Map(
+        result.rows.map((row) => [
+          row.shiur_id + ':' + row.source_revision,
+          row.id,
+        ]),
       );
-      return id;
-    }).then((id) => {
-      workWake(this.pool).notify();
-      return id;
-    });
+      const pointers = [
+        ...new Map(
+          items.map((item) => [
+            item.id,
+            ids.get(item.id + ':' + revision(item))!,
+          ]),
+        ).values(),
+      ];
+      // Re-ingesting old jobs never demotes a later requested version.
+      await client.query(
+        `UPDATE transcription_shiurim s SET latest_job_id=j.id FROM transcription_jobs j
+        WHERE j.id=ANY($1::uuid[]) AND s.id=j.shiur_id AND s.latest_job_id IS DISTINCT FROM j.id
+        AND (s.latest_job_id IS NULL OR (SELECT created_at FROM transcription_jobs WHERE id=s.latest_job_id)<=j.created_at)`,
+        [pointers],
+      );
+      return items.map((item) => ids.get(item.id + ':' + revision(item))!);
+    };
+    if (client) return work(client);
+    const result = await transaction(this.pool, work);
+    workWake(this.pool).notify();
+    return result;
   }
   async claim(selectedOnly = false): Promise<Job | null> {
     const token = randomUUID();
@@ -354,6 +400,13 @@ export class TranscriptionStore {
   ): Promise<void> {
     transcript = cleanTranscript(transcript);
     if (
+      transcript.segments.length > publicationLimits.segments ||
+      transcript.segments.some(
+        (s) => s.text.length > publicationLimits.segmentCharacters,
+      )
+    )
+      throw new Failure('publication_invalid');
+    if (
       !validSegments(transcript.segments, transcript.durationMs) ||
       !job.fingerprint
     )
@@ -361,6 +414,31 @@ export class TranscriptionStore {
     await transaction(this.pool, async (client) => {
       await this.guard(client, job);
       const id = randomUUID();
+      const metadata = (
+        await client.query<{
+          title: string;
+          teacher: string;
+          media_url: string | null;
+        }>(
+          'SELECT title,teacher,media_url FROM transcription_shiurim WHERE id=$1',
+          [job.shiur_id],
+        )
+      ).rows[0];
+      try {
+        publishableContent({
+          id: job.shiur_id,
+          title: metadata.title,
+          teacher: metadata.teacher,
+          mediaUrl: metadata.media_url,
+          transcriptId: id,
+          createdAt: new Date().toISOString(),
+          durationMs: transcript.durationMs,
+          segments: transcript.segments,
+          notes: notes ? { status: 'queued', markdown: null } : null,
+        });
+      } catch {
+        throw new Failure('publication_invalid');
+      }
       await client.query(
         `INSERT INTO transcripts(id,job_id,shiur_id,duration_ms,text,fingerprint) VALUES($1,$2,$3,$4,$5,$6)`,
         [

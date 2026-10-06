@@ -1,9 +1,11 @@
 import { Pool, types, type QueryResult } from 'pg';
 import type { SearchDatabase, SearchStatement } from './search-storage';
+import { performanceSample } from './performance-metrics';
 
 const identifiers = new Set([
   'sources_runs',
   'search_runs',
+  'search_pass_guards',
   'search_hits',
   'search_documents',
   'search_creation_leases',
@@ -27,6 +29,10 @@ export function postgresSearchSql(sql: string, schema = 'yutorah_search') {
   if (!/^[a-z][a-z0-9_]*$/.test(schema))
     throw new TypeError('Invalid search schema.');
   let source = sql.trim().replace(/;$/, '');
+  source = source.replace(
+    /CAST\(\(julianday\('now'\)-2440587\.5\)\*86400000 AS INTEGER\)/g,
+    'CAST(EXTRACT(EPOCH FROM clock_timestamp())*1000 AS bigint)',
+  );
   // Resolve keys in one SQL statement rather than invoking the logical view's
   // insert trigger for every key in a search page.
   if (
@@ -161,7 +167,9 @@ export function postgresSearchDatabase(
     if (statements.some((statement) => !(statement instanceof Statement)))
       throw new TypeError('Search statement belongs to another database.');
     if (!statements.length) return [];
+    const started = performance.now();
     const client = await pool.connect();
+    const poolMs = performance.now() - started;
     try {
       await client.query('BEGIN');
       // Title frequencies share rows across otherwise independent queries.
@@ -185,11 +193,18 @@ export function postgresSearchDatabase(
           [schema],
         );
       const results = [];
+      const lockMs = performance.now() - started - poolMs;
       for (const statement of statements as Statement[])
         results.push(
           result(await client.query(statement.sql, statement.params)),
         );
       await client.query('COMMIT');
+      performanceSample('search_transaction', {
+        poolMs,
+        lockMs,
+        durationMs: performance.now() - started,
+        statements: statements.length,
+      });
       return results;
     } catch (error) {
       await client.query('ROLLBACK');

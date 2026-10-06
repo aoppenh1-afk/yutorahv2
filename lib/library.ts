@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Shiur } from './yutorah';
+import { performanceCount } from './client-performance';
 import {
   defaultLearning,
   restoreLearning,
@@ -46,7 +47,34 @@ const initial: LibraryState = {
 const key = 'yutorah-learning-v1';
 export function readLibrary(): LibraryState {
   try {
-    const value = JSON.parse(localStorage.getItem(key) || 'null');
+    let value = JSON.parse(localStorage.getItem(key) || 'null');
+    if (value?.version === 2 && value.recordings) {
+      const recordings = value.recordings;
+      value = {
+        ...value,
+        saved: (value.saved || []).map((id: number) => recordings[id]),
+        queue: (value.queue || []).map((id: number) => recordings[id]),
+        last: recordings[value.last] ?? null,
+        history: (value.history || []).map(
+          ({
+            shiurId,
+            ...progress
+          }: Omit<Progress, 'shiur'> & { shiurId: number }) => ({
+            ...progress,
+            shiur: recordings[shiurId],
+          }),
+        ),
+        playlists: (value.playlists || []).map(
+          ({
+            itemIds,
+            ...playlist
+          }: Omit<Playlist, 'items'> & { itemIds: number[] }) => ({
+            ...playlist,
+            items: (itemIds || []).map((id) => recordings[id]),
+          }),
+        ),
+      };
+    }
     if (!value || typeof value !== 'object') return initial;
     const valid = (s: Shiur) =>
       s &&
@@ -58,15 +86,17 @@ export function readLibrary(): LibraryState {
       ...restoreLearning(value),
       saved: Array.isArray(value.saved) ? value.saved.filter(valid) : [],
       history: Array.isArray(value.history)
-        ? value.history.filter(
-            (v: Progress) =>
-              v &&
-              valid(v.shiur) &&
-              Number.isFinite(v.seconds) &&
-              v.seconds >= 0 &&
-              Number.isFinite(v.duration) &&
-              v.duration >= 0,
-          )
+        ? value.history
+            .filter(
+              (v: Progress) =>
+                v &&
+                valid(v.shiur) &&
+                Number.isFinite(v.seconds) &&
+                v.seconds >= 0 &&
+                Number.isFinite(v.duration) &&
+                v.duration >= 0,
+            )
+            .slice(0, 200)
         : [],
       playlists: Array.isArray(value.playlists)
         ? value.playlists
@@ -104,40 +134,185 @@ export function readLibrary(): LibraryState {
     return initial;
   }
 }
+/** Store each recording once; v1 collections migrate on the next successful write. */
+export function serializeLibrary(library: LibraryState) {
+  const recordings = Object.fromEntries(
+    [
+      ...library.saved,
+      ...library.queue,
+      ...library.history.map((h) => h.shiur),
+      ...library.playlists.flatMap((p) => p.items),
+      ...(library.last ? [library.last] : []),
+    ].map((s) => [s.id, s]),
+  );
+  return JSON.stringify({
+    ...library,
+    version: 2,
+    recordings,
+    saved: library.saved.map((s) => s.id),
+    queue: library.queue.map((s) => s.id),
+    last: library.last?.id ?? null,
+    history: library.history.map(({ shiur, ...progress }) => ({
+      ...progress,
+      shiurId: shiur.id,
+    })),
+    playlists: library.playlists.map(({ items, ...playlist }) => ({
+      ...playlist,
+      itemIds: items.map((s) => s.id),
+    })),
+  });
+}
+export type LibraryUpdate = (
+  fn: (old: LibraryState) => LibraryState,
+  mode?: 'progress' | 'immediate',
+) => void;
+function mergeProgress(
+  remote: LibraryState,
+  local: LibraryState,
+): LibraryState {
+  const history = new Map(remote.history.map((h) => [h.shiur.id, h]));
+  for (const h of local.history)
+    if (
+      !history.has(h.shiur.id) ||
+      (h.updatedAt || '') > (history.get(h.shiur.id)!.updatedAt || '')
+    )
+      history.set(h.shiur.id, h);
+  const learningDays = { ...remote.learningDays };
+  for (const [day, seconds] of Object.entries(local.learningDays))
+    learningDays[day] = Math.max(seconds, learningDays[day] ?? 0);
+  return {
+    ...remote,
+    history: [...history.values()]
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
+      .slice(0, 200),
+    learningDays,
+  };
+}
 export function useLibrary(notify: (text: string) => void) {
   const [library, setLibrary] = useState<LibraryState>(initial);
   const [ready, setReady] = useState(false);
   const libRef = useRef(library);
   const notified = useRef(false);
-  useEffect(() => {
-    const restored = readLibrary();
-    libRef.current = restored;
-    setLibrary(restored);
-    setReady(true);
-  }, []);
-  const update = useCallback(
-    (fn: (old: LibraryState) => LibraryState) => {
-      const next = fn(libRef.current);
-      libRef.current = next;
-      setLibrary(next);
-      try {
-        localStorage.setItem(key, JSON.stringify(next));
-      } catch {
-        if (!notified.current) {
-          notified.current = true;
-          notify(
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const dirty = useRef(false);
+  const lastWritten = useRef<string | null>(null);
+  const flush = useCallback(() => {
+    clearTimeout(timer.current);
+    timer.current = undefined;
+    if (!dirty.current) return;
+    setLibrary(libRef.current);
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored !== lastWritten.current)
+        libRef.current = mergeProgress(readLibrary(), libRef.current);
+      const started = performance.now();
+      const serialized = serializeLibrary(libRef.current);
+      localStorage.setItem(key, serialized);
+      performanceCount('libraryWrites', 1);
+      performanceCount('libraryWriteMs', performance.now() - started);
+      lastWritten.current = serialized;
+      dirty.current = false;
+      notified.current = false;
+      setLibrary(libRef.current);
+    } catch {
+      if (!notified.current) {
+        notified.current = true;
+        // Let the edit's normal success toast finish before surfacing the failure.
+        queueMicrotask(() =>
+          notifyRef.current(
             'Your browser could not save changes. Free some device storage and try again.',
-          );
+          ),
+        );
+      }
+    }
+  }, []);
+  useEffect(() => {
+    libRef.current = readLibrary();
+    try {
+      lastWritten.current = localStorage.getItem(key);
+    } catch {
+      /* Storage may be disabled. */
+    }
+    setLibrary(libRef.current);
+    setReady(true);
+    const storage = (event: StorageEvent) => {
+      if (event.key !== key) return;
+      const restored = readLibrary();
+      libRef.current = dirty.current
+        ? mergeProgress(restored, libRef.current)
+        : restored;
+      lastWritten.current = event.newValue;
+      setLibrary(libRef.current);
+    };
+    const hidden = () => {
+      if (document.hidden) flush();
+    };
+    window.addEventListener('storage', storage);
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      flush();
+      window.removeEventListener('storage', storage);
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', hidden);
+    };
+  }, [flush]);
+  const update: LibraryUpdate = useCallback(
+    (fn, mode = 'immediate') => {
+      // Read before interactive edits so another tab's saved/following changes
+      // cannot be replaced by an older snapshot. Progress stays in memory.
+      if (mode === 'immediate') {
+        try {
+          const stored = localStorage.getItem(key);
+          if (stored !== lastWritten.current) {
+            libRef.current = mergeProgress(readLibrary(), libRef.current);
+            lastWritten.current = stored;
+          }
+        } catch {
+          /* In-memory editing remains usable. */
         }
       }
+      const next = fn(libRef.current);
+      const old = libRef.current;
+      const growsOver = (count: number, previous: number, limit: number) =>
+        count > limit && count > previous;
+      if (
+        growsOver(next.saved.length, old.saved.length, 5000) ||
+        growsOver(next.queue.length, old.queue.length, 1000) ||
+        growsOver(next.playlists.length, old.playlists.length, 100) ||
+        next.playlists.some((p) =>
+          growsOver(
+            p.items.length,
+            old.playlists.find((previous) => previous.id === p.id)?.items
+              .length ?? 0,
+            5000,
+          ),
+        )
+      ) {
+        notifyRef.current(
+          'Library limit reached: 5,000 saved items, 1,000 queued items, and 100 playlists with 5,000 items each.',
+        );
+        return;
+      }
+      libRef.current = next;
+      dirty.current = true;
+      if (mode === 'progress') timer.current ??= setTimeout(flush, 25000);
+      else {
+        // An interactive retry must report its own failure even after an earlier
+        // background flush failed; otherwise its success toast would be misleading.
+        notified.current = false;
+        flush();
+      }
     },
-    [notify],
+    [flush],
   );
-  return { library, update, ready, libRef };
+  return { library, update, ready, libRef, flush };
 }
 export function useAudio(
   library: LibraryState,
-  update: (fn: (old: LibraryState) => LibraryState) => void,
+  update: LibraryUpdate,
   ready: boolean,
   notify: (text: string) => void,
 ) {
@@ -170,13 +345,16 @@ export function useAudio(
       const el = audio.current;
       if (!el || el.readyState < 3 || el.seeking || elapsed < 0.5) return;
       const day = dayKey();
-      update((old) => ({
-        ...old,
-        learningDays: {
-          ...old.learningDays,
-          [day]: (old.learningDays[day] || 0) + elapsed,
-        },
-      }));
+      update(
+        (old) => ({
+          ...old,
+          learningDays: {
+            ...old.learningDays,
+            [day]: (old.learningDays[day] || 0) + elapsed,
+          },
+        }),
+        'progress',
+      );
     };
     const interval = setInterval(tick, 5000);
     return () => {
@@ -195,31 +373,37 @@ export function useAudio(
       }
     }
   }, [ready, library]);
-  const persist = useCallback(() => {
-    const el = audio.current,
-      s = activeRef.current;
-    if (
-      !el ||
-      !s ||
-      boundTrack.current !== s.id ||
-      !Number.isFinite(el.duration)
-    )
-      return;
-    const p: Progress = {
-      shiur: s,
-      seconds: el.currentTime,
-      duration: el.duration,
-      updatedAt: new Date().toISOString(),
-    };
-    update((old) => ({
-      ...old,
-      last: s,
-      history: [p, ...old.history.filter((v) => v.shiur.id !== s.id)].slice(
-        0,
-        200,
-      ),
-    }));
-  }, [update]);
+  const persist = useCallback(
+    (defer = false) => {
+      const el = audio.current,
+        s = activeRef.current;
+      if (
+        !el ||
+        !s ||
+        boundTrack.current !== s.id ||
+        !Number.isFinite(el.duration)
+      )
+        return;
+      const p: Progress = {
+        shiur: s,
+        seconds: el.currentTime,
+        duration: el.duration,
+        updatedAt: new Date().toISOString(),
+      };
+      update(
+        (old) => ({
+          ...old,
+          last: s,
+          history: [p, ...old.history.filter((v) => v.shiur.id !== s.id)].slice(
+            0,
+            200,
+          ),
+        }),
+        defer ? 'progress' : 'immediate',
+      );
+    },
+    [update],
+  );
   const start = useCallback(
     (s: Shiur, seconds?: number) => {
       persist();
@@ -357,11 +541,15 @@ export function useAudio(
   }, [sleepAt, persist, notify]);
   useEffect(() => {
     const save = () => persist();
-    window.addEventListener('pagehide', save);
-    document.addEventListener('visibilitychange', save);
+    const hidden = () => {
+      if (document.hidden) save();
+    };
+    // Capture the current position before the library's final dirty-state flush.
+    window.addEventListener('pagehide', save, true);
+    document.addEventListener('visibilitychange', hidden, true);
     return () => {
-      window.removeEventListener('pagehide', save);
-      document.removeEventListener('visibilitychange', save);
+      window.removeEventListener('pagehide', save, true);
+      document.removeEventListener('visibilitychange', hidden, true);
     };
   }, [persist]);
   useEffect(() => {
@@ -425,9 +613,9 @@ export function useAudio(
       if (!activeRef.current) return;
       const el = audio.current!;
       setTime(el.currentTime);
-      if (Date.now() - lastSave.current > 5000) {
+      if (Date.now() - lastSave.current >= 5000) {
         lastSave.current = Date.now();
-        persist();
+        persist(true);
       }
     },
     onPlaying: () => {

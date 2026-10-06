@@ -3,6 +3,27 @@ import type { ArchiveDatabase, ArchiveObjects } from './archive.js';
 /** Chunk sizes stay well below D1's 2 MB row limit, including UTF-8 text. */
 export class D1ContentObjects implements ArchiveObjects {
   constructor(private db: ArchiveDatabase) {}
+  async has(key: string) {
+    const row = await this.db
+      .prepare(`SELECT COUNT(*) AS n,MIN(chunk_index) AS first,MAX(chunk_index) AS last,
+      MIN(chunk_count) AS expected,MAX(chunk_count) AS largest FROM archive_content_chunks WHERE object_key=?`)
+      .bind(key)
+      .first<{
+        n: number;
+        first: number;
+        last: number;
+        expected: number;
+        largest: number;
+      }>();
+    return (
+      !!row &&
+      row.n > 0 &&
+      row.n === row.expected &&
+      row.expected === row.largest &&
+      row.first === 0 &&
+      row.last === row.n - 1
+    );
+  }
 
   async put(key: string, body: string) {
     // Split UTF-16 without cutting a surrogate pair. JSON is reconstructed

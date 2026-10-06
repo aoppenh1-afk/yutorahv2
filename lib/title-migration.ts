@@ -120,10 +120,13 @@ export async function migrateTitleArchive(
     };
     await db
       .prepare(
-        "INSERT INTO search_title_imports (name,minimum,maximum,next,total,scanned,started,completed) VALUES ('archive',?,?,?,?,0,?,0)",
+        "INSERT INTO search_title_imports (name,minimum,maximum,next,total,scanned,started,completed) VALUES ('archive',?,?,?,?,0,?,0) ON CONFLICT(name) DO NOTHING",
       )
       .bind(minimum, maximum, minimum, run.total, run.started)
       .run();
+    run = (await db
+      .prepare("SELECT * FROM search_title_imports WHERE name='archive'")
+      .first<ImportRun>())!;
   }
   if (run.completed) return { ...run, complete: true };
   let processed = 0;
@@ -162,13 +165,32 @@ export async function migrateTitleArchive(
         throw new Error(
           `Incomplete or invalid title range ${range.minimum}–${range.maximum}; retry this pass.`,
         );
+      const owner = crypto.randomUUID();
       await db.batch([
+        db.prepare(
+          "UPDATE search_title_imports SET next=next WHERE name='archive'",
+        ),
+        db
+          .prepare(
+            "INSERT INTO search_pass_guards(run,owner,valid) SELECT 'title-import',?,CASE WHEN EXISTS(SELECT 1 FROM search_title_imports WHERE name='archive' AND next=? AND scanned=? AND completed=0) THEN 1 ELSE 0 END",
+          )
+          .bind(owner, range.minimum, run.scanned),
         ...indexTitleStatements(db, records),
         db
           .prepare(
             "UPDATE search_title_imports SET next=?,scanned=scanned+? WHERE name='archive' AND next=?",
           )
           .bind(range.maximum + 1, records.length, range.minimum),
+        db
+          .prepare(
+            "UPDATE search_pass_guards SET valid=CASE WHEN EXISTS(SELECT 1 FROM search_title_imports WHERE name='archive' AND next=? AND scanned=?) THEN 1 ELSE 0 END WHERE run='title-import' AND owner=?",
+          )
+          .bind(range.maximum + 1, run.scanned + records.length, owner),
+        db
+          .prepare(
+            "DELETE FROM search_pass_guards WHERE run='title-import' AND owner=?",
+          )
+          .bind(owner),
       ]);
       run.next = range.maximum + 1;
       run.scanned += records.length;
@@ -190,10 +212,20 @@ export async function migrateTitleArchive(
     run.completed = Date.now();
     await db
       .prepare(
-        "UPDATE search_title_imports SET completed=?,total=? WHERE name='archive'",
+        "UPDATE search_title_imports SET completed=?,total=? WHERE name='archive' AND next=? AND scanned=? AND completed=0",
       )
-      .bind(run.completed, audit.numFound)
+      .bind(run.completed, audit.numFound, run.next, run.scanned)
       .run();
+    const accepted = await db
+      .prepare("SELECT * FROM search_title_imports WHERE name='archive'")
+      .first<ImportRun>();
+    if (
+      !accepted?.completed ||
+      accepted.next !== run.next ||
+      accepted.scanned !== run.scanned
+    )
+      throw new Error('The title import advanced elsewhere. Retry this pass.');
+    run = accepted;
     run.total = audit.numFound;
   }
   return { ...run, complete: !!run.completed };

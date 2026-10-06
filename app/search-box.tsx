@@ -1,6 +1,6 @@
 /* oxlint-disable jsx-a11y/prefer-tag-over-role -- ARIA combobox options contain names, entity types and live counts; native select cannot represent these. */
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useDeferredValue } from 'react';
 import {
   ArrowRight,
   BookOpen,
@@ -40,9 +40,10 @@ export function SearchBox({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
   const input = useRef<HTMLInputElement>(null);
+  const deferred = useDeferredValue(value);
   const directorySuggestions = useMemo(
-    () => suggestSearch(value, directory),
-    [value, directory],
+    () => suggestSearch(deferred, directory),
+    [deferred, directory],
   );
   const history = value.trim() ? [] : recent;
   const shiurim = useShiurSuggestions(value, open);

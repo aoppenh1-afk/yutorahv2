@@ -6,6 +6,8 @@ import {
   wordMatch,
   matchingSpans,
   interpretSpacing,
+  prepareMatchText,
+  prepareSpacingVocabulary,
 } from './search-matching';
 import { naturalSearch } from './natural-search';
 export { searchText } from './search-matching';
@@ -123,24 +125,11 @@ export function teacherMention(term: string, directory: Directory) {
   return best;
 }
 
-export function suggestSearch(
-  query: string,
-  directory: Directory | null,
-): SearchSuggestion[] {
-  if (!directory) return [];
-  const spacing = interpretSpacing(naturalSearch(query).term, [
-    ...directory.teachers.map(
-      (teacher) => `${teacher.firstName} ${teacher.lastName}`,
-    ),
-    ...directory.topics.map((topic) => topic.name),
-    ...directory.series.map((series) => series.name),
-  ]);
-  const term = searchText(spacing.term).replace(
-    /^(rabbi|rabi|rabby|rav|r)\s+/,
-    '',
-  );
-  if (term.length < 2) return [];
-  const tokens = searchTerms(term);
+const suggestionIndexes = new WeakMap<
+  Directory,
+  ReturnType<typeof buildSuggestionIndex>
+>();
+function buildSuggestionIndex(directory: Directory) {
   const entries: SearchSuggestion[] = [
     ...directory.teachers.map((t) => ({
       id: t.id,
@@ -164,10 +153,43 @@ export function suggestSearch(
       context: 'Series',
     })),
   ];
-  return entries
-    .map((entry) => {
+  return {
+    entries: entries.map((entry) => {
       const name = searchText(entry.name).replace(/^(rabbi|rav|r)\s+/, '');
-      const words = name.split(' ');
+      return {
+        entry,
+        name,
+        words: name.split(' '),
+        prepared: prepareMatchText(name),
+      };
+    }),
+    spacing: prepareSpacingVocabulary([
+      ...directory.teachers.map((t) => `${t.firstName} ${t.lastName}`),
+      ...directory.topics.map((t) => t.name),
+      ...directory.series.map((t) => t.name),
+    ]),
+  };
+}
+
+export function suggestSearch(
+  query: string,
+  directory: Directory | null,
+): SearchSuggestion[] {
+  if (!directory) return [];
+  let index = suggestionIndexes.get(directory);
+  if (!index) {
+    index = buildSuggestionIndex(directory);
+    suggestionIndexes.set(directory, index);
+  }
+  const spacing = interpretSpacing(naturalSearch(query).term, index.spacing);
+  const term = searchText(spacing.term).replace(
+    /^(rabbi|rabi|rabby|rav|r)\s+/,
+    '',
+  );
+  if (term.length < 2) return [];
+  const tokens = searchTerms(term);
+  return index.entries
+    .map(({ entry, name, words, prepared }) => {
       let score =
         name === term
           ? 100
@@ -192,7 +214,7 @@ export function suggestSearch(
                     (best, word) => Math.max(best, wordMatch(token, word, 2)),
                     0,
                   )
-                : textMatchScore(name, token, 2);
+                : textMatchScore(prepared, token, 2);
           if (!match) {
             total = 0;
             break;
@@ -226,7 +248,10 @@ export function highlightParts(
   return parts;
 }
 
-export { relevanceScore } from '../packages/yutorah-core/src/search-ranking.js';
+export {
+  relevanceScore,
+  createRelevanceScorer,
+} from '../packages/yutorah-core/src/search-ranking.js';
 
 export function matchExcerpt(
   description: string,

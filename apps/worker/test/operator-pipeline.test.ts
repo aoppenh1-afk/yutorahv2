@@ -159,7 +159,6 @@ void test(
     const root = await mkdtemp(join(tmpdir(), 'yutorah-operator-test-'));
     const schema = 'operator_' + randomUUID().replaceAll('-', '');
     const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
-    await admin.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
     await admin.query(`CREATE SCHEMA ${schema}`);
     const pool = new Pool({
       connectionString: process.env.TEST_DATABASE_URL,
@@ -234,9 +233,9 @@ void test(
         limit,
         enabled,
       });
-    const publish = async () => {
+    const publish = async (id = '42') => {
       await store.enqueue(
-        { id: '42', title: 'Hilchos Shabbos', teacher: 'Rabbi X' },
+        { id, title: 'Hilchos Shabbos', teacher: 'Rabbi X' },
         p,
       );
       const job = await store.claim();
@@ -771,7 +770,7 @@ void test(
         },
       );
       await t.test(
-        'five real ACP processes share transcription and notes capacity and drain on pause or leadership loss',
+        'sustained notes and transcription backlogs share five ACP processes fairly and drain on pause or leadership loss',
         async () => {
           for (const finish of [
             'complete',
@@ -779,7 +778,7 @@ void test(
             'leadership_loss',
           ] as const) {
             await reset();
-            await publish();
+            for (let id = 801; id <= 806; id++) await publish(String(id));
             const ids = [701, 702, 703, 704, 705, 706];
             for (const id of ids)
               await store.enqueue(
@@ -837,8 +836,8 @@ void test(
                 5,
                 'five separate recordings/notes must reach ACP before any request finishes',
               );
-              assert.equal(prompts.filter((e) => e.kind === 'audio').length, 4);
-              assert.equal(prompts.filter((e) => e.kind === 'notes').length, 1);
+              assert.equal(prompts.filter((e) => e.kind === 'audio').length, 3);
+              assert.equal(prompts.filter((e) => e.kind === 'notes').length, 2);
               assert.equal(new Set(prompts.map((e) => e.workspace)).size, 5);
               if (finish === 'complete') {
                 await writeFile(marker + '.release', 'ready');
@@ -847,7 +846,7 @@ void test(
                   const result = await pool.query(
                     "SELECT count(*)::int AS n FROM notes_jobs WHERE status='completed'",
                   );
-                  if (result.rows[0].n === 7) break;
+                  if (result.rows[0].n === 12) break;
                   await delay(50);
                 }
                 assert.equal(
@@ -856,7 +855,7 @@ void test(
                       "SELECT count(*)::int AS n FROM notes_jobs WHERE status='completed'",
                     )
                   ).rows[0].n,
-                  7,
+                  12,
                 );
                 for (const id of ids)
                   assert.equal(

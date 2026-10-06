@@ -5,6 +5,7 @@ import {
 } from '@/lib/complete-search';
 import { searchDatabase } from '@/lib/search-db';
 export async function GET(request: Request) {
+  const started = performance.now();
   const p = new URL(request.url).searchParams;
   const number = (key: string, max = 1000000) =>
     Math.max(0, Math.min(max, Number(p.get(key)) || 0));
@@ -87,6 +88,7 @@ export async function GET(request: Request) {
     const stale = Math.min(120, Math.max(0, lifetime - ttl));
     return Response.json(result, {
       headers: {
+        'Server-Timing': `search;dur=${(performance.now() - started).toFixed(1)}`,
         'Cache-Control': result.complete
           ? `public, max-age=${Math.min(30, ttl)}, s-maxage=${ttl}, stale-while-revalidate=${stale}`
           : 'no-store',
@@ -107,7 +109,7 @@ export async function GET(request: Request) {
         { error: e.message },
         { status: e instanceof RangeError ? 400 : 409 },
       );
-    console.error('Search failed', e);
+    console.error(JSON.stringify({ event: 'search_failed' }));
     return Response.json(
       { error: 'YUTorah search could not be reached. Please try again.' },
       { status: 502 },

@@ -14,6 +14,131 @@ import {
 } from '../../../lib/title-index.js';
 import { completeSearch } from '../../../lib/complete-search.js';
 import { migrateTitleArchive } from '../../../lib/title-migration.js';
+import { SearchBusyError } from '../../../lib/complete-search.js';
+
+void test(
+  'separate PostgreSQL hosts reject a replaced or expired pass atomically',
+  { skip: !process.env.TEST_DATABASE_URL },
+  async (t) => {
+    const schema = 'search_' + randomUUID().replaceAll('-', '');
+    const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
+    const pool = postgresSearchPool(process.env.TEST_DATABASE_URL!);
+    const peerPool = postgresSearchPool(process.env.TEST_DATABASE_URL!);
+    try {
+      for (const file of [
+        '001_search.sql',
+        '003_efficiency.sql',
+        '004_fencing.sql',
+      ])
+        await admin.query(
+          (await readFile('db/search-postgres/' + file, 'utf8')).replaceAll(
+            'yutorah_search',
+            schema,
+          ),
+        );
+      const peer = postgresSearchDatabase(peerPool, schema);
+      const raw = postgresSearchDatabase(pool, schema);
+      t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) =>
+        new URL(input instanceof Request ? input.url : input).pathname.includes(
+          '/browse/',
+        )
+          ? Response.json([])
+          : Response.json({
+              response: {
+                docs: Array.from({ length: 30 }, (_, i) => ({
+                  shiurid: i + 1,
+                  shiurtitle: 'Fenced fixture',
+                  teacherfullname: 'Fixture',
+                  duration: 1,
+                })),
+                numFound: 30,
+              },
+            }),
+      );
+      for (const mode of ['replaced', 'expired']) {
+        let injected = false;
+        const host = {
+          ...raw,
+          async batch(statements: Parameters<typeof raw.batch>[0]) {
+            const run = await peer
+              .prepare('SELECT id FROM search_runs WHERE lease>0')
+              .first<{ id: string }>();
+            if (run && !injected) {
+              injected = true;
+              await peer
+                .prepare('UPDATE search_runs SET owner=?,lease=? WHERE id=?')
+                .bind(
+                  mode === 'replaced'
+                    ? 'peer'
+                    : (await peer
+                        .prepare('SELECT owner FROM search_runs WHERE id=?')
+                        .bind(run.id)
+                        .first<{ owner: string }>())!.owner,
+                  mode === 'replaced' ? Date.now() + 60000 : 1,
+                  run.id,
+                )
+                .run();
+            }
+            return raw.batch(statements);
+          },
+        };
+        await assert.rejects(
+          completeSearch(host, 'fencedfixture' + mode, {}),
+          SearchBusyError,
+        );
+        assert.ok(injected);
+        const run = (await peer.prepare('SELECT * FROM search_runs').first<{
+          id: string;
+          next: number;
+          scanned: number;
+          lease: number;
+          owner: string;
+        }>())!;
+        assert.equal(run.next, 1);
+        assert.equal(run.scanned, 0);
+        if (mode === 'replaced') {
+          assert.equal(run.owner, 'peer');
+          assert.ok(run.lease > Date.now());
+        }
+        for (const table of [
+          'search_hits',
+          'search_documents',
+          'search_title_catalog',
+          'search_pass_guards',
+        ])
+          assert.equal(
+            Number(
+              (await peer
+                .prepare(`SELECT COUNT(*) AS n FROM ${table}`)
+                .first<{ n: string }>())!.n,
+            ),
+            0,
+            table,
+          );
+        await peer.prepare('UPDATE search_runs SET lease=0').run();
+        const accepted = await completeSearch(
+          peer,
+          'fencedfixture' + mode,
+          {},
+          1,
+          run.id,
+        );
+        assert.equal(accepted.complete, true);
+        assert.equal(accepted.scanned, 30);
+        await peer.prepare('DELETE FROM search_runs').run();
+        await admin.query(
+          `TRUNCATE ${schema}.search_title_catalog,${schema}.search_title_word_keys,${schema}.search_title_terms`,
+        );
+        await peer.prepare('DELETE FROM search_documents').run();
+      }
+    } finally {
+      await pool.end();
+      await peerPool.end();
+      await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await admin.end();
+    }
+  },
+);
 
 void test(
   'PostgreSQL preserves title learning, bound values, transactions, and complete filtered pagination',
@@ -25,7 +150,9 @@ void test(
     const migration = (
       (await readFile('db/search-postgres/001_search.sql', 'utf8')) +
       '\n' +
-      (await readFile('db/search-postgres/003_efficiency.sql', 'utf8'))
+      (await readFile('db/search-postgres/003_efficiency.sql', 'utf8')) +
+      '\n' +
+      (await readFile('db/search-postgres/004_fencing.sql', 'utf8'))
     ).replaceAll('yutorah_search', schema);
     try {
       await admin.query(migration);
@@ -235,7 +362,9 @@ void test(
       const migration =
         (await readFile('db/search-postgres/001_search.sql', 'utf8')) +
         '\n' +
-        (await readFile('db/search-postgres/003_efficiency.sql', 'utf8'));
+        (await readFile('db/search-postgres/003_efficiency.sql', 'utf8')) +
+        '\n' +
+        (await readFile('db/search-postgres/004_fencing.sql', 'utf8'));
       await admin.query(migration.replaceAll('yutorah_search', schema));
       const db = postgresSearchDatabase(pool, schema);
       await db

@@ -1,10 +1,18 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { Failure, checkAbort, failure } from '../../../packages/antigravity-acp/src/errors.js';
+import {
+  Failure,
+  checkAbort,
+  failure,
+} from '../../../packages/antigravity-acp/src/errors.js';
 import {
   TranscriptionStore,
   type Profile,
 } from '../../../packages/transcription/src/store.js';
-import { catalogPage, homepageRecent, mediaURL } from '../../../packages/yutorah-core/src/media.js';
+import {
+  catalogPage,
+  homepageRecent,
+  mediaURL,
+} from '../../../packages/yutorah-core/src/media.js';
 
 export type CatalogRecord = {
   id: string;
@@ -28,7 +36,10 @@ const plain = (value: unknown) =>
     .trim();
 
 /** Paged scans require date ordering; the homepage lists upload order instead. */
-export function catalogRecords(docs: Record<string, unknown>[], requireDateOrder = true): {
+export function catalogRecords(
+  docs: Record<string, unknown>[],
+  requireDateOrder = true,
+): {
   records: CatalogRecord[];
   oldest: number;
 } {
@@ -37,27 +48,46 @@ export function catalogRecords(docs: Record<string, unknown>[], requireDateOrder
   const records: CatalogRecord[] = [];
   for (const raw of docs) {
     const published = Date.parse(scalar(raw.shiurDate ?? raw.shiurdate));
-    if (!Number.isFinite(published) || (requireDateOrder && published > previous))
+    if (
+      !Number.isFinite(published) ||
+      (requireDateOrder && published > previous)
+    )
       throw new Failure('download');
     previous = published;
     oldest = Math.min(oldest, published);
     const format = scalar(raw.shiurMediaType ?? raw.mediatypename)
       .toLowerCase()
       .trim();
-    if (!['mp3', 'm4a', 'aac', 'ogg', 'opus', 'flac', 'wav', 'webm', 'audio'].includes(format)) continue;
+    if (
+      ![
+        'mp3',
+        'm4a',
+        'aac',
+        'ogg',
+        'opus',
+        'flac',
+        'wav',
+        'webm',
+        'audio',
+      ].includes(format)
+    )
+      continue;
     const id = scalar(raw.shiurID ?? raw.shiurid);
     if (!/^\d{1,12}$/.test(id)) throw new Failure('download');
-    const supplied = raw.downloadURL ?? raw.shiurFileURL ?? raw.shiurdownloadurl;
-    const media = typeof supplied === 'string' && supplied.trim()
-      ? mediaURL(supplied).href
-      : undefined;
+    const supplied =
+      raw.downloadURL ?? raw.shiurFileURL ?? raw.shiurdownloadurl;
+    const media =
+      typeof supplied === 'string' && supplied.trim()
+        ? mediaURL(supplied).href
+        : undefined;
     records.push({
       id,
       title: plain(raw.shiurTitle ?? raw.shiurtitle) || `YU Torah shiur ${id}`,
       teacher:
         plain(
-          (raw.shiurTeachers as Array<{ teacherName?: string }> | undefined)
-            ?.[0]?.teacherName ?? raw.teacherfullname,
+          (
+            raw.shiurTeachers as Array<{ teacherName?: string }> | undefined
+          )?.[0]?.teacherName ?? raw.teacherfullname,
         ) || 'YU Torah',
       mediaUrl: media,
       sourceRevision: `published:${scalar(raw.shiurDate ?? raw.shiurdate).slice(0, 10)}`,
@@ -75,22 +105,13 @@ async function enqueuePage(
   priority: number,
   signal: AbortSignal,
 ): Promise<number> {
+  const eligible = records.filter((item) => item.published >= cutoff);
   let accepted = 0;
-  for (const item of records) {
+  for (let offset = 0; offset < eligible.length; offset += 20) {
     checkAbort(signal);
-    if (item.published < cutoff) continue;
-    await store.enqueue(
-      {
-        id: item.id,
-        title: item.title,
-        teacher: item.teacher,
-        mediaUrl: item.mediaUrl,
-        sourceRevision: item.sourceRevision,
-      },
-      profile,
-      priority,
-    );
-    accepted++;
+    const group = eligible.slice(offset, offset + 20);
+    await store.enqueueBatch(group, profile, priority);
+    accepted += group.length;
   }
   return accepted;
 }
@@ -103,7 +124,14 @@ export async function scanHomepage(
   fetchRecent = homepageRecent,
 ): Promise<number> {
   const docs = await fetchRecent(signal);
-  return enqueuePage(store, profile, catalogRecords(docs, false).records, -Infinity, 0, signal);
+  return enqueuePage(
+    store,
+    profile,
+    catalogRecords(docs, false).records,
+    -Infinity,
+    0,
+    signal,
+  );
 }
 
 /** Each page is bounded; enqueue is idempotent if interrupted mid-page. */
@@ -133,7 +161,14 @@ export async function scanRecent(
   const cutoff = await store.recentCatalogCutoff(lookbackDays);
   const first = await fetchPage(1, signal);
   const parsed = catalogRecords(first.docs);
-  let audio = await enqueuePage(store, profile, parsed.records, cutoff, 0, signal);
+  let audio = await enqueuePage(
+    store,
+    profile,
+    parsed.records,
+    cutoff,
+    0,
+    signal,
+  );
   if (first.total <= first.docs.length || parsed.oldest < cutoff) {
     const cursor = await store.catalogCursor('recent');
     await store.advanceCatalogCursor('recent', cursor, 2, true);
@@ -151,8 +186,14 @@ export async function scanRecent(
     const row = catalogRecords(page.docs);
     audio += await enqueuePage(store, profile, row.records, cutoff, 0, signal);
     pages++;
-    const exhausted = cursor * 30 >= page.total || row.oldest < cutoff || !page.docs.length;
-    await store.advanceCatalogCursor('recent', cursor, exhausted ? 2 : cursor + 1, exhausted);
+    const exhausted =
+      cursor * 30 >= page.total || row.oldest < cutoff || !page.docs.length;
+    await store.advanceCatalogCursor(
+      'recent',
+      cursor,
+      exhausted ? 2 : cursor + 1,
+      exhausted,
+    );
     if (exhausted) break;
     cursor++;
   }
@@ -176,10 +217,21 @@ export async function backfillPages(
     checkAbort(signal);
     const page = await fetchPage(cursor, signal);
     const row = catalogRecords(page.docs);
-    audio += await enqueuePage(store, profile, row.records, -Infinity, -10, signal);
+    audio += await enqueuePage(
+      store,
+      profile,
+      row.records,
+      -Infinity,
+      -10,
+      signal,
+    );
     pages++;
     const exhausted = cursor * 30 >= page.total || !page.docs.length;
-    await store.advanceCatalogCursor('backfill', cursor, exhausted ? 1 : cursor + 1);
+    await store.advanceCatalogCursor(
+      'backfill',
+      cursor,
+      exhausted ? 1 : cursor + 1,
+    );
     cursor = exhausted ? 1 : cursor + 1;
     if (exhausted) break;
   }
@@ -191,7 +243,12 @@ export async function pollCatalog(
   profile: Profile,
   signal: AbortSignal,
   intervalMs: number,
-  onEvent: (value: { event: string; code?: string; pages?: number; audio?: number }) => void,
+  onEvent: (value: {
+    event: string;
+    code?: string;
+    pages?: number;
+    audio?: number;
+  }) => void,
   deepIntervalMs = 3_600_000,
 ): Promise<void> {
   let nextDeep = 0;

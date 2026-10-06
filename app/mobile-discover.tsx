@@ -14,7 +14,7 @@ import {
   Settings2,
 } from 'lucide-react';
 import { Avatar, MobileRecordingCard, StatePanel } from './ui';
-import { noFilters, type Filters } from './advanced-search';
+import { noFilters, type Filters } from '@/lib/search-filters';
 import {
   mediaKind,
   type Directory,
@@ -25,6 +25,7 @@ import type { LibraryState } from '@/lib/library';
 import { learningStats } from '@/lib/learning';
 
 type Props = {
+  onTrending: () => void;
   home: HomeData | null;
   directory: Directory | null;
   library: LibraryState;
@@ -68,6 +69,7 @@ export function MobileDiscover({
   activeId,
   playing,
   refreshing,
+  onTrending,
   onPlay,
   onDetails,
   onSave,
@@ -283,7 +285,10 @@ export function MobileDiscover({
             <button
               key={value}
               aria-pressed={feed === value}
-              onClick={() => setFeed(value)}
+              onClick={() => {
+                setFeed(value);
+                if (value === 'trending') onTrending();
+              }}
             >
               {label}
             </button>

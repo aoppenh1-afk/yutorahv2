@@ -4,6 +4,7 @@ import {
   searchText,
   textMatchEvidence,
   textMatchScore,
+  prepareMatchText,
 } from './search-matching.js';
 
 export type SearchDocument = {
@@ -21,19 +22,25 @@ export function relevanceScore(
   document: SearchDocument,
   query: string,
 ): number {
+  return createRelevanceScorer(query)(document);
+}
+export function createRelevanceScorer(query: string) {
   const terms = [...new Set(searchTerms(interpretSpacing(query).term))].slice(
     0,
     32,
   );
+  return (document: SearchDocument) => scoreDocument(document, terms);
+}
+function scoreDocument(document: SearchDocument, terms: string[]) {
   if (!terms.length) return 0;
   const fields = [
-    [document.title, 8],
-    [document.topics.join(' '), 5],
-    [document.series, 3],
-    [document.teacher, 3],
-    [document.description, 1],
+    [prepareMatchText(document.title), 8],
+    [prepareMatchText(document.topics.join(' ')), 5],
+    [prepareMatchText(document.series), 3],
+    [prepareMatchText(document.teacher), 3],
+    [prepareMatchText(document.description), 1],
   ] as const;
-  const evidence = terms.map((term) => textMatchEvidence(document.title, term));
+  const evidence = terms.map((term) => textMatchEvidence(fields[0][0], term));
   const titleScores = evidence.map((hits) =>
     Math.max(0, ...hits.map((hit) => hit.score)),
   );

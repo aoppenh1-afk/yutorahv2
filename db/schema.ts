@@ -5,7 +5,9 @@ import {
   real,
   primaryKey,
   index,
+  check,
 } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
 export const searchRuns = sqliteTable(
   'search_runs',
   {
@@ -16,6 +18,7 @@ export const searchRuns = sqliteTable(
     next: integer('next').notNull().default(1),
     created: integer('created').notNull(),
     lease: integer('lease').notNull().default(0),
+    owner: text('owner').notNull().default(''),
     scanned: integer('scanned').notNull().default(0),
   },
   (t) => [index('search_runs_fingerprint').on(t.fingerprint, t.created)],
@@ -49,6 +52,18 @@ export const searchHits = sqliteTable(
     index('search_hits_document').on(t.documentKey),
     index('search_hits_position').on(t.run, t.position, t.id),
     index('search_hits_popular').on(t.run, t.views, t.rank, t.id),
+  ],
+);
+export const searchPassGuards = sqliteTable(
+  'search_pass_guards',
+  {
+    run: text('run').notNull(),
+    owner: text('owner').notNull(),
+    valid: integer('valid').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.run, t.owner] }),
+    check('search_pass_owned', sql`${t.valid}=1`),
   ],
 );
 

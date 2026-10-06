@@ -31,6 +31,7 @@ cp -a db/transcription "$operator_root/db/"
 cp -a packages/transcription/skills "$operator_root/packages/transcription/"
 cp -a apps/worker/public "$operator_root/apps/worker/"
 cp package.json package-lock.json "$operator_root/"
+cp -a vendor "$operator_root/"
 install -m 0755 "$operator_node" "$operator_root/bin/node"
 install -m 0755 deploy/transcription/start-operator.sh "$operator_root/deploy/transcription/"
 install -m 0755 scripts/transcription-control.mjs /usr/local/bin/yutorah-queue

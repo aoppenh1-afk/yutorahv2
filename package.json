@@ -10,9 +10,12 @@
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json --persist-to .wrangler/state",
     "lint": "oxlint",
+    "performance:budgets": "node scripts/performance-budgets.mjs",
     "audit": "node --test tests/glob-dependency.test.mjs && npm audit --audit-level=high",
     "format": "oxfmt",
-    "test:learning": "node --test tests/learning.test.mjs tests/discovery.test.mjs tests/trending.test.mjs",
+    "test:learning": "node --test tests/learning.test.mjs tests/library.test.mjs tests/discovery.test.mjs tests/trending.test.mjs",
+    "performance:fixtures": "node scripts/performance-fixtures.mjs",
+    "test:performance": "tsx --test tests/performance.test.ts",
     "test:api": "node --test tests/upstream.test.mjs",
     "test:player": "node --test tests/player.test.mjs",
     "test:sources": "tsx --test tests/sources.test.ts",
@@ -30,9 +33,13 @@
     "operator": "node .worker-build/apps/worker/src/cli.js serve-operator",
     "transcription": "node scripts/transcription-control.mjs",
     "test:transcription-control": "node --test scripts/transcription-control.test.mjs",
-    "build:vercel": "tsx scripts/migrate-search-schema.ts && DEPLOY_TARGET=vercel NITRO_PRESET=vercel vinext build",
+    "build:vercel": "DEPLOY_TARGET=vercel NITRO_PRESET=vercel vinext build",
     "data:maintain": "tsx scripts/maintain-data.ts",
-    "test:maintenance": "tsx --test tests/data-maintenance.test.ts"
+    "test:maintenance": "tsx --test tests/data-maintenance.test.ts",
+    "search:schema:migrate": "tsx scripts/migrate-search-schema.ts",
+    "search:schema:check": "tsx scripts/check-search-schema.ts",
+    "pretest:worker": "node scripts/setup-test-database.mjs",
+    "pretest:maintenance": "node scripts/setup-test-database.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
@@ -48,7 +55,8 @@
     "shadcn": "4.18.0",
     "tailwind-merge": "3.6.0",
     "tw-animate-css": "1.4.0",
-    "vinext": "1.0.0-beta.5"
+    "vinext": "1.0.0-beta.5",
+    "web-vitals": "6.2.3"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.62.2",
@@ -62,7 +70,6 @@
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "braces": "file:vendor/yutorah-braces-3.0.4-yutorah.0.tgz",
-    "drizzle-kit": "^0.31.10",
     "nitro": "3.0.260903-beta",
     "oxfmt": "0.61.0",
     "oxlint": "1.76.0",

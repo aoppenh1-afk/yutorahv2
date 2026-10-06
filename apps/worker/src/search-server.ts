@@ -21,18 +21,22 @@ export function createSearchServer(
 ): Server {
   if (Buffer.byteLength(token) < 32) throw new Failure('configuration');
   const reader = store.content
-    ? createCachedTranscriptReader({
-        content: (id) =>
-          store.publicContent ? store.publicContent(id) : store.content!(id),
-        search: (...args) => store.search(...args),
-        contentStatus: store.contentStatus?.bind(store),
-      })
+    ? createCachedTranscriptReader(
+        {
+          content: (id) =>
+            store.publicContent ? store.publicContent(id) : store.content!(id),
+          search: (...args) => store.search(...args),
+          contentStatus: store.contentStatus?.bind(store),
+        },
+        { maxPending: 4, maxQueued: 16 },
+      )
     : undefined;
   return createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     const reply = (status: number, body: unknown) => {
+      if (status === 503) res.setHeader('Retry-After', '2');
       res.statusCode = status;
       res.end(JSON.stringify(body));
     };

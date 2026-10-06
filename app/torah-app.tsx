@@ -3,17 +3,33 @@
 'use client';
 import { pollDelay } from '@/lib/poll-delay';
 import Link from 'next/link';
-import { AdvancedSearch, type Filters, noFilters } from './advanced-search';
+import { type Filters, noFilters } from '@/lib/search-filters';
 import { SearchBox } from './search-box';
 import { SearchTools } from './search-tools';
 import { MobileSearchSummary } from './mobile-search-summary';
-import { TranscriptSearch, type TranscriptHit } from './transcript-search';
-import { TranscriptReader } from './transcript-reader';
-import { LearningHome, FollowButton } from './learning-home';
+import type { TranscriptHit } from './transcript-search';
+import { ScreenBoundary } from './screen-boundary';
+import {
+  PlaybackProvider,
+  PersistentPlayer,
+  PlaybackPosition,
+  usePlaybackState,
+} from './playback';
+import { PagedItems } from './paged-items';
+import { useViewPerformance } from './performance-monitor';
+import { FollowButton } from './follow-button';
 import { isLearned, relatedShiurim, type Follow } from '@/lib/learning';
-import { relevanceScore } from '@/lib/search-discovery';
-import { matchQuery } from '@/lib/search-matching';
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createRelevanceScorer } from '@/lib/search-discovery';
+import { prepareSearchText, createQueryMatcher } from '@/lib/search-matching';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  useDeferredValue,
+  lazy,
+} from 'react';
 import {
   Search,
   Compass,
@@ -37,11 +53,9 @@ import {
   FileText,
   SlidersHorizontal,
   Loader2,
-  ArrowLeft,
   ChevronUp,
   ChevronDown,
   Check,
-  HardDrive,
   Timer,
   LayoutGrid,
   List,
@@ -75,19 +89,28 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import {
-  Avatar,
-  FilterSelect,
-  Player,
-  ShiurCard,
-  SeriesCover,
-  ShiurRow,
-  StatePanel,
-} from './ui';
-import { useLibrary, useAudio, timeLabel } from '@/lib/library';
+import { Avatar, FilterSelect, ShiurCard, ShiurRow, StatePanel } from './ui';
+import { useLibrary, timeLabel } from '@/lib/library';
 import { useIsMobile } from '@/hooks/use-mobile';
 import type { HomeData, Shiur, Directory, SearchResult } from '@/lib/yutorah';
 import { mediaKind, normalize } from '@/lib/yutorah';
+const AdvancedSearch = lazy(() =>
+  import('./advanced-search').then((m) => ({ default: m.AdvancedSearch })),
+);
+const TranscriptSearch = lazy(() =>
+  import('./transcript-search').then((m) => ({ default: m.TranscriptSearch })),
+);
+const TranscriptReader = lazy(() =>
+  import('./transcript-reader').then((m) => ({ default: m.TranscriptReader })),
+);
+const loadSecondaryScreens = () => import('./secondary-screens');
+const SecondaryScreens = lazy(() =>
+  loadSecondaryScreens().then((m) => ({ default: m.SecondaryScreens })),
+);
+const LearningHome = lazy(() =>
+  import('./learning-home').then((m) => ({ default: m.LearningHome })),
+);
+
 type View =
   | 'discover'
   | 'following'
@@ -160,6 +183,32 @@ function NavItem({
       <SidebarMenuButton
         className="nav-button"
         isActive={active}
+        onPointerEnter={() => {
+          if (
+            [
+              labels.teachers,
+              labels.series,
+              labels.topics,
+              labels.saved,
+              labels.history,
+              labels.playlists,
+            ].includes(label)
+          )
+            void loadSecondaryScreens().catch(() => {});
+        }}
+        onFocus={() => {
+          if (
+            [
+              labels.teachers,
+              labels.series,
+              labels.topics,
+              labels.saved,
+              labels.history,
+              labels.playlists,
+            ].includes(label)
+          )
+            void loadSecondaryScreens().catch(() => {});
+        }}
         onClick={() => {
           setOpenMobile(false);
           onClick();
@@ -173,11 +222,15 @@ function NavItem({
     </SidebarMenuItem>
   );
 }
-export default function TorahApp({
-  initialHome,
-}: {
-  initialHome: HomeData | null;
-}) {
+export default function TorahApp(props: { initialHome: HomeData | null }) {
+  return (
+    <PlaybackProvider>
+      <TorahAppBody {...props} />
+    </PlaybackProvider>
+  );
+}
+function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
+  useViewPerformance();
   const isMobile = useIsMobile();
   const [home, setHome] = useState(initialHome);
   const [homeLoading, setHomeLoading] = useState(false);
@@ -238,8 +291,12 @@ export default function TorahApp({
     [isMobile],
   );
   const { library, update, ready } = useLibrary(notify);
-  const player = useAudio(library, update, ready, notify);
-  const { active: activeShiur, play: togglePlayback } = player;
+  const player = usePlaybackState();
+  const {
+    active: activeShiur,
+    play: togglePlayback,
+    start: startPlayback,
+  } = player;
   const detailId = detail?.id;
   useEffect(() => {
     setRelatedCandidates([]);
@@ -285,6 +342,27 @@ export default function TorahApp({
       .catch((e) => notify(e.message))
       .finally(() => setHomeLoading(false));
   };
+  const hasHome = !!home;
+  const homeNotify = useRef(notify);
+  homeNotify.current = notify;
+  useEffect(() => {
+    if (hasHome || !['discover', 'following', 'trending'].includes(view))
+      return;
+    const controller = new AbortController();
+    setHomeLoading(true);
+    requestJson<HomeData>('/api/home', controller.signal)
+      .then(setHome)
+      .catch(() => {
+        if (!controller.signal.aborted)
+          homeNotify.current(
+            'The homepage could not load. Search and your library are available.',
+          );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setHomeLoading(false);
+      });
+    return () => controller.abort();
+  }, [hasHome, view]);
   const changeURL = useCallback(
     (nextView: View, query = '', nextFilters: Filters = noFilters) => {
       const url = new URL(window.location.href);
@@ -408,48 +486,63 @@ export default function TorahApp({
     },
     [changeURL],
   );
-  const showDetail = useCallback(async (s: Shiur) => {
-    detailAbort.current?.abort();
-    const controller = new AbortController();
-    detailAbort.current = controller;
-    setDetail(s);
-    setDetailError('');
-    setDetailLoading(true);
-    try {
-      const fresh = await requestJson<
-        Shiur & { text?: string; video?: string }
-      >('/api/shiur?id=' + s.id, controller.signal);
-      if (!controller.signal.aborted)
-        setDetail({
-          ...fresh,
-          topics: fresh.topics.length ? fresh.topics : s.topics,
-          category: fresh.category || s.category,
-          series: fresh.series || s.series,
-          seriesId: fresh.seriesId || s.seriesId,
-        });
-    } catch (e) {
-      if (!controller.signal.aborted)
-        setDetailError(
-          e instanceof Error ? e.message : 'Details could not load.',
-        );
-    } finally {
-      if (!controller.signal.aborted) setDetailLoading(false);
-    }
-  }, []);
-  const openById = useCallback(
-    async (id: string, seconds?: number) => {
+  const showDetail = useCallback(
+    async (s: Shiur, loaded = false, pending?: AbortController) => {
+      if (!pending || detailAbort.current !== pending)
+        detailAbort.current?.abort();
+      const controller = pending ?? new AbortController();
+      if (controller.signal.aborted) return;
+      detailAbort.current = controller;
+      setDetail(s);
+      setDetailError('');
+      setDetailLoading(!loaded);
+      if (loaded) return;
       try {
-        const s = await requestJson<Shiur>('/api/shiur?id=' + id);
-        await showDetail(s);
+        const fresh = await requestJson<
+          Shiur & { text?: string; video?: string }
+        >('/api/shiur?id=' + s.id, controller.signal);
+        if (!controller.signal.aborted)
+          setDetail({
+            ...fresh,
+            topics: fresh.topics.length ? fresh.topics : s.topics,
+            category: fresh.category || s.category,
+            series: fresh.series || s.series,
+            seriesId: fresh.seriesId || s.seriesId,
+          });
+      } catch (e) {
+        if (!controller.signal.aborted)
+          setDetailError(
+            e instanceof Error ? e.message : 'Details could not load.',
+          );
+      } finally {
+        if (!controller.signal.aborted) setDetailLoading(false);
+      }
+    },
+    [],
+  );
+  const openById = useCallback(
+    async (id: string, seconds?: number, autoplay = false) => {
+      detailAbort.current?.abort();
+      const controller = new AbortController();
+      detailAbort.current = controller;
+      try {
+        const s = await requestJson<Shiur>(
+          '/api/shiur?id=' + id,
+          controller.signal,
+        );
+        if (controller.signal.aborted) return;
+        await showDetail(s, true, controller);
+        if (autoplay) startPlayback(s, seconds);
         if (seconds !== undefined)
           notify(
             `Shared position: ${timeLabel(seconds)}. Press play to listen.`,
           );
       } catch (e) {
-        notify(e instanceof Error ? e.message : 'Shiur not found.');
+        if (!controller.signal.aborted)
+          notify(e instanceof Error ? e.message : 'Shiur not found.');
       }
     },
-    [showDetail, notify],
+    [showDetail, notify, startPlayback],
   );
   useEffect(() => {
     const restore = () => {
@@ -688,18 +781,7 @@ export default function TorahApp({
       player.start(shiur, seconds);
       void showDetail(shiur);
     } else {
-      void requestJson<Shiur>(`/api/shiur?id=${hit.shiurId}`)
-        .then((shiur) => {
-          player.start(shiur, seconds);
-          void showDetail(shiur);
-        })
-        .catch((error) =>
-          notify(
-            error instanceof Error
-              ? error.message
-              : 'Shiur audio is unavailable.',
-          ),
-        );
+      void openById(hit.shiurId, seconds, true);
     }
   };
   const filterChange = (key: keyof Filters, value: string) =>
@@ -708,7 +790,7 @@ export default function TorahApp({
       [key]: value === 'all' ? '' : value,
     });
   const toggleLearned = (s: Shiur) => {
-    const learned = isLearned(s, library);
+    const learned = learnedIds.has(s.id);
     update((old) => ({
       ...old,
       completed: learned
@@ -732,63 +814,71 @@ export default function TorahApp({
     }));
     notify(learned ? 'Marked as not learned.' : 'Marked as learned.');
   };
-  const rows = (items: Shiur[], history = false) =>
-    items.map((s) => (
-      <ShiurRow
-        key={s.id}
-        shiur={s}
-        query={view === 'search' ? results?.plan.term : undefined}
-        onPlay={play}
-        onDetails={showDetail}
-        onSave={save}
-        onQueue={enqueue}
-        onPlaylist={() => addToPlaylist(s)}
-        onLearned={() => toggleLearned(s)}
-        active={player.active?.id === s.id && player.playing}
-        saved={savedIds.has(s.id)}
-        learned={isLearned(s, library)}
-        progress={
-          history ? library.history.find((h) => h.shiur.id === s.id) : undefined
-        }
-        extra={
-          <>
-            <button
-              className="icon-button learned-action"
-              aria-label={
-                (isLearned(s, library)
-                  ? 'Mark as not learned: '
-                  : 'Mark as learned: ') + s.title
-              }
-              aria-pressed={isLearned(s, library)}
-              onClick={() => toggleLearned(s)}
-            >
-              <Check size={17} />
-            </button>
-            <button
-              className="icon-button add-playlist-action"
-              aria-label={'Add to playlist: ' + s.title}
-              onClick={() => addToPlaylist(s)}
-            >
-              <Plus size={17} />
-            </button>
-          </>
-        }
-      />
-    ));
-  const cards = (items: Shiur[]) =>
-    items.map((s, i) => (
-      <ShiurCard
-        key={s.id}
-        shiur={s}
-        index={i}
-        query={view === 'search' ? results?.plan.term : undefined}
-        onPlay={play}
-        onDetails={showDetail}
-        onSave={save}
-        saved={savedIds.has(s.id)}
-        active={player.active?.id === s.id && player.playing}
-      />
-    ));
+  const rows = (items: Shiur[], history = false) => (
+    <PagedItems key={view + withinResults + libraryQuery} items={items}>
+      {(visible) =>
+        visible.map((s) => (
+          <ShiurRow
+            key={s.id}
+            shiur={s}
+            query={view === 'search' ? results?.plan.term : undefined}
+            onPlay={play}
+            onDetails={showDetail}
+            onSave={save}
+            onQueue={enqueue}
+            onPlaylist={() => addToPlaylist(s)}
+            onLearned={() => toggleLearned(s)}
+            active={player.active?.id === s.id && player.playing}
+            saved={savedIds.has(s.id)}
+            learned={learnedIds.has(s.id)}
+            progress={history ? historyById.get(s.id) : undefined}
+            extra={
+              <>
+                <button
+                  className="icon-button learned-action"
+                  aria-label={
+                    (learnedIds.has(s.id)
+                      ? 'Mark as not learned: '
+                      : 'Mark as learned: ') + s.title
+                  }
+                  aria-pressed={learnedIds.has(s.id)}
+                  onClick={() => toggleLearned(s)}
+                >
+                  <Check size={17} />
+                </button>
+                <button
+                  className="icon-button add-playlist-action"
+                  aria-label={'Add to playlist: ' + s.title}
+                  onClick={() => addToPlaylist(s)}
+                >
+                  <Plus size={17} />
+                </button>
+              </>
+            }
+          />
+        ))
+      }
+    </PagedItems>
+  );
+  const cards = (items: Shiur[]) => (
+    <PagedItems key={view + withinResults + libraryQuery} items={items}>
+      {(visible) =>
+        visible.map((s, i) => (
+          <ShiurCard
+            key={s.id}
+            shiur={s}
+            index={i}
+            query={view === 'search' ? results?.plan.term : undefined}
+            onPlay={play}
+            onDetails={showDetail}
+            onSave={save}
+            saved={savedIds.has(s.id)}
+            active={player.active?.id === s.id && player.playing}
+          />
+        ))
+      }
+    </PagedItems>
+  );
   const searchBar = (
     <SearchBox
       value={q}
@@ -810,15 +900,94 @@ export default function TorahApp({
       }
     />
   );
+  const deferredWithin = useDeferredValue(withinResults);
+  const deferredDirectory = useDeferredValue(directoryQuery);
+  const deferredLibrary = useDeferredValue(libraryQuery);
+  const resultMatcher = useMemo(
+    () => createQueryMatcher(deferredWithin),
+    [deferredWithin],
+  );
+  const directoryMatcher = useMemo(
+    () => createQueryMatcher(deferredDirectory, 2),
+    [deferredDirectory],
+  );
+  const libraryMatcher = useMemo(
+    () => createQueryMatcher(deferredLibrary),
+    [deferredLibrary],
+  );
+  const preparedResults = useMemo(
+    () =>
+      new Map(
+        (results?.items ?? []).map((s) => [
+          s.id,
+          prepareSearchText(
+            [s.title, s.teacher, s.description, s.series, ...s.topics].join(
+              ' ',
+            ),
+          ),
+        ]),
+      ),
+    [results?.items],
+  );
+  const preparedDirectory = useMemo(
+    () => ({
+      teachers: new Map(
+        (directory?.teachers ?? []).map((t) => [
+          t.id,
+          prepareSearchText(t.name),
+        ]),
+      ),
+      series: new Map(
+        (directory?.series ?? []).map((t) => [
+          t.id,
+          prepareSearchText(t.name + ' ' + t.description),
+        ]),
+      ),
+      topics: new Map(
+        (directory?.topics ?? []).map((t) => [
+          t.id,
+          prepareSearchText(t.name + ' ' + t.group),
+        ]),
+      ),
+    }),
+    [directory],
+  );
+  const preparedLibrary = useMemo(
+    () =>
+      new Map(
+        [
+          ...library.saved,
+          ...library.history.map((h) => h.shiur),
+          ...library.playlists.flatMap((p) => p.items),
+        ].map((s) => [
+          s.id,
+          prepareSearchText(s.title + ' ' + s.teacher + ' ' + s.series),
+        ]),
+      ),
+    [library.saved, library.history, library.playlists],
+  );
+  const historyById = useMemo(
+    () => new Map(library.history.map((h) => [h.shiur.id, h])),
+    [library.history],
+  );
+  const learnedIds = useMemo(
+    () =>
+      new Set([
+        ...library.completed,
+        ...library.history
+          .filter((h) => h.duration > 0 && h.seconds / h.duration >= 0.95)
+          .map((h) => h.shiur.id),
+      ]),
+    [library.completed, library.history],
+  );
   const orderedResults = useMemo(() => {
     const items = [...(results?.items || [])];
     if (results?.complete !== undefined) return items;
-    if (resultOrder === 'relevance')
-      items.sort(
-        (a, b) =>
-          relevanceScore(b, results?.plan.term || '') -
-          relevanceScore(a, results?.plan.term || ''),
-      );
+    if (resultOrder === 'relevance') {
+      const score = createRelevanceScorer(results?.plan.term || '');
+      const scores = new Map(items.map((item) => [item.id, score(item)]));
+      items.sort((a, b) => scores.get(b.id)! - scores.get(a.id)!);
+    }
     if (resultOrder === 'short')
       items.sort((a, b) => (a.duration || Infinity) - (b.duration || Infinity));
     if (resultOrder === 'popular')
@@ -834,15 +1003,19 @@ export default function TorahApp({
   const visibleResults = useMemo(
     () =>
       orderedResults.filter((s) => {
-        if (learningFilter === 'unlearned' && isLearned(s, library))
+        if (learningFilter === 'unlearned' && learnedIds.has(s.id))
           return false;
         if (learningFilter === 'saved' && !savedIds.has(s.id)) return false;
-        return matchQuery(
-          [s.title, s.teacher, s.description, s.series, ...s.topics].join(' '),
-          withinResults,
-        );
+        return resultMatcher(preparedResults.get(s.id)!);
       }),
-    [orderedResults, learningFilter, library, savedIds, withinResults],
+    [
+      orderedResults,
+      learningFilter,
+      learnedIds,
+      savedIds,
+      resultMatcher,
+      preparedResults,
+    ],
   );
   const loadedItems = useMemo(
     () => [
@@ -871,24 +1044,27 @@ export default function TorahApp({
     [detail, relatedCandidates, loadedItems, library],
   );
   const matchLibrary = (s: Shiur) =>
-    matchQuery(s.title + ' ' + s.teacher + ' ' + s.series, libraryQuery);
+    libraryMatcher(
+      preparedLibrary.get(s.id) ??
+        prepareSearchText(s.title + ' ' + s.teacher + ' ' + s.series),
+    );
   const listedTeachers = useMemo(
     () =>
       view === 'teachers'
         ? directory?.teachers.filter((t) =>
-            matchQuery(t.name, directoryQuery, 2),
+            directoryMatcher(preparedDirectory.teachers.get(t.id)!),
           ) || []
         : [],
-    [directory, directoryQuery, view],
+    [directory, directoryMatcher, preparedDirectory, view],
   );
   const listedSeries = useMemo(
     () =>
       view === 'series'
         ? directory?.series.filter((s) =>
-            matchQuery(s.name + ' ' + s.description, directoryQuery, 2),
+            directoryMatcher(preparedDirectory.series.get(s.id)!),
           ) || []
         : [],
-    [directory, directoryQuery, view],
+    [directory, directoryMatcher, preparedDirectory, view],
   );
   const listedTopics = useMemo(
     () =>
@@ -896,10 +1072,10 @@ export default function TorahApp({
         ? directory?.topics.filter(
             (t) =>
               (topicGroup === 'all' || t.group === topicGroup) &&
-              matchQuery(t.name + ' ' + t.group, directoryQuery, 2),
+              directoryMatcher(preparedDirectory.topics.get(t.id)!),
           ) || []
         : [],
-    [directory, directoryQuery, topicGroup, view],
+    [directory, directoryMatcher, preparedDirectory, topicGroup, view],
   );
   const videoSource =
     detail?.video ||
@@ -1126,7 +1302,7 @@ export default function TorahApp({
             <ChevronRight size={14} />
             <b>{labels[view]}</b>
           </div>
-          {view !== 'search' && (
+          {view !== 'search' && !isMobile && (
             <div className="header-search">{searchBar}</div>
           )}
           <div className="header-right">
@@ -1203,29 +1379,31 @@ export default function TorahApp({
           {(view === 'discover' ||
             view === 'following' ||
             view === 'trending') && (
-            <LearningHome
-              key={view}
-              home={home}
-              directory={directory}
-              library={library}
-              update={update}
-              onPlay={(s, seconds) =>
-                seconds !== undefined ? player.start(s, seconds) : play(s)
-              }
-              onDetails={showDetail}
-              onSave={save}
-              onQueue={enqueue}
-              onFollow={follow}
-              onSearch={(query, fs) => void runSearch(query, fs)}
-              onNavigate={navigate}
-              notify={notify}
-              onRefresh={refreshHome}
-              refreshing={homeLoading}
-              followingPage={view === 'following'}
-              trendingPage={view === 'trending'}
-              activeId={player.active?.id}
-              playing={player.playing}
-            />
+            <ScreenBoundary>
+              <LearningHome
+                key={view}
+                home={home}
+                directory={directory}
+                library={library}
+                update={update}
+                onPlay={(s, seconds) =>
+                  seconds !== undefined ? player.start(s, seconds) : play(s)
+                }
+                onDetails={showDetail}
+                onSave={save}
+                onQueue={enqueue}
+                onFollow={follow}
+                onSearch={(query, fs) => void runSearch(query, fs)}
+                onNavigate={navigate}
+                notify={notify}
+                onRefresh={refreshHome}
+                refreshing={homeLoading}
+                followingPage={view === 'following'}
+                trendingPage={view === 'trending'}
+                activeId={player.active?.id}
+                playing={player.playing}
+              />
+            </ScreenBoundary>
           )}
           {view === 'search' && (
             <section
@@ -1258,22 +1436,32 @@ export default function TorahApp({
                       <span>Search inside the audio</span>
                       <ChevronDown size={16} />
                     </summary>
+                    <ScreenBoundary>
+                      <TranscriptSearch
+                        query={results?.plan.term ?? submitted}
+                        onSelect={openTranscriptHit}
+                      />
+                    </ScreenBoundary>
+                  </details>
+                ) : (
+                  <ScreenBoundary>
                     <TranscriptSearch
                       query={results?.plan.term ?? submitted}
                       onSelect={openTranscriptHit}
                     />
-                  </details>
-                ) : (
-                  <TranscriptSearch
-                    query={results?.plan.term ?? submitted}
-                    onSelect={openTranscriptHit}
-                  />
+                  </ScreenBoundary>
                 )}
                 <div className="filter-bar">
                   <button
                     className="filter-toggle"
                     aria-expanded={advancedFilters}
                     aria-controls="advanced-search-filters"
+                    onPointerEnter={() => {
+                      void import('./advanced-search').catch(() => {});
+                    }}
+                    onFocus={() => {
+                      void import('./advanced-search').catch(() => {});
+                    }}
                     onClick={() => setAdvancedFilters(!advancedFilters)}
                   >
                     <SlidersHorizontal size={16} /> Advanced search{' '}
@@ -1334,13 +1522,15 @@ export default function TorahApp({
                   )}
                 </div>
                 {advancedFilters && (
-                  <AdvancedSearch
-                    key={JSON.stringify(filters)}
-                    filters={filters}
-                    directory={directory}
-                    loading={searchLoading}
-                    onApply={(next) => void runSearch(q, next)}
-                  />
+                  <ScreenBoundary>
+                    <AdvancedSearch
+                      key={JSON.stringify(filters)}
+                      filters={filters}
+                      directory={directory}
+                      loading={searchLoading}
+                      onApply={(next) => void runSearch(q, next)}
+                    />
+                  </ScreenBoundary>
                 )}
               </SearchOptions>
               {Object.entries(filters).some(
@@ -1736,501 +1926,55 @@ export default function TorahApp({
                 ))}
             </section>
           )}
-          {(['teachers', 'series', 'topics'] as View[]).includes(view) && (
-            <section className="directory-view">
-              <div className="view-heading">
-                <div className="eyebrow">EXPLORE THE LIBRARY</div>
-                <h1>
-                  {view === 'teachers'
-                    ? 'Teachers'
-                    : view === 'series'
-                      ? 'Series'
-                      : 'Topics'}
-                </h1>
-                <p>
-                  {view === 'teachers'
-                    ? 'Browse Torah educators and their recorded shiurim.'
-                    : view === 'series'
-                      ? 'Explore ongoing courses and shiur series.'
-                      : 'Browse Torah subjects, texts and areas of study.'}
-                </p>
-              </div>
-              <div className="directory-toolbar">
-                <div className="directory-search">
-                  <Search size={19} />
-                  <input
-                    aria-label={`Find ${view}`}
-                    placeholder={`Find ${view === 'teachers' ? 'a teacher' : view === 'series' ? 'a series' : 'a topic'}…`}
-                    value={directoryQuery}
-                    onChange={(e) => {
-                      setDirectoryQuery(e.target.value);
-                      setDirectoryLimit(36);
-                    }}
-                  />
-                </div>
-                {view === 'topics' && directory && (
-                  <FilterSelect
-                    label="Subject"
-                    value={topicGroup}
-                    onChange={setTopicGroup}
-                    options={[
-                      { value: 'all', label: 'All subjects' },
-                      ...directory.groups.map((g) => ({ value: g, label: g })),
-                    ]}
-                  />
-                )}
-                <span>
-                  {view === 'teachers'
-                    ? listedTeachers.length.toLocaleString()
-                    : view === 'series'
-                      ? listedSeries.length.toLocaleString()
-                      : listedTopics.length.toLocaleString()}{' '}
-                  {view}
-                </span>
-              </div>
-              {directoryError ? (
-                <StatePanel
-                  title="The directory couldn't load."
-                  description={directoryError}
-                >
-                  <button className="primary-button" onClick={loadDirectory}>
-                    Try again
-                  </button>
-                </StatePanel>
-              ) : !directory ? (
-                <output className="loading-panel">
-                  <Loader2 className="spin" />
-                  Loading the directory…
-                </output>
-              ) : (
-                <>
-                  {view === 'teachers' && (
-                    <div className="teacher-grid">
-                      {listedTeachers.slice(0, directoryLimit).map((t) => (
-                        <article className="teacher-card-wrap" key={t.id}>
-                          <button
-                            className="teacher-card"
-                            onClick={() =>
-                              void runSearch('', {
-                                ...noFilters,
-                                teacher: String(t.id),
-                              })
-                            }
-                          >
-                            <Avatar src={t.image} name={t.name} />
-                            <h2>{t.name}</h2>
-                            <p>{t.count.toLocaleString()} shiurim</p>
-                            <span>
-                              Explore shiurim <ArrowRight size={14} />
-                            </span>
-                          </button>
-                          <FollowButton
-                            follow={{
-                              kind: 'teacher',
-                              id: t.id,
-                              name: t.name,
-                              image: t.image,
-                            }}
-                            library={library}
-                            onFollow={follow}
-                          />
-                        </article>
-                      ))}
-                    </div>
-                  )}
-                  {view === 'series' && (
-                    <div className="series-directory">
-                      {listedSeries.slice(0, directoryLimit).map((s) => (
-                        <article className="series-follow-wrap" key={s.id}>
-                          <button
-                            className="series-directory-card"
-                            onClick={() =>
-                              void runSearch('', {
-                                ...noFilters,
-                                series: String(s.id),
-                              })
-                            }
-                          >
-                            <SeriesCover name={s.name} id={s.id} />
-                            <div>
-                              <h2>{s.name}</h2>
-                              <p>{s.count.toLocaleString()} shiurim</p>
-                              {s.description && (
-                                <p className="series-description">
-                                  {s.description}
-                                </p>
-                              )}
-                            </div>
-                            <ArrowUpRight size={19} />
-                          </button>
-                          <FollowButton
-                            follow={{ kind: 'series', id: s.id, name: s.name }}
-                            library={library}
-                            onFollow={follow}
-                          />
-                        </article>
-                      ))}
-                    </div>
-                  )}
-                  {view === 'topics' && (
-                    <div className="topic-grid">
-                      {listedTopics.slice(0, directoryLimit).map((t) => (
-                        <article
-                          className="topic-follow-wrap"
-                          key={t.id + '-' + t.group}
-                        >
-                          <button
-                            className="topic-card"
-                            onClick={() =>
-                              void runSearch('', {
-                                ...noFilters,
-                                topic: String(t.id),
-                              })
-                            }
-                          >
-                            <span>{t.group}</span>
-                            <h2>{t.name}</h2>
-                            <p>
-                              {t.count.toLocaleString()} shiurim{' '}
-                              <ArrowUpRight size={17} />
-                            </p>
-                          </button>
-                          <FollowButton
-                            follow={{ kind: 'topic', id: t.id, name: t.name }}
-                            library={library}
-                            onFollow={follow}
-                          />
-                        </article>
-                      ))}
-                    </div>
-                  )}
-                  {(view === 'teachers'
-                    ? listedTeachers.length
-                    : view === 'series'
-                      ? listedSeries.length
-                      : listedTopics.length) > directoryLimit && (
-                    <div className="load-more">
-                      <button
-                        className="outline-button"
-                        onClick={() => setDirectoryLimit((v) => v + 36)}
-                      >
-                        Show more {view}
-                        <ArrowRight size={16} />
-                      </button>
-                    </div>
-                  )}
-                  {(view === 'teachers'
-                    ? listedTeachers.length
-                    : view === 'series'
-                      ? listedSeries.length
-                      : listedTopics.length) === 0 && (
-                    <StatePanel
-                      title="Nothing found."
-                      description="Try a different spelling or a broader search."
-                    />
-                  )}
-                </>
-              )}
-            </section>
-          )}
-          {(['saved', 'history', 'playlists'] as View[]).includes(view) && (
-            <section className="library-view">
-              <div className="view-heading">
-                <div className="eyebrow">YOUR LEARNING</div>
-                <h1>
-                  {view === 'saved'
-                    ? 'Saved shiurim'
-                    : view === 'history'
-                      ? 'Learning history'
-                      : playlist
-                        ? playlist.name
-                        : 'My playlists'}
-                </h1>
-                <p>
-                  <HardDrive size={14} /> Saved in this browser, on this device.
-                </p>
-              </div>
-              {!ready ? (
-                <output className="loading-panel">
-                  <Loader2 className="spin" />
-                  Loading your library…
-                </output>
-              ) : (
-                <>
-                  {(view === 'saved' || view === 'history') && (
-                    <div className="library-search-toolbar">
-                      <div className="directory-search">
-                        <Search size={17} />
-                        <input
-                          aria-label="Search your learning"
-                          placeholder="Find a saved shiur"
-                          value={libraryQuery}
-                          onChange={(e) => setLibraryQuery(e.target.value)}
-                        />
-                      </div>
-                      <span>
-                        {view === 'saved'
-                          ? library.saved.length
-                          : library.history.length}{' '}
-                        {(view === 'saved'
-                          ? library.saved.length
-                          : library.history.length) === 1
-                          ? 'shiur'
-                          : 'shiurim'}
-                      </span>
-                    </div>
-                  )}
-                  {view === 'saved' &&
-                    (library.saved.length ? (
-                      <>
-                        <div className="library-summary">
-                          <h2>
-                            {library.saved.length} saved{' '}
-                            {library.saved.length === 1 ? 'shiur' : 'shiurim'}
-                          </h2>
-                          <button
-                            className="outline-button"
-                            onClick={() => {
-                              const audio = library.saved.filter(
-                                (s) => mediaKind(s) === 'audio',
-                              );
-                              if (audio.length) {
-                                player.start(audio[0]);
-                                update((old) => ({
-                                  ...old,
-                                  queue: audio.slice(1),
-                                }));
-                              } else
-                                notify(
-                                  'Your saved items are articles or videos. Open one to read or watch.',
-                                );
-                            }}
-                          >
-                            <Play size={15} />
-                            Play saved shiurim
-                          </button>
-                        </div>
-                        {rows(library.saved.filter(matchLibrary))}
-                      </>
-                    ) : (
-                      <StatePanel
-                        title="Your next great shiur belongs here."
-                        description="Save a shiur with the bookmark button. It will be waiting here whenever you return."
-                      >
-                        <button
-                          className="primary-button"
-                          onClick={() => navigate('discover')}
-                        >
-                          Find something to learn <ArrowRight size={16} />
-                        </button>
-                      </StatePanel>
-                    ))}
-                  {view === 'history' &&
-                    (library.history.length ? (
-                      rows(
-                        library.history
-                          .map((h) => h.shiur)
-                          .filter(matchLibrary),
-                        true,
-                      )
-                    ) : (
-                      <StatePanel
-                        title="Your learning starts with a play."
-                        description="Your listening history and progress will appear here as you listen."
-                      >
-                        <button
-                          className="primary-button"
-                          onClick={() => navigate('discover')}
-                        >
-                          Explore shiurim <ArrowRight size={16} />
-                        </button>
-                      </StatePanel>
-                    ))}
-                  {view === 'playlists' && (
-                    <>
-                      {playlist ? (
-                        <>
-                          <div className="library-summary">
-                            <button
-                              className="text-button"
-                              onClick={() => setSelectedPlaylist('')}
-                            >
-                              <ArrowLeft size={16} />
-                              All playlists
-                            </button>
-                            <div className="button-row">
-                              <button
-                                className="text-button"
-                                onClick={() => {
-                                  setEditingPlaylist(playlist.id);
-                                  setPlaylistName(playlist.name);
-                                  setPlaylistTarget(null);
-                                  setPlaylistDialog(true);
-                                }}
-                              >
-                                Rename
-                              </button>
-                              <button
-                                className="text-button"
-                                onClick={() => {
-                                  const removed = playlist;
-                                  update((old) => ({
-                                    ...old,
-                                    playlists: old.playlists.filter(
-                                      (p) => p.id !== removed.id,
-                                    ),
-                                  }));
-                                  setSelectedPlaylist('');
-                                  notify('Playlist removed.');
-                                  setUndoAction(() => () => {
-                                    update((old) => ({
-                                      ...old,
-                                      playlists: [...old.playlists, removed],
-                                    }));
-                                    notify('Playlist restored.');
-                                  });
-                                }}
-                              >
-                                Remove
-                              </button>
-                              <span>
-                                {playlist.items.length}{' '}
-                                {playlist.items.length === 1
-                                  ? 'shiur'
-                                  : 'shiurim'}
-                              </span>
-                              {playlist.items.length > 0 && (
-                                <button
-                                  className="primary-button"
-                                  onClick={() => {
-                                    const audio = playlist.items.filter(
-                                      (s) => mediaKind(s) === 'audio',
-                                    );
-                                    if (audio.length) {
-                                      player.start(audio[0]);
-                                      update((old) => ({
-                                        ...old,
-                                        queue: audio.slice(1),
-                                      }));
-                                    } else
-                                      notify(
-                                        'Open an article or video to read or watch.',
-                                      );
-                                  }}
-                                >
-                                  <Play size={15} />
-                                  Play playlist
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          {playlist.items.length ? (
-                            playlist.items.map((s) => (
-                              <ShiurRow
-                                key={s.id}
-                                shiur={s}
-                                onPlay={play}
-                                onDetails={showDetail}
-                                onSave={save}
-                                onQueue={enqueue}
-                                saved={savedIds.has(s.id)}
-                                extra={
-                                  <button
-                                    className="icon-button"
-                                    aria-label={
-                                      'Remove from playlist: ' + s.title
-                                    }
-                                    onClick={() => {
-                                      update((old) => ({
-                                        ...old,
-                                        playlists: old.playlists.map((p) =>
-                                          p.id === playlist.id
-                                            ? {
-                                                ...p,
-                                                items: p.items.filter(
-                                                  (v) => v.id !== s.id,
-                                                ),
-                                              }
-                                            : p,
-                                        ),
-                                      }));
-                                      notify('Removed from playlist.');
-                                    }}
-                                  >
-                                    <X size={17} />
-                                  </button>
-                                }
-                              />
-                            ))
-                          ) : (
-                            <StatePanel
-                              title="Give this playlist its first shiur."
-                              description="Open a shiur and choose Add to playlist."
-                            >
-                              <button
-                                className="primary-button"
-                                onClick={() => navigate('search')}
-                              >
-                                Find a shiur <Search size={15} />
-                              </button>
-                            </StatePanel>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <div className="library-summary">
-                            <h2>
-                              {library.playlists.length}{' '}
-                              {library.playlists.length === 1
-                                ? 'playlist'
-                                : 'playlists'}
-                            </h2>
-                            <button
-                              className="primary-button"
-                              onClick={() => {
-                                setEditingPlaylist('');
-                                setPlaylistTarget(null);
-                                setPlaylistName('');
-                                setPlaylistDialog(true);
-                              }}
-                            >
-                              <Plus size={16} />
-                              Create playlist
-                            </button>
-                          </div>
-                          {library.playlists.length ? (
-                            <div className="playlist-grid">
-                              {library.playlists.map((p) => (
-                                <button
-                                  className="playlist-card"
-                                  key={p.id}
-                                  onClick={() => setSelectedPlaylist(p.id)}
-                                >
-                                  <span className="playlist-icon">
-                                    <ListMusic size={26} />
-                                  </span>
-                                  <h2>{p.name}</h2>
-                                  <p>
-                                    {p.items.length}{' '}
-                                    {p.items.length === 1 ? 'shiur' : 'shiurim'}
-                                  </p>
-                                  <ArrowRight size={18} />
-                                </button>
-                              ))}
-                            </div>
-                          ) : (
-                            <StatePanel
-                              title="A playlist for the way you learn."
-                              description="Collect shiurim for your commute, a subject you're studying, or a few quiet minutes each day."
-                            />
-                          )}
-                        </>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
-            </section>
+          {[
+            'teachers',
+            'series',
+            'topics',
+            'saved',
+            'history',
+            'playlists',
+          ].includes(view) && (
+            <ScreenBoundary>
+              <SecondaryScreens
+                view={view}
+                directory={directory}
+                directoryQuery={directoryQuery}
+                setDirectoryQuery={setDirectoryQuery}
+                topicGroup={topicGroup}
+                setTopicGroup={setTopicGroup}
+                directoryError={directoryError}
+                loadDirectory={loadDirectory}
+                listedTeachers={listedTeachers}
+                listedSeries={listedSeries}
+                listedTopics={listedTopics}
+                directoryLimit={directoryLimit}
+                setDirectoryLimit={setDirectoryLimit}
+                runSearch={runSearch}
+                library={library}
+                follow={follow}
+                ready={ready}
+                playlist={playlist}
+                libraryQuery={libraryQuery}
+                setLibraryQuery={setLibraryQuery}
+                rows={rows}
+                matchLibrary={matchLibrary}
+                player={player}
+                update={update}
+                notify={notify}
+                navigate={navigate}
+                setSelectedPlaylist={setSelectedPlaylist}
+                setEditingPlaylist={setEditingPlaylist}
+                setPlaylistName={setPlaylistName}
+                setPlaylistTarget={setPlaylistTarget}
+                setPlaylistDialog={setPlaylistDialog}
+                setUndoAction={setUndoAction}
+                play={play}
+                showDetail={showDetail}
+                save={save}
+                enqueue={enqueue}
+                savedIds={savedIds}
+              />
+            </ScreenBoundary>
           )}
           <footer className="page-footer">
             <span>
@@ -2243,8 +1987,9 @@ export default function TorahApp({
             </div>
           </footer>
         </main>
-        <Player
-          player={player}
+        <PersistentPlayer
+          ready={ready}
+          notify={notify}
           library={library}
           update={update}
           onDetails={showDetail}
@@ -2520,18 +2265,24 @@ export default function TorahApp({
                   ))}
                 </section>
               )}
-              <TranscriptReader
-                shiurId={detail.id}
-                onSeek={(seconds) => player.start(detail, seconds)}
-              />
+              <ScreenBoundary>
+                <TranscriptReader
+                  shiurId={detail.id}
+                  onSeek={(seconds) => player.start(detail, seconds)}
+                />
+              </ScreenBoundary>
               {player.active?.id === detail.id && (
-                <button
-                  className="outline-button timestamp-share"
-                  onClick={() => void share(detail, player.time)}
-                >
-                  <Share2 size={16} />
-                  Copy link at {timeLabel(player.time)}
-                </button>
+                <PlaybackPosition>
+                  {(clock) => (
+                    <button
+                      className="outline-button timestamp-share"
+                      onClick={() => void share(detail, clock.time)}
+                    >
+                      <Share2 size={16} />
+                      Copy link at {timeLabel(clock.time)}
+                    </button>
+                  )}
+                </PlaybackPosition>
               )}
               {(detailRelated.length > 0 || relatedLoading || relatedError) && (
                 <section className="detail-section detail-related">
@@ -2624,9 +2375,13 @@ export default function TorahApp({
               <div>
                 <h3>Sleep timer</h3>
                 <p>
-                  {player.sleepAt
-                    ? `Pauses in ${player.sleepRemaining} minutes`
-                    : 'Pause playback after a set time'}
+                  {player.sleepAt ? (
+                    <PlaybackPosition>
+                      {(clock) => `Pauses in ${clock.sleepRemaining} minutes`}
+                    </PlaybackPosition>
+                  ) : (
+                    'Pause playback after a set time'
+                  )}
                 </p>
               </div>
               <FilterSelect

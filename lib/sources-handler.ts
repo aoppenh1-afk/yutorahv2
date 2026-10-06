@@ -48,8 +48,9 @@ export async function sourcesResponse(
       if (!response.ok) throw new TranscriptUnavailable(response.status);
       published = (await response.json()) as typeof published;
       if (
-        params.get('revision') &&
-        params.get('revision') !== published?.transcriptId
+        (params.get('revision') &&
+          params.get('revision') !== published?.transcriptId) ||
+        (params.get('version') && params.get('version') !== published?.version)
       )
         return reply(
           {

@@ -70,9 +70,11 @@ export function d1HttpDatabase(config: {
                   message,
                 )
               ? 'query size limit'
-              : /foreign key constraint/i.test(message)
-                ? 'foreign key constraint'
-                : '';
+              : /search_pass_owned|search_pass_guards/i.test(message)
+                ? 'search_pass_owned'
+                : /foreign key constraint/i.test(message)
+                  ? 'foreign key constraint'
+                  : '';
       throw new Error(
         `Search storage request failed (${response.status}).${category ? ` ${category}.` : ''}`,
       );

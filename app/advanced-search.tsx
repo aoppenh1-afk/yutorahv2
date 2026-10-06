@@ -4,37 +4,8 @@ import { ArrowRight, SlidersHorizontal } from 'lucide-react';
 import type { Directory } from '@/lib/yutorah';
 import { searchText } from '@/lib/search-discovery';
 
-export type Filters = Record<
-  | 'teacher'
-  | 'series'
-  | 'topic'
-  | 'max'
-  | 'min'
-  | 'language'
-  | 'format'
-  | 'after'
-  | 'before'
-  | 'phrase'
-  | 'exclude'
-  | 'sort'
-  | 'scope',
-  string
->;
-export const noFilters: Filters = {
-  teacher: '',
-  series: '',
-  topic: '',
-  max: '',
-  min: '',
-  language: '',
-  format: '',
-  after: '',
-  before: '',
-  phrase: '',
-  exclude: '',
-  scope: '',
-  sort: '',
-};
+import { noFilters, type Filters } from '@/lib/search-filters';
+export { noFilters, type Filters } from '@/lib/search-filters';
 
 function EntityField({
   label,

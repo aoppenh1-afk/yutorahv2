@@ -1,11 +1,18 @@
 import type { Pool } from 'pg';
-import { retainPublishedStorage } from './retention.js';
+import {
+  retainPublishedStorage,
+  publicationRetentionBacklog,
+} from './retention.js';
 import { workWake } from './work-wake.js';
 import {
   publicationBudget,
   PublicationPausedError,
 } from './publication-budget.js';
-import { preparePublishedSources } from '../../../apps/worker/src/source-preparation.js';
+import {
+  runSourcePreparations,
+  type SourcePreparation,
+} from './source-preparation.js';
+import { PublicationValidationError } from './public-content.js';
 import { TranscriptionStore } from './store.js';
 import { TranscriptArchive } from './archive.js';
 import { D1ContentObjects } from './d1-content.js';
@@ -64,7 +71,12 @@ export function publicationTarget(
 export async function publishPending(
   pool: Pool,
   target: Pick<TranscriptArchive, 'publish'> &
-    Partial<Pick<TranscriptArchive, 'updateStatus' | 'beforePublication'>>,
+    Partial<
+      Pick<
+        TranscriptArchive,
+        'updateStatus' | 'beforePublication' | 'cleanupIndex'
+      >
+    >,
   signal: AbortSignal,
   limit = 20,
 ) {
@@ -80,6 +92,7 @@ export async function publishPending(
     const client = await pool.connect();
     let locked = false;
     let generation: number | undefined;
+    let queuedAt: Date | undefined;
     try {
       locked = (
         await client.query<{ locked: boolean }>(
@@ -90,8 +103,12 @@ export async function publishPending(
       if (!locked) continue;
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
       const row = (
-        await client.query<{ generation: string; content_changed: boolean }>(
-          `SELECT generation,content_changed FROM transcript_publications
+        await client.query<{
+          generation: string;
+          content_changed: boolean;
+          updated_at: Date;
+        }>(
+          `SELECT generation,content_changed,updated_at FROM transcript_publications
         WHERE shiur_id=$1 AND generation>published_generation AND available_at<=now()`,
           [id],
         )
@@ -101,6 +118,7 @@ export async function publishPending(
         continue;
       }
       generation = Number(row.generation);
+      queuedAt = row.updated_at;
       const statusOnly = !row.content_changed && !!target.updateStatus;
       await target.beforePublication?.(statusOnly);
       const status = statusOnly ? await writer.contentStatus(id, client) : null;
@@ -127,16 +145,35 @@ export async function publishPending(
       }
       if (result.generation < generation)
         throw new Error('Publication failed.');
-      await client.query(
+      await client.query('BEGIN');
+      const acknowledged = await client.query(
         `UPDATE transcript_publications SET published_generation=$2,content_changed=false,attempt=0,error=NULL
         WHERE shiur_id=$1 AND generation=$2`,
         [id, generation],
       );
+      if (acknowledged.rowCount && !statusOnly && content)
+        await client.query(
+          `INSERT INTO source_preparation_jobs(shiur_id,version,transcript_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,
+          [id, result.version, content.transcriptId],
+        );
+      await client.query('COMMIT');
       published++;
-      if (!statusOnly) await preparePublishedSources(id, signal);
+      console.log(
+        JSON.stringify({
+          event: 'publication_acknowledged',
+          lagMs: queuedAt ? Math.max(0, Date.now() - queuedAt.getTime()) : 0,
+        }),
+      );
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       if (signal.aborted) signal.throwIfAborted();
+      if (error instanceof PublicationValidationError) {
+        await client.query(
+          `UPDATE transcript_publications SET error='publication_invalid',available_at='infinity' WHERE shiur_id=$1 AND ($2::bigint IS NULL OR generation=$2)`,
+          [id, generation ?? null],
+        );
+        continue;
+      }
       if (error instanceof PublicationPausedError) {
         await client.query(
           `UPDATE transcript_publications SET error='publication_budget',available_at=$3 WHERE shiur_id=$1 AND ($2::bigint IS NULL OR generation=$2)`,
@@ -163,33 +200,74 @@ export async function publishPending(
 export async function runPublisher(
   pool: Pool,
   target: Pick<TranscriptArchive, 'publish'> &
-    Partial<Pick<TranscriptArchive, 'updateStatus' | 'beforePublication'>>,
+    Partial<
+      Pick<
+        TranscriptArchive,
+        'updateStatus' | 'beforePublication' | 'cleanupIndex'
+      >
+    >,
   signal: AbortSignal,
+  prepare?: SourcePreparation,
 ) {
+  const stop = new AbortController();
+  const preparationTask = prepare
+    ? runSourcePreparations(
+        pool,
+        prepare,
+        AbortSignal.any([signal, stop.signal]),
+      )
+    : undefined;
   const wake = workWake(pool);
   let interval = 30000;
   let retained = 0;
-  while (!signal.aborted) {
-    const observed = wake.revision;
-    try {
-      const published = await publishPending(pool, target, signal);
-      if (Date.now() >= retained) {
-        await retainPublishedStorage(pool, true);
-        retained = Date.now() + 24 * 60 * 60_000;
+  let retentionPending = false;
+  try {
+    while (!signal.aborted) {
+      const observed = wake.revision;
+      try {
+        const published = await publishPending(pool, target, signal);
+        const cleanup = await target.cleanupIndex?.();
+        if (cleanup)
+          console.log(
+            JSON.stringify({ event: 'archive_index_cleanup', ...cleanup }),
+          );
+        if (Date.now() >= retained) {
+          const result = await retainPublishedStorage(pool, true);
+          const backlog = await publicationRetentionBacklog(pool);
+          retentionPending = backlog.jobs > 0;
+          retained = Date.now() + (retentionPending ? 30000 : 24 * 60 * 60_000);
+          console.log(
+            JSON.stringify({
+              event: 'publication_retention',
+              ...result,
+              pendingJobs: backlog.jobs,
+              oldestMs: backlog.oldestMs,
+            }),
+          );
+        }
+        interval =
+          published || cleanup?.pending || retentionPending
+            ? 30000
+            : Math.min(15 * 60_000, interval * 2);
+        if (published)
+          console.log(
+            JSON.stringify({
+              event: 'transcripts_published',
+              count: published,
+            }),
+          );
+      } catch {
+        if (!signal.aborted)
+          console.error(JSON.stringify({ event: 'publication_retry' }));
       }
-      interval = published ? 30000 : Math.min(15 * 60_000, interval * 2);
-      if (published)
-        console.log(
-          JSON.stringify({ event: 'transcripts_published', count: published }),
-        );
-    } catch {
-      if (!signal.aborted)
-        console.error(JSON.stringify({ event: 'publication_retry' }));
+      try {
+        await wake.wait(interval, signal, observed);
+      } catch {
+        if (!signal.aborted) throw new Error('Publisher wait failed.');
+      }
     }
-    try {
-      await wake.wait(interval, signal, observed);
-    } catch {
-      if (!signal.aborted) throw new Error('Publisher wait failed.');
-    }
+  } finally {
+    stop.abort();
+    await preparationTask;
   }
 }

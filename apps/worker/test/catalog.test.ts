@@ -17,9 +17,9 @@ const uploads = [
 void test('homepage discovery accepts upload order when recording dates differ', async () => {
   const ids: string[] = [];
   const store = {
-    enqueue: async ({ id }: { id: string }) => {
-      ids.push(id);
-      return id;
+    enqueueBatch: async (items: { id: string }[]) => {
+      ids.push(...items.map((item) => item.id));
+      return items.map((item) => item.id);
     },
   } as unknown as TranscriptionStore;
   const count = await scanHomepage(

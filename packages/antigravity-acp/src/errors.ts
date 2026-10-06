@@ -12,6 +12,7 @@ export type FailureCode =
   | 'provider'
   | 'storage_exhausted'
   | 'invalid_transcript'
+  | 'publication_invalid'
   | 'invalid_audio'
   | 'download'
   | 'checkpoint'
