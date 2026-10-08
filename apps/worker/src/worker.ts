@@ -55,6 +55,11 @@ import {
   notesProfile,
   type NotesProfile,
 } from '../../../packages/transcription/src/notes.js';
+import {
+  withOpenCode,
+  openCodeIdentity,
+  type OpenCodeConfig,
+} from '../../../packages/opencode-acp/src/runtime.js';
 
 export type WorkerConfig = {
   runtime: RuntimeConfig;
@@ -64,6 +69,7 @@ export type WorkerConfig = {
   catalog?: { profile: Profile; intervalMs: number; deepIntervalMs: number };
   selectedOnly?: boolean;
   notes?: NotesProfile;
+  openCode?: OpenCodeConfig;
   onReady?: (models: string[], pool: SessionPool) => void;
   onQuotaExhausted?: () => void;
   media?: {
@@ -324,7 +330,12 @@ export async function processNotesJob(
   };
   let p = notesProfile(profileInput);
   if (p.id !== job.version_id) p = notesProfile(profileInput, 'notes-1');
-  if (p.id !== job.version_id || p.runtime !== runtimeIdentity())
+  const openCode = p.runtime.startsWith('opencode:');
+  const expectedRuntime =
+    openCode && config.openCode
+      ? openCodeIdentity(config.openCode)
+      : runtimeIdentity();
+  if (p.id !== job.version_id || p.runtime !== expectedRuntime)
     throw new Failure('configuration');
   const result = await generateNotes({
     profile: p,
@@ -334,27 +345,41 @@ export async function processNotesJob(
     saveCleaned: (text) => store.saveCleaned(job, text),
     request: (prompt) =>
       pool.run(signal, () =>
-        withRuntime(config.runtime, signal, async (client, workspace) => {
-          await client.authenticate();
-          await client.session(workspace, job.model);
-          return modelRequest(
-            client,
-            () => client.textPrompt(prompt),
-            {
-              event: 'model_request',
-              job: job.id,
-              model: job.model,
-              kind: prompt.includes('<transcription-contract>')
-                ? 'cleanup'
-                : prompt.includes('<draft-notes>')
-                  ? 'notes_repair'
-                  : 'notes',
-              inputTextBytes: Buffer.byteLength(prompt),
-            },
-            log,
-            config.onQuotaExhausted,
-          );
-        }),
+        (openCode
+          ? (
+              operation: (
+                client: ACPClient,
+                workspace: string,
+              ) => Promise<string>,
+            ) => withOpenCode(config.openCode!, signal, operation)
+          : (
+              operation: (
+                client: ACPClient,
+                workspace: string,
+              ) => Promise<string>,
+            ) => withRuntime(config.runtime, signal, operation))(
+          async (client, workspace) => {
+            await client.authenticate();
+            await client.session(workspace, job.model);
+            return modelRequest(
+              client,
+              () => client.textPrompt(prompt),
+              {
+                event: 'model_request',
+                job: job.id,
+                model: job.model,
+                kind: prompt.includes('<transcription-contract>')
+                  ? 'cleanup'
+                  : prompt.includes('<draft-notes>')
+                    ? 'notes_repair'
+                    : 'notes',
+                inputTextBytes: Buffer.byteLength(prompt),
+              },
+              log,
+              openCode ? undefined : config.onQuotaExhausted,
+            );
+          },
+        ),
       ),
   });
   await store.complete(job, result.markdown);
@@ -414,7 +439,10 @@ export async function runWorker(
         log,
       );
     }
-    const notesStore = config.notes ? new NotesStore(store.pool) : undefined;
+    const notesStore =
+      config.notes && !config.notes.runtime.startsWith('opencode:')
+        ? new NotesStore(store.pool)
+        : undefined;
     const wake = workWake(store.pool);
     let nextNotesScan = 0;
     let nextProbe = 0;
@@ -444,7 +472,10 @@ export async function runWorker(
               return { job };
             }
           }
-          const notes = await notesStore.claim(config.selectedOnly);
+          const notes = await notesStore.claim(
+            config.selectedOnly,
+            runtimeIdentity(),
+          );
           if (notes) {
             preferTranscription = true;
             return { notes };

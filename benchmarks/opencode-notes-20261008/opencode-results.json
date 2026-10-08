@@ -1,0 +1,255 @@
+{
+  "model": "opencode/muse-spark-1.3-contributor-free",
+  "results": [
+    {
+      "id": "1117682",
+      "provider": "opencode",
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "repeat": 1,
+      "profileId": "03174a13fe9438642400b50251b7446f739a4ab7fb0a7007c228d097127e7bc3",
+      "sourceHash": "903d2549844f7ce1f68e7959159b74bc166bf02e6de00bcefd17df30a773aaa2",
+      "status": "completed",
+      "elapsedMs": 15048.979501,
+      "requests": [
+        {
+          "kind": "notes",
+          "elapsedMs": 15046.426798,
+          "inputBytes": 34219,
+          "outputBytes": 5373,
+          "diagnostics": {
+            "protocolMessages": 239,
+            "messageChunks": 231,
+            "thoughtChunks": 0,
+            "thoughtBytes": 0,
+            "stderrBytes": 0,
+            "promptMs": 9540.130207
+          }
+        }
+      ],
+      "repairCalls": 0,
+      "words": 839,
+      "hebrewWords": 217,
+      "violations": [],
+      "notesFile": "1117682-opencode-1-notes.md"
+    },
+    {
+      "id": "1151241",
+      "provider": "opencode",
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "repeat": 1,
+      "profileId": "03174a13fe9438642400b50251b7446f739a4ab7fb0a7007c228d097127e7bc3",
+      "sourceHash": "d93d68818603530a0991deb385bd557b61645580ef02ead03c9c705bcc214ff9",
+      "status": "completed",
+      "elapsedMs": 15354.031106,
+      "requests": [
+        {
+          "kind": "notes",
+          "elapsedMs": 15353.079769,
+          "inputBytes": 34945,
+          "outputBytes": 6412,
+          "diagnostics": {
+            "protocolMessages": 265,
+            "messageChunks": 257,
+            "thoughtChunks": 0,
+            "thoughtBytes": 0,
+            "stderrBytes": 0,
+            "promptMs": 9790.656862
+          }
+        }
+      ],
+      "repairCalls": 0,
+      "words": 1037,
+      "hebrewWords": 163,
+      "violations": [],
+      "notesFile": "1151241-opencode-1-notes.md"
+    },
+    {
+      "id": "1122687",
+      "provider": "opencode",
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "repeat": 1,
+      "profileId": "03174a13fe9438642400b50251b7446f739a4ab7fb0a7007c228d097127e7bc3",
+      "sourceHash": "bf1ef7253ac2be621960f70ee810a344ffa88b40b88d081a1b24dec955416ffa",
+      "status": "completed",
+      "elapsedMs": 20589.270059000002,
+      "requests": [
+        {
+          "kind": "notes",
+          "elapsedMs": 20588.188392999997,
+          "inputBytes": 36511,
+          "outputBytes": 8634,
+          "diagnostics": {
+            "protocolMessages": 369,
+            "messageChunks": 361,
+            "thoughtChunks": 0,
+            "thoughtBytes": 0,
+            "stderrBytes": 0,
+            "promptMs": 15139.087956999996
+          }
+        }
+      ],
+      "repairCalls": 0,
+      "words": 1244,
+      "hebrewWords": 537,
+      "violations": [],
+      "notesFile": "1122687-opencode-1-notes.md"
+    },
+    {
+      "id": "1056185",
+      "provider": "opencode",
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "repeat": 1,
+      "profileId": "03174a13fe9438642400b50251b7446f739a4ab7fb0a7007c228d097127e7bc3",
+      "sourceHash": "3179de6ada8b087dba995305c4e07e74f909f872ff1b52774ffc8f0213d3475a",
+      "status": "completed",
+      "elapsedMs": 19006.150356,
+      "requests": [
+        {
+          "kind": "notes",
+          "elapsedMs": 19005.065959,
+          "inputBytes": 36631,
+          "outputBytes": 6463,
+          "diagnostics": {
+            "protocolMessages": 292,
+            "messageChunks": 283,
+            "thoughtChunks": 1,
+            "thoughtBytes": 124,
+            "stderrBytes": 0,
+            "promptMs": 13456.935073999994
+          }
+        }
+      ],
+      "repairCalls": 0,
+      "words": 969,
+      "hebrewWords": 253,
+      "violations": [],
+      "notesFile": "1056185-opencode-1-notes.md"
+    },
+    {
+      "id": "1183432",
+      "provider": "opencode",
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "repeat": 1,
+      "profileId": "03174a13fe9438642400b50251b7446f739a4ab7fb0a7007c228d097127e7bc3",
+      "sourceHash": "abcf6abe1af316f3e479d273561fe081167c882e4b706db4376baa8bbe11f5b0",
+      "status": "completed",
+      "elapsedMs": 25772.536347999994,
+      "requests": [
+        {
+          "kind": "notes",
+          "elapsedMs": 25771.341849999997,
+          "inputBytes": 44742,
+          "outputBytes": 14673,
+          "diagnostics": {
+            "protocolMessages": 612,
+            "messageChunks": 604,
+            "thoughtChunks": 0,
+            "thoughtBytes": 0,
+            "stderrBytes": 0,
+            "promptMs": 20189.315107000002
+          }
+        }
+      ],
+      "repairCalls": 0,
+      "words": 2178,
+      "hebrewWords": 722,
+      "violations": [],
+      "notesFile": "1183432-opencode-1-notes.md"
+    },
+    {
+      "id": "1180975",
+      "provider": "opencode",
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "repeat": 1,
+      "profileId": "03174a13fe9438642400b50251b7446f739a4ab7fb0a7007c228d097127e7bc3",
+      "sourceHash": "313df3751256dc809b8af2615d45bfa2c7883dcda5ed5bc653c25b053fbb9abe",
+      "status": "completed",
+      "elapsedMs": 24329.695223999996,
+      "requests": [
+        {
+          "kind": "notes",
+          "elapsedMs": 24328.430156999995,
+          "inputBytes": 49185,
+          "outputBytes": 13444,
+          "diagnostics": {
+            "protocolMessages": 610,
+            "messageChunks": 601,
+            "thoughtChunks": 1,
+            "thoughtBytes": 145,
+            "stderrBytes": 0,
+            "promptMs": 18607.510169
+          }
+        }
+      ],
+      "repairCalls": 0,
+      "words": 2112,
+      "hebrewWords": 444,
+      "violations": [],
+      "notesFile": "1180975-opencode-1-notes.md"
+    },
+    {
+      "id": "1181377",
+      "provider": "opencode",
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "repeat": 1,
+      "profileId": "03174a13fe9438642400b50251b7446f739a4ab7fb0a7007c228d097127e7bc3",
+      "sourceHash": "6bf6677f620895b27b7a1735da41c44f2af9bed368e409a8d14ad31a6dbc92d2",
+      "status": "completed",
+      "elapsedMs": 26104.060090999992,
+      "requests": [
+        {
+          "kind": "notes",
+          "elapsedMs": 26102.59193499999,
+          "inputBytes": 52635,
+          "outputBytes": 14771,
+          "diagnostics": {
+            "protocolMessages": 645,
+            "messageChunks": 637,
+            "thoughtChunks": 0,
+            "thoughtBytes": 0,
+            "stderrBytes": 0,
+            "promptMs": 20176.099281999996
+          }
+        }
+      ],
+      "repairCalls": 0,
+      "words": 1912,
+      "hebrewWords": 1143,
+      "violations": [],
+      "notesFile": "1181377-opencode-1-notes.md"
+    },
+    {
+      "id": "1181042",
+      "provider": "opencode",
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "repeat": 1,
+      "profileId": "03174a13fe9438642400b50251b7446f739a4ab7fb0a7007c228d097127e7bc3",
+      "sourceHash": "dfad1ce94c3304253a1a512d12f3f7d6bc5570f4ba2b11ac8d0d431e27601b83",
+      "status": "completed",
+      "elapsedMs": 31334.431637,
+      "requests": [
+        {
+          "kind": "notes",
+          "elapsedMs": 31332.897368000005,
+          "inputBytes": 55434,
+          "outputBytes": 18399,
+          "diagnostics": {
+            "protocolMessages": 779,
+            "messageChunks": 771,
+            "thoughtChunks": 0,
+            "thoughtBytes": 0,
+            "stderrBytes": 0,
+            "promptMs": 25514.91378199999
+          }
+        }
+      ],
+      "repairCalls": 0,
+      "words": 2445,
+      "hebrewWords": 1109,
+      "violations": [],
+      "notesFile": "1181042-opencode-1-notes.md"
+    }
+  ],
+  "completed": 8,
+  "planned": 8
+}

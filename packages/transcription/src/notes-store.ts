@@ -29,22 +29,26 @@ export class NotesStore {
     selectedOnly = false,
     transcriptId: string | null = null,
   ): Promise<void> {
-    await transaction(this.pool, async (client) => {
-      await enqueueNotes(client, p, selectedOnly, transcriptId);
-    });
-    workWake(this.pool).notify();
+    const changed = await transaction(this.pool, (client) =>
+      enqueueNotes(client, p, selectedOnly, transcriptId),
+    );
+    if (changed) workWake(this.pool).notify();
   }
-  async claim(selectedOnly = false): Promise<NotesJob | null> {
+  async claim(
+    selectedOnly = false,
+    runtimePrefix = '',
+  ): Promise<NotesJob | null> {
     const result = await this.pool.query<NotesJob>(
       `WITH exhausted AS (UPDATE notes_jobs SET status='failed',lease_token=NULL,lease_until=NULL,error='attempts_exhausted' WHERE status IN ('cleaning','generating') AND lease_until<now() AND attempt>=5 RETURNING id), candidate AS (
-       SELECT j.id FROM notes_jobs j JOIN transcripts t ON t.id=j.transcript_id JOIN transcription_shiurim h ON h.active_transcript_id=t.id
-       WHERE (j.status='queued' OR (j.status IN ('cleaning','generating') AND j.lease_until<now() AND j.attempt<5))
+       SELECT j.id FROM notes_jobs j JOIN transcripts t ON t.id=j.transcript_id JOIN transcription_shiurim h ON h.active_transcript_id=t.id JOIN notes_versions v ON v.id=j.version_id
+       WHERE ((j.status='queued' AND j.available_at<=now()) OR (j.status IN ('cleaning','generating') AND j.lease_until<now() AND j.attempt<5))
+       AND starts_with(v.runtime,$4)
        AND (NOT $3 OR EXISTS(SELECT 1 FROM transcription_target_jobs tj JOIN transcription_targets s ON s.id=tj.target_id WHERE tj.job_id=t.job_id AND s.enabled))
        ORDER BY j.created_at LIMIT 1 FOR UPDATE OF j SKIP LOCKED
        ), claimed AS (
        UPDATE notes_jobs j SET status=CASE WHEN cleaned_text IS NULL THEN 'cleaning' ELSE 'generating' END,attempt=attempt+1,lease_token=$1,lease_until=now()+$2*interval '1 second',error=NULL FROM candidate c WHERE j.id=c.id RETURNING j.*)
        SELECT c.*,t.text AS source,v.model,v.language,v.runtime,v.transcription_skill,v.notes_skill FROM claimed c JOIN transcripts t ON t.id=c.transcript_id JOIN notes_versions v ON v.id=c.version_id`,
-      [randomUUID(), this.leaseSeconds, selectedOnly],
+      [randomUUID(), this.leaseSeconds, selectedOnly, runtimePrefix],
     );
     if (result.rows[0]) workWake(this.pool).notify();
     return result.rows[0] ?? null;
@@ -111,14 +115,14 @@ export class NotesStore {
   }
   async finishFailure(job: NotesJob, code: string, shutdown = false) {
     await this.pool.query(
-      `UPDATE notes_jobs SET status=CASE WHEN $4 THEN 'queued' ELSE 'failed' END,error=$3,lease_token=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2 AND lease_until>now()`,
+      `UPDATE notes_jobs SET status=CASE WHEN $4 THEN 'queued' ELSE 'failed' END,error=$3,lease_token=NULL,lease_until=NULL,available_at=CASE WHEN $3='quota_exhausted' THEN now()+interval '60 seconds' ELSE available_at END WHERE id=$1 AND lease_token=$2 AND lease_until>now()`,
       [job.id, job.lease_token, code, shutdown],
     );
     workWake(this.pool).notify();
   }
   async retry(id: string) {
     await this.pool.query(
-      `UPDATE notes_jobs SET status='queued',attempt=0,error=NULL,completed_at=NULL WHERE id=$1 AND status IN ('failed','cancelled')`,
+      `UPDATE notes_jobs SET status='queued',attempt=0,error=NULL,completed_at=NULL,available_at=now() WHERE id=$1 AND status IN ('failed','cancelled')`,
       [id],
     );
     workWake(this.pool).notify();
@@ -138,11 +142,28 @@ export async function enqueueNotes(
   selectedOnly = false,
   transcriptId: string | null = null,
 ) {
+  let changed = 0;
   await client.query(
     `INSERT INTO notes_versions(id,model,language,runtime,transcription_skill,notes_skill) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
     [p.id, p.model, p.language, p.runtime, p.transcriptionSkill, p.notesSkill],
   );
-  await client.query(
+  if (p.runtime.startsWith('opencode:')) {
+    // A provider/runtime switch moves only pending work. Completed
+    // notes and live leases keep their original version and source checkpoints.
+    const retargeted = await client.query(
+      `UPDATE notes_jobs j SET version_id=$1,attempt=0,error=NULL,available_at=now()
+       FROM notes_versions v,transcripts t
+       WHERE j.version_id=v.id AND j.transcript_id=t.id AND j.status='queued'
+       AND v.runtime<>$4
+       AND EXISTS(SELECT 1 FROM transcription_shiurim h WHERE h.active_transcript_id=t.id)
+       AND ($3::uuid IS NULL OR t.id=$3)
+       AND (NOT $2 OR EXISTS(SELECT 1 FROM transcription_target_jobs tj JOIN transcription_targets s ON s.id=tj.target_id WHERE tj.job_id=t.job_id AND s.enabled))
+       AND NOT EXISTS(SELECT 1 FROM notes_jobs other WHERE other.transcript_id=j.transcript_id AND other.version_id=$1 AND other.id<>j.id)`,
+      [p.id, selectedOnly, transcriptId, p.runtime],
+    );
+    changed += retargeted.rowCount ?? 0;
+  }
+  const enqueued = await client.query(
     `INSERT INTO notes_jobs(id,transcript_id,version_id)
          SELECT gen_random_uuid(),t.id,$1 FROM transcripts t JOIN transcription_shiurim h ON h.active_transcript_id=t.id
          WHERE ($3::uuid IS NULL OR t.id=$3) AND (NOT $2 OR EXISTS (SELECT 1 FROM transcription_target_jobs tj JOIN transcription_targets s ON s.id=tj.target_id WHERE tj.job_id=t.job_id AND s.enabled))
@@ -150,4 +171,5 @@ export async function enqueueNotes(
          ON CONFLICT DO NOTHING`,
     [p.id, selectedOnly, transcriptId],
   );
+  return changed + (enqueued.rowCount ?? 0) > 0;
 }

@@ -18,6 +18,12 @@ import { defaultSettings } from '../../../packages/transcription/src/types.js';
 import { SelectionStore, scanSelections } from './selections.js';
 import { runWorker, runtimeIdentity } from './worker.js';
 import type { SessionPool } from '../../../packages/antigravity-acp/src/pool.js';
+import {
+  FREE_NOTES_MODEL,
+  openCodeIdentity,
+  type OpenCodeConfig,
+} from '../../../packages/opencode-acp/src/runtime.js';
+import { runNotesWorker, type NotesWorkerStatus } from './notes-worker.js';
 
 export type OperatorConfig = {
   runtime: RuntimeConfig;
@@ -25,6 +31,8 @@ export type OperatorConfig = {
   notesSkillPath: string;
   concurrency: number;
   intervalMs: number;
+  openCode?: OpenCodeConfig;
+  notesConcurrency?: number;
 };
 export const quotaResumeDelayMs = (5 * 60 + 1) * 60_000;
 export class OperatorRuntime {
@@ -43,11 +51,15 @@ export class OperatorRuntime {
   private resumeTimer?: NodeJS.Timeout;
   private resumeAt: Date | null = null;
   private sessions?: SessionPool;
+  private notesWork?: Promise<void>;
+  private notesAbort?: AbortController;
+  private notesStatus?: NotesWorkerStatus;
   private readonly selections: SelectionStore;
   constructor(
     private readonly store: TranscriptionStore,
     private readonly config: OperatorConfig,
     private readonly worker: typeof runWorker = runWorker,
+    private readonly notesWorker: typeof runNotesWorker = runNotesWorker,
   ) {
     this.selections = new SelectionStore(store.pool);
   }
@@ -90,6 +102,7 @@ export class OperatorRuntime {
       concurrency: this.config.concurrency,
       activeSessions: this.sessions?.activeCount ?? 0,
       resumeAt: this.resumeAt?.toISOString() ?? null,
+      notes: this.notesStatus ?? null,
     };
   }
   async currentProfile() {
@@ -117,6 +130,7 @@ export class OperatorRuntime {
   async restore() {
     const settings = await this.selections.settings();
     if (!settings.worker_enabled) return;
+    await this.startNotes();
     if (
       settings.quota_resume_at &&
       settings.quota_resume_at.getTime() > Date.now()
@@ -162,16 +176,22 @@ export class OperatorRuntime {
     if (!(await this.selections.hasEnabledTarget()))
       throw new Failure('configuration');
     const settings = await this.selections.settings();
+    await this.startNotes();
     const p = await this.currentProfile();
     const notes = settings.notes_enabled
       ? notesProfile({
-          model: settings.model,
+          model: this.config.openCode ? FREE_NOTES_MODEL : settings.model,
           language: p.settings.language,
-          runtime: p.runtime,
+          runtime: this.config.openCode
+            ? openCodeIdentity(this.config.openCode)
+            : p.runtime,
           transcriptionSkill: p.skill,
           notesSkill: await readFile(this.config.notesSkillPath, 'utf8'),
         })
       : undefined;
+    const notesError = this.notesStatus?.error;
+    if (notesError === 'storage_exhausted' || notesError === 'lease_lost')
+      throw new Failure(notesError);
     this.clearResumeTimer();
     await this.selections.saveSettings({ ...settings, worker_enabled: true });
     await this.selections.setQuotaResume(null);
@@ -189,6 +209,7 @@ export class OperatorRuntime {
         model: settings.model,
         selectedOnly: true,
         notes,
+        openCode: this.config.openCode,
         onQuotaExhausted: () => {
           quotaDetectedAt ??= Date.now();
         },
@@ -233,7 +254,8 @@ export class OperatorRuntime {
   async stop(persist = true) {
     this.clearResumeTimer();
     this.workAbort?.abort(new Failure('cancelled'));
-    await this.work;
+    this.notesAbort?.abort(new Failure('cancelled'));
+    await Promise.all([this.work, this.notesWork]);
     this.clearResumeTimer();
     if (persist)
       await this.selections.saveSettings({
@@ -243,6 +265,64 @@ export class OperatorRuntime {
     this.resumeAt = null;
     if (persist && this.error === 'quota_exhausted') this.error = null;
     if (!this.authWork) this.state = 'stopped';
+  }
+  private async startNotes() {
+    if (this.closed || this.notesWork || !this.config.openCode) return;
+    const settings = await this.selections.settings();
+    if (!settings.notes_enabled) {
+      this.notesStatus = undefined;
+      return;
+    }
+    const p = await this.currentProfile();
+    const notes = notesProfile({
+      model: FREE_NOTES_MODEL,
+      language: p.settings.language,
+      runtime: openCodeIdentity(this.config.openCode),
+      transcriptionSkill: p.skill,
+      notesSkill: await readFile(this.config.notesSkillPath, 'utf8'),
+    });
+    this.notesAbort = new AbortController();
+    this.notesStatus = {
+      state: 'starting',
+      model: notes.model,
+      concurrency: this.config.notesConcurrency ?? 2,
+      activeSessions: 0,
+      resumeAt: null,
+      error: null,
+    };
+    this.notesWork = this.notesWorker(
+      this.store,
+      {
+        runtime: this.config.runtime,
+        openCode: this.config.openCode,
+        notes,
+        concurrency: this.config.notesConcurrency ?? 2,
+        pollMs: 5000,
+        selectedOnly: true,
+        onStatus: (status) => {
+          this.notesStatus = status;
+        },
+      },
+      this.notesAbort.signal,
+    )
+      .catch((error) => {
+        if (!this.notesAbort?.signal.aborted && this.notesStatus) {
+          const e = failure(error);
+          this.notesStatus = {
+            ...this.notesStatus,
+            state: 'error',
+            error: e.code,
+          };
+          if (e.code === 'storage_exhausted' || e.code === 'lease_lost') {
+            this.workAbort?.abort(e);
+            this.state = 'error';
+            this.error = e.code;
+          }
+        }
+      })
+      .finally(() => {
+        this.notesWork = undefined;
+      });
   }
   async authenticate(interactive: boolean) {
     if (this.authWork) return;

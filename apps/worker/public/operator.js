@@ -127,8 +127,9 @@ async function readStatus() {
     pollFailures = 0;
     el('workspace').hidden = false;
     const r = snapshot.runtime;
-    el('session-state').textContent =
-      `${r.activeSessions} of ${r.concurrency} Antigravity sessions active. Transcription and notes share these slots.`;
+    el('session-state').textContent = r.notes
+      ? `${r.activeSessions} of ${r.concurrency} transcription sessions active. Notes: ${r.notes.activeSessions} of ${r.notes.concurrency} sessions active (${names[r.notes.state] || r.notes.state}${r.notes.error ? ': ' + r.notes.error : ''}).`
+      : `${r.activeSessions} of ${r.concurrency} Antigravity sessions active. Transcription and notes share these slots.`;
     el('run-state').textContent =
       r.state === 'waiting_quota' && r.resumeAt
         ? `Resumes automatically at ${new Date(r.resumeAt).toLocaleString()}`

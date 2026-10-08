@@ -10,6 +10,7 @@ operator_node=${OPERATOR_NODE:-$(command -v node)}
 [ -f .worker-build/apps/worker/src/cli.js ] || { echo 'Run npm ci and npm run worker:build first.' >&2; exit 1; }
 "$operator_node" -e 'const [major,minor]=process.versions.node.split(".").map(Number); if(major<22 || major===22&&minor<13) process.exit(1)'
 [ ! -e "$operator_root" ] || { echo 'Installation exists. Stop the operator before deploying updated build files; credentials and database must be preserved.' >&2; exit 1; }
+bash deploy/transcription/install-opencode.sh
 for account in yutorah-worker yutorah-search; do
   if ! id "$account" >/dev/null 2>&1; then
     if [ "$account" = yutorah-worker ]; then
@@ -41,7 +42,7 @@ chmod -R a+rX "$operator_root"
 install -d -m 0700 -o yutorah-worker -g yutorah-worker /var/lib/yutorah-worker
 if [ ! -f /etc/yutorah-operator.env ]; then
   {
-    printf 'DATABASE_URL=postgresql:///yutorah_transcription?host=/var/run/postgresql\nWORKER_STATE_DIR=/var/lib/yutorah-worker\nACP_RUNTIME_DIR=/opt/antigravity-acp/1.2.1\nACP_CONCURRENCY=5\nCATALOG_POLL_MS=300000\nOPERATOR_PORT=8766\n'
+    printf 'DATABASE_URL=postgresql:///yutorah_transcription?host=/var/run/postgresql\nWORKER_STATE_DIR=/var/lib/yutorah-worker\nACP_RUNTIME_DIR=/opt/antigravity-acp/1.2.1\nACP_CONCURRENCY=5\nNOTES_PROVIDER=opencode\nNOTES_CONCURRENCY=2\nOPENCODE_EXECUTABLE=/usr/local/bin/opencode-notes\nOPENCODE_VERSION=1.18.33\nCATALOG_POLL_MS=300000\nOPERATOR_PORT=8766\n'
     printf 'TRANSCRIPTION_SKILL_PATH=%s/packages/transcription/skills/lectern-transcription/SKILL.md\nNOTES_SKILL_PATH=%s/packages/transcription/skills/lectern-notes/SKILL.md\n' "$operator_root" "$operator_root"
   } > /etc/yutorah-operator.env
   chown root:yutorah-worker /etc/yutorah-operator.env; chmod 0640 /etc/yutorah-operator.env

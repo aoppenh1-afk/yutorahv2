@@ -1,0 +1,113 @@
+# טבילת כלים by a קטן
+
+## הקדמה
+
+- **Case:** אברך in כולל asks about טבילת כלים he did at about twelve years old as paid job for neighbor
+    - Went with father to כלי מקוה, father showed how to let go for a second to be יוצא כל הדעות in חציצה
+    - Did first few כלים with father, then father left and he did rest on his own
+    - Pretty sure כלים were glass, but may be memory playing tricks, now realizes he was קטן doing טבילת כלים alone
+    - **Q:** to what degree must he tell neighbor, and if he tells them, must they do טבילת כלים again
+        - Claims he is 100% confident he did טבילה correctly but equally sure neighbor may not believe him because קטן has no נאמנות
+- First step in real-life שאלה is clarify if dealing with דין דאורייתא, דין דרבנן, or מנהג
+
+## Is טבילת כלים דאורייתא or דרבנן
+
+- **תוס׳ in עבודה זרה:** טבילת כלי מדין is a חידוש
+    - Quotes רבינו תם that simple reading of גמרא is טבילת כלים is מדאורייתא
+- **רש״י:** derives from word וטהר that there is חיוב טבילה
+    - Does not say explicitly דאורייתא, but later writes it is גזירת הכתוב, which indicates דאורייתא
+- **רמב״ן על התורה:** ולבי מרהר לומר שתבילה זו מדבריהם והקרא אסמכתא בעלמא, וכן אונקלוס מתרגם בחיטו הזאה על אפר פרה
+    - Seems to say דרבנן and פסוק is אסמכתא
+- **רמב״ם מאכלות אסורות פרק י״ז הלכה ה׳:** טבילה זו שמטבילין כלי סעודה הנלקחים מן העכו״ם ואחר כך יותרו לאכילה ושתיה אינן לענין טומאה וטהרה אלא מדברי סופרים
+    - Says not matter of טומאה וטהרה, rather מדברי סופרים
+    - **רמב״ם continues:** וכיון שכתוב וטהר, אמרו חכמים הוסיף לו טהרה אחר עבירתו באש להתירו מגיולי עכו״ם
+        - Simple reading is מדרבנן because calls it מדברי סופרים and פסוק only אסמכתא
+- **Q:** does מדברי סופרים and אמרו חכמים in רמב״ם always mean דרבנן
+    - **רמב״ם הלכות אישות פרק א׳ הלכה ב׳ about קידושי כסף:** also uses term מדברי סופרים, yet not clear every use means מדרבנן
+    - **משנה סוכה:** אמרו חכמים אין אדם יוצא ידי חובתו ביום טוב ראשון של חג בלולבו של חבירו, yet לכם is דין דאורייתא
+    - **בבא מציעא ל״ג:** שהרי אמרו שומר חנם נשבע ויוצא, yet those are פסוקים in תורה
+    - **רמב״ם הלכות תפלה פרק א׳ הלכה א׳:** מצות עשה להתפלל בכל יום שנאמר ועבדתם את ה׳ אלקיכם, מפי השמועה למדו שעבודה זו היא תפלה שנאמר ולעבדו בכל לבבכם, אמרו חכמים איזו היא עבודה שבלב זו תפלה, yet all דינים דאורייתא
+    - So unclear what רמב״ם really holds on טבילת כלים
+- **תשובות הרשב״א חלק ג׳ סימן רנ״ה:** מדברי הרמב״ם ז״ל יראה שהוא סובר שהוא מדאורייתא
+    - Says sounds that way from סוגיא in עבודה זרה, and רמב״ם clearly holds דאורייתא
+- **כסף משנה:** quotes תשובות הרשב״א but disagrees, thinks רמב״ם holds דרבנן
+- **ישועות יעקב:** עיקר מצות טבילה is דאורייתא but איסור to use כלים before טבילה is דרבנן
+    - Requirement to do טבילה is מדאורייתא as compromise approach, but prohibition on use prior to טבילה may only be דרבנן
+
+## נאמנות of קטן and כוונה by טבילה
+
+- **שלחן ערוך סימן ק״כ סעיף י״ד:** אין מאמינים קטן על טבילת כלים
+- **ט״ז:** this is ראיה we hold טבילת כלים is מדאורייתא, because otherwise we would trust קטן
+    - קטנים are not נאמן on דאורייתא but are נאמן on דרבנן
+- **רמ״א:** permits when קטן is טובל in front of גדול because then not relying on נאמנות of child
+    - Means do not need כוונה by טבילת כלים, just need to know that it happened
+    - Child has no נאמנות but גדול with child has נאמנות
+    - Critical because tells us קטן does have נאמנות on דרבנן
+- **טבילה of glass is דרבנן:** so if everything was just glass, קטן is נאמן on דרבנן
+    - Mistake people make is saying no ברכה on glass, but wrong, do say ברכה on glass
+        - Make ברכות on מצות דרבנן also, like נר חנוכה and מקרא מגילה
+        - Only חייב מדרבנן but still say ברכה
+- **רמב״ן and רשב״א:** טבילת כלים does not need כוונה
+    - Even if כלי falls into מקוה, valid טבילה
+- **שלחן ערוך סעיף ט״ו:** פוסק like רמב״ן and רשב״א that if non-Jew טובל your כלים, טבילה is valid because no worse than כלים falling into מקוה on own
+    - But have to know that it happened
+- **רמ״א adds:** non-Jew not believed to say he טובל’d dishes, טבילה only valid if Jew watching non-Jew
+    - Standard practice with caterers is משגיח goes to כלי מקוה or ocean with crates of כלים and non-Jewish workers help טובל all כלים
+- **ט״ז סעיף קטן י״ז:** not good idea to let קטן or non-Jew do טבילה even if standing there because lose out on ברכה
+    - Suggest say ברכה, put one dish in מקוה, then even לכתחילה non-Jew can טובל rest, which is what restaurants and caterers do
+    - Bottom line is do not need כוונה for טבילת כלים
+- **מגן אברהם on הדלקת נרות:** if woman forgets to light שבת candles and already מקבל שבת but still בין השמשות, she can have גוי light and she says ברכה
+    - **Q:** why can she say ברכה when she is not lighting
+        - לכאורה reflects on טבילה where ט״ז says cannot have גוי do it and you say ברכה, must put one כלי into מקוה yourself, must do מעשה
+- **שלחן ערוך הרב suggests distinction:** גדר המצוה by טבילה is מעשה טבילה, while הדלקת נרות is about שלום בית, meaning ongoing עונג שבת generated by light environment on שבת
+    - **הר צבי, Rav Tzvi Pesach Frank, formulates:** מצוה similar to מילה is not necessarily to do מעשה but to arrange that it get done, that it happens
+        - So מצוה of lighting שבת candles is not necessarily to light but to make sure candles get lit, therefore woman able to say ברכה
+- **הגר״א gives rules for נאמנות:** טבילת כלים is דאורייתא, and that is why קטן not believed on anything אינו בידו even if only דרבנן, and במה שבידו נאמן בדרבנן
+    - Rule is anything קטן is able to do, believed on דרבנן
+    - So back to שאלה, if in fact was glass and was בידו of קטן to do it, קטן would have נאמנות
+
+## ספק glass vs metal and חזקת איסור
+
+- **Problem 1:** maybe was not glass, mind may be playing tricks
+- **פתחי תשובה סעיף קטן י״ד on trusting קטן for glass כלים:** says בחזקת איסור, so maybe cannot trust him
+    - קטן believed on what is בידו and דרבנן, but maybe not on something with חזקת איסור
+    - כלים had חזקת איסור prior to טבילה, therefore even though most פוסקים argue and hold trust קטן on glass based on ט״ז, פתחי תשובה thinks maybe cannot
+    - Even says if someone barely בר מצוה, maybe cannot even trust him on metal כלים, but will not go that far
+- **New issue:** here not trusting קטן, fellow is now אברך in כולל in mid-twenties, ten or fifteen years later
+    - Trusting גדול about what happened בקטנותו
+- **משנה and גמרא end of second פרק of כתובות on one who knows עדות about what he saw as קטן and מעיד as גדול:** by דינים דאורייתא it is אינו כלום, but something עיקרו מדרבנן he is believed
+    - Again cuts same line: if metal כלים, לכאורה דין דאורייתא, would not be believed even בגדלותו על מה שעשה בקטנותו
+    - If glass כלים, would be believed, but would not even need to believe him בגדלותו because would even believe him בקטנותו
+    - לכאורה even acc to פתחי תשובה would believe him about glass כלים because מעיד בגדלותו
+- **All these הלכות of גדול about what he saw בקטנותו appear in חושן משפט סימן ל״ה סעיף ד׳ and סעיף ו׳ where we talk about who is כשר לעדות**
+- **Everyone agrees glass כלים are דרבנן:** so for sure נאמן for all reasons said
+    - **ערוך השלחן ק״כ סעיף י״ג says בפירוש:** כלי זכוכית נאמן even בקטנותם because only מדרבנן, goes back and forth on חזקת איסור but seems to side with ט״ז against פתחי תשובה
+- **On כלי מתכות, metal כלים, harder to be מקיל:** because acc to רוב ראשונים טבילת כלים is דאורייתא, not like רמב״ם as understood by some ראשונים that only מדרבנן
+
+## צדדים להקל on metal and דבר שיש לו מתירין
+
+- Since ספק whether all כלים were glass, and even if some were metal, another צד for metal כלים
+    - First, maybe none of כלים were metal
+    - Second, even if some were metal, צד as follows
+- **New metals not in תורה:** תורה lists only five or six types of metal, anything not among מיני מתכות in תורה like aluminum, which most metal כלים made of, or other composite, could be only מדרבנן
+    - **רב משה in אגרות משה writes:** only מדרבנן
+        - Similar discussion about טומאה that הלכה of חרב הרי הוא כחלל may only apply to metals mentioned in תורה, e.g. airplane made of aluminum may not have דין of metal
+    - **Q:** what would be argument it is פטור from טבילת כלים if even glass is חייב מדרבנן
+        - **A:** never made תקנה, never included it, even though רבנן would have required טבילה if had aluminum, but never had chance to
+        - So could argue פטור, but at most says רב משה it would be דרבנן
+        - One could argue anything with all properties of metal would be חייב דאורייתא, but at least צד להקל
+- **Rav Schachter in general does not make ברכה on טבילת כלים ever:** because any כלי not owned by individual גוי but owned by corporation, which is entity and not individual non-Jew, could be does not require טבילת כלים to begin with
+    - He will do טבילת כלים even on disposable aluminum pans but will not say ברכה because of that possibility
+- **Q:** whole thing is ספק but דבר שיש לו מתירין, so הלכה cannot rely on ספק דרבנן לקולא on דבר שיש לו מתירין, something with way to make okay by טובל’ing כלים again
+    - **A:** assume in שלחן ערוך that הגעלת כלים is not דבר שיש לו מתירין
+        - When comes to כשר’ing כלים, not דבר שיש לו מתירין because so hard, takes טירחא and effort, therefore not considered דבר שיש לו מתירין even though way to make מותר
+        - Later פוסקים say because used to schlepp water from well and chop tree for wood and light fire and heat water
+        - Nowadays take water from sink, many have faucet over stove, just fill pot and turn on fire, so easy, so one could argue טבילת כלים is דבר שיש לו מתירין because so easy
+        - But when comes to remembering fifteen years later which כלים it was, and now טובל all כלים in house because some maybe, לכאורה big enough טירחא that would not be דבר שיש לו מתירין, therefore room to rely on ספק דרבנן לקולא
+- Asked brother what he thought, he made many of these arguments, then wrote: ונראה שאחר כמה שנים שנתערבו כלים אלו בכלים... בכל כליהם, ודאי לא שייך לומר דהוי דבר שיש לו מתירין וצריך להחמיר מספק. זה אינו, שזה טירחא גדולה לחזור להטבילם, ומשום הכי לא הוי דבר שיש לו מתירין
+    - Not דבר שיש לו מתירין, therefore have what to be מקיל
+    - Not only that, could be בטל ברוב, even if ודאי were not טובל them, if cannot identify which is which, and when בטל ברוב not going to require טבילה anyway
+
+## Summary
+
+- With all factors put together, did not think he has any responsibility to go back and tell people their כלים need further טבילה

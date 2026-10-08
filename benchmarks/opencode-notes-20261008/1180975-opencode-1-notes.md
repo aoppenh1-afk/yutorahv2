@@ -1,0 +1,104 @@
+# Giving a Child Two Names
+
+## הקדמה
+
+- **Case:** request to discuss giving a child two names because in תנ״ך and גמ׳ and ראשונים almost nobody has two names
+    - What we will not discuss is why the מנהג started
+        - Was it because of mass casualties where too many people needed to be named after and not enough children, so they doubled up
+        - Was it because of שלום בית compromise where one side wanted to name after his parent and the other side after her parent
+        - Was it because Hebrew names acquired Yiddish translations like יששכר בער and צבי הירש, and then other double and triple names developed from that
+    - What we will discuss is whether it existed in earlier times, how to interpret seeming double names in גמ׳, and whether there is anything wrong with it
+        - Ex: when you cannot decide who to name after, or you add a nicer name alongside the bubbe's name like Freidel
+- **Q1:** do we ever find two names in times of גמ׳ or ראשונים
+- **Q2:** how do we interpret cases in גמ׳ that look like two names
+- **Q3:** is there anything wrong with using two names, either two names in general or naming after two different people
+
+## Answering our Questions
+
+- **נודע ביהודה (מהדורא תנינא אורח חיים סימן קי״ג)**
+    - With weakness of memory, does not think there is a single case in all of ש״ס, בבלי and ירושלמי, where a תנא or אמורא has two names
+    - In ש״ס it was not at all prevalent, but anticipates cases that seem to be two names
+        - **רב אושעיא בריבי, רבי אלעזר הקפר בריבי, חזקיה בריבי**
+            - When בריבי appears alone it is a name, but when added onto someone else's name it is a title
+                - **רש״י (חולין):** consistently says it means he was גדול הדור
+                - When בריבי appears alone, רש״י says it is שם חכם, because usually it is not the name of a חכם but a title
+            - **Q:** there is one exception in חולין דף י״א, and two places where בריבי alone refers to other well-known אמוראים
+                - **A:** in חולין דף נ״ז and סוטה דף כ״ט it refers to חזקיה and רבי יוסי, but it is clear from context who it refers to, so רש״י is not revealing a big חידוש and it is not a double name
+        - **אבא שאול, אבא יוסי**
+            - אבא is also a title indicating importance, just as one calls a father אבא as a way of showing כבוד
+                - Therefore you never find an עבד with the title אבא, except the עבדים של רבן גמליאל because they were so חשוב
+            - **אימא שלום:** wife of רבי אלעזר was not given two names, her name was שלום and she was called אימא because she was such a חשובה lady
+                - Parenthetically, שלום was a woman's name, perhaps a unisex name like יונה which in תנ״ך is for boys and birds but now is used for boys and girls
+        - **עי מרי (גיטין דף ל״ה)**
+            - **רש״י:** it is his שם חניכה, some sort of surname or nickname
+            - **ספר תורת חסד:** one could argue people would use two names for a שם חניכה but not for a regular name
+            - It could also be that עי is a title much like אבא
+    - So in times of גמ׳ people are sometimes called by two, but almost always one is not their real name but a title
+- **In times of ראשונים:** exceedingly rare but not unprecedented
+    - **יעקב ישראל:** a בעל התוספות mentioned very rarely
+        - Appears in תוס׳ כתובות דף צ״ח and תוס׳ חולין דף קי״ב, and in ספר הישר לרבינו תם
+        - His name was both יעקב and ישראל, who were the same person, which gives the impression where doubling started
+    - In תנ״ך משה רבינו and יתרו had many names, but they are never referred to by more than one at the same time, so that does not count
+- **חתם סופר:** brings a ראיה that the מנהג used to be to give only one name from a story of מהרש״ל
+    - **ים של שלמה (גיטין פרק ד׳)**
+        - **Case:** husband and wife debated who to name son after, husband's father מאיר and wife's father יאיר
+            - They named the baby שניאור, שני אור, because מאיר and יאיר both relate to אור
+        - **Q:** why not just call him יאיר מאיר, which would have solved the problem
+            - **A:** אלא מאי, ים של שלמה seems to assume two names was unheard of, so they had to pick one name encapsulating both
+            - **A:** one could argue מאיר יאיר would not have solved it because then they would fight over order, why is he not יאיר מאיר and who gets the first name
+    - The word שניאור already existed before that time
+        - רמב״ן occasionally mentions the name שניאור, way before ים של שלמה
+        - **חיד״א (מערכת גדולים):** רבינו יונה refers to one of his רביים named שניאור
+        - It could be the name existed and they chose it because it encapsulated both fathers
+    - So where the מנהג started we do not know, but in תנ״ך pretty much never, in גמ׳ pretty much never, in ראשונים very rarely
+- **Q:** is there anything wrong with giving multiple names, which is relatively recent vintage
+    - Distinction between giving two names in general, like after the same person or just two names you like, versus giving two names after two different people
+    - Another element is adding a second name due to illness
+        - גמ׳ recommends שינוי השם will be משנה מזל, so when a person is desperately ill we change the name
+            - **בית יוסף (יורה דעה סימן של״ח):** already says it was fairly common to change name in face of terrible illness to remove the decree, citing גמ׳ ראש השנה דף ט״ז and תענית דף ט״ז and בבא קמא דף קכ״ה
+            - Usually done with consultation of גדולים because מדרש says parents naming a child have a sense of רוח הקודש, and later on only שוטים or a big צדיק has that
+        - **Ex:** Rav Belsky was Rav Yisroel Belsky, and when he died he was Rav Chaim Yisroel Belsky because about seven years before he died when very sick they added חיים
+            - It sticks if he gets better, but if he dies from the illness you remove it
+            - Many people wake from a coma to discover their name changed, which is the better of the two outcomes
+- **Giving two names in general**
+    - נודע ביהודה and חתם סופר do not explicitly אוסר it, but their tone suggests some negative feeling
+    - **חזון איש (reported by Rav Sternbuch in תשובות והנהגות חלק א׳ סימן תר״ו):** did not like the מנהג at all
+        - Even though his own name was אברהם ישעיה, he did not name himself since his parents named him
+        - He does not really give a reason, but presumably because of complexities in הלכות גיטין of what is a real name and what do you write if he is only called by one name
+            - People get nervous about כתובות, but that is lower stakes, while a גט deals with יחוס of כלל ישראל so they must be careful to get every possible name right
+    - But חזון איש was somewhat of a דעת יחיד on this
+        - **ר״מ (אגרות משה אורח חיים חלק ה׳ סימן י׳ אות ג׳):** הקריאה בשני שמות יחד לא היה זה בדורות הקדמונים, it did not exist even after זמן הגאונים
+            - Quotes מהרש״ל in גיטין, אין דרך להיות לאדם שני שמות כאחד
+            - Quotes נחלת שבעה, ואם ניתן לו שני שמות, ושניהם כאחד כאשר שמעתי שבמקצת מקומות נהגו כן, meaning he heard some places give two names at ברית but where he was they did not
+            - Says אבל אינו נוגע לנו לידע סיבת הדבר, it is not important to know why this happened
+            - Says דאף שהיה זה שלא כהוגן ומיחו בהם, historically it was not right and rabbis protested, but מכיון שלא היה על זה איסור גמור לא הועיל כידוע, since it was not an איסור גמור yelling does not help
+                - When rabbis yell about an איסור גמור כלל ישראל eventually obeys, but when not an איסור גמור it often does not help
+            - Therefore essentially there is nothing wrong with it בזמן הזה, and it removes even suspicion against ישראל including סתמן שאינם בני תורה
+- **Naming after two different people:** easiest way to resolve שלום בית, but assuming no objection to two names, several considerations
+    - **ספר ברית אבות:** quotes from a number of גדולים who say not to name after two different people, particularly two people who did not get along in their lifetimes, which unfortunately is sometimes the מחותנים, presumably based on kabbalistic considerations
+    - Combination of two names may be considered a third independent name and not really naming after anybody, so the זכות for that נשמה and extension of מזל is lost
+        - Rav Schechter quoted from חזון איש that there is a direction to the זכות, when you name after a family member it is a זכות for that family member, when you name after a צדיק it is a זכות for the baby, but a combined name could be a זכות for nobody if not the same name
+        - **Ex:** if one זיידע was Avraham and the other was Yitzchak, naming Avraham Yitzchak could be named after neither
+    - **Rav Leizer Silver (in ספר משולחן גבוה end of פרשת מטות):** one named Yitzchak Isaac may name his child Avraham Yitzchak because they have nothing to do with each other
+        - Like George Foreman naming sons George II, George III, Avraham Yitzchak is a different name from Yitzchak Isaac even though Yitzchak is in both
+        - This was a פסק for Telz ראשי ישיבה, that Rav Yitzchok Isaac Ausband named his child Rav Avraham Yitzchok Ausband
+        - **ראיה from חומש end of פרשת מטות:** יאיר son of מנשה captured villages and renamed them חוות יאיר, then נבח captured קנת and called it נבח בשמו
+            - **Q:** why add בשמו by נבח
+            - **A:** if you name straight יאיר that is בשמו, but he called it חוות יאיר with an addition, so it does not say בשמו, while נבח called it straight נבח with no addition, so that is בשמו
+            - Therefore once you change or add anything it is not the same name
+    - **דעת זקנים מבעלי התוספות:** יוסף named his son אפרים after his זיידע and עלטער זיידע, אברהם אבינו and יצחק אבינו
+        - Because אברהם refers to himself as אנכי עפר ואפר and יצחק was like אפר על גבי המזבח by עקידה, so double אפר is אפרים
+        - Implicit that you can name for two people even though not exact name of either, like מהרש״ל story of מאיר and יאיר becoming שניאור, where that is okay
+- **Q:** what about יוסף called צפנת פענח, and using non-Jewish names
+    - **A:** that is a different topic about non-Jewish names, where ר״מ has a somewhat controversial תשובה bringing many ראיות that many אמוראים had names that did not seem Jewish
+        - **Q:** are we not זוכה to גאולה because שלא שינו את שמם
+        - **A (ר״מ):** שלא שינו את שמם mattered because that was the only thing making us Jewish before we had תורה, but once we have תורה then תרי״ג מצוות distinguishes us, so you can name a child Bobby or Jeb
+    - **Q:** would there be an issue with Christian names like John or Paul
+        - **A:** any name implying allusion to object of worship in other religions would be highly objectionable, but many Jews are named Paul and John and Rabbeinu Peter existed, so hard to say they are אסור
+    - ר״מ in that תשובה about secular names brings many ראיות that people had such names
+
+## Summary
+
+- We find double names pretty much never in תנ״ך, pretty much never in גמ׳ where apparent doubles are titles like בריבי and אבא or a שם חניכה, and very rarely in ראשונים like יעקב ישראל
+- Acc to ר״מ there is nothing wrong with giving two names בזמן הזה even though it did not exist in דורות הקדמונים and is שלא כהוגן but not an איסור גמור, while חזון איש did not like it because of גיטין complexities
+- Naming after two different people raises further issues of kabbalistic concern when they did not get along, and whether Avraham Yitzchak after Avraham and Yitzchak counts as naming at all, with Rav Leizer Silver holding an addition makes it a different name versus דעת זקנים implying אפרים counts for both

@@ -1,0 +1,70 @@
+{
+  "method": "Delete only acknowledged native sessions from owned benchmark scratch ledgers; remove workspace only after deletion succeeds.",
+  "results": [
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/probe/opencode-L1VLnj",
+      "sessions": 1,
+      "status": "deleted"
+    },
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/probe/opencode-LMYvxK",
+      "sessions": 1,
+      "status": "deleted"
+    },
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/probe/opencode-XjNUWd",
+      "sessions": 1,
+      "status": "deleted"
+    },
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/probe/opencode-gPo3Dr",
+      "sessions": 1,
+      "status": "deleted"
+    },
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/probe/opencode-h0GgYT",
+      "sessions": 1,
+      "status": "deleted"
+    },
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/opencode/opencode-0OgwUD",
+      "sessions": 1,
+      "status": "deleted"
+    },
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/opencode/opencode-93T86t",
+      "sessions": 1,
+      "status": "deleted"
+    },
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/opencode/opencode-IKPTA0",
+      "sessions": 1,
+      "status": "deleted"
+    },
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/opencode/opencode-JRxo0l",
+      "sessions": 1,
+      "status": "deleted"
+    },
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/opencode/opencode-eUABe4",
+      "sessions": 1,
+      "status": "deleted"
+    },
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/opencode/opencode-eZ0BaI",
+      "sessions": 1,
+      "status": "deleted"
+    },
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/opencode/opencode-hxkgqx",
+      "sessions": 1,
+      "status": "deleted"
+    },
+    {
+      "root": "benchmarks/opencode-notes-20261008/scratch/opencode/opencode-ySo94M",
+      "sessions": 1,
+      "status": "deleted"
+    }
+  ]
+}

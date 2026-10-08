@@ -54,14 +54,20 @@ export async function runProcess(
     signal: AbortSignal;
     maxBytes?: number;
     timeoutMs?: number;
+    env?: NodeJS.ProcessEnv;
   },
 ): Promise<Buffer> {
   checkAbort(options.signal);
-  const owned = new OwnedProcess(executable, args, options.cwd, {
-    PATH: '/usr/local/bin:/usr/bin:/bin',
-    LANG: 'C.UTF-8',
-    NODE_ENV: 'production',
-  });
+  const owned = new OwnedProcess(
+    executable,
+    args,
+    options.cwd,
+    options.env ?? {
+      PATH: '/usr/local/bin:/usr/bin:/bin',
+      LANG: 'C.UTF-8',
+      NODE_ENV: 'production',
+    },
+  );
   const child = owned.child;
   const chunks: Buffer[] = [];
   let bytes = 0;

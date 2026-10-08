@@ -1,0 +1,31 @@
+{
+  "id": "1117682",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash-medium",
+  "repeat": 1,
+  "profileId": "7c16f132e4aa5b96b72274035524d3ef48b27cb2aea86fcc6db966d6389de9b2",
+  "sourceHash": "903d2549844f7ce1f68e7959159b74bc166bf02e6de00bcefd17df30a773aaa2",
+  "status": "completed",
+  "elapsedMs": 61402.25518,
+  "requests": [
+    {
+      "kind": "notes",
+      "elapsedMs": 61399.397601,
+      "inputBytes": 34219,
+      "outputBytes": 4724,
+      "diagnostics": {
+        "protocolMessages": 56,
+        "messageChunks": 49,
+        "thoughtChunks": 0,
+        "thoughtBytes": 0,
+        "stderrBytes": 0,
+        "promptMs": 53652.750373
+      }
+    }
+  ],
+  "repairCalls": 0,
+  "words": 718,
+  "hebrewWords": 199,
+  "violations": [],
+  "notesFile": "1117682-gemini-1-notes.md"
+}

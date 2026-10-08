@@ -5,6 +5,10 @@ operator_root=${1:-/opt/yutorah-operator}
 [ "$EUID" -eq 0 ] || { echo 'Run with sudo.' >&2; exit 1; }
 # For container VMs without systemd. Credential values never appear in process arguments.
 for service in operator content; do
+  if [ "$service" = operator ] && [ -f "$operator_root/DEPLOYMENT_PENDING" ]; then
+    echo 'operator deployment is pending; apply its migrations before starting'
+    continue
+  fi
   if [ "$service" = operator ]; then
     account=yutorah-worker; envfile=/etc/yutorah-operator.env; command=serve-operator
   else

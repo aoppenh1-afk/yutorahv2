@@ -1,0 +1,31 @@
+{
+  "id": "1181042",
+  "provider": "opencode",
+  "model": "opencode/muse-spark-1.3-contributor-free",
+  "repeat": 1,
+  "profileId": "03174a13fe9438642400b50251b7446f739a4ab7fb0a7007c228d097127e7bc3",
+  "sourceHash": "dfad1ce94c3304253a1a512d12f3f7d6bc5570f4ba2b11ac8d0d431e27601b83",
+  "status": "completed",
+  "elapsedMs": 31334.431637,
+  "requests": [
+    {
+      "kind": "notes",
+      "elapsedMs": 31332.897368000005,
+      "inputBytes": 55434,
+      "outputBytes": 18399,
+      "diagnostics": {
+        "protocolMessages": 779,
+        "messageChunks": 771,
+        "thoughtChunks": 0,
+        "thoughtBytes": 0,
+        "stderrBytes": 0,
+        "promptMs": 25514.91378199999
+      }
+    }
+  ],
+  "repairCalls": 0,
+  "words": 2445,
+  "hebrewWords": 1109,
+  "violations": [],
+  "notesFile": "1181042-opencode-1-notes.md"
+}

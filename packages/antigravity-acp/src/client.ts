@@ -112,7 +112,7 @@ export class ACPClient {
   private nextId = 1;
   private error?: Failure;
   private denying = false;
-  private sessionId?: string;
+  protected sessionId?: string;
   private output: string[] = [];
   private outputBytes = 0;
   private abort: () => void;
@@ -125,7 +125,7 @@ export class ACPClient {
   };
 
   constructor(
-    private launch: Launch,
+    protected launch: Launch,
     private signal: AbortSignal,
     private onAuthorization?: (value: { url: URL; port: number }) => void,
     private graceMs = 2000,
@@ -206,11 +206,7 @@ export class ACPClient {
     );
   }
   async session(cwd: string, model?: string): Promise<string[]> {
-    const result = await this.request('session/new', { cwd, mcpServers: [] });
-    if (typeof result.sessionId !== 'string' || !result.sessionId)
-      throw new Failure('protocol');
-    this.sessionId = result.sessionId;
-    await this.onSession?.(this.sessionId);
+    const result = await this.beginSession(cwd);
     const modes = rows(object(result.modes).availableModes).map((m) => m.id);
     if (modes.length && !modes.includes('default'))
       throw new Failure('configuration');
@@ -258,6 +254,15 @@ export class ACPClient {
       }
     }
     return models;
+  }
+  /** Shared framing and session ownership; each provider validates its own policy. */
+  protected async beginSession(cwd: string): Promise<ObjectValue> {
+    const result = await this.request('session/new', { cwd, mcpServers: [] });
+    if (typeof result.sessionId !== 'string' || !result.sessionId)
+      throw new Failure('protocol');
+    this.sessionId = result.sessionId;
+    await this.onSession?.(this.sessionId);
+    return result;
   }
   async prompt(
     text: string,

@@ -42,9 +42,9 @@ main's typo and partial-word matching.
    Source selections can be saved before Google is connected. Importing waits
    for sign-in and a saved advertised model, so jobs cannot accidentally pin an
    unavailable default model. Importing itself does not download audio.
-7. Click **Start queue**. Up to five Antigravity sessions run in parallel by
-   default. Separate recordings, long-recording chunks, and study notes share
-   that limit. The GUI shows active sessions and each job’s statuses.
+7. Click **Start queue**. Up to five Antigravity transcription sessions and two
+   independent Muse Free notes sessions run in parallel by default. The GUI
+   shows each provider's active sessions and each job’s statuses.
    **Pause queue** aborts owned work, saves reusable chunks/cleaned text, and
    requeues interrupted jobs. **Pause selection** stops that source's discovery
    and future claims; a job already running can finish.
@@ -71,8 +71,50 @@ workflow. Changing models or upgrading the notes pipeline does not automatically
 regenerate notes that already have a job; failed notes remain available for retry.
 Disabling automatic notes reduces new short-shiur work to one request.
 
+Notes default to OpenCode ACP with `opencode/muse-spark-1.3-contributor-free`.
+The transcription model remains Gemini. `NOTES_CONCURRENCY` controls the separate
+notes pool (default two); it does not consume `ACP_CONCURRENCY` slots. Both the
+generation model and OpenCode's helper model are explicitly pinned to the free
+variant, and the client verifies the selected model before sending the transcript.
+There is no paid-model or Gemini fallback. Free-provider throttling waits from
+one to fifteen minutes, independently of Google's five-hour allowance.
+
+Install OpenCode **1.18.33** with `sudo bash deploy/transcription/install-opencode.sh`.
+The installer verifies the official release archive's pinned SHA-256 and installs
+the separate binary at `/usr/local/bin/opencode-notes`; the operator installer
+also performs this step. An existing verified archive can be passed with
+`sudo env OPENCODE_ARCHIVE=/path/to/archive bash deploy/transcription/install-opencode.sh`.
+For another service-accessible absolute path, pass it as the first argument and
+set `OPENCODE_EXECUTABLE` accordingly. See the [official release](https://github.com/anomalyco/opencode/releases/tag/v1.18.33).
+Leave the user's normal OpenCode installation in place. OpenCode 2 currently
+ignores the ACP runtime configuration; the notes adapter rejects that version.
+See the [upstream ACP configuration issue](https://github.com/anomalyco/opencode/issues/52259).
+The adapter uses the native plan agent and supplies the complete notes skill in
+the request. Native tool definitions remain available because disabling them
+causes Zen free-tier rejections, but tool operations require permission and the
+ACP client rejects every tool call. No tools are needed for the supplied transcript.
+The tested stable runtime can use the anonymous free lane; a Zen account is not
+required for that working route. A Console login to OpenCode 2 remains separate.
+Keep Zen auto-reload disabled if billing is configured.
+After building, `npm run worker -- notes-check` performs a short live check of
+the selected free model without opening the transcription database or sending audio.
+An advertised free model alone does not prove successful inference is available;
+verify the pinned runtime with the live check before starting a backlog.
+OpenCode documents that this free offer is temporary and that Contributor inputs
+and outputs can train Meta models. See [Zen's pricing and privacy terms](https://docs.opencode.ai/docs/zen/).
+
+Run database migration `010_notes_provider.sql` before starting the updated worker.
+During an upgrade, a `DEPLOYMENT_PENDING` file in the operator installation
+prevents the container startup helper from resuming the queue before migrations
+finish. Remove it only after migration and provider checks succeed.
+Switching to OpenCode or updating its runtime repins queued notes to the new provider profile.
+Completed notes and live leases retain their existing versions. Each notes job
+continues to reference its exact transcript. `NOTES_PROVIDER=antigravity` selects
+the original shared-provider workflow when explicitly configured.
+
 When Antigravity returns its `Usage Limit Reached` notice or a quota/rate-limit
-error, the worker stops every lane and requeues interrupted work. It resumes
+error, the transcription worker stops its lanes and requeues interrupted work. Independent
+OpenCode notes continue running, including after a service restart during the saved wait. Transcription resumes
 automatically **5 hours and 1 minute after detection**. The operator shows the
 scheduled time and saves it in PostgreSQL, so a service or VM restart preserves
 the original deadline. Changing model or notes settings during the wait also

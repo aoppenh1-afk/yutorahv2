@@ -18,7 +18,15 @@ import {
   TranscriptionStore,
 } from '../../../packages/transcription/src/store.js';
 import { mediaURL } from '../../../packages/yutorah-core/src/media.js';
-import { runWorker, runtimeIdentity, log } from './worker.js';
+import { runtimeIdentity, log } from './worker.js';
+import { runPipelineWorker } from './pipeline-worker.js';
+import {
+  FREE_NOTES_MODEL,
+  openCodeIdentity,
+  OPENCODE_VERSION,
+  withOpenCode,
+  type OpenCodeConfig,
+} from '../../../packages/opencode-acp/src/runtime.js';
 import { SelectionStore, scanSelections } from './selections.js';
 import { notesProfile } from '../../../packages/transcription/src/notes.js';
 import { NotesStore } from '../../../packages/transcription/src/notes-store.js';
@@ -64,6 +72,15 @@ const runtime: RuntimeConfig = {
       : 'interactive',
   ),
 };
+const notesProvider = process.env.NOTES_PROVIDER ?? 'opencode';
+const openCode: OpenCodeConfig | undefined =
+  notesProvider === 'opencode'
+    ? {
+        executable: process.env.OPENCODE_EXECUTABLE ?? 'opencode-notes',
+        version: process.env.OPENCODE_VERSION ?? OPENCODE_VERSION,
+        scratch: join(state, 'notes-scratch'),
+      }
+    : undefined;
 const option = (name: string, fallback = '') =>
   args[args.indexOf(name) + 1] && args.includes(name)
     ? args[args.indexOf(name) + 1]
@@ -87,6 +104,26 @@ function store() {
   return new TranscriptionStore(database);
 }
 async function main() {
+  if (!['opencode', 'antigravity'].includes(notesProvider))
+    throw new Failure('configuration');
+  if (command === 'notes-check') {
+    if (!openCode) throw new Failure('configuration');
+    await withOpenCode(
+      openCode,
+      controller.signal,
+      async (client, workspace) => {
+        await client.session(workspace);
+        const reply = await client.textPrompt(
+          'Return exactly: NOTES_READY',
+          60_000,
+        );
+        if (reply.trim() !== 'NOTES_READY')
+          throw new Failure('incomplete_output');
+        log({ event: 'notes_provider_ready', model: FREE_NOTES_MODEL });
+      },
+    );
+    return;
+  }
   if (
     ['auth', 'auth-check', 'probe', 'run', 'serve-operator'].includes(command)
   ) {
@@ -223,6 +260,8 @@ async function main() {
           'packages/transcription/skills/lectern-notes/SKILL.md',
       ),
       concurrency: Number(process.env.ACP_CONCURRENCY ?? DEFAULT_CONCURRENCY),
+      openCode,
+      notesConcurrency: Number(process.env.NOTES_CONCURRENCY ?? 2),
       intervalMs: Number(process.env.CATALOG_POLL_MS ?? 300_000),
     });
     await serveOperator(
@@ -265,7 +304,7 @@ async function main() {
         deepIntervalMs < intervalMs
       )
         throw new Failure('configuration');
-      await runWorker(
+      await runPipelineWorker(
         db,
         {
           runtime,
@@ -274,14 +313,18 @@ async function main() {
           ),
           pollMs: 5000,
           model: settings.model,
+          openCode,
+          notesConcurrency: Number(process.env.NOTES_CONCURRENCY ?? 2),
           selectedOnly: !args.includes('--unscoped'),
           notes:
             process.env.NOTES_ENABLED === 'false'
               ? undefined
               : notesProfile({
-                  model: settings.model,
+                  model: openCode ? FREE_NOTES_MODEL : settings.model,
                   language: settings.language,
-                  runtime: runtimeIdentity(),
+                  runtime: openCode
+                    ? openCodeIdentity(openCode)
+                    : runtimeIdentity(),
                   transcriptionSkill: skill,
                   notesSkill: await readFile(
                     resolve(

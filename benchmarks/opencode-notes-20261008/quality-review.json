@@ -1,0 +1,159 @@
+{
+  "method": "Manual source-grounding review of all eight final Muse outputs and their fresh Gemini baselines against the exact saved full transcripts. Historical notes are not the comparison. This reviews preservation of claims, qualifications, citations, Torah terminology, developed arguments and lecture order; it does not verify the original audio or independently adjudicate halacha. No automated numeric quality score is claimed.",
+  "conclusion": "Muse retained the central debates and practical conclusions across this corpus and usually produced fuller outlines. It is a viable free notes candidate, with omissions, occasional rearrangement and qualification/attribution errors requiring attention. Gemini also lost qualifications and sometimes added unsupported citation precision. Structural success does not establish factual or contract-perfect notes.",
+  "sources": [
+    {
+      "id": "1117682",
+      "retained": "Both preserve the three proposed origins of tallis stripes, black versus blue/sky symbolism, the flag story, white Sephardic practice, Ben Ish Chai's allowance for minor color and rabbinic photo examples. Muse includes fuller source wording.",
+      "findings": [
+        {
+          "provider": "both",
+          "type": "qualification",
+          "detail": "The speaker's tentative suggestion that stripes might have helped determine the earliest Shema time becomes a more affirmative explanation."
+        }
+      ]
+    },
+    {
+      "id": "1151241",
+      "retained": "Both preserve the Rosh's roots versus Geonim's trunk criterion, banana/orlah comparison, Shulchan Aruch 203:2 and Mishnah Berurah 3, height criteria, Rav Moshe's local-minhag limitation and the differing cranberry rulings.",
+      "findings": [
+        {
+          "provider": "opencode",
+          "type": "omission",
+          "detail": "Omits the speaker's statement that he had not asked Rav Schachter or Rav Sobolofsky and his invitation to follow up with them."
+        },
+        {
+          "provider": "gemini",
+          "type": "qualification_attribution",
+          "detail": "Presents Rav Gedalia Dov Schwartz's reported ruling directly and attributes the less-risky rationale to him. The source is hearsay, with the rationale added by the speaker. Muse retains the שמעתי qualification."
+        },
+        {
+          "provider": "opencode",
+          "type": "style",
+          "detail": "Preserves some awkward source repetition in the example of correcting a mistaken bracha; Gemini cleans up the phrasing."
+        }
+      ]
+    },
+    {
+      "id": "1122687",
+      "retained": "Both distinguish theft and induced error from an unsolicited mistake, keep the chillul/kiddush Hashem categories, the Rambam/Tur/Rema discussion, later expectation of return, Binyamin Zeev story, Be'er Hagolah and the employee/boss qualification. Muse preserves fuller quotations without changing the central distinctions.",
+      "findings": [
+        {
+          "provider": "opencode",
+          "type": "omission",
+          "detail": "Omits the Amazon example, while retaining the issue it illustrated."
+        }
+      ]
+    },
+    {
+      "id": "1056185",
+      "retained": "Both retain cooking-after-roasting and kli shlishi disputes, the two kneading steps, Rebbi versus Rabbi Yosi bar Yehuda, the mayonnaise comparison, granular versus muddy coffee, Rabbi Bleich's uncertainty and the speaker's unresolved lishah concern.",
+      "findings": [
+        {
+          "provider": "opencode",
+          "type": "order",
+          "detail": "Moves the final unresolved lishah conclusion to the opening of that section before reconstructing the argument; the uncertainty itself remains clear."
+        },
+        {
+          "provider": "gemini",
+          "type": "unsupported_citation_precision",
+          "detail": "Adds amud aleph to Shabbos 18 (יח.) although the supplied transcript gives only the daf. The notes skill forbids guessing a missing amud. Muse keeps the daf without an amud."
+        },
+        {
+          "provider": "both",
+          "type": "inherited_source_spelling",
+          "detail": "The transcript spells אגלי טל as עגלי טל and both outputs inherit that spelling. This is not evidence of a newly invented source."
+        }
+      ]
+    },
+    {
+      "id": "1183432",
+      "retained": "Both preserve de'oraisa/derabbanan views, Rambam terminology examples, Rashba/Kesef Mishneh/Yeshuos Yaakov, supervision versus intent, bracha and candle-lighting comparison, glass/metal and chazakas issur distinctions, adult testimony about childhood, corporate ownership, tircha and bitul berov. Both retain the combined-factor conclusion about notifying the neighbor. Muse also preserves the counterview that new metals might still qualify on a Torah level.",
+      "findings": [
+        {
+          "provider": "gemini",
+          "type": "unsupported_citation_precision",
+          "detail": "Adds amud aleph to Bava Metzia 33 (לג.) although the source gives only ל״ג. Muse does not guess the amud."
+        },
+        {
+          "provider": "gemini",
+          "type": "qualification",
+          "detail": "States bitul berov more definitively, while the source and Muse present it as an additional possible ground for leniency."
+        }
+      ]
+    },
+    {
+      "id": "1180975",
+      "retained": "Both preserve apparent double names as titles/nicknames, the rare Yaakov Yisrael example, Shneur story and counterargument, Chazon Ish/Rav Moshe, naming after two people, Rav Leizer Silver's proof, Ephraim comparison, illness-related name changes and secular-name questions.",
+      "findings": [
+        {
+          "provider": "both",
+          "type": "qualification",
+          "detail": "Make the speaker's uncertain recollection of Rav Schachter quoting the Chazon Ish about whom naming benefits sound like a definite attribution."
+        },
+        {
+          "provider": "gemini",
+          "type": "qualification",
+          "detail": "Presents gittin complications as the Chazon Ish's stated reason. The source says no reason was given and offers it presumptively. Muse preserves that qualification in its main discussion but loses it in its closing summary."
+        },
+        {
+          "provider": "opencode",
+          "type": "order",
+          "detail": "Moves the later developed citations about illness-related name changes into the earlier introductory illness discussion. All major topics remain, but strict lecture order is not fully preserved."
+        },
+        {
+          "provider": "gemini",
+          "type": "source_uncertainty",
+          "detail": "Uses Yosef/Yitzchak as definite examples from the Nachalas Shivah quote even though that fragment is marked unclear in the stored transcript. Muse omits the uncertain fragment."
+        }
+      ]
+    },
+    {
+      "id": "1181377",
+      "retained": "Both preserve Tosafos, Beis Yosef's question, Yam Shel Shlomo, Bach, Aruch LaNer, optional mitzvah versus obligation, Rav Ovadia's view and poultry exception, charity requirement and the possible once-daily schedule. Muse gives much fuller source quotations and retains the caveat about alcohol that Gemini omits.",
+      "findings": [
+        {
+          "provider": "opencode",
+          "type": "merged_views_in_summary",
+          "detail": "The closing summary groups Rambam, Yam Shel Shlomo, Bach and Rav Ovadia under עיקר שמחה in wine. The lecture and Muse's own main section explicitly describe Yam Shel Shlomo as keeping meat primary and adding wine as a supplement. The summary therefore blurs this distinction."
+        },
+        {
+          "provider": "opencode",
+          "type": "quotation_attribution",
+          "detail": "Within the Rambam charity quotation, includes the parenthetical addition about gladdening the Shechinah without retaining the source's explicit explanation that this addition is not Rambam's wording."
+        },
+        {
+          "provider": "gemini",
+          "type": "omission",
+          "detail": "Omits the caution concerning alcohol problems and very young people, and the example of providing food/clothing to another family at their own table."
+        },
+        {
+          "provider": "gemini",
+          "type": "unsupported_citation_precision",
+          "detail": "Adds amud aleph to Chullin 83 and Sukkah 42, where the transcript states only the daf. Muse leaves those amudim unspecified."
+        }
+      ]
+    },
+    {
+      "id": "1181042",
+      "retained": "Both preserve the independent mitzvah-bracha discussion, Lev Chaim's two reasons, the anonymous editor's distinct authorship, competing grief/joy reasoning, Yehuda ben Yakar, Halachos Ketanos/Hagomel, Yayin HaTov's benefit argument, rare-mitzvah proof and Sephardic/Ashkenazic limitation, Teichtal's non-practical proposal, Rav Kook story and the new-fruit/tallis conclusion.",
+      "findings": [
+        {
+          "provider": "opencode",
+          "type": "retained_qualifications",
+          "detail": "Retains that the Rav Kook explanation came from an online report without a mareh makom, and the speaker's objections to speculating about what Rav Chaim Palagi would have ruled and using a linked Rosh Hashanah bracha as proof of an independent bracha. Gemini omits these qualifications."
+        },
+        {
+          "provider": "gemini",
+          "type": "unsupported_generalization",
+          "detail": "The summary labels the no-independent-bracha conclusion the mainstream view among poskim. The transcript supplies competing opinions and the speaker's conclusion, but does not establish this prevalence claim."
+        },
+        {
+          "provider": "opencode",
+          "type": "lost_citation_precision",
+          "detail": "Omits the stated amud beis from Berachos 59. It does not invent a different amud."
+        }
+      ]
+    }
+  ]
+}

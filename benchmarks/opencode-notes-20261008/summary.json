@@ -1,0 +1,211 @@
+{
+  "status": "complete",
+  "updatedAt": "2026-10-08T17:50:42.199306+00:00",
+  "method": "Identical saved transcript and full notes skill for both providers; notes-2; no audio or cleanup call. One structural repair allowed. Existing notes are historical references, not paired timing baselines.",
+  "runtime": "opencode:1.18.33:notes-2",
+  "skillHash": "a5f013723b60c47780605117ccff454586920bbcb8bb5e856038114207d545df",
+  "transcriptionSkillHash": "d5946fc961f6d88eda71d9fb920939811f18631fcaa0126fa9433cb716f8d449",
+  "providers": {
+    "gemini": {
+      "model": "gemini-3.8-flash-medium",
+      "completed": 8,
+      "planned": 8,
+      "structuralPasses": 8,
+      "repairCalls": 0,
+      "medianSeconds": 61.46773942749999,
+      "meanSeconds": 67.040011625,
+      "totalSeconds": 536.320093,
+      "medianPromptSeconds": 52.165215627500004,
+      "minSeconds": 42.42953817700001,
+      "maxSeconds": 96.51733065000002
+    },
+    "opencode": {
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "completed": 8,
+      "planned": 8,
+      "structuralPasses": 8,
+      "repairCalls": 0,
+      "medianSeconds": 22.4594826415,
+      "meanSeconds": 22.19239429025,
+      "totalSeconds": 177.539154322,
+      "medianPromptSeconds": 16.873299062999997,
+      "minSeconds": 15.048979501,
+      "maxSeconds": 31.334431637
+    }
+  },
+  "comparison": {
+    "ratioOfMedians": 2.7368279318207285,
+    "medianTimeReductionPercent": 63.46134923671543,
+    "ratioOfTotals": 3.0208552870950633,
+    "museFasterPairs": 8,
+    "sources": [
+      {
+        "id": "1117682",
+        "title": "Stripes on a Talis",
+        "audioMinutes": 7.810183333333334,
+        "geminiSeconds": 61.40225518,
+        "museSeconds": 15.048979501,
+        "speedRatio": 4.080160729564409,
+        "geminiWords": 718,
+        "museWords": 839
+      },
+      {
+        "id": "1151241",
+        "title": "The Beracha on Craisins (Cranberries)",
+        "audioMinutes": 8.414033333333334,
+        "geminiSeconds": 57.424734496999996,
+        "museSeconds": 15.354031106,
+        "speedRatio": 3.7400428656523785,
+        "geminiWords": 782,
+        "museWords": 1037
+      },
+      {
+        "id": "1122687",
+        "title": "Ta'us Akum",
+        "audioMinutes": 9.37665,
+        "geminiSeconds": 94.87005411700001,
+        "museSeconds": 20.589270059000004,
+        "speedRatio": 4.607742471935294,
+        "geminiWords": 1039,
+        "museWords": 1244
+      },
+      {
+        "id": "1056185",
+        "title": "Making Turkish Coffee on Shabbos",
+        "audioMinutes": 9.8646,
+        "geminiSeconds": 61.53322367499999,
+        "museSeconds": 19.006150356,
+        "speedRatio": 3.237542717616918,
+        "geminiWords": 1044,
+        "museWords": 969
+      },
+      {
+        "id": "1183432",
+        "title": "Tevilas Keilim of a Kattan",
+        "audioMinutes": 17.2672,
+        "geminiSeconds": 77.028715677,
+        "museSeconds": 25.772536347999996,
+        "speedRatio": 2.988790650516537,
+        "geminiWords": 1693,
+        "museWords": 2178
+      },
+      {
+        "id": "1180975",
+        "title": "Giving a Child Two Names",
+        "audioMinutes": 20.519616666666668,
+        "geminiSeconds": 96.51733065000002,
+        "museSeconds": 24.329695223999995,
+        "speedRatio": 3.9670587634320476,
+        "geminiWords": 1719,
+        "museWords": 2112
+      },
+      {
+        "id": "1181377",
+        "title": "Eating Meat on Yom Tov",
+        "audioMinutes": 22.46313333333333,
+        "geminiSeconds": 42.42953817700001,
+        "museSeconds": 26.104060090999994,
+        "speedRatio": 1.6253999580558973,
+        "geminiWords": 1082,
+        "museWords": 1912
+      },
+      {
+        "id": "1181042",
+        "title": "Saying a Beracha (She'hechiyanu) When Making Aliya",
+        "audioMinutes": 25.079733333333333,
+        "geminiSeconds": 45.11424102700001,
+        "museSeconds": 31.334431637,
+        "speedRatio": 1.4397657359685017,
+        "geminiWords": 1834,
+        "museWords": 2445
+      }
+    ]
+  },
+  "concurrency": {
+    "model": "opencode/muse-spark-1.3-contributor-free",
+    "runtime": "opencode:1.18.33:notes-2",
+    "profileId": "03174a13fe9438642400b50251b7446f739a4ab7fb0a7007c228d097127e7bc3",
+    "concurrency": 2,
+    "elapsedMs": 22383.076097,
+    "results": [
+      {
+        "id": "1117682",
+        "status": "completed",
+        "elapsedMs": 13862.706427000001,
+        "calls": 1,
+        "repairCalls": 0,
+        "violations": [],
+        "sourceHash": "903d2549844f7ce1f68e7959159b74bc166bf02e6de00bcefd17df30a773aaa2",
+        "requests": [
+          {
+            "elapsedMs": 10656.739373,
+            "promptMs": 8119.939602,
+            "protocolMessages": 221,
+            "messageChunks": 213,
+            "thoughtChunks": 0,
+            "thoughtBytes": 0,
+            "stderrBytes": 0
+          }
+        ]
+      },
+      {
+        "id": "1183432",
+        "status": "completed",
+        "elapsedMs": 22380.409394000002,
+        "calls": 1,
+        "repairCalls": 0,
+        "violations": [],
+        "sourceHash": "abcf6abe1af316f3e479d273561fe081167c882e4b706db4376baa8bbe11f5b0",
+        "requests": [
+          {
+            "elapsedMs": 19125.987294000002,
+            "promptMs": 16566.650744000002,
+            "protocolMessages": 577,
+            "messageChunks": 569,
+            "thoughtChunks": 0,
+            "thoughtBytes": 0,
+            "stderrBytes": 0
+          }
+        ]
+      }
+    ],
+    "method": "Two full notes jobs launched together using the same pinned source and skill as the paired benchmark. A single short check, not a sustained free-quota measurement."
+  },
+  "quality": {
+    "reviewedPairs": 8,
+    "file": "quality-review.json",
+    "conclusion": "Central debates and practical conclusions retained. Muse is generally fuller, but has omissions, qualification/attribution errors and one summary merging differing views. Neither provider is flawless; passing structure checks does not prove grounding."
+  },
+  "validation": {
+    "workerTestsPassed": 149,
+    "workerTestsFailed": 0,
+    "workerTestsSkipped": 0,
+    "nodeVersion": "24.20.0",
+    "workerBuild": "passed",
+    "typecheck": "passed",
+    "changedFileLint": "passed",
+    "shellSyntax": "passed",
+    "diffWhitespace": "passed",
+    "nativeOwnedSessionCleanup": "passed"
+  },
+  "excludedArtifacts": "Eight earlier Muse pilot runs and compatibility probes are excluded from the paired timing comparison. Pilot outputs are retained under pilot-* filenames.",
+  "deployment": {
+    "notesProvider": "opencode/muse-spark-1.3-contributor-free",
+    "defaultPipeline": "Gemini transcription plus independent Muse Free notes",
+    "runtimeInstalled": true,
+    "serviceUserLiveNotesCheck": "passed",
+    "buildAndConfigurationInstalled": true,
+    "activation": "pending_database_migration",
+    "blocker": "Existing Neon database rejects HTTPS SQL with HTTP 402 for exceeded account/project quota; PostgreSQL connections time out.",
+    "productionDatabaseChanged": false,
+    "startupGuard": "/opt/yutorah-operator/DEPLOYMENT_PENDING",
+    "record": "../../docs/transcription-muse-rollout.md"
+  },
+  "limits": [
+    "One measured paired run per model per lecture; no confidence interval or sustained throughput claim.",
+    "Eight lectures by one speaker, 7.8–25.1 minutes; other speakers, accents and hour-long lectures unmeasured.",
+    "Review compares saved transcripts, not the audio or independent halachic sources.",
+    "Only notes generation is timed; no new audio transcription or five-hour-capacity measurement.",
+    "Muse free capacity and availability can change; no paid or Gemini fallback is configured."
+  ]
+}

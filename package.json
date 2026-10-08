@@ -30,6 +30,7 @@
     "worker:build": "tsc -p tsconfig.worker.json",
     "worker": "node .worker-build/apps/worker/src/cli.js",
     "test:worker": "tsx --test apps/worker/test/*.test.ts",
+    "notes:benchmark": "tsx scripts/benchmark-notes.ts",
     "operator": "node .worker-build/apps/worker/src/cli.js serve-operator",
     "transcription": "node scripts/transcription-control.mjs",
     "test:transcription-control": "node --test scripts/transcription-control.test.mjs",
