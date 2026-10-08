@@ -18,6 +18,7 @@ import {
 import { PagedItems } from './paged-items';
 import { useViewPerformance } from './performance-monitor';
 import { FollowButton } from './follow-button';
+import { ThemeToggle } from './theme-toggle';
 import { isLearned, relatedShiurim, type Follow } from '@/lib/learning';
 import { createRelevanceScorer } from '@/lib/search-discovery';
 import { prepareSearchText, createQueryMatcher } from '@/lib/search-matching';
@@ -1123,7 +1124,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   );
   return (
     <SidebarProvider
-      style={{ '--sidebar-width': '232px' } as React.CSSProperties}
+      style={{ '--sidebar-width': '256px' } as React.CSSProperties}
     >
       <a href="#main-content" className="skip-link">
         Skip to content
@@ -1306,6 +1307,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             <div className="header-search">{searchBar}</div>
           )}
           <div className="header-right">
+            <ThemeToggle />
             <button
               className="mobile-header-search"
               aria-label="Search the library"
