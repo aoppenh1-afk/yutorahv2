@@ -7,7 +7,6 @@ import {
   Check,
   Clock3,
   Headphones,
-  Link2,
   Search,
   Sparkles,
   Trash2,
@@ -24,6 +23,98 @@ import { parseSearch, type Directory } from '@/lib/yutorah';
 import type { LibraryState } from '@/lib/library';
 import { noFilters, type Filters } from '@/lib/search-filters';
 
+export function SearchPresets({
+  query,
+  filters,
+  onSearch,
+}: {
+  query: string;
+  filters: Filters;
+  onSearch: (query: string, filters: Filters) => void;
+}) {
+  return (
+    <div className="search-presets">
+      <button
+        onClick={() =>
+          onSearch(query, {
+            ...filters,
+            max: '20',
+            min: '',
+            format: 'audio',
+          })
+        }
+      >
+        <Headphones size={14} />A short listen
+      </button>
+      <button
+        onClick={() => onSearch(query, { ...filters, min: '45', max: '' })}
+      >
+        <Clock3 size={14} />A deeper dive
+      </button>
+      <button
+        onClick={() => {
+          const date = new Date();
+          date.setDate(date.getDate() - 7);
+          onSearch(query, {
+            ...filters,
+            after: date.toISOString().slice(0, 10),
+            before: '',
+            sort: 'new',
+          });
+        }}
+      >
+        <Sparkles size={14} />
+        New this week
+      </button>
+    </div>
+  );
+}
+
+export function QueryPreview({
+  query,
+  directory,
+}: {
+  query: string;
+  directory: Directory | null;
+}) {
+  const interpretation = useMemo(
+    () =>
+      query.trim() ? parseSearch(query, {}, directory || undefined) : null,
+    [query, directory],
+  );
+  const labels = interpretation?.labels || [];
+  if (!labels.length || query.trim() === interpretation?.term) return null;
+  return (
+    <p className="query-preview">
+      <Sparkles size={14} />
+      <span>We&apos;ll search for</span>
+      {interpretation?.term && <span>Keywords: {interpretation.term}</span>}
+      {labels.map((label) => (
+        <span key={label}>{label}</span>
+      ))}
+    </p>
+  );
+}
+
+export async function copySearchLink(
+  query: string,
+  filters: Filters,
+  notify: (text: string) => void,
+) {
+  const url = new URL(window.location.origin);
+  url.searchParams.set('view', 'search');
+  if (query) url.searchParams.set('q', query);
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) url.searchParams.set(key, value);
+  });
+  try {
+    await navigator.clipboard.writeText(url.href);
+    notify('Search link copied with all filters.');
+  } catch {
+    notify('Your browser could not copy the link.');
+  }
+}
+
 export function SearchTools({
   query,
   filters,
@@ -32,7 +123,6 @@ export function SearchTools({
   update,
   onSearch,
   notify,
-  hasResults,
 }: {
   query: string;
   filters: Filters;
@@ -41,18 +131,10 @@ export function SearchTools({
   update: (fn: (old: LibraryState) => LibraryState) => void;
   onSearch: (query: string, filters: Filters) => void;
   notify: (text: string) => void;
-  hasResults: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
-  const interpretation = useMemo(
-    () =>
-      query.trim() ? parseSearch(query, {}, directory || undefined) : null,
-    [query, directory],
-  );
-  const labels = interpretation?.labels || [];
-  const meaningful = labels.length > 0 && query.trim() !== interpretation?.term;
   const saveSearch = () => {
     const existing = library.savedSearches.find(
       (s) =>
@@ -76,102 +158,27 @@ export function SearchTools({
   };
   return (
     <>
-      <div className="search-shortcuts">
-        <div className="search-presets">
-          <span>Start with</span>
-          <button
-            onClick={() =>
-              onSearch(query, {
-                ...filters,
-                max: '20',
-                min: '',
-                format: 'audio',
-              })
-            }
-          >
-            <Headphones size={14} />A short listen
-          </button>
-          <button
-            onClick={() => onSearch(query, { ...filters, min: '45', max: '' })}
-          >
-            <Clock3 size={14} />A deeper dive
-          </button>
-          <button
-            onClick={() => {
-              const date = new Date();
-              date.setDate(date.getDate() - 7);
-              onSearch(query, {
-                ...filters,
-                after: date.toISOString().slice(0, 10),
-                before: '',
-                sort: 'new',
-              });
-            }}
-          >
-            <Sparkles size={14} />
-            This week
-          </button>
-        </div>
-        <div className="search-save-tools">
-          <button
-            className="text-button"
-            onClick={() => {
-              setSaving(false);
-              setOpen(true);
-            }}
-          >
-            <Bookmark size={15} />
-            Saved searches
-            {library.savedSearches.length > 0 && (
-              <span className="tab-count">{library.savedSearches.length}</span>
-            )}
-          </button>
-          {(query || Object.values(filters).some(Boolean)) && (
-            <button className="text-button" onClick={saveSearch}>
-              <BookmarkPlus size={16} />
-              Save search
-            </button>
-          )}
-        </div>
-      </div>
-      {meaningful && !hasResults && (
-        <div className="query-preview">
-          <Sparkles size={16} />
-          <div>
-            <strong>Here&apos;s how we&apos;ll search</strong>
-            <div>
-              {interpretation?.term && (
-                <span>Keywords: {interpretation.term}</span>
-              )}
-              {labels.map((label) => (
-                <span key={label}>{label}</span>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-      {hasResults && (
+      <div className="search-save-tools">
         <button
-          className="text-button copy-search"
-          onClick={async () => {
-            const url = new URL(window.location.origin);
-            url.searchParams.set('view', 'search');
-            if (query) url.searchParams.set('q', query);
-            Object.entries(filters).forEach(([key, value]) => {
-              if (value) url.searchParams.set(key, value);
-            });
-            try {
-              await navigator.clipboard.writeText(url.href);
-              notify('Search link copied with all filters.');
-            } catch {
-              notify('Your browser could not copy the link.');
-            }
+          className="toolbar-button"
+          onClick={() => {
+            setSaving(false);
+            setOpen(true);
           }}
         >
-          <Link2 size={14} />
-          Copy search link
+          <Bookmark size={15} />
+          Saved
+          {library.savedSearches.length > 0 && (
+            <span className="tab-count">{library.savedSearches.length}</span>
+          )}
         </button>
-      )}
+        {(query || Object.values(filters).some(Boolean)) && (
+          <button className="toolbar-button" onClick={saveSearch}>
+            <BookmarkPlus size={16} />
+            Save search
+          </button>
+        )}
+      </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="saved-search-dialog">
           <DialogHeader>

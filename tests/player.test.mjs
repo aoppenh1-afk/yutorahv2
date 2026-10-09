@@ -148,10 +148,6 @@ async function openPlayer(viewport, stalled = false, options = {}) {
   await context.route('**/api/shiur?id=900001', (route) =>
     route.fulfill({ json: recording }),
   );
-  if (options.missingHighResolution)
-    await context.route('**/images/teachers/aryeh-lebowitz-*.jpg', (route) =>
-      route.fulfill({ status: 404, body: '' }),
-    );
   await context.route(
     'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/player-fixture*.jpg',
     (route) => {
@@ -298,6 +294,64 @@ async function closeAndVerify(page, minSeconds = 42) {
 
 void test('player controls stop playback and the phone dialog stays inside the built viewport', async (t) => {
   try {
+    for (const height of [800, 2000]) {
+      await t.test(
+        `Home defers Trending until scrolling near its section at ${height}px height`,
+        async () => {
+          let discoveryRequests = 0;
+          const { context, page } = await openPlayer(
+            { width: 1280, height },
+            false,
+            {
+              initialLibrary: { history: [] },
+              onPage: async (_page, context) => {
+                await context.route('**/api/discover?*', (route) => {
+                  discoveryRequests++;
+                  return route.fulfill({
+                    json: {
+                      trending: [shiur],
+                      sampled: 1,
+                      total: 1,
+                      partial: false,
+                      period: 'week',
+                      minutes: 0,
+                      fetchedAt: new Date().toISOString(),
+                    },
+                  });
+                });
+              },
+            },
+          );
+          try {
+            const section = page.locator('.trending-section');
+            await section.waitFor();
+            await page.waitForTimeout(100);
+            assert.equal(discoveryRequests, 0, 'initial Home defers the chart');
+            await page.evaluate(() => window.scrollTo(0, 1));
+            if (height === 800) {
+              await page.waitForTimeout(100);
+              assert.equal(
+                discoveryRequests,
+                0,
+                'scrolling far from Trending still defers the chart',
+              );
+              await section.scrollIntoViewIfNeeded();
+            }
+            await section.getByText(shiur.title, { exact: true }).waitFor();
+            assert.equal(discoveryRequests, 1);
+            await page.evaluate(() => window.scrollBy(0, 10));
+            await page.waitForTimeout(100);
+            assert.equal(
+              discoveryRequests,
+              1,
+              'further scrolling reuses the chart',
+            );
+          } finally {
+            await context.close();
+          }
+        },
+      );
+    }
     for (const follows of [0, 10, 100]) {
       await t.test(
         `Home bounds initial requests for ${follows} follows and Following can load every source`,
@@ -1216,67 +1270,6 @@ void test('player controls stop playback and the phone dialog stays inside the b
           },
         );
       }
-    }
-    for (const missingHighResolution of [false, true]) {
-      await t.test(
-        `Lebowitz portrait uses a display-sized derivative of the verified original, missing=${missingHighResolution}`,
-        async () => {
-          const { context, page } = await openPlayer(
-            { width: 390, height: 844 },
-            false,
-            {
-              pixelRatio: 3,
-              teacherId: 80714,
-              teacher: 'Rabbi Aryeh Lebowitz',
-              missingHighResolution,
-              image:
-                'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/player-fixture.jpg',
-            },
-          );
-          try {
-            await page
-              .getByRole('button', { name: 'Expand player controls' })
-              .click();
-            await page.waitForFunction(() => {
-              const img = document.querySelector('.now-playing-portrait img');
-              return img?.complete && img.naturalWidth > 0;
-            });
-            const pixels = await page
-              .locator('.now-playing-portrait img')
-              .evaluate((img) => ({
-                width: img.getBoundingClientRect().width,
-                height: img.getBoundingClientRect().height,
-                naturalWidth: img.naturalWidth,
-                naturalHeight: img.naturalHeight,
-                source: img.currentSrc,
-              }));
-            assert.ok(pixels.width >= 220 && pixels.width <= 230);
-            if (missingHighResolution) {
-              assert.ok(pixels.source.endsWith('player-fixture_lp.jpg'));
-              assert.equal(pixels.naturalWidth, 240);
-            } else {
-              assert.ok(
-                /\/images\/teachers\/aryeh-lebowitz-(320|640|960)\.jpg$/.test(
-                  pixels.source,
-                ),
-              );
-              const bitmapWidth = Number(
-                pixels.source.match(/-(\d+)\.jpg$/)[1],
-              );
-              assert.equal(bitmapWidth, 960);
-              assert.ok(pixels.width * 3 <= bitmapWidth);
-              // A width-descriptor srcset reports density-corrected intrinsic dimensions.
-              assert.ok(pixels.naturalWidth <= 320);
-              assert.ok(
-                Math.abs(pixels.naturalWidth / pixels.naturalHeight - 1.5) <
-                  0.02,
-              );
-            }
-          } finally {
-            await context.close();
-          }
-        },
-      );
     }
     for (const width of [390, 1280]) {
       await t.test(

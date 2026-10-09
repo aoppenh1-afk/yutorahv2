@@ -186,7 +186,7 @@ Measure both branches' render cost and listener count with a large list. Test re
 
 ### F10. Serve display-sized player portraits
 
-P2. Sources: [local portrait selection](../app/ui.tsx#L123), [original-photo provenance](../public/images/teachers/README.md), and [the source image](../public/images/teachers/aryeh-lebowitz.jpg).
+P2. Resolved: the bundled Lebowitz photograph was an outdated likeness and was removed. Every portrait, including the expanded player, now uses YUTorah's current 240×280 `_lp` original.
 
 The Lebowitz player portrait is a 5,602 by 3,735 photograph of 3,308,680 bytes. The expanded player uses that original directly. Lazy loading and async decoding already help scheduling, but do not reduce its transfer or decoded dimensions. The avatar helper also attempts an _lp suffix and falls back after an error. Its failure state belongs to each mounted portrait; the verification did not measure how often upstream upgrades fail.
 

@@ -12,7 +12,13 @@ import {
   Loader2,
   ListMusic,
 } from 'lucide-react';
-import { Avatar, SeriesCover, FilterSelect, StatePanel, ShiurRow } from './ui';
+import {
+  Avatar,
+  SeriesCover,
+  StatePanel,
+  ShiurRow,
+  tone,
+} from './ui';
 import { FollowButton } from './follow-button';
 import { PagedItems } from './paged-items';
 import { noFilters, type Filters } from '@/lib/search-filters';
@@ -37,6 +43,51 @@ type View =
   | 'history'
   | 'playlists';
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
+function TopicCard({
+  topic,
+  tone,
+  max,
+  heading: Heading,
+  runSearch,
+  library,
+  follow,
+}: {
+  topic: Directory['topics'][number];
+  tone: number;
+  max: number;
+  heading: 'h2' | 'h3';
+  runSearch: SecondaryScreenProps['runSearch'];
+  library: LibraryState;
+  follow: (follow: Follow) => void;
+}) {
+  return (
+    <article className="topic-follow-wrap">
+      <button
+        className={'topic-card group-' + tone}
+        style={
+          {
+            '--share': Math.max(0.06, topic.count / (max || 1)),
+          } as React.CSSProperties
+        }
+        onClick={() =>
+          void runSearch('', { ...noFilters, topic: String(topic.id) })
+        }
+      >
+        <span>{topic.group}</span>
+        <Heading>{topic.name}</Heading>
+        <p>
+          {topic.count.toLocaleString()} shiurim <ArrowUpRight size={17} />
+        </p>
+        <i className="topic-meter" aria-hidden="true" />
+      </button>
+      <FollowButton
+        follow={{ kind: 'topic', id: topic.id, name: topic.name }}
+        library={library}
+        onFollow={follow}
+      />
+    </article>
+  );
+}
 export type SecondaryScreenProps = {
   view: View;
   directory: Directory | null;
@@ -126,7 +177,7 @@ export function SecondaryScreens({
       {(['teachers', 'series', 'topics'] as View[]).includes(view) && (
         <section className="directory-view">
           <div className="view-heading">
-            <div className="eyebrow">EXPLORE THE LIBRARY</div>
+            <div className="eyebrow">Explore the library</div>
             <h1>
               {view === 'teachers'
                 ? 'Teachers'
@@ -155,17 +206,6 @@ export function SecondaryScreens({
                 }}
               />
             </div>
-            {view === 'topics' && directory && (
-              <FilterSelect
-                label="Subject"
-                value={topicGroup}
-                onChange={setTopicGroup}
-                options={[
-                  { value: 'all', label: 'All subjects' },
-                  ...directory.groups.map((g) => ({ value: g, label: g })),
-                ]}
-              />
-            )}
             <span>
               {view === 'teachers'
                 ? listedTeachers.length.toLocaleString()
@@ -204,7 +244,9 @@ export function SecondaryScreens({
                           })
                         }
                       >
-                        <Avatar src={t.image} name={t.name} />
+                        <span className={'teacher-portrait ' + tone(t.id)}>
+                          <Avatar src={t.image} name={t.name} />
+                        </span>
                         <h2>{t.name}</h2>
                         <p>{t.count.toLocaleString()} shiurim</p>
                         <span>
@@ -238,7 +280,7 @@ export function SecondaryScreens({
                           })
                         }
                       >
-                        <SeriesCover name={s.name} id={s.id} />
+                        <SeriesCover name={s.name} id={s.id} image={s.image} />
                         <div>
                           <h2>{s.name}</h2>
                           <p>{s.count.toLocaleString()} shiurim</p>
@@ -260,42 +302,96 @@ export function SecondaryScreens({
                 </div>
               )}
               {view === 'topics' && (
-                <div className="topic-grid">
-                  {listedTopics.slice(0, directoryLimit).map((t) => (
-                    <article
-                      className="topic-follow-wrap"
-                      key={t.id + '-' + t.group}
+                <div className="topic-groups" aria-label="Subjects">
+                  {['all', ...directory.groups].map((g) => (
+                    <button
+                      key={g}
+                      aria-pressed={topicGroup === g}
+                      className={
+                        g === 'all'
+                          ? ''
+                          : 'group-' + (directory.groups.indexOf(g) % 6)
+                      }
+                      onClick={() => {
+                        setTopicGroup(g);
+                        setDirectoryLimit(36);
+                      }}
                     >
-                      <button
-                        className="topic-card"
-                        onClick={() =>
-                          void runSearch('', {
-                            ...noFilters,
-                            topic: String(t.id),
-                          })
-                        }
-                      >
-                        <span>{t.group}</span>
-                        <h2>{t.name}</h2>
-                        <p>
-                          {t.count.toLocaleString()} shiurim{' '}
-                          <ArrowUpRight size={17} />
-                        </p>
-                      </button>
-                      <FollowButton
-                        follow={{ kind: 'topic', id: t.id, name: t.name }}
-                        library={library}
-                        onFollow={follow}
-                      />
-                    </article>
+                      {g === 'all' ? 'All subjects' : g}
+                    </button>
                   ))}
                 </div>
               )}
-              {(view === 'teachers'
-                ? listedTeachers.length
-                : view === 'series'
-                  ? listedSeries.length
-                  : listedTopics.length) > directoryLimit && (
+              {view === 'topics' &&
+                (topicGroup === 'all' && !directoryQuery.trim() ? (
+                  directory.groups.map((g) => {
+                    const inGroup = listedTopics
+                      .filter((t) => t.group === g)
+                      .sort((a, b) => b.count - a.count);
+                    if (!inGroup.length) return null;
+                    return (
+                      <section className="topic-section" key={g}>
+                        <header>
+                          <h2>{g}</h2>
+                          <span>
+                            {inGroup.length.toLocaleString()}{' '}
+                            {inGroup.length === 1 ? 'topic' : 'topics'}
+                          </span>
+                          {inGroup.length > 8 && (
+                            <button
+                              className="section-link"
+                              onClick={() => {
+                                setTopicGroup(g);
+                                setDirectoryLimit(36);
+                              }}
+                            >
+                              See all <ArrowRight size={14} />
+                            </button>
+                          )}
+                        </header>
+                        <div className="topic-grid">
+                          {inGroup.slice(0, 8).map((t) => (
+                            <TopicCard
+                              key={t.id + '-' + t.group}
+                              topic={t}
+                              tone={directory.groups.indexOf(t.group) % 6}
+                              max={inGroup[0].count}
+                              heading="h3"
+                              runSearch={runSearch}
+                              library={library}
+                              follow={follow}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })
+                ) : (
+                  <div className="topic-grid">
+                    {listedTopics.slice(0, directoryLimit).map((t) => (
+                      <TopicCard
+                        key={t.id + '-' + t.group}
+                        topic={t}
+                        tone={directory.groups.indexOf(t.group) % 6}
+                        max={Math.max(...listedTopics.map((x) => x.count))}
+                        heading="h2"
+                        runSearch={runSearch}
+                        library={library}
+                        follow={follow}
+                      />
+                    ))}
+                  </div>
+                ))}
+              {!(
+                view === 'topics' &&
+                topicGroup === 'all' &&
+                !directoryQuery.trim()
+              ) &&
+                (view === 'teachers'
+                  ? listedTeachers.length
+                  : view === 'series'
+                    ? listedSeries.length
+                    : listedTopics.length) > directoryLimit && (
                 <div className="load-more">
                   <button
                     className="outline-button"
@@ -323,7 +419,7 @@ export function SecondaryScreens({
       {(['saved', 'history', 'playlists'] as View[]).includes(view) && (
         <section className="library-view">
           <div className="view-heading">
-            <div className="eyebrow">YOUR LEARNING</div>
+            <div className="eyebrow">Your learning</div>
             <h1>
               {view === 'saved'
                 ? 'Saved shiurim'

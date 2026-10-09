@@ -121,6 +121,7 @@ export function SearchBox({
           setOpen(false);
       }}
     >
+      <div className="search-field">
       <form
         className="main-search"
         onSubmit={(e) => {
@@ -193,10 +194,6 @@ export function SearchBox({
           <ArrowRight size={21} />
         </button>
       </form>
-      <p id="search-matching-hint" className="search-matching-hint">
-        Ask in your own words, or search a topic, teacher, or series. Typos and
-        partial words work too.
-      </p>
       {showSuggestions && (
         <div className="search-suggestion-panel">
           <div className="suggestion-heading">
@@ -342,6 +339,11 @@ export function SearchBox({
           </div>
         </div>
       )}
+      </div>
+      <p id="search-matching-hint" className="search-matching-hint">
+        Ask in your own words, or search a topic, teacher, or series. Typos and
+        partial words work too.
+      </p>
     </search>
   );
 }
