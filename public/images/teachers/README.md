@@ -7,14 +7,6 @@
 
 The expanded player selects a display-sized local derivative instead of stretching the 50px teacher thumbnail. Other teachers use YUTorah's larger `_lp` portrait when available, with the original API image as a fallback. Image resolution never changes the player's portrait frame size.
 
-## Square derivatives
-
-`aryeh-lebowitz-square-320.jpg` and `aryeh-lebowitz-square-640.jpg` are square
-crops of the same original, used for every portrait of this teacher outside the
-expanded player (cards, teacher shelves, lists). They replace YUTorah's heavily
-compressed `alebowitz_lp.jpg`. Generate them with
-`sips -c 3300 3300 --cropOffset 80 1400` followed by `sips -Z WIDTH`.
-
 ## Player derivatives
 
 The 320, 640, and 960 pixel JPGs are display-sized derivatives of the verified
