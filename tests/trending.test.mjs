@@ -23,6 +23,7 @@ const { trendingPeriods, trendingWindow, rankTrending, parseTrendingOptions } =
 const { getDiscovery, createDiscoveryReader } = await load('lib/discovery.ts');
 const { createTrendingService, TrendingBusyError, TrendingChangedError } =
   await load('lib/trending-cache.ts');
+const { loadDiscovery } = await load('lib/discovery-client.ts');
 const initial = Date.parse('2026-10-02T12:00:00Z');
 const options = { period: 'week', minutes: 0 };
 const raw = (id, extra = {}) => ({
@@ -969,7 +970,7 @@ void test('the warmer retries stale responses and never reports a stale chart as
   }
 });
 
-void test('long-range requests serve persisted completed charts without waiting for upstream refresh', async () => {
+void test('saved chart requests serve persisted completed charts without waiting for upstream refresh', async () => {
   const originalFetch = globalThis.fetch;
   const originalNow = Date.now;
   const { db, sqlite } = database();
@@ -1007,10 +1008,10 @@ void test('long-range requests serve persisted completed charts without waiting 
         },
       },
     ]);
-    for (const period of ['month', 'year', 'all']) {
+    for (const period of ['day', 'week', 'month', 'year', 'all']) {
       const response = await cached(
         new Request(
-          `http://localhost/api/discover?period=${period}&minutes=10`,
+          `http://localhost/api/discover?period=${period}&minutes=10&cached=1`,
         ),
       );
       assert.equal(response.status, 200);
@@ -1031,6 +1032,173 @@ void test('long-range requests serve persisted completed charts without waiting 
     Date.now = originalNow;
     delete globalThis.__trendingTestDatabase;
     sqlite.close();
+  }
+});
+
+void test('a direct Trending load publishes persisted rankings before a blocked indexing request completes', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  const { db, sqlite } = database();
+  globalThis.__trendingDirectTestDatabase = db;
+  let release;
+  const blocked = new Promise((resolve) => {
+    release = resolve;
+  });
+  let request;
+  try {
+    const upstream = async (url) => {
+      const page = Number(new URL(url).searchParams.get('start'));
+      return Response.json({
+        response: {
+          numFound: 600,
+          docs: Array.from({ length: 30 }, (_, i) =>
+            raw(600 - (page - 1) * 30 - i),
+          ),
+        },
+      });
+    };
+    globalThis.fetch = upstream;
+    await createTrendingService({ database: () => db, now: () => initial })(
+      options,
+    );
+    Date.now = () => initial + 3500;
+    const { GET } = await load('app/api/discover/route.ts', [
+      {
+        name: 'direct-trending-load',
+        setup(build) {
+          build.onResolve({ filter: /^@\/lib\/search-db$/ }, () => ({
+            path: 'db',
+            namespace: 'mock',
+          }));
+          build.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({
+            contents:
+              'export const searchDatabase = () => globalThis.__trendingDirectTestDatabase;',
+          }));
+        },
+      },
+    ]);
+    let upstreamCalls = 0;
+    globalThis.fetch = async (url) => {
+      if (typeof url === 'string' && url.startsWith('/api/discover?'))
+        return GET(new Request('http://localhost' + url));
+      upstreamCalls++;
+      await blocked;
+      return upstream(url);
+    };
+    const updates = [];
+    let firstUpdate;
+    const visible = new Promise((resolve) => {
+      firstUpdate = resolve;
+    });
+    let finished = false;
+    request = loadDiscovery(
+      options,
+      new AbortController().signal,
+      (data) => {
+        updates.push(data);
+        firstUpdate(data);
+      },
+      () => {},
+      true,
+    ).then(() => {
+      finished = true;
+    });
+    const saved = await Promise.race([
+      visible,
+      new Promise((_, reject) => {
+        const timer = setTimeout(
+          () =>
+            reject(new Error('Saved rankings stayed hidden behind indexing')),
+          1000,
+        );
+        timer.unref();
+      }),
+    ]);
+    assert.equal(
+      finished,
+      false,
+      'Saved recordings must appear while indexing is still blocked',
+    );
+    assert.equal(saved.fetchedAt, new Date(initial).toISOString());
+    assert.equal(saved.sampled, 360);
+    assert.equal(saved.stale, true);
+    assert.ok(saved.trending.length > 0);
+    release();
+    await request;
+    assert.ok(
+      upstreamCalls > 0,
+      'The regular request must still advance the index',
+    );
+    assert.equal(updates.at(-1).sampled, 600);
+    assert.equal(updates.at(-1).stale, false);
+    assert.equal(updates.at(-1).partial, false);
+  } finally {
+    release();
+    await request;
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+    delete globalThis.__trendingDirectTestDatabase;
+    sqlite.close();
+  }
+});
+
+void test('a late saved response cannot replace freshly refreshed rankings', async () => {
+  const originalFetch = globalThis.fetch;
+  let release;
+  const saved = new Promise((resolve) => {
+    release = resolve;
+  });
+  const fresh = snapshot(options, initial + 3500);
+  const updates = [];
+  try {
+    globalThis.fetch = async (url) =>
+      typeof url === 'string' && url.includes('cached=1') ? saved : Response.json(fresh);
+    await loadDiscovery(
+      options,
+      new AbortController().signal,
+      (data) => updates.push(data),
+      () => {},
+      true,
+    );
+    release(Response.json({ ...snapshot(), stale: true }));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(updates, [fresh]);
+  } finally {
+    release(Response.json(snapshot()));
+    globalThis.fetch = originalFetch;
+  }
+});
+
+void test('a missing saved chart still allows the regular request to load, and aborted loads publish nothing', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (url) =>
+      typeof url === 'string' && url.includes('cached=1')
+        ? new Response('', { status: 503 })
+        : Response.json(snapshot());
+    const updates = [];
+    const retries = [];
+    await loadDiscovery(
+      options,
+      new AbortController().signal,
+      (data) => updates.push(data),
+      (n) => retries.push(n),
+      true,
+    );
+    assert.deepEqual(updates, [snapshot()]);
+    assert.deepEqual(retries, []);
+    const abort = new AbortController();
+    abort.abort();
+    await loadDiscovery(
+      options,
+      abort.signal,
+      (data) => updates.push(data),
+      (n) => retries.push(n),
+      true,
+    );
+    assert.equal(updates.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 
@@ -1123,11 +1291,11 @@ void test('long-range requests serve the saved partial scan during an outage wit
         },
       },
     ]);
-    for (const period of ['month', 'year', 'all']) {
+    for (const period of ['day', 'week', 'month', 'year', 'all']) {
       for (const minutes of [0, 10, 20, 30]) {
         const response = await GET(
           new Request(
-            `http://localhost/api/discover?period=${period}&minutes=${minutes}`,
+            `http://localhost/api/discover?period=${period}&minutes=${minutes}&cached=1`,
           ),
         );
         assert.equal(response.status, 200);

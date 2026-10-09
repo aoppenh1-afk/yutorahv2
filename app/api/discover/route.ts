@@ -10,9 +10,11 @@ const savedCharts = createTrendingService({
 
 export async function GET(request: Request) {
   try {
-    const options = parseTrendingOptions(new URL(request.url).searchParams);
+    const params = new URL(request.url).searchParams;
+    const options = parseTrendingOptions(params);
     const data = await (
-      options.period === 'day' || options.period === 'week'
+      params.get('cached') !== '1' &&
+        (options.period === 'day' || options.period === 'week')
         ? discover
         : savedCharts
     )(options);
