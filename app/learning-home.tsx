@@ -161,7 +161,13 @@ export function LearningHome(props: Props) {
   useEffect(() => {
     const target = trendingSection.current;
     if (trendingWanted || !target) return;
-    const want = () => setTrendingWanted(true);
+    const want = () => {
+      // Initial layout shifts must not spend Home's discovery request budget.
+      if (window.scrollY <= 0) return;
+      const { top, bottom } = target.getBoundingClientRect();
+      if (top < window.innerHeight + 240 && bottom > -240)
+        setTrendingWanted(true);
+    };
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) want();
@@ -169,7 +175,7 @@ export function LearningHome(props: Props) {
       { rootMargin: '240px 0px' },
     );
     observer.observe(target);
-    window.addEventListener('scroll', want, { once: true, passive: true });
+    window.addEventListener('scroll', want, { passive: true });
     return () => {
       observer.disconnect();
       window.removeEventListener('scroll', want);

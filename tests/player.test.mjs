@@ -294,6 +294,64 @@ async function closeAndVerify(page, minSeconds = 42) {
 
 void test('player controls stop playback and the phone dialog stays inside the built viewport', async (t) => {
   try {
+    for (const height of [800, 2000]) {
+      await t.test(
+        `Home defers Trending until scrolling near its section at ${height}px height`,
+        async () => {
+          let discoveryRequests = 0;
+          const { context, page } = await openPlayer(
+            { width: 1280, height },
+            false,
+            {
+              initialLibrary: { history: [] },
+              onPage: async (_page, context) => {
+                await context.route('**/api/discover?*', (route) => {
+                  discoveryRequests++;
+                  return route.fulfill({
+                    json: {
+                      trending: [shiur],
+                      sampled: 1,
+                      total: 1,
+                      partial: false,
+                      period: 'week',
+                      minutes: 0,
+                      fetchedAt: new Date().toISOString(),
+                    },
+                  });
+                });
+              },
+            },
+          );
+          try {
+            const section = page.locator('.trending-section');
+            await section.waitFor();
+            await page.waitForTimeout(100);
+            assert.equal(discoveryRequests, 0, 'initial Home defers the chart');
+            await page.evaluate(() => window.scrollTo(0, 1));
+            if (height === 800) {
+              await page.waitForTimeout(100);
+              assert.equal(
+                discoveryRequests,
+                0,
+                'scrolling far from Trending still defers the chart',
+              );
+              await section.scrollIntoViewIfNeeded();
+            }
+            await section.getByText(shiur.title, { exact: true }).waitFor();
+            assert.equal(discoveryRequests, 1);
+            await page.evaluate(() => window.scrollBy(0, 10));
+            await page.waitForTimeout(100);
+            assert.equal(
+              discoveryRequests,
+              1,
+              'further scrolling reuses the chart',
+            );
+          } finally {
+            await context.close();
+          }
+        },
+      );
+    }
     for (const follows of [0, 10, 100]) {
       await t.test(
         `Home bounds initial requests for ${follows} follows and Following can load every source`,
