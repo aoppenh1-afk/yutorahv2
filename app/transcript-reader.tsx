@@ -48,6 +48,32 @@ export function TranscriptReader({
   const [retry, setRetry] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshError, setRefreshError] = useState('');
+  const [hosted, setHosted] = useState<{
+    id: number;
+    status: string;
+    markdown: string | null;
+    sourceHash?: string;
+  } | null>(null);
+  useEffect(() => {
+    const abort = new AbortController();
+    setHosted({ id: shiurId, status: 'loading', markdown: null });
+    void fetch(`/api/study-notes?id=${shiurId}`, { signal: abort.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Notes unavailable');
+        const note = await response.json();
+        if (!abort.signal.aborted) setHosted({ ...note, id: shiurId });
+      })
+      .catch(() => {
+        if (!abort.signal.aborted)
+          setHosted({ id: shiurId, status: 'unavailable', markdown: null });
+      });
+    return () => abort.abort();
+  }, [shiurId, retry]);
+  const hostedNote = hosted?.id === shiurId ? hosted : null;
+  const displayedNotes =
+    content?.source === 'official-yutorah' || !content
+      ? hostedNote
+      : content.notes;
   const last = useRef<{ id: number; content: Content } | null>(null);
   const sources = useTranscriptSources(
     shiurId,
@@ -145,7 +171,6 @@ export function TranscriptReader({
         last.current = { id: shiurId, content: data };
         setContent(data);
         if (data.source === 'official-yutorah') {
-          setTab('transcript');
           setSourcesEnabled(false);
         }
         setState('');
@@ -192,11 +217,11 @@ export function TranscriptReader({
     };
   }, [shiurId, retry]);
   const download = () => {
-    if (!content) return;
+    if (!content && tab !== 'notes') return;
     const text =
       tab === 'notes'
-        ? content.notes?.markdown
-        : content.segments
+        ? displayedNotes?.markdown
+        : content?.segments
             .map(
               (s) =>
                 `[${timeLabel(s.startMs / 1000)}] ${s.speaker ? `${s.speaker}: ` : ''}${s.text}`,
@@ -215,17 +240,9 @@ export function TranscriptReader({
   return (
     <section
       className="detail-section generated-study"
-      aria-label={
-        content?.source === 'official-yutorah'
-          ? 'Transcript'
-          : 'Transcript, study notes, and sources'
-      }
+      aria-label={'Transcript, study notes, and sources'}
     >
-      <h3>
-        {content?.source === 'official-yutorah'
-          ? 'Transcript'
-          : 'Transcript & study tools'}
-      </h3>
+      <h3>Transcript & study tools</h3>
       <div className="study-tabs">
         {content && (
           <a
@@ -244,15 +261,15 @@ export function TranscriptReader({
         >
           Transcript
         </button>
-        {content?.source !== 'official-yutorah' && (
+        <button
+          type="button"
+          aria-pressed={tab === 'notes'}
+          onClick={() => setTab('notes')}
+        >
+          Study notes
+        </button>
+        {content && content.source !== 'official-yutorah' && (
           <>
-            <button
-              type="button"
-              aria-pressed={tab === 'notes'}
-              onClick={() => setTab('notes')}
-            >
-              Study notes
-            </button>
             <button
               type="button"
               aria-pressed={tab === 'sources'}
@@ -268,29 +285,28 @@ export function TranscriptReader({
         <button type="button" onClick={() => setRetry((n) => n + 1)}>
           Refresh
         </button>
-        {content &&
-          (tab === 'transcript' ||
-            (tab === 'notes' && content.notes?.markdown)) && (
-            <button className="study-download" type="button" onClick={download}>
-              <Download size={14} /> Download
-            </button>
-          )}
+        {((content && tab === 'transcript') ||
+          (tab === 'notes' && displayedNotes?.markdown)) && (
+          <button className="study-download" type="button" onClick={download}>
+            <Download size={14} /> Download
+          </button>
+        )}
       </div>
-      {content?.source === 'official-yutorah' && (
+      {content?.source === 'official-yutorah' && tab === 'transcript' && (
         <p className="study-note-label">
           Transcript from YUTorah. Automatically generated; accuracy may vary.
         </p>
       )}
-      {refreshError && (
+      {refreshError && tab === 'transcript' && (
         <output className="study-state">
           {refreshError} Your loaded transcript is still available.
         </output>
       )}
-      {loading ? (
+      {tab !== 'notes' && loading ? (
         <p className="feed-loading">
           <Loader2 size={14} className="spin" /> Loading transcript…
         </p>
-      ) : state ? (
+      ) : tab !== 'notes' && state ? (
         <output className="study-state">
           {state}{' '}
           <button type="button" onClick={() => setRetry((n) => n + 1)}>
@@ -319,11 +335,18 @@ export function TranscriptReader({
             onSeek={onSeek}
           />
         </ScreenBoundary>
-      ) : content?.notes?.markdown ? (
+      ) : displayedNotes?.markdown ? (
         <div className="study-markdown" dir="auto">
           <p className="study-note-label">
             Automatically generated from this shiur’s transcript.
           </p>
+          {content?.source === 'official-yutorah' &&
+            hostedNote?.sourceHash &&
+            hostedNote.sourceHash !== content.version && (
+              <p className="study-note-label">
+                These notes use an earlier version of the official transcript.
+              </p>
+            )}
           <ScreenBoundary>
             <Markdown
               skipHtml
@@ -349,18 +372,24 @@ export function TranscriptReader({
                 ),
               }}
             >
-              {content.notes.markdown}
+              {displayedNotes.markdown}
             </Markdown>
           </ScreenBoundary>
         </div>
       ) : (
         <output className="study-state">
-          {content?.notes &&
-          ['queued', 'cleaning', 'generating'].includes(content.notes.status)
-            ? 'Study notes are being generated.'
-            : content?.notes?.status === 'failed'
-              ? 'Study notes could not be generated yet. The transcript is available.'
-              : 'Study notes have not been generated for this shiur yet.'}
+          {displayedNotes?.status === 'loading'
+            ? 'Loading study notes…'
+            : displayedNotes?.status === 'unavailable'
+              ? 'Study notes are temporarily unavailable. Try Refresh.'
+              : displayedNotes &&
+                  ['queued', 'cleaning', 'generating'].includes(
+                    displayedNotes.status,
+                  )
+                ? 'Study notes are being generated.'
+                : displayedNotes?.status === 'failed'
+                  ? 'Study notes could not be generated yet. The transcript is available.'
+                  : 'Study notes have not been generated for this shiur yet.'}
         </output>
       )}
     </section>

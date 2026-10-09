@@ -396,6 +396,15 @@ provide that global search. The current official reader hides notes, so displayi
 our hosted notes alongside official text still requires UI and retrieval wiring.
 No notes-only importer or hosting migration was implemented for this assessment.
 
+The subsequent [TiDB notes-only verification](tidb-notes-only-verification.md)
+confirmed current official quotas and the documented Cloudflare HTTP connection
+path. A local probe passed all eight real notes through the published TiDB driver's
+binary encoding/decoding and Cloudflare workerd gzip decompression byte-for-byte,
+using simulated database responses. Three fresh unauthenticated transcript API
+requests also succeeded. Actual TiDB SQL persistence, storage metering, RUs, and
+VM restart recovery still require a live pilot; no configured TiDB credentials
+were available for that test.
+
 ## Access and remaining limits
 
 The website routes `/lectures/transcript/vtt/{id}` still return Cloudflare

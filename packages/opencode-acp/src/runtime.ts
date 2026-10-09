@@ -206,6 +206,9 @@ function launch(config: OpenCodeConfig, root: string): Launch {
       HOME: process.env.HOME,
       NODE_ENV: 'production',
       LANG: 'C.UTF-8',
+      // Keep user-installed agents/plugins out of this owned notes workspace.
+      // The data directory stays native so provider authentication still works.
+      XDG_CONFIG_HOME: join(root, 'config'),
       OPENCODE_DISABLE_AUTOUPDATE: 'true',
       OPENCODE_CONFIG: join(root, 'opencode.json'),
       OPENCODE_CONFIG_CONTENT: JSON.stringify(notesAgentConfig()),

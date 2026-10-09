@@ -40,10 +40,14 @@
     "search:schema:migrate": "tsx scripts/migrate-search-schema.ts",
     "search:schema:check": "tsx scripts/check-search-schema.ts",
     "pretest:worker": "node scripts/setup-test-database.mjs",
-    "pretest:maintenance": "node scripts/setup-test-database.mjs"
+    "pretest:maintenance": "node scripts/setup-test-database.mjs",
+    "notes:only": "tsx apps/notes-only/src/cli.ts",
+    "notes:package": "node scripts/package-notes-pipeline.mjs",
+    "test:notes-only": "tsx --test tests/notes-only.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
+    "@tidbcloud/serverless": "0.3.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "drizzle-orm": "^0.45.2",
