@@ -17,7 +17,7 @@
 }
 .main-search:focus-within {
   box-shadow:
-    0 10px 30px -12px rgba(27, 63, 125, 0.35),
+    0 10px 30px -12px rgba(0, 0, 0, 0.35),
     inset 0 0 0 2px var(--brand);
 }
 .main-search > svg {
@@ -49,7 +49,7 @@
   color: var(--ink-3);
 }
 .clear-search:hover {
-  background: rgba(14, 23, 38, 0.06);
+  background: rgba(0, 0, 0, 0.06);
   color: var(--ink);
 }
 .main-search button[type='submit'] {
@@ -99,10 +99,8 @@
   display: flex;
   justify-content: space-between;
   padding: 6px 10px 8px;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 650;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--ink-3);
 }
 .suggestion-heading button {
@@ -130,7 +128,7 @@
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: rgba(14, 23, 38, 0.05);
+  background: rgba(0, 0, 0, 0.05);
   color: var(--ink-2);
 }
 .search-option.selected .suggestion-icon {
@@ -153,7 +151,7 @@
   background: transparent;
   color: var(--brand);
   text-decoration: underline;
-  text-decoration-color: var(--gold-2);
+  text-decoration-color: rgba(29, 78, 216, 0.35);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }
@@ -175,7 +173,7 @@
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--gold-tint);
-  color: #6f5022;
+  color: var(--ink-2);
 }
 .suggestion-status {
   padding: 6px 10px;
@@ -220,7 +218,7 @@
 }
 .search-view > .search-workbench .main-search:focus-within {
   box-shadow:
-    0 16px 40px -16px rgba(27, 63, 125, 0.45),
+    0 16px 40px -16px rgba(0, 0, 0, 0.45),
     inset 0 0 0 2px var(--brand);
 }
 .search-view > .search-workbench .main-search input {
@@ -344,22 +342,23 @@
   gap: 12px;
   max-width: 880px;
   margin-top: 40px;
-  padding: 32px;
+  padding: 28px;
   border-radius: var(--r-xl);
-  color: var(--on-night);
-  background: var(--night-2);
+  color: var(--ink);
+  background: var(--panel);
 }
 .search-start > svg {
-  color: var(--gold-2);
+  color: var(--ink-3);
 }
 .search-start h2 {
   font-family: var(--display);
-  font-weight: 400;
-  font-size: 32px;
+  letter-spacing: -0.025em;
+  font-weight: 650;
+  font-size: 24px;
 }
 .search-start p {
   max-width: 520px;
-  color: var(--on-night-2);
+  color: var(--ink-3);
 }
 .search-prompts {
   display: flex;
@@ -368,17 +367,10 @@
   margin: 8px 0;
 }
 .search-start .search-prompts button {
-  min-height: 40px;
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
-  color: #fff;
-}
-.search-start .search-prompts button:hover {
-  background: #fff;
-  color: var(--night);
+  min-height: 38px;
 }
 .search-start .text-button {
-  color: var(--gold-2);
+  color: var(--brand);
 }
 .results-heading {
   display: flex;
@@ -390,9 +382,10 @@
 }
 .results-heading h2 {
   font-family: var(--display);
-  font-weight: 400;
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 34px;
-  line-height: 1.05;
+  line-height: 1.08;
 }
 .results-heading p {
   margin-top: 6px;
@@ -415,7 +408,7 @@
   display: inline-flex;
   padding: 3px;
   border-radius: 999px;
-  background: rgba(14, 23, 38, 0.06);
+  background: rgba(0, 0, 0, 0.06);
 }
 .view-switch button {
   display: grid;
@@ -538,7 +531,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgba(5, 10, 20, 0.45);
+  background: rgba(0, 0, 0, 0.45);
   color: #fff;
   opacity: 0;
   transition: opacity 0.2s;
@@ -558,10 +551,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--gold-ink);
 }
 .row-meta > span + span::before {
@@ -629,14 +620,14 @@
   flex: 1;
   height: 4px;
   border-radius: 999px;
-  background: rgba(14, 23, 38, 0.08);
+  background: rgba(0, 0, 0, 0.08);
   overflow: hidden;
 }
 .row-progress > div span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--brand), var(--brand-2));
+  background: var(--brand);
 }
 .row-progress small {
   font-size: 11.5px;
@@ -711,7 +702,7 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--gold-2);
+  background: var(--brand);
   box-shadow: 0 0 0 2px #fff;
 }
 .mobile-row-copy {
@@ -799,7 +790,7 @@
   text-align: start;
 }
 .mobile-actions-list button:active {
-  background: rgba(14, 23, 38, 0.05);
+  background: rgba(0, 0, 0, 0.05);
 }
 .mobile-actions-list svg {
   color: var(--brand);
@@ -906,7 +897,8 @@
 .series-directory-card h2 {
   margin-top: 4px;
   font-family: var(--display);
-  font-weight: 400;
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 24px;
   line-height: 1.1;
 }
@@ -995,9 +987,10 @@
 }
 .topic-section > header h2 {
   font-family: var(--display);
-  font-weight: 400;
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 32px;
-  line-height: 1;
+  line-height: 1.08;
 }
 .topic-section > header span {
   font-size: 13px;
@@ -1069,19 +1062,18 @@
 .topic-card.group-4 { --g: #8a3a2c; }
 .topic-card.group-5 { --g: #3d4a63; }
 .topic-card > span {
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 650;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--g);
 }
 .topic-card h2,
 .topic-card h3 {
   margin-top: 10px;
   font-family: var(--display);
-  font-weight: 400;
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 26px;
-  line-height: 1.05;
+  line-height: 1.08;
 }
 .topic-card p {
   display: flex;
@@ -1108,7 +1100,8 @@
 }
 .library-summary h2 {
   font-family: var(--display);
-  font-weight: 400;
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 30px;
 }
 .button-row {
@@ -1136,31 +1129,32 @@
   padding: 20px;
   border-radius: var(--r-lg);
   text-align: start;
-  color: var(--on-night);
-  background: var(--night-2);
-  transition: transform 0.3s var(--ease);
+  color: var(--ink);
+  background: var(--panel);
+  transition: background 0.15s;
 }
 .playlist-card:hover {
-  transform: translateY(-3px);
+  background: #ebebed;
 }
 .playlist-icon {
   display: grid;
   place-items: center;
-  width: 50px;
-  height: 50px;
+  width: 44px;
+  height: 44px;
   margin-bottom: auto;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--gold-2);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
 }
 .playlist-card h2 {
   font-family: var(--display);
-  font-weight: 400;
-  font-size: 26px;
+  letter-spacing: -0.02em;
+  font-weight: 650;
+  font-size: 20px;
 }
 .playlist-card p {
   font-size: 12.5px;
-  color: var(--on-night-2);
+  color: var(--ink-3);
 }
 .playlist-card > svg:last-child {
   position: absolute;
@@ -1181,8 +1175,8 @@
   clip-path: inset(50%);
 }
 .detail-sheet [data-slot='sheet-close'] {
-  background: rgba(255, 255, 255, 0.14) !important;
-  color: #fff !important;
+  background: var(--surface) !important;
+  color: var(--ink) !important;
 }
 .detail-body {
   display: grid;
@@ -1200,21 +1194,20 @@
   gap: 14px;
   padding: 64px 28px 28px;
   overflow: hidden;
-  color: var(--on-night);
-  background: var(--night-2);
+  color: var(--ink);
+  background: var(--panel);
 }
 .detail-topic {
-  font-size: 11.5px;
-  font-weight: 650;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--gold-2);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-3);
 }
 .detail-hero h2 {
   font-family: var(--display);
-  font-weight: 400;
-  font-size: 34px;
-  line-height: 1.05;
+  letter-spacing: -0.025em;
+  font-weight: 650;
+  font-size: 28px;
+  line-height: 1.12;
   text-wrap: balance;
 }
 .detail-teacher {
@@ -1227,13 +1220,12 @@
 .detail-teacher .avatar {
   width: 48px;
   height: 48px;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
 }
 .detail-teacher div {
   display: grid;
 }
 .detail-teacher strong {
-  color: #fff;
+  color: var(--ink);
   font-weight: 620;
 }
 .detail-teacher span {
@@ -1241,10 +1233,10 @@
   align-items: center;
   gap: 4px;
   font-size: 12.5px;
-  color: var(--on-night-2);
+  color: var(--ink-3);
 }
 .detail-teacher:hover span {
-  color: var(--gold-2);
+  color: var(--brand);
 }
 .detail-follow-controls {
   display: flex;
@@ -1263,7 +1255,7 @@
 .detail-meta span {
   padding: 4px 12px;
   border-radius: 999px;
-  background: rgba(14, 23, 38, 0.05);
+  background: rgba(0, 0, 0, 0.05);
   font-size: 12.5px;
   font-weight: 550;
   color: var(--ink-2);
@@ -1317,10 +1309,8 @@
   border-top: 1px solid var(--line);
 }
 .detail-section h3 {
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 650;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
   color: var(--ink-3);
 }
 .detail-section > p {
@@ -1408,26 +1398,24 @@
   display: grid;
   gap: 6px;
   padding: 20px;
-  border-radius: 20px;
-  color: var(--on-night);
-  background: var(--night-2);
-}
-.now-playing .eyebrow {
-  color: var(--gold-2);
+  border-radius: var(--r-lg);
+  color: var(--ink);
+  background: var(--panel);
 }
 .now-playing h3 {
   font-family: var(--display);
-  font-weight: 400;
-  font-size: 22px;
-  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 650;
+  font-size: 20px;
+  line-height: 1.2;
 }
 .now-playing p {
   font-size: 13px;
-  color: var(--on-night-2);
+  color: var(--ink-3);
 }
 .now-playing .text-button {
   justify-self: start;
-  color: var(--gold-2);
+  color: var(--brand);
 }
 .queue-speed,
 .sleep-control {
@@ -1467,6 +1455,8 @@
 }
 .queue-list article > span {
   font-family: var(--display);
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 20px;
   color: var(--gold-ink);
   text-align: center;
@@ -1500,7 +1490,7 @@
   color: var(--ink-3);
 }
 .queue-item-actions button:hover:not(:disabled) {
-  background: rgba(14, 23, 38, 0.06);
+  background: rgba(0, 0, 0, 0.06);
   color: var(--ink);
 }
 .queue-item-actions button:disabled {
@@ -1598,10 +1588,10 @@
   margin: 0 auto;
   min-height: 84px;
   padding: 12px 18px 12px 12px;
-  border-radius: 26px;
+  border-radius: var(--r-lg);
   overflow: hidden;
   color: var(--on-night);
-  background: rgba(10, 20, 36, 0.86);
+  background: rgba(24, 24, 27, 0.92);
   backdrop-filter: saturate(1.8) blur(26px);
   -webkit-backdrop-filter: saturate(1.8) blur(26px);
   box-shadow:
@@ -1852,7 +1842,7 @@
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: calc(86px + env(safe-area-inset-bottom));
+  bottom: calc(76px + env(safe-area-inset-bottom));
   z-index: 41;
   isolation: isolate;
   display: grid;
@@ -1861,15 +1851,13 @@
   gap: 4px;
   min-height: 64px;
   padding: 7px 8px 7px 7px;
-  border-radius: 22px;
+  border-radius: var(--r-lg);
   overflow: hidden;
   color: var(--on-night);
-  background: rgba(15, 29, 52, 0.9);
+  background: rgba(24, 24, 27, 0.94);
   backdrop-filter: saturate(1.8) blur(22px);
   -webkit-backdrop-filter: saturate(1.8) blur(22px);
-  box-shadow:
-    0 18px 40px -14px rgba(6, 12, 24, 0.6),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.45);
   animation: rise 0.4s var(--ease);
 }
 .mobile-miniplayer-open {
@@ -2224,7 +2212,8 @@
   .mobile-search-browse h2 {
     margin-bottom: 4px;
     font-family: var(--display);
-    font-weight: 400;
+  letter-spacing: -0.025em;
+    font-weight: 640;
     font-size: 28px;
   }
   .mobile-search-browse button {
@@ -2275,7 +2264,8 @@
   }
   .mobile-result-count {
     font-family: var(--display);
-    font-weight: 400;
+  letter-spacing: -0.025em;
+    font-weight: 640;
     font-size: 28px;
   }
   .mobile-result-count strong {
@@ -2312,8 +2302,7 @@
     background: var(--ink-3);
   }
   .search-status-dot.is-updating {
-    background: var(--gold-2);
-    animation: pulse-dot 1.6s infinite;
+    background: var(--brand);
   }
   .mobile-result-status-body {
     padding-top: 8px;

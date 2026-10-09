@@ -15,7 +15,8 @@
 }
 .transcript-search h2 {
   font-family: var(--display);
-  font-weight: 400;
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 24px;
   line-height: 1.1;
 }
@@ -96,7 +97,7 @@
   min-height: 34px;
   padding: 0 14px;
   border-radius: 999px;
-  background: rgba(14, 23, 38, 0.05);
+  background: rgba(0, 0, 0, 0.05);
   font-size: 12.5px;
   font-weight: 600;
   color: var(--ink-2);
@@ -182,14 +183,16 @@
 .study-markdown h1 {
   margin: 22px 0 12px;
   font-family: var(--display);
-  font-weight: 400;
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 28px;
   line-height: 1.1;
 }
 .study-markdown h2 {
   margin: 20px 0 10px;
   font-family: var(--display);
-  font-weight: 400;
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 23px;
 }
 .study-markdown h3 {
@@ -218,7 +221,7 @@
 .source-attribution a {
   color: var(--brand);
   text-decoration: underline;
-  text-decoration-color: rgba(27, 63, 125, 0.35);
+  text-decoration-color: rgba(0, 0, 0, 0.35);
   text-underline-offset: 3px;
 }
 .transcript-source-link {
@@ -254,7 +257,7 @@
   padding: 2px 9px;
   border-radius: 999px;
   background: var(--gold-tint);
-  color: #6f5022;
+  color: var(--ink-2);
   font-size: 10.5px;
   font-weight: 600;
 }
@@ -391,7 +394,8 @@
 .source-sheet-preview h4 {
   margin: 8px 0;
   font-family: var(--display);
-  font-weight: 400;
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 28px;
   line-height: 1.1;
 }
@@ -405,10 +409,8 @@
 }
 .detail-section .source-sheet-eyebrow {
   margin: 0;
-  font-size: 10.5px;
+  font-size: 12.5px;
   font-weight: 650;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
   color: var(--gold-ink);
 }
 .detail-section .source-he-ref {
@@ -419,6 +421,8 @@
 .source-edition-text {
   margin: 14px 0;
   font-family: var(--display);
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 18px;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -468,7 +472,8 @@
 }
 .builder-heading h2 {
   font-family: var(--display);
-  font-weight: 400;
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 26px;
 }
 .builder-heading > span {
@@ -496,10 +501,8 @@
   float: left;
   width: 100%;
   margin-bottom: 4px;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 650;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
   color: var(--gold-ink);
 }
 .builder-section label,
@@ -636,7 +639,8 @@
 }
 .saved-search-empty h3 {
   font-family: var(--display);
-  font-weight: 400;
+  letter-spacing: -0.025em;
+  font-weight: 640;
   font-size: 24px;
   color: var(--ink);
 }

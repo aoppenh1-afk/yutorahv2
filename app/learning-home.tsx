@@ -496,7 +496,6 @@ export function LearningHome(props: Props) {
   const subjects = [
     {
       key: 'halacha',
-      art: 'halacha',
       label: 'Practical halacha',
       title: 'Ten Minute Halacha',
       hebrew: 'הלכה',
@@ -511,7 +510,6 @@ export function LearningHome(props: Props) {
     },
     {
       key: 'gemara',
-      art: 'gemara',
       label: 'Talmud',
       title: 'Gemara shiurim',
       hebrew: 'גמרא',
@@ -521,7 +519,6 @@ export function LearningHome(props: Props) {
     },
     {
       key: 'thought',
-      art: 'machshava',
       label: 'Jewish thought',
       title: 'Machshava',
       hebrew: 'מחשבה',
@@ -531,7 +528,6 @@ export function LearningHome(props: Props) {
     },
     {
       key: 'tefillah',
-      art: 'tefillah',
       label: 'Prayer',
       title: 'Tefillah',
       hebrew: 'תפילה',
@@ -641,7 +637,6 @@ export function LearningHome(props: Props) {
             <section className="home-hero" aria-label="Featured shiur">
               <div className="home-hero-main">
                 <span className="home-hero-eyebrow">
-                  <span className="live-dot" aria-hidden="true" />
                   Featured shiur
                   {pick?.category ? ' · ' + pick.category : ''}
                 </span>
@@ -815,19 +810,14 @@ export function LearningHome(props: Props) {
               </div>
               <div className="today-band-items">
                 {[
-                  ['This week’s parsha', 'פרשת השבוע', home.parsha || ''],
-                  ['Daf Yomi', 'דף יומי', home.daf],
-                  ['Mishna Yomi', 'משנה יומית', home.mishna],
-                  ['Nach Yomi', 'נ״ך יומי', home.nach],
+                  ['This week’s parsha', home.parsha || ''],
+                  ['Daf Yomi', home.daf],
+                  ['Mishna Yomi', home.mishna],
+                  ['Nach Yomi', home.nach],
                 ]
-                  .filter(([, , value]) => value)
-                  .map(([label, hebrew, value]) => (
+                  .filter(([, value]) => value)
+                  .map(([label, value]) => (
                     <button key={label} onClick={() => onSearch(value)}>
-                      <span
-                        className="today-hebrew"
-                        data-he={hebrew}
-                        aria-hidden="true"
-                      />
                       <small>{label}</small>
                       <strong dir="auto">{value}</strong>
                       <span className="today-go">
@@ -1172,21 +1162,12 @@ export function LearningHome(props: Props) {
                   'All topics',
                 )}
                 <div className="collection-grid">
-                  {subjects.map(({ key, art, label, title, hebrew, note, icon: Icon, go }) => (
+                  {subjects.map(({ key, label, title, hebrew, note, icon: Icon, go }) => (
                     <button
                       key={key}
                       className={'collection-tile collection-' + key}
                       onClick={go}
                     >
-                      <img
-                        className="collection-art"
-                        src={`/images/art/subject-${art}.webp`}
-                        alt=""
-                        width={960}
-                        height={720}
-                        loading="lazy"
-                        decoding="async"
-                      />
                       <span className="collection-top">
                         <Icon size={16} />
                         {label}
@@ -1371,15 +1352,6 @@ export function LearningHome(props: Props) {
                 </section>
               )}
               <section className="learning-goal-band">
-                <img
-                  className="band-art"
-                  src="/images/art/hero-library.webp"
-                  alt=""
-                  width={1600}
-                  height={900}
-                  loading="lazy"
-                  decoding="async"
-                />
                 <span
                   className="goal-ring"
                   style={

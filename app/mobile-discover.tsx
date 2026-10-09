@@ -191,7 +191,6 @@ export function MobileDiscover({
         <section className="m-hero" aria-label="Featured shiur">
           <div className="m-hero-top">
             <span className="m-hero-eyebrow">
-              <span className="live-dot" aria-hidden="true" />
               Featured{pick.category ? ' · ' + pick.category : ''}
             </span>
             <button
@@ -380,15 +379,6 @@ export function MobileDiscover({
                     : onSearch(name)
                 }
               >
-                <img
-                  className="m-subject-art"
-                  src={`/images/art/subject-${name.toLowerCase()}.webp`}
-                  alt=""
-                  width={960}
-                  height={720}
-                  loading="lazy"
-                  decoding="async"
-                />
                 <span
                   className="m-subject-hebrew"
                   data-he={hebrew}
@@ -462,15 +452,6 @@ export function MobileDiscover({
       )}
 
       <section className="m-goal">
-        <img
-          className="band-art"
-          src="/images/art/hero-library.webp"
-          alt=""
-          width={1600}
-          height={900}
-          loading="lazy"
-          decoding="async"
-        />
         <span
           className="goal-ring"
           style={{ '--goal': goal } as React.CSSProperties}

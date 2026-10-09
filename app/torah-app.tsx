@@ -1902,15 +1902,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                   </section>
                 ) : (
                   <div className="search-start">
-                    <img
-                      className="band-art"
-                      src="/images/art/hero-library.webp"
-                      alt=""
-                      width={1600}
-                      height={900}
-                      loading="lazy"
-                      decoding="async"
-                    />
                     <BookOpen size={28} />
                     <h2>Try one of these</h2>
                     <p>
