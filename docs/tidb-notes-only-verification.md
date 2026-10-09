@@ -1,8 +1,10 @@
 # TiDB notes-only verification
 
 Verified October 9, 2026. The implementation and one real end-to-end pilot
-succeeded. The live VM installation, host startup recovery, representative
+succeeded. The VM agent subsequently verified installation, six concurrent High-thinking
+workers, publication, and cron recovery. Full host replacement, representative
 storage/RU measurement, and production website deployment remain outstanding.
+See [notes-only-vm.md](notes-only-vm.md) for its verification report.
 Operational instructions are in [notes-only-pipeline.md](notes-only-pipeline.md).
 
 ## Live evidence
@@ -35,8 +37,8 @@ Operational instructions are in [notes-only-pipeline.md](notes-only-pipeline.md)
 - Saved all four server-only TiDB reader environment variables in Vercel's
   `yutorah` project for Production and Preview. New code has not been deployed.
 - One catalog discovery page returned 30 records and a reported total of
-  434,295. The count of available transcripts remains unknown. Bulk generation
-  has not started.
+  434,295. The count of available transcripts remains unknown. The original Mac pilot did not start bulk generation. The VM agent has since
+  started processing catalog batches; its current count should be read from the VM.
 
 Private local evidence and credentials are under Git-ignored `work/tidb-setup`.
 Credentials are separate from public documentation and source. The VM transfer
@@ -67,8 +69,8 @@ uninterrupted free service guarantee for the entire library.
 ## Recovery limits
 
 The worker uses persistent-home SQLite, durable compressed notes backups,
-insert-only publication, confirmed hashes, and deletion after completion. One
-worker paces requests and backs off on provider/database failures. Website reads
+insert-only publication, confirmed hashes, and deletion after completion. The VM runs
+six concurrent jobs with pacing and shared backoff on provider/database failures. Website reads
 use primary-key queries, a bounded cache, and no AI calls.
 
 The VM has no incoming network access and does not need it. Its reported home

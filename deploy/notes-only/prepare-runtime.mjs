@@ -47,23 +47,30 @@ if (!source.includes(poolMarker)) {
       throw new Error('Unsupported concurrent pipeline package.');
     source = source.replace(before, after);
   };
-  replace(
-    '`opencode:${config.version ?? OPENCODE_VERSION}:notes-2`',
-    '`opencode:${config.version ?? OPENCODE_VERSION}:notes-3-high`',
-  );
-  replace(
-    '    await select("model", model);\n    return [model];',
-    `    await select("model", model);
+  if (
+    !source.includes(
+      '`opencode:${config.version ?? OPENCODE_VERSION}:notes-3-high`',
+    )
+  )
+    replace(
+      '`opencode:${config.version ?? OPENCODE_VERSION}:notes-2`',
+      '`opencode:${config.version ?? OPENCODE_VERSION}:notes-3-high`',
+    );
+  if (!source.includes('await select("effort", "high");'))
+    replace(
+      '    await select("model", model);\n    return [model];',
+      `    await select("model", model);
     await select("effort", "high");
     for (const [id, value] of [["mode", "plan"], ["model", model], ["effort", "high"]])
       if (rows2(result.configOptions).find((o) => o.id === id)?.currentValue !== value)
         throw new Failure("configuration");
     return [model];`,
-  );
-  replace(
-    '        model: FREE_NOTES_MODEL\n      }',
-    '        model: FREE_NOTES_MODEL,\n        variant: "high"\n      }',
-  );
+    );
+  if (!source.includes('variant: "high"'))
+    replace(
+      '        model: FREE_NOTES_MODEL\n      }',
+      '        model: FREE_NOTES_MODEL,\n        variant: "high"\n      }',
+    );
   // Each job gets its own SDK connection; session state is not shared across lanes.
   replace(
     '    const pipeline = new NotesPipeline({',

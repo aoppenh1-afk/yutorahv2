@@ -26,7 +26,8 @@ without credentials by `npm run notes:package`.
 
 Requires Node.js 22.13 or later, git, and OpenCode 1.18.33. Use a separate
 `opencode-notes` binary if the VM's default OpenCode version differs. The runtime
-checks its version and the exact free model before generation. User plugin and
+checks its version and confirms the exact free model and High thinking before
+generation. User plugin and
 agent configuration is isolated; provider state remains available to the native
 runtime. No paid fallback is allowed.
 
@@ -56,14 +57,17 @@ Catalog discovery saves a cursor, fetches 30 IDs per page, and waits at least on
 second between pages. Run further catalog batches while the worker is stopped.
 One test page reported 434,295 catalog records; this does not establish how many
 have transcripts. Missing transcripts are eligible for another check after seven
-days. A single worker processes jobs with pacing and backoff for provider or
-database failures. `status` can run while the worker is active.
+days. The portable base CLI processes one job at a time. The managed VM runner adds
+six concurrent jobs with pacing and shared backoff for provider or database
+failures. Its installation and verification are documented in
+[notes-only-vm.md](notes-only-vm.md). `status` can run while the worker is active.
 
 All connections are outbound. SSH, a public IP, and incoming ports are unnecessary.
 Keep state in the VM's persistent home directory, not its temporary runtime disk.
 Install the worker in the VM service's supported startup mechanism and test a
 runtime restart. A detached process alone will not restart after replacement.
-The host's home persistence and startup mechanism remain to be verified on the VM.
+The VM agent verified cron recovery after a controlled worker interruption.
+Automatic recovery after a full host/runtime replacement remains unverified.
 
 ## Recovery and backups
 
@@ -122,7 +126,8 @@ allowance permits about 12,485 bytes per row including overhead at that scale.
 ## Validation
 
 Both website builds, TypeScript checks, worker compilation, targeted lint,
-34 player browser tests, and 15 pipeline/ACP tests passed. Live TiDB checks
+34 player browser tests, and the pipeline/ACP tests passed. The combined version
+also passed six concurrency tests and a regenerated-package compatibility test. Live TiDB checks
 confirmed binary gzip round trips, Hebrew checksums, duplicate publication,
 conflict rejection, and privilege boundaries. The website returned HTTP 200 and
 conditional HTTP 304 for the stored pilot notes. Simulated upload failure and
