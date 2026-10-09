@@ -1,0 +1,30 @@
+name: Refresh saved trending charts
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: refresh-trending
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      TRENDING_SITE_URL: ${{ vars.TRENDING_SITE_URL }}
+      TRENDING_REFRESH_TOKEN: ${{ secrets.TRENDING_REFRESH_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Check refresh configuration
+        run: |
+          test -n "$TRENDING_SITE_URL" || { echo 'Set the TRENDING_SITE_URL repository variable.'; exit 1; }
+          test -n "$TRENDING_REFRESH_TOKEN" || { echo 'Set the TRENDING_REFRESH_TOKEN repository secret and server environment variable.'; exit 1; }
+      - run: npm ci
+      - name: Resume the shared index until completed
+        run: npm run trending:warm -- --url "$TRENDING_SITE_URL" --period all --refresh --max-passes 2000

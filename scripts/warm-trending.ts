@@ -5,11 +5,17 @@ const { values } = parseArgs({
   options: {
     url: { type: 'string', default: 'http://localhost:3000' },
     period: { type: 'string' },
+    refresh: { type: 'boolean', default: false },
     minutes: { type: 'string', default: '0' },
     'max-passes': { type: 'string', default: '20000' },
   },
 });
 const base = new URL(values.url!);
+const token = process.env.TRENDING_REFRESH_TOKEN;
+if (values.refresh && !token)
+  throw new Error(
+    'Set TRENDING_REFRESH_TOKEN to use the protected refresh endpoint.',
+  );
 const minutes = values.minutes!;
 const maxPasses = Number(values['max-passes']);
 const periods = trendingPeriods
@@ -29,13 +35,27 @@ if (
 
 let passes = 0;
 for (const period of periods) {
-  const url = new URL('/api/discover', base);
+  const url = new URL(
+    values.refresh ? '/api/discover/refresh' : '/api/discover',
+    base,
+  );
   url.search = new URLSearchParams({ period, minutes }).toString();
   let complete = false;
   while (passes < maxPasses) {
     passes++;
-    const response = await fetch(url, { signal: AbortSignal.timeout(60000) });
+    const response = await fetch(url, {
+      method: values.refresh ? 'POST' : 'GET',
+      headers: values.refresh
+        ? { Authorization: `Bearer ${token}` }
+        : undefined,
+      redirect: values.refresh ? 'error' : 'follow',
+      signal: AbortSignal.timeout(60000),
+    });
     if (response.status === 503) {
+      if (!values.refresh && !['day', 'week'].includes(period))
+        throw new Error(
+          `${period}: saved chart is not ready; use --refresh with TRENDING_REFRESH_TOKEN to resume the shared scan.`,
+        );
       const seconds = Number(response.headers.get('Retry-After')) || 5;
       await new Promise((resolve) =>
         setTimeout(resolve, Math.min(30, Math.max(3, seconds)) * 1000),

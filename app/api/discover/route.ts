@@ -3,11 +3,19 @@ import { createTrendingService, TrendingBusyError } from '@/lib/trending-cache';
 import { searchDatabase } from '@/lib/search-db';
 
 const discover = createTrendingService({ database: searchDatabase });
+const savedCharts = createTrendingService({
+  database: searchDatabase,
+  cachedOnly: true,
+});
 
 export async function GET(request: Request) {
   try {
     const options = parseTrendingOptions(new URL(request.url).searchParams);
-    const data = await discover(options);
+    const data = await (
+      options.period === 'day' || options.period === 'week'
+        ? discover
+        : savedCharts
+    )(options);
     const {
       seen: _coverage,
       index: _index,

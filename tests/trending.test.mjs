@@ -903,6 +903,281 @@ void test('default trending shares durable scan progress across month, year and 
 });
 
 const { readTrendingResponse } = await load('lib/trending-source.ts');
+
+void test('long-range requests serve persisted completed charts without waiting for upstream refresh', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  const { db, sqlite } = database();
+  globalThis.__trendingTestDatabase = db;
+  let calls = 0;
+  try {
+    globalThis.fetch = async () =>
+      Response.json({
+        response: {
+          numFound: 30,
+          docs: Array.from({ length: 30 }, (_, i) => raw(30 - i)),
+        },
+      });
+    await createTrendingService({ database: () => db, now: () => initial })({
+      period: 'all',
+      minutes: 0,
+    });
+    Date.now = () => initial + 12 * 3600000;
+    globalThis.fetch = async () => {
+      calls++;
+      throw new Error('A chart request must not wait for upstream.');
+    };
+    const { GET: cached } = await load('app/api/discover/route.ts', [
+      {
+        name: 'persisted-chart',
+        setup(build) {
+          build.onResolve({ filter: /^@\/lib\/search-db$/ }, () => ({
+            path: 'db',
+            namespace: 'mock',
+          }));
+          build.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({
+            contents:
+              'export const searchDatabase = () => globalThis.__trendingTestDatabase;',
+          }));
+        },
+      },
+    ]);
+    for (const period of ['month', 'year', 'all']) {
+      const response = await cached(
+        new Request(
+          `http://localhost/api/discover?period=${period}&minutes=10`,
+        ),
+      );
+      assert.equal(response.status, 200);
+      const data = await response.json();
+      assert.equal(data.partial, false);
+      assert.equal(data.period, period);
+      assert.equal(data.fetchedAt, new Date(initial).toISOString());
+      assert.equal(data.index, undefined);
+      assert.equal(data.seen, undefined);
+    }
+    assert.equal(
+      calls,
+      0,
+      'Serving a saved chart must not issue upstream requests',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+    delete globalThis.__trendingTestDatabase;
+    sqlite.close();
+  }
+});
+
+void test('saved charts retain completed rankings during a multi-day rebuild and never advance its cursor', async () => {
+  const { db, sqlite } = database();
+  let now = initial;
+  let calls = 0;
+  const config = {
+    database: () => db,
+    now: () => now,
+    preferCompleted: true,
+    read: async (selected, at) => {
+      calls++;
+      return snapshot(selected, at);
+    },
+  };
+  await createTrendingService(config)(options);
+  const complete = JSON.parse(
+    sqlite.prepare('SELECT plan FROM search_runs').get().plan,
+  ).snapshot;
+  const partial = {
+    ...complete,
+    sampled: 30,
+    total: 60,
+    partial: true,
+    nextId: 30,
+    fetchedAt: new Date(initial + 86400000).toISOString(),
+  };
+  sqlite
+    .prepare('UPDATE search_runs SET plan=?')
+    .run(JSON.stringify({ snapshot: partial, lastComplete: complete }));
+  const plan = sqlite.prepare('SELECT plan FROM search_runs').get().plan;
+  now += 2 * 86400000;
+  const service = createTrendingService({ ...config, cachedOnly: true });
+  const saved = await service(options);
+  assert.equal(saved.fetchedAt, complete.fetchedAt);
+  assert.equal(saved.partial, false);
+  assert.equal(saved.refreshing, true);
+  assert.equal(saved.stale, true);
+  assert.equal(calls, 1);
+  assert.equal(sqlite.prepare('SELECT plan FROM search_runs').get().plan, plan);
+  now = initial + 7 * 86400000;
+  await assert.rejects(service(options), TrendingBusyError);
+  sqlite.close();
+});
+
+void test('a cold saved-chart request returns promptly without starting or mutating a scan', async () => {
+  const { db, sqlite } = database();
+  let calls = 0;
+  const service = createTrendingService({
+    database: () => db,
+    now: () => initial,
+    cachedOnly: true,
+    read: async () => {
+      calls++;
+      return snapshot();
+    },
+  });
+  await assert.rejects(service(options), TrendingBusyError);
+  assert.equal(calls, 0);
+  assert.equal(
+    sqlite.prepare('SELECT count(*) AS n FROM search_runs').get().n,
+    0,
+  );
+  sqlite.close();
+});
+
+void test('background refresh requires durable storage and retries cache write failures instead of reporting completion', async () => {
+  let calls = 0;
+  const read = async () => {
+    calls++;
+    return snapshot();
+  };
+  const missing = createTrendingService({ requireStorage: true, read });
+  await assert.rejects(missing(options), /persistent storage/);
+  assert.equal(calls, 0);
+  const { db, sqlite } = database();
+  const failing = {
+    prepare(sql) {
+      if (sql.startsWith('UPDATE search_runs SET plan = ?, total'))
+        throw new Error('Storage write failed.');
+      return db.prepare(sql);
+    },
+  };
+  const service = createTrendingService({
+    database: () => failing,
+    requireStorage: true,
+    read,
+    now: () => initial,
+  });
+  await assert.rejects(service(options), /Storage write failed/);
+  await assert.rejects(service(options), /Storage write failed/);
+  assert.equal(
+    calls,
+    1,
+    'A failed write must not leave a completed in-memory chart',
+  );
+  assert.equal(
+    JSON.parse(sqlite.prepare('SELECT plan FROM search_runs').get().plan)
+      .snapshot,
+    undefined,
+  );
+  sqlite.close();
+});
+
+void test('the protected refresher resumes an existing browser scan and saved requests see its completed charts', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  const { db, sqlite } = database();
+  globalThis.__trendingTestDatabase = db;
+  const pages = [];
+  let now = initial;
+  try {
+    Date.now = () => now;
+    globalThis.fetch = async (url) => {
+      const page = Number(new URL(url).searchParams.get('start'));
+      pages.push(page);
+      return Response.json({
+        response: {
+          numFound: 600,
+          docs: Array.from({ length: 30 }, (_, i) =>
+            raw(600 - (page - 1) * 30 - i),
+          ),
+        },
+      });
+    };
+    const service = createTrendingService({ database: () => db });
+    assert.equal(
+      (await service({ period: 'month', minutes: 0 })).partial,
+      true,
+    );
+    const originalPlan = sqlite
+      .prepare('SELECT plan FROM search_runs')
+      .get().plan;
+    const { POST } = await load('app/api/discover/refresh/route.ts', [
+      {
+        name: 'refresh-test',
+        setup(build) {
+          build.onResolve({ filter: /^cloudflare:workers$/ }, () => ({
+            path: 'env',
+            namespace: 'mock',
+          }));
+          build.onResolve({ filter: /^@\/lib\/search-db$/ }, () => ({
+            path: 'db',
+            namespace: 'mock',
+          }));
+          build.onLoad({ filter: /.*/, namespace: 'mock' }, ({ path }) => ({
+            contents:
+              path === 'env'
+                ? 'export const env = { TRENDING_REFRESH_TOKEN: "fixture-token" };'
+                : 'export const searchDatabase = () => globalThis.__trendingTestDatabase;',
+          }));
+        },
+      },
+    ]);
+    for (const authorization of [undefined, 'Bearer wrong-token']) {
+      const response = await POST(
+        new Request('http://localhost/api/discover/refresh', {
+          method: 'POST',
+          headers: authorization ? { Authorization: authorization } : {},
+        }),
+      );
+      assert.equal(response.status, 404);
+      assert.equal(pages.length, 12);
+      assert.equal(
+        sqlite.prepare('SELECT plan FROM search_runs').get().plan,
+        originalPlan,
+      );
+    }
+    await assert.rejects(
+      createTrendingService({ database: () => db, cachedOnly: true })({
+        period: 'year',
+        minutes: 0,
+      }),
+      TrendingBusyError,
+    );
+    now += 3500;
+    const response = await POST(
+      new Request('http://localhost/api/discover/refresh?period=all', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer fixture-token' },
+      }),
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('Cache-Control'), 'no-store');
+    const data = await response.json();
+    assert.equal(data.partial, false);
+    assert.equal(data.sampled, 600);
+    assert.equal(data.index, undefined);
+    assert.equal(data.seen, undefined);
+    assert.equal(data.nextPage, undefined);
+    assert.equal(pages.length, 20);
+    assert.equal(new Set(pages).size, 20);
+    globalThis.fetch = async () => {
+      throw new Error('Unexpected upstream request');
+    };
+    const saved = createTrendingService({
+      database: () => db,
+      cachedOnly: true,
+    });
+    for (const period of ['month', 'year', 'all']) {
+      const chart = await saved({ period, minutes: 0 });
+      assert.equal(chart.partial, false);
+      assert.equal(chart.total, 600);
+    }
+  } finally {
+    Date.now = originalNow;
+    globalThis.fetch = originalFetch;
+    delete globalThis.__trendingTestDatabase;
+    sqlite.close();
+  }
+});
 const { readTrendingIndex, selectTrendingChart, validTrendingIndex } =
   await load('lib/trending-index.ts');
 

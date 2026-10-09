@@ -31,6 +31,9 @@ function fallbackDatabase() {
 // Vite replaces cloudflare:workers only in the Vercel build. These credentials
 // stay in the server runtime and are never exposed through NEXT_PUBLIC_*.
 export const env = {
+  get TRENDING_REFRESH_TOKEN() {
+    return process.env.TRENDING_REFRESH_TOKEN;
+  },
   get SEARCH_INDEX_TRANSFER_ENABLED() {
     return process.env.SEARCH_INDEX_TRANSFER_ENABLED;
   },
