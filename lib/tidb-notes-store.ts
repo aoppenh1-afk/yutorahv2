@@ -150,6 +150,7 @@ export class TiDBNotesStore {
     await unpackNote(note);
     const binary = (value: string) =>
       Uint8Array.from(value.match(/../g)!, (x) => parseInt(x, 16));
+    let saved: SavedNote | null | undefined;
     try {
       await this.db.execute(
         'INSERT INTO shiur_notes (shiur_id, source_sha256, notes_sha256, generator_version, language, raw_bytes, created_at_ms, notes_gzip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -166,7 +167,7 @@ export class TiDBNotesStore {
       );
     } catch (error) {
       // Resolve duplicate inserts and lost acknowledgements by reading durable state.
-      const saved = await this.get(note.shiurId).catch(() => null);
+      saved = await this.get(note.shiurId).catch(() => null);
       if (!saved) throw error;
       if (
         saved.sourceHash !== note.sourceHash ||
@@ -177,7 +178,7 @@ export class TiDBNotesStore {
           'Published notes conflict; explicit replacement is required.',
         );
     }
-    const saved = await this.get(note.shiurId);
+    saved ??= await this.get(note.shiurId);
     if (
       !saved ||
       saved.sourceHash !== note.sourceHash ||

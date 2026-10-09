@@ -5,7 +5,7 @@ import { vmCatalogText } from '../deploy/notes-only/catalog-fetch.mjs';
 const endpoint = 'https://yutorah.org/api/search/get?start=1';
 const signal = new AbortController().signal;
 
-test('catalog uses the managed fetch transport for the fixed public endpoint', async () => {
+void test('catalog uses the managed fetch transport for the fixed public endpoint', async () => {
   const text = await vmCatalogText(
     endpoint,
     signal,
@@ -19,7 +19,7 @@ test('catalog uses the managed fetch transport for the fixed public endpoint', a
   assert.deepEqual(JSON.parse(text), { response: { docs: [] } });
 });
 
-test('catalog rejects arbitrary destinations and redirects', async () => {
+void test('catalog rejects arbitrary destinations and redirects', async () => {
   let calls = 0;
   const fetcher = async () => {
     calls++;
@@ -36,7 +36,7 @@ test('catalog rejects arbitrary destinations and redirects', async () => {
   await assert.rejects(vmCatalogText(endpoint, signal, 100, fetcher));
 });
 
-test('catalog bounds streamed responses and rejects invalid UTF-8', async () => {
+void test('catalog bounds streamed responses and rejects invalid UTF-8', async () => {
   await assert.rejects(
     vmCatalogText(endpoint, signal, 2, async () => new Response('תורה')),
   );

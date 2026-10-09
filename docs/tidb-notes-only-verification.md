@@ -35,7 +35,8 @@ Operational instructions are in [notes-only-pipeline.md](notes-only-pipeline.md)
   34 player tests, and 15 pipeline/ACP tests passed. Reader tests include notes
   remaining readable when the official transcript request fails.
 - Saved all four server-only TiDB reader environment variables in Vercel's
-  `yutorah` project for Production and Preview. New code has not been deployed.
+  `yutorah` project for Production and Preview. The PR preview rendered VM-generated
+  notes for shiur 1191069. Production deployment remains gated on PR checks.
 - One catalog discovery page returned 30 records and a reported total of
   434,295. The count of available transcripts remains unknown. The original Mac pilot did not start bulk generation. The VM agent has since
   started processing catalog batches; its current count should be read from the VM.
@@ -43,6 +44,21 @@ Operational instructions are in [notes-only-pipeline.md](notes-only-pipeline.md)
 Private local evidence and credentials are under Git-ignored `work/tidb-setup`.
 Credentials are separate from public documentation and source. The VM transfer
 archive contains only its restricted writer credential.
+
+## Quota audit
+
+On October 9 a live `EXPLAIN ANALYZE` of the website query for shiur 1191069
+returned `Point_Get`, one row, one key, and one storage RPC. Its reported SQL
+execution cost was 0.67 RU. This is one measured lookup, not an estimate of total
+instance consumption or a representative corpus; public gateway egress adds cost.
+
+The new regression suite verifies one INSERT and one verification SELECT per
+publication. The pipeline adds one preflight SELECT before generation; it never
+syncs the library after completing a job. Local backups do not access TiDB.
+Twenty simultaneous website requests for the same ID share one SDK lookup.
+Completed notes cache for an hour, missing notes for a minute, and failed
+database requests trigger a minute of cooldown across IDs within a server process.
+Browser coverage verifies lazy loading and no official-notes polling.
 
 ## Capacity and billing
 

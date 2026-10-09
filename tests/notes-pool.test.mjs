@@ -46,7 +46,7 @@ async function until(check) {
   assert.fail('Pool did not reach the expected state.');
 }
 
-test('six distinct transcripts run concurrently and a freed slot refills immediately', async () => {
+void test('six distinct transcripts run concurrently and a freed slot refills immediately', async () => {
   const f = fixture();
   const gates = new Map();
   const run = runNotesPool({
@@ -68,7 +68,7 @@ test('six distinct transcripts run concurrently and a freed slot refills immedia
   assert.equal(Math.max(...f.events.map((e) => e.active)), 6);
 });
 
-test('bounded pilots never claim more jobs than their limit', async () => {
+void test('bounded pilots never claim more jobs than their limit', async () => {
   const f = fixture();
   const result = await runNotesPool({
     ...f,
@@ -83,7 +83,7 @@ test('bounded pilots never claim more jobs than their limit', async () => {
   );
 });
 
-test('quota errors cool down all new work while allowing active jobs to finish', async () => {
+void test('quota errors cool down all new work while allowing active jobs to finish', async () => {
   const f = fixture(4);
   let clock = 0;
   const times = [];
@@ -116,7 +116,7 @@ test('quota errors cool down all new work while allowing active jobs to finish',
   assert.ok(times[2] >= 180000);
 });
 
-test('abort drains every active session before returning and stops claiming', async () => {
+void test('abort drains every active session before returning and stops claiming', async () => {
   const f = fixture();
   const controller = new AbortController();
   const gates = new Map();
@@ -138,7 +138,7 @@ test('abort drains every active session before returning and stops claiming', as
   assert.equal(f.claims.length, 6);
 });
 
-test('a retry stops a bounded pilot and drains the remaining jobs; conflicts are blocked', async () => {
+void test('a retry stops a bounded pilot and drains the remaining jobs; conflicts are blocked', async () => {
   const f = fixture(6);
   const result = await runNotesPool({
     ...f,
@@ -155,7 +155,7 @@ test('a retry stops a bounded pilot and drains the remaining jobs; conflicts are
   assert.deepEqual(f.retries, [['2', 'transport', 120000]]);
 });
 
-test('the scheduling deadline stops new claims and drains in-flight jobs', async () => {
+void test('the scheduling deadline stops new claims and drains in-flight jobs', async () => {
   const f = fixture();
   let clock = 0;
   const result = await runNotesPool({

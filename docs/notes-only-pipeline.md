@@ -14,7 +14,8 @@ and a durable completion checkpoint. A compressed local notes backup remains.
 
 The portable installer also passed a live test: a new local queue recognized the
 published shiur and completed without another download or AI generation call.
-Only one new shiur was generated; full-library processing has not started.
+The original Mac pilot generated one new shiur. The VM agent has since installed
+the worker and started catalog batches; see its verification report below.
 
 ## Install on the VM
 
@@ -97,19 +98,44 @@ file, verify that no notes worker is running before removing that lock directory
 
 The new server route `/api/study-notes?id=1190357` reads one primary-key row,
 verifies and decompresses its notes, and supports ETags. Its bounded server cache
-keeps completed notes for five minutes and missing rows for one minute. Database
-credentials stay in the server. Reader permissions allow only SELECT.
+keeps completed notes for one hour and missing rows for one minute. The browser
+requests notes only when Study notes is selected, caches completed notes for an
+hour, and does not poll. CDN responses permit one hour of caching and one day of
+stale responses during revalidation. Database credentials stay in the server.
+Reader permissions allow only SELECT.
 
 `TIDB_NOTES_HOST`, `TIDB_NOTES_USERNAME`, `TIDB_NOTES_PASSWORD`, and
 `TIDB_NOTES_DATABASE` were saved as secret environment variables in Vercel's
-`yutorah` project for Production and Preview. The website code has passed local
-Cloudflare and Vercel builds but has not been pushed or deployed. A deployment
-containing this implementation is required before those settings take effect.
+`yutorah` project for Production and Preview. The deployed PR preview displayed
+VM-generated notes for shiur 1191069. Production deployment is gated on PR checks.
 
 Study notes load independently of the official transcript, including during
 upstream transcript failures. Official summaries and quizzes are not fetched.
 Searching within the loaded transcript works. This notes-only database does not
 create a full-library transcript or notes search index.
+
+## Database usage controls
+
+A normal new job makes three targeted SQL calls: look up its shiur ID, insert
+that shiur's compressed notes, and read the row back to verify publication.
+Completion does not trigger a library sync, table scan, or database export.
+Backups scan local compressed files and make no database calls. Already completed
+jobs remain checkpointed in SQLite. Six VM workers share a cooldown after quota
+or provider errors and drain active jobs before stopping new claims.
+
+The website coalesces simultaneous requests for the same shiur and limits
+concurrent uncached lookups to eight per server process. A database error creates
+a one-minute cooldown shared across IDs in that process. Cached notes remain
+readable. These caches and cooldowns are process-local; separate hosting instances
+can each make a lookup. They reduce usage but do not cap the entire account's RUs.
+The $0 database spending limit remains the billing backstop.
+
+Regression tests count actual SDK requests for successful publication, lost
+acknowledgements, concurrent readers, negative caching, and failure cooldowns.
+Browser tests verify zero notes requests while reading a transcript, one on
+selecting Study notes, and no repeat request when switching tabs or waiting.
+The source removes a duplicate verification read after a lost acknowledgement;
+an existing VM installation needs a rebuilt package to receive that optimization.
 
 ## Free capacity
 

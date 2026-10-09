@@ -1078,7 +1078,8 @@ void test('player controls stop playback and the phone dialog stays inside the b
       async () => {
         const { context, page } = await openPlayer({ width: 390, height: 844 });
         let reads = 0,
-          statuses = 0;
+          statuses = 0,
+          noteReads = 0;
         let unavailable = false;
         try {
           await context.route('**/api/transcript?*', (route) => {
@@ -1118,16 +1119,17 @@ void test('player controls stop playback and the phone dialog stays inside the b
             statuses++;
             return route.fulfill({ status: 503, json: { error: 'Unused' } });
           });
-          await context.route('**/api/study-notes?*', (route) =>
-            route.fulfill({
+          await context.route('**/api/study-notes?*', (route) => {
+            noteReads++;
+            return route.fulfill({
               json: {
                 status: 'completed',
                 markdown:
                   '# Hosted notes\n\n## תשובה\n\n- Complete lecture notes.',
                 sourceHash: 'c'.repeat(64),
               },
-            }),
-          );
+            });
+          });
           await page.clock.install();
           await page
             .getByRole('button', { name: 'Expand player controls' })
@@ -1163,6 +1165,11 @@ void test('player controls stop playback and the phone dialog stays inside the b
           await page.clock.fastForward(600_000);
           assert.equal(reads, 1);
           assert.equal(statuses, 0, 'official content has no notes polling');
+          assert.equal(
+            noteReads,
+            0,
+            'reading a transcript does not read TiDB notes',
+          );
           await region
             .getByRole('button', { name: 'Play from 0:12', exact: true })
             .click();
@@ -1189,6 +1196,20 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .click();
           await region.getByRole('heading', { name: 'Hosted notes' }).waitFor();
           await region.getByRole('heading', { name: 'תשובה' }).waitFor();
+          assert.equal(noteReads, 1);
+          await region
+            .getByRole('button', { name: 'Transcript', exact: true })
+            .click();
+          await region
+            .getByRole('button', { name: 'Study notes', exact: true })
+            .click();
+          await region.getByRole('heading', { name: 'Hosted notes' }).waitFor();
+          await page.clock.fastForward(600_000);
+          assert.equal(
+            noteReads,
+            1,
+            'tab switching and elapsed time reuse saved notes',
+          );
         } finally {
           await context.close();
         }

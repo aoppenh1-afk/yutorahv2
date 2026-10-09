@@ -33,7 +33,7 @@ async function fixture(t) {
   return { state, destination, note, metadata, raw };
 }
 
-test('backups preserve compressed Unicode notes, verify hashes, and omit credentials', async (t) => {
+void test('backups preserve compressed Unicode notes, verify hashes, and omit credentials', async (t) => {
   const { state, destination, note } = await fixture(t);
   await execFile(process.execPath, [backup, state, destination]);
   assert.deepEqual(
@@ -56,7 +56,7 @@ test('backups preserve compressed Unicode notes, verify hashes, and omit credent
   assert.equal(second.unchanged, 1);
 });
 
-test('corrupt source notes cannot replace a verified backup', async (t) => {
+void test('corrupt source notes cannot replace a verified backup', async (t) => {
   const { state, destination, note } = await fixture(t);
   await execFile(process.execPath, [backup, state, destination]);
   const original = await readFile(join(destination, '1190833', 'notes.md.gz'));
@@ -70,7 +70,7 @@ test('corrupt source notes cannot replace a verified backup', async (t) => {
   );
 });
 
-test('an unfinished note is skipped until its durable metadata exists', async (t) => {
+void test('an unfinished note is skipped until its durable metadata exists', async (t) => {
   const { state, destination } = await fixture(t);
   await mkdir(join(state, 'notes', '1190000'));
   await execFile(process.execPath, [backup, state, destination]);

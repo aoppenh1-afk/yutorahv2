@@ -32,6 +32,13 @@ type Content = {
   } | null;
 };
 const readerVersions = new BoundedCache<Content>(8, 8 * 1024 * 1024);
+type HostedStudyNote = {
+  id: number;
+  status: string;
+  markdown: string | null;
+  sourceHash?: string;
+};
+const hostedNotesCache = new BoundedCache<HostedStudyNote>(64, 4 * 1024 * 1024);
 export function TranscriptReader({
   shiurId,
   onSeek,
@@ -48,27 +55,46 @@ export function TranscriptReader({
   const [retry, setRetry] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshError, setRefreshError] = useState('');
-  const [hosted, setHosted] = useState<{
-    id: number;
-    status: string;
-    markdown: string | null;
-    sourceHash?: string;
-  } | null>(null);
+  const [hosted, setHosted] = useState<HostedStudyNote | null>(null);
+  const lastNotesRetry = useRef(retry);
   useEffect(() => {
+    if (tab !== 'notes') return;
+    const fresh = retry !== lastNotesRetry.current;
+    lastNotesRetry.current = retry;
+    const cacheKey = String(shiurId);
+    if (fresh) hostedNotesCache.delete(cacheKey);
+    const cached = hostedNotesCache.get(cacheKey);
+    if (cached) {
+      setHosted(cached);
+      return;
+    }
     const abort = new AbortController();
     setHosted({ id: shiurId, status: 'loading', markdown: null });
-    void fetch(`/api/study-notes?id=${shiurId}`, { signal: abort.signal })
+    void fetch(`/api/study-notes?id=${shiurId}`, {
+      signal: abort.signal,
+      cache: fresh ? 'no-store' : 'default',
+    })
       .then(async (response) => {
         if (!response.ok) throw new Error('Notes unavailable');
-        const note = await response.json();
-        if (!abort.signal.aborted) setHosted({ ...note, id: shiurId });
+        const note = {
+          ...(await response.json()),
+          id: shiurId,
+        } as HostedStudyNote;
+        if (!abort.signal.aborted) {
+          hostedNotesCache.set(
+            cacheKey,
+            note,
+            note.status === 'completed' ? 60 * 60_000 : 60_000,
+          );
+          setHosted(note);
+        }
       })
       .catch(() => {
         if (!abort.signal.aborted)
           setHosted({ id: shiurId, status: 'unavailable', markdown: null });
       });
     return () => abort.abort();
-  }, [shiurId, retry]);
+  }, [shiurId, retry, tab]);
   const hostedNote = hosted?.id === shiurId ? hosted : null;
   const displayedNotes =
     content?.source === 'official-yutorah' || !content

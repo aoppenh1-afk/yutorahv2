@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const execFile = promisify(execFileCallback);
-test('a newly built high-thinking package accepts VM preparation and runs its durable queue', async (t) => {
+void test('a newly built high-thinking package accepts VM preparation and runs its durable queue', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'notes-package-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const app = join(root, 'app');

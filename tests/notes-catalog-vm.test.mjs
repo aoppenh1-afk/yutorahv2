@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 
 const execFile = promisify(execFileCallback);
-test(
+void test(
   'catalog discovery works through the managed VM network and checkpoints a full page',
   { skip: !process.env.NOTES_VM_RUNNER },
   async (t) => {

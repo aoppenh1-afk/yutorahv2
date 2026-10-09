@@ -7,6 +7,7 @@ type HostedNote = {
   createdAtMs: number;
 };
 const cache = new BoundedCache<HostedNote | null>(64, 4 * 1024 * 1024);
+const failures = new BoundedCache<boolean>(8, 2048);
 const unavailable = () =>
   Response.json(
     { status: 'unavailable', markdown: null },
@@ -31,8 +32,12 @@ export async function hostedNotes(
       { status: 'not_configured', markdown: null },
       { headers: { 'Cache-Control': 'no-store' } },
     );
-  const key = `${credential.host}:${credential.username}:${credential.database}:${id}`;
-  const headers = { 'Cache-Control': 'public, max-age=60, s-maxage=300' };
+  const databaseKey = `${credential.host}:${credential.username}:${credential.database}`;
+  const key = `${databaseKey}:${id}`;
+  const headers = {
+    'Cache-Control':
+      'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400',
+  };
   const response = (value: HostedNote | null) => {
     if (!value)
       return Response.json(
@@ -49,6 +54,7 @@ export async function hostedNotes(
   };
   const cached = cache.get(key);
   if (cached !== undefined) return response(cached);
+  if (failures.get(databaseKey)) return unavailable();
   const existing = pending.get(key);
   if (existing) return existing.then(response, unavailable);
   if (pending.size >= 8)
@@ -69,13 +75,14 @@ export async function hostedNotes(
           createdAtMs: note.createdAtMs,
         }
       : null;
-    cache.set(key, value, note ? 300_000 : 60_000);
+    cache.set(key, value, note ? 3600_000 : 60_000);
     return value;
   })();
   pending.set(key, task);
   try {
     return response(await task);
   } catch {
+    failures.set(databaseKey, true, 60_000);
     return unavailable();
   } finally {
     pending.delete(key);

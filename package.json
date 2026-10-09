@@ -44,7 +44,7 @@
     "pretest:maintenance": "node scripts/setup-test-database.mjs",
     "notes:only": "tsx apps/notes-only/src/cli.ts",
     "notes:package": "node scripts/package-notes-pipeline.mjs",
-    "test:notes-only": "tsx --test tests/notes-only.test.ts"
+    "test:notes-only": "tsx --test tests/notes-only.test.ts tests/tidb-notes.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
