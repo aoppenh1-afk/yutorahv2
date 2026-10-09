@@ -21,7 +21,6 @@ const freshFor = (options: TrendingOptions) =>
   60 *
   1000;
 const staleFor = 24 * 60 * 60 * 1000;
-const savedChartFor = 7 * 24 * 60 * 60 * 1000;
 const leaseFor = 60 * 1000;
 const retryFor = 30 * 1000;
 const progressFor = 3 * 1000;
@@ -55,7 +54,7 @@ export function createTrendingService({
   cacheKey?: string;
   validate?: (data: DiscoveryData) => boolean;
   preferCompleted?: boolean;
-  /** Read completed rankings without advancing an upstream scan. */
+  /** Read saved rankings without advancing an upstream scan. */
   cachedOnly?: boolean;
   /** Background jobs must not report success without saving their progress. */
   requireStorage?: boolean;
@@ -75,7 +74,9 @@ export function createTrendingService({
       selectTrendingChart(await shared({ period: 'all', minutes: 0 }), options);
   }
   const readSource = read;
-  const retainedFor = cachedOnly ? savedChartFor : staleFor;
+  // A source outage does not make a valid saved chart disappear. Its original
+  // timestamp and partial coverage tell clients how current it is.
+  const retainedFor = cachedOnly ? Infinity : staleFor;
   const memory = new Map<string, DiscoveryData>();
   const completed = new Map<string, DiscoveryData>();
   const pending = new Map<string, Promise<DiscoveryData>>();
@@ -95,7 +96,7 @@ export function createTrendingService({
     const complete = completed.get(key);
     return usable(complete, retainedFor)
       ? complete
-      : (!cachedOnly || !previous?.partial) && usable(previous, retainedFor)
+      : usable(previous, retainedFor)
         ? previous
         : undefined;
   };
@@ -192,8 +193,8 @@ export function createTrendingService({
             );
           return {
             ...saved,
-            stale: !usable(saved, freshFor(options)),
-            refreshing: previous?.partial || undefined,
+            stale: saved.partial || !usable(saved, freshFor(options)),
+            refreshing: (!saved.partial && previous?.partial) || undefined,
           };
         }
         if (
@@ -246,7 +247,10 @@ export function createTrendingService({
       const data = await readSource(
         options,
         now(),
-        usable(previous, staleFor) ? previous : undefined,
+        // Resume valid persisted coverage even after a prolonged outage.
+        usable(previous, previous?.partial ? Infinity : staleFor)
+          ? previous
+          : undefined,
       );
       if (data.partial && previous && !previous.partial)
         completed.set(key, previous);
