@@ -745,6 +745,7 @@
 }
 .mobile-row-copy > div {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   font-size: 11.5px;
@@ -1279,6 +1280,26 @@
   font-size: 12.5px;
   font-weight: 550;
   color: var(--ink-2);
+}
+.shiur-views {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.shiur-views:empty {
+  display: none;
+}
+.shiur-views svg {
+  flex-shrink: 0;
+}
+.row-byline .shiur-views {
+  margin-left: 10px;
+}
+.m-hero p .shiur-views,
+.hero-next-copy .shiur-views {
+  margin-left: 8px;
 }
 .detail-actions {
   display: grid;

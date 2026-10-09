@@ -23,6 +23,7 @@ import {
 import { PagedItems } from './paged-items';
 import { useViewPerformance } from './performance-monitor';
 import { FollowButton } from './follow-button';
+import { ShiurViews } from './shiur-views';
 import { isLearned, relatedShiurim, type Follow } from '@/lib/learning';
 import { createRelevanceScorer } from '@/lib/search-discovery';
 import { prepareSearchText, createQueryMatcher } from '@/lib/search-matching';
@@ -514,6 +515,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         if (!controller.signal.aborted)
           setDetail({
             ...fresh,
+            views: fresh.views ?? s.views,
             topics: fresh.topics.length ? fresh.topics : s.topics,
             category: fresh.category || s.category,
             series: fresh.series || s.series,
@@ -2128,6 +2130,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 </button>
               </div>
               <div className="detail-meta">
+                <ShiurViews shiur={detail} />
                 <span>
                   {detail.duration
                     ? `${Math.round(detail.duration / 60)} minutes`

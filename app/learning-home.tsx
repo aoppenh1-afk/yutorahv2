@@ -1,5 +1,6 @@
 /* oxlint-disable next/no-img-element -- Subject art is pre-sized, lazy-loaded local WebP. */
 'use client';
+import { ShiurViews } from './shiur-views';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BoundedCache } from '@/lib/bounded-cache';
@@ -479,8 +480,7 @@ export function LearningHome(props: Props) {
             </button>
             <p>{s.teacher}</p>
             <small>
-              <Eye size={12} />
-              {s.views?.toLocaleString()} views<span>·</span>
+              <ShiurViews shiur={s} /><span>·</span>
               {s.duration ? Math.round(s.duration / 60) + ' min' : mediaKind(s)}
             </small>
           </div>
@@ -657,6 +657,7 @@ export function LearningHome(props: Props) {
                       <span>{Math.round(pick.duration / 60)} min</span>
                     )}
                     {pick.topics[0] && <span dir="auto">{pick.topics[0]}</span>}
+                    <ShiurViews shiur={pick} />
                   </p>
                 )}
                 <div className="home-hero-actions">
@@ -749,6 +750,7 @@ export function LearningHome(props: Props) {
                           {s.teacher}
                           {s.duration > 0 &&
                             ` · ${Math.round(s.duration / 60)} min`}
+                          <ShiurViews shiur={s} />
                         </small>
                       </button>
                     </div>

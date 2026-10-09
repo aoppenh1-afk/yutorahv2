@@ -80,7 +80,7 @@ export type RawShiur = {
   shiurPlayerURL?: string;
   shiurURL?: string;
   shiurMaterials?: RawMaterial[];
-  shiurvisitsnum?: number;
+  shiurvisitsnum?: number | string | null;
   shiurdownloadsnum?: number;
 };
 export type HomeResponse = {

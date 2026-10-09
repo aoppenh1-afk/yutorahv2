@@ -2,6 +2,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { ShiurViews } from './shiur-views';
 import {
   ArrowRight,
   Bookmark,
@@ -234,6 +235,7 @@ export function MobileDiscover({
             {pick.duration > 0 && (
               <span> · {Math.round(pick.duration / 60)} min</span>
             )}
+            <ShiurViews shiur={pick} />
           </p>
           <div className="m-hero-actions">
             <button

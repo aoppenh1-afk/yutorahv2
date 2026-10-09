@@ -282,8 +282,8 @@ account's databases does not increase these account allowances.
 D1 [supports FTS5](https://developers.cloudflare.com/d1/sql-api/sql-statements/#supported-sqlite-extensions)
 for full-text search. Compressed payloads need a separate searchable index;
 its footprint and write/read cost need a representative pilot before promising
-that library-wide transcript search fits Free D1. We can retain a VM search
-index if the D1 index is too large. The current PostgreSQL worker and search
+that library-wide transcript search fits Free D1. Public search needs a hosted
+index that remains reachable when the processing VM is offline. The current PostgreSQL worker and search
 schema need adaptation rather than a connection-string change; they use
 PostgreSQL extensions and types. No database migration or Cloudflare resource
 creation was performed as part of this feasibility check.
@@ -321,10 +321,80 @@ workload will run within its quota.
   reclaim idle instances. Those are material limits for relying on it as the
   only copy of a production archive. No tenancy capacity or signup was checked.
 
-For the current PostgreSQL application, the existing VM is the first option to
-assess if avoiding another bill is the priority. TiDB is a managed alternative
-worth testing if the user wants the data hosted separately. These are zero-cost
-options under their stated conditions, not unlimited or guaranteed free hosting.
+The October 9 VM report below rules out the existing VM as the website's live
+database under its current hosting arrangement. TiDB remains a managed option
+to test. These are zero-cost options under their stated conditions, not unlimited
+or guaranteed free hosting.
+
+### Existing VM constraints reported October 9, 2026
+
+The user relayed their VM agent's findings: runtime deployments replace the VM
+and kill running processes, the home directory persists, and the VM has no public
+IP. It has approximately 100 GB disk and limited RAM. This research did not
+independently inspect those settings. These details change the earlier
+conditional recommendation to self-host the website's PostgreSQL database there.
+
+Use this VM for resumable transcript imports and note generation. Store progress
+and temporary files in the persistent home directory, then upload completed
+compressed transcript and note objects to hosted storage such as R2. Outbound
+uploads do not require a public IP. Publish an object's metadata pointer only
+after its upload succeeds, and skip completed, unchanged work using source hashes.
+
+The website reads published objects through its hosted server and keeps metadata
+in a hosted database. Library-wide search also needs a separately hosted index;
+an index confined to this VM would become unavailable during runtime replacement.
+Already published content can remain readable while new processing is paused.
+The worker needs durable checkpoints and a verified startup or external scheduling
+mechanism. A persistent home directory alone does not restart a killed worker.
+
+The proposed files contain full transcript passage text and timestamps plus our
+generated Markdown notes, without audio or official summaries and quizzes.
+Three measured timed transcript archives were 8.3, 26.2, and 10.5 KB gzip;
+eight separate notes samples averaged 4.01 KB gzip. Extrapolating those small,
+different samples to 430,000 available transcripts gives approximately 8.17 GB
+for one compressed transcript-and-notes copy. This excludes indexes, backups,
+versions, and metadata, and does not establish actual transcript coverage.
+The reported disk capacity appears suitable for staging this optimized archive;
+it does not establish capacity for raw API dumps, audio, or a full search index.
+
+This architecture is a proposal. No VM worker deployment, R2 setup, hosted search
+migration, or full-library import was performed for this assessment.
+
+### Notes-only hosting with live official transcripts
+
+The user's revised October 9 proposal uses the VM to fetch transcripts
+temporarily and generate notes, then keeps only the published notes. The website
+fetches the official transcript on demand through its server-side API adapter.
+This is feasible with the verified public endpoints and avoids permanently
+hosting transcript text. Delete temporary transcript files after the notes
+upload, metadata publication, and success checkpoint have completed. Keep the
+shiur ID, source hash, generation version, and notes pointer for retries and
+future source-change checks. Source hashes do not preserve the original text;
+if YUTorah changes or removes a transcript, regenerating identical notes from
+that original source may no longer be possible.
+
+The eight measured notes averaged 11,021 bytes uncompressed and 4,011 bytes gzip.
+One compressed copy would be approximately 40 MB for 10,000 notes, 401 MB for
+100,000, or 1.72 GB for 430,000. At 430,000 the uncompressed text estimate is
+4.74 GB. These estimates exclude metadata, indexes, revisions, and backups.
+The benchmark used eight short lectures and does not establish a corpus average.
+Budgeting 3 to 5 GB for the compressed notes and operational headroom is a
+planning allowance, not another measured estimate.
+
+R2 notes objects with D1 metadata avoid D1's Free 500 MB per-database constraint.
+The 1.72 GB notes projection is below R2 Standard's 10 GB-month free storage
+allowance, subject to existing usage and operation quotas. Compressed notes in
+D1 could alternatively fit across multiple free databases with adequate headroom
+and sharding, but cannot be searched directly as compressed blobs.
+
+Live transcripts depend on YUTorah's endpoint availability and access policy;
+a bounded temporary cache can reduce repeat requests. Saved notes remain
+available during upstream outages. Search within a loaded transcript still
+works, but library-wide transcript search needs a separate hosted index or an
+official transcript-search endpoint. Fetching individual transcripts does not
+provide that global search. The current official reader hides notes, so displaying
+our hosted notes alongside official text still requires UI and retrieval wiring.
+No notes-only importer or hosting migration was implemented for this assessment.
 
 ## Access and remaining limits
 

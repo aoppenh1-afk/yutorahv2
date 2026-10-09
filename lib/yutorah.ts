@@ -1,4 +1,5 @@
 import { naturalSearch } from './natural-search';
+import { viewCount } from './view-count';
 import { searchText, teacherMention } from './search-discovery';
 import {
   intentLabels,
@@ -181,10 +182,7 @@ export function normalize(raw: RawShiur): Shiur {
       raw.subcategoryid ??
       []
     ).filter((id): id is number => Number.isSafeInteger(id) && Number(id) > 0),
-    views:
-      Number.isFinite(raw.shiurvisitsnum) && Number(raw.shiurvisitsnum) >= 0
-        ? Number(raw.shiurvisitsnum)
-        : undefined,
+    views: viewCount(raw.shiurvisitsnum),
     downloads:
       Number.isFinite(raw.shiurdownloadsnum) &&
       Number(raw.shiurdownloadsnum) >= 0

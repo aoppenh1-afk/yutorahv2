@@ -28,6 +28,7 @@ import {
   X,
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { ShiurViews } from './shiur-views';
 import {
   Sheet,
   SheetContent,
@@ -335,6 +336,7 @@ export function MobileRecordingCard({
           {(s.category || s.topics[0]) && (
             <span dir="auto">{s.category || s.topics[0]}</span>
           )}
+          <ShiurViews shiur={s} />
         </div>
       </div>
       <button
@@ -436,6 +438,7 @@ export function ShiurCard({
                 ? 'Article'
                 : 'Recording'}
           </span>
+          <ShiurViews shiur={s} />
           {subject && <span dir="auto">{subject}</span>}
         </p>
       </div>
@@ -537,6 +540,7 @@ export function ShiurRow({
                 timeZone: 'UTC',
               })
             : ''}
+          <ShiurViews shiur={s} />
         </p>
         {progress && (
           <div className="row-progress">
@@ -903,6 +907,7 @@ function MobileShiurRow({
             {saved && (
               <Bookmark size={12} fill="currentColor" aria-label="Saved" />
             )}
+            <ShiurViews shiur={s} />
             {learned && <Check size={13} aria-label="Learned" />}
           </div>
           {progress && (

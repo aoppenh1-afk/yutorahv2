@@ -1,5 +1,6 @@
 import type { RawShiur } from '@/lib/api-types';
 import { normalize, upstream, plain, safeUrl } from '@/lib/yutorah';
+import { getShiurViews } from '@/lib/shiur-views';
 export async function GET(request: Request) {
   const id = new URL(request.url).searchParams.get('id');
   if (!id || !/^\d{1,9}$/.test(id))
@@ -15,6 +16,10 @@ export async function GET(request: Request) {
         { status: 404 },
       );
     const shiur = normalize(raw);
+    if (shiur.views === undefined) {
+      const views = await getShiurViews([shiur.id]);
+      shiur.views = views[shiur.id];
+    }
     return Response.json(
       {
         ...shiur,
