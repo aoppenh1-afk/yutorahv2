@@ -121,40 +121,6 @@ function Portrait({
     </span>
   );
 }
-// Verified original photographs; provenance is in public/images/teachers/README.md.
-const playerPortraits: Record<number, string> = {
-  80714: '/images/teachers/aryeh-lebowitz-640.jpg',
-};
-function PlayerPortrait({
-  src,
-  name,
-  teacherId,
-}: {
-  src: string;
-  name: string;
-  teacherId: number;
-}) {
-  const [failed, setFailed] = useState(false);
-  const original = playerPortraits[teacherId];
-  return (
-    <div className="now-playing-portrait">
-      {original && !failed ? (
-        <img
-          className="avatar"
-          src={original}
-          srcSet={`${original.replace('-640.', '-320.')} 320w, ${original} 640w, ${original.replace('-640.', '-960.')} 960w`}
-          sizes="(max-width: 767px) 280px, 320px"
-          alt=""
-          loading="lazy"
-          decoding="async"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <Avatar src={src} name={name} />
-      )}
-    </div>
-  );
-}
 export function StatePanel({
   title,
   description,
@@ -1119,12 +1085,9 @@ function MobileAudioPlayer({
               <X size={24} />
             </button>
           </div>
-          <PlayerPortrait
-            key={`${s.teacherId}:${s.image}`}
-            src={s.image}
-            name={s.teacher}
-            teacherId={s.teacherId}
-          />
+          <div className="now-playing-portrait">
+            <Avatar key={s.image} src={s.image} name={s.teacher} />
+          </div>
           <div className="now-playing-title">
             <div>
               <DialogTitle dir="auto">{s.title}</DialogTitle>
