@@ -21,6 +21,7 @@ const freshFor = (options: TrendingOptions) =>
   60 *
   1000;
 const staleFor = 24 * 60 * 60 * 1000;
+const savedChartFor = 7 * 24 * 60 * 60 * 1000;
 const leaseFor = 60 * 1000;
 const retryFor = 30 * 1000;
 const progressFor = 3 * 1000;
@@ -40,6 +41,8 @@ export function createTrendingService({
   cacheKey,
   validate = () => true,
   preferCompleted = false,
+  cachedOnly = false,
+  requireStorage = false,
 }: {
   database?: () => SearchDatabase;
   read?: (
@@ -52,6 +55,10 @@ export function createTrendingService({
   cacheKey?: string;
   validate?: (data: DiscoveryData) => boolean;
   preferCompleted?: boolean;
+  /** Read completed rankings without advancing an upstream scan. */
+  cachedOnly?: boolean;
+  /** Background jobs must not report success without saving their progress. */
+  requireStorage?: boolean;
 } = {}): (options: TrendingOptions) => Promise<DiscoveryData> {
   if (!read) {
     const shared = createTrendingService({
@@ -61,11 +68,14 @@ export function createTrendingService({
       cacheKey: 'trending:v1:shared:2',
       validate: validTrendingIndex,
       preferCompleted: true,
+      cachedOnly,
+      requireStorage,
     });
     return async (options: TrendingOptions) =>
       selectTrendingChart(await shared({ period: 'all', minutes: 0 }), options);
   }
   const readSource = read;
+  const retainedFor = cachedOnly ? savedChartFor : staleFor;
   const memory = new Map<string, DiscoveryData>();
   const completed = new Map<string, DiscoveryData>();
   const pending = new Map<string, Promise<DiscoveryData>>();
@@ -76,16 +86,16 @@ export function createTrendingService({
 
   const present = (key: string, data: DiscoveryData) => {
     const complete = completed.get(key);
-    return preferCompleted && data.partial && usable(complete, staleFor)
+    return preferCompleted && data.partial && usable(complete, retainedFor)
       ? { ...complete!, refreshing: true, stale: data.stale }
       : data;
   };
 
   const fallback = (key: string, previous?: DiscoveryData) => {
     const complete = completed.get(key);
-    return usable(complete, staleFor)
+    return usable(complete, retainedFor)
       ? complete
-      : usable(previous, staleFor)
+      : (!cachedOnly || !previous?.partial) && usable(previous, retainedFor)
         ? previous
         : undefined;
   };
@@ -97,6 +107,8 @@ export function createTrendingService({
     let releaseLease = true;
     try {
       db = database?.();
+      if (requireStorage && !db)
+        throw new Error('Trending refresh requires persistent storage.');
       if (db) {
         const row = await db
           .prepare(
@@ -163,7 +175,7 @@ export function createTrendingService({
           } catch {
             /* Discard corrupt cache entries; rebuild from the source. */
           }
-          if (!valid && !usable(previous, staleFor))
+          if (!cachedOnly && !valid && !usable(previous, staleFor))
             await db
               .prepare(
                 'UPDATE search_runs SET created = 0 WHERE id = ? AND plan = ? AND lease <= ?',
@@ -172,6 +184,18 @@ export function createTrendingService({
               .run();
         }
         if (previous) memory.set(key, previous);
+        if (cachedOnly) {
+          const saved = fallback(key, previous);
+          if (!saved)
+            throw new TrendingBusyError(
+              'This chart is being prepared in the background. Please try again shortly.',
+            );
+          return {
+            ...saved,
+            stale: !usable(saved, freshFor(options)),
+            refreshing: previous?.partial || undefined,
+          };
+        }
         if (
           usable(previous, previous?.partial ? progressFor : freshFor(options))
         ) {
@@ -207,21 +231,28 @@ export function createTrendingService({
       }
     } catch (error) {
       if (error instanceof TrendingBusyError) throw error;
+      if (cachedOnly) {
+        const saved = fallback(key, previous);
+        if (saved) return { ...saved, stale: true };
+        throw new TrendingBusyError('Saved trending charts are unavailable.');
+      }
+      if (requireStorage) throw error;
       // Caching is optional during local setup or a storage outage.
       db = undefined;
     }
+    if (cachedOnly)
+      throw new TrendingBusyError('Saved trending storage is unavailable.');
     try {
       const data = await readSource(
         options,
         now(),
         usable(previous, staleFor) ? previous : undefined,
       );
-      memory.set(key, data);
-      if (!data.partial) completed.set(key, data);
-      else if (previous && !previous.partial) completed.set(key, previous);
+      if (data.partial && previous && !previous.partial)
+        completed.set(key, previous);
       if (db) {
         try {
-          await db
+          const saved = await db
             .prepare(
               'UPDATE search_runs SET plan = ?, total = ?, next = ?, created = ?, lease = 0 WHERE id = ? AND lease = ?',
             )
@@ -239,10 +270,17 @@ export function createTrendingService({
               lease,
             )
             .run();
-        } catch {
+          if (requireStorage && !saved.meta.changes)
+            throw new TrendingBusyError(
+              'The trending scan lease expired before progress was saved.',
+            );
+        } catch (error) {
+          if (requireStorage) throw error;
           /* A successful upstream response survives cache write failure. */
         }
       }
+      memory.set(key, data);
+      if (!data.partial) completed.set(key, data);
       return data;
     } catch (error) {
       if (error instanceof TrendingChangedError) {
@@ -291,7 +329,10 @@ export function createTrendingService({
   return async (options: TrendingOptions) => {
     const key = cacheKey ?? `trending:v1:${options.period}:${options.minutes}`;
     const hit = memory.get(key);
-    if (usable(hit, hit?.partial ? progressFor : freshFor(options)))
+    if (
+      !cachedOnly &&
+      usable(hit, hit?.partial ? progressFor : freshFor(options))
+    )
       return present(key, hit!);
     const cooldown = cooldowns.get(key);
     if (cooldown && cooldown.until > now()) {

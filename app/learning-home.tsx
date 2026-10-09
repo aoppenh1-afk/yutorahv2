@@ -959,7 +959,7 @@ export function LearningHome(props: Props) {
               {discovery && (
                 <p className="trending-freshness">
                   {discovery.stale
-                    ? 'Showing cached results while YUTorah is unavailable. '
+                    ? 'Showing cached results. Last updated '
                     : 'Updated '}
                   <time dateTime={discovery.fetchedAt}>
                     {new Date(discovery.fetchedAt).toLocaleString()}
