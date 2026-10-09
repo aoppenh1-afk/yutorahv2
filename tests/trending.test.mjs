@@ -904,6 +904,71 @@ void test('default trending shares durable scan progress across month, year and 
 
 const { readTrendingResponse } = await load('lib/trending-source.ts');
 
+void test('the warmer retries stale responses and never reports a stale chart as complete', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalTimeout = globalThis.setTimeout;
+  const originalLog = console.log;
+  const originalToken = process.env.TRENDING_REFRESH_TOKEN;
+  const originalExit = process.exitCode;
+  try {
+    process.env.TRENDING_REFRESH_TOKEN = 'fixture-refresh-token';
+    for (const maxPasses of [3, 2]) {
+      let calls = 0;
+      const delays = [],
+        logs = [];
+      process.exitCode = undefined;
+      console.log = (message) => logs.push(message);
+      globalThis.setTimeout = (callback, delay) => {
+        delays.push(delay);
+        queueMicrotask(callback);
+        return 0;
+      };
+      globalThis.fetch = async (url, init) => {
+        calls++;
+        assert.equal(new URL(url).pathname, '/api/discover/refresh');
+        assert.equal(init.method, 'POST');
+        assert.equal(init.redirect, 'error');
+        assert.equal(
+          init.headers.Authorization,
+          'Bearer fixture-refresh-token',
+        );
+        return Response.json({
+          ...snapshot({ period: 'all', minutes: 0 }),
+          stale: calls < 3,
+        });
+      };
+      await load('scripts/warm-trending.ts', [
+        {
+          name: 'warm-options',
+          setup(build) {
+            build.onResolve({ filter: /^node:util$/ }, () => ({
+              path: 'args',
+              namespace: 'mock',
+            }));
+            build.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({
+              contents: `export const parseArgs = () => ({values: ${JSON.stringify({ url: 'https://fixture.test', period: 'all', refresh: true, minutes: '0', 'max-passes': String(maxPasses) })}});`,
+            }));
+          },
+        },
+      ]);
+      assert.equal(calls, maxPasses);
+      assert.deepEqual(delays, [30000, 30000]);
+      assert.equal(
+        logs.filter((line) => line.includes(', complete')).length,
+        maxPasses === 3 ? 1 : 0,
+      );
+      assert.equal(process.exitCode, maxPasses === 3 ? undefined : 2);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalTimeout;
+    console.log = originalLog;
+    process.exitCode = originalExit;
+    if (originalToken === undefined) delete process.env.TRENDING_REFRESH_TOKEN;
+    else process.env.TRENDING_REFRESH_TOKEN = originalToken;
+  }
+});
+
 void test('long-range requests serve persisted completed charts without waiting for upstream refresh', async () => {
   const originalFetch = globalThis.fetch;
   const originalNow = Date.now;
@@ -1008,8 +1073,92 @@ void test('saved charts retain completed rankings during a multi-day rebuild and
   assert.equal(calls, 1);
   assert.equal(sqlite.prepare('SELECT plan FROM search_runs').get().plan, plan);
   now = initial + 7 * 86400000;
-  await assert.rejects(service(options), TrendingBusyError);
+  assert.equal((await service(options)).fetchedAt, complete.fetchedAt);
+  assert.equal(sqlite.prepare('SELECT plan FROM search_runs').get().plan, plan);
   sqlite.close();
+});
+
+void test('long-range requests serve the saved partial scan during an outage without upstream work or cache mutations', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  const { db, sqlite } = database();
+  globalThis.__trendingPartialTestDatabase = db;
+  try {
+    globalThis.fetch = async (url) => {
+      const page = Number(new URL(url).searchParams.get('start'));
+      return Response.json({
+        response: {
+          numFound: 600,
+          docs: Array.from({ length: 30 }, (_, i) =>
+            raw(600 - (page - 1) * 30 - i),
+          ),
+        },
+      });
+    };
+    await createTrendingService({ database: () => db, now: () => initial })({
+      period: 'all',
+      minutes: 0,
+    });
+    const before = sqlite.prepare('SELECT * FROM search_runs').get();
+    const snapshot = JSON.parse(before.plan).snapshot;
+    assert.equal(snapshot.partial, true);
+    let calls = 0;
+    Date.now = () => initial + 10 * 86400000;
+    globalThis.fetch = async () => {
+      calls++;
+      throw new Error('Upstream is offline');
+    };
+    const { GET } = await load('app/api/discover/route.ts', [
+      {
+        name: 'saved-partial-chart',
+        setup(build) {
+          build.onResolve({ filter: /^@\/lib\/search-db$/ }, () => ({
+            path: 'db',
+            namespace: 'mock',
+          }));
+          build.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({
+            contents:
+              'export const searchDatabase = () => globalThis.__trendingPartialTestDatabase;',
+          }));
+        },
+      },
+    ]);
+    for (const period of ['month', 'year', 'all']) {
+      for (const minutes of [0, 10, 20, 30]) {
+        const response = await GET(
+          new Request(
+            `http://localhost/api/discover?period=${period}&minutes=${minutes}`,
+          ),
+        );
+        assert.equal(response.status, 200);
+        const chart = await response.json();
+        assert.equal(chart.partial, true);
+        assert.equal(chart.stale, true);
+        assert.equal(chart.refreshing, undefined);
+        assert.equal(chart.sampled, 360);
+        assert.equal(chart.fetchedAt, snapshot.fetchedAt);
+        assert.equal(chart.before, snapshot.before);
+        assert.deepEqual(
+          chart.trending,
+          selectTrendingChart(snapshot, { period, minutes }).trending,
+        );
+        assert.equal(response.headers.get('Cache-Control'), 'no-store');
+        assert.equal(
+          response.headers.get('X-Trending-Fetched-At'),
+          snapshot.fetchedAt,
+        );
+        for (const key of ['index', 'seen', 'nextId', 'nextPage'])
+          assert.equal(chart[key], undefined);
+      }
+    }
+    assert.equal(calls, 0);
+    assert.deepEqual(sqlite.prepare('SELECT * FROM search_runs').get(), before);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+    delete globalThis.__trendingPartialTestDatabase;
+    sqlite.close();
+  }
 });
 
 void test('a cold saved-chart request returns promptly without starting or mutating a scan', async () => {
@@ -1135,14 +1284,16 @@ void test('the protected refresher resumes an existing browser scan and saved re
         originalPlan,
       );
     }
-    await assert.rejects(
-      createTrendingService({ database: () => db, cachedOnly: true })({
-        period: 'year',
-        minutes: 0,
-      }),
-      TrendingBusyError,
-    );
-    now += 3500;
+    const savedPartial = await createTrendingService({
+      database: () => db,
+      cachedOnly: true,
+    })({
+      period: 'year',
+      minutes: 0,
+    });
+    assert.equal(savedPartial.partial, true);
+    assert.equal(savedPartial.sampled, 360);
+    now += 2 * 86400000;
     const response = await POST(
       new Request('http://localhost/api/discover/refresh?period=all', {
         method: 'POST',

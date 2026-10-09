@@ -69,10 +69,13 @@ for (const period of periods) {
     const data = (await response.json()) as DiscoveryData;
     if (data.period !== period || data.minutes !== Number(minutes))
       throw new Error('The server returned a different chart.');
-    if (data.stale)
-      throw new Error(
-        `${period}: upstream unavailable; the cached chart was preserved.`,
+    if (data.stale) {
+      console.log(
+        `${period}: refresh unavailable; saved ${data.sampled}/${data.libraryTotal ?? data.total} indexed records preserved; retrying in 30 seconds`,
       );
+      await new Promise((resolve) => setTimeout(resolve, 30000));
+      continue;
+    }
     console.log(
       data.refreshing
         ? `${period}: rebuilding the shared index; the completed chart is still available`
