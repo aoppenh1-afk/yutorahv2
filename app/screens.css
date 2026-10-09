@@ -1184,7 +1184,8 @@
 }
 
 /* ─── Detail sheet ──────────────────────────────────────────── */
-.detail-sheet {
+/* Override the shared bottom sheet's overflow rule so mobile details can scroll. */
+[data-slot='sheet-content'].detail-sheet {
   overflow-y: auto;
   gap: 0 !important;
 }
