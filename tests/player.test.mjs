@@ -294,6 +294,82 @@ async function closeAndVerify(page, minSeconds = 42) {
 
 void test('player controls stop playback and the phone dialog stays inside the built viewport', async (t) => {
   try {
+    await t.test(
+      'Trending retries stale charts and keeps polling completed charts during rebuilds',
+      async () => {
+        let discoveryRequests = 0;
+        const { context, page } = await openPlayer(
+          { width: 1280, height: 800 },
+          false,
+          {
+            onPage: async (page, context) => {
+              await page.clock.install();
+              await context.route('**/api/discover?*', (route) => {
+                discoveryRequests++;
+                const selected = new URL(route.request().url()).searchParams;
+                return route.fulfill({
+                  json: {
+                    trending: [shiur],
+                    sampled: 30,
+                    total: 30,
+                    libraryTotal: 30,
+                    partial: false,
+                    stale: discoveryRequests === 1,
+                    refreshing: discoveryRequests === 2,
+                    period: selected.get('period'),
+                    minutes: Number(selected.get('minutes')),
+                    fetchedAt: new Date().toISOString(),
+                    before: new Date().toISOString(),
+                  },
+                });
+              });
+            },
+          },
+        );
+        try {
+          await page
+            .locator('.discovery-tabs')
+            .getByRole('button', { name: 'Trending', exact: true })
+            .click();
+          await page
+            .locator('.trending-list')
+            .getByText(shiur.title, { exact: true })
+            .waitFor();
+          assert.equal(discoveryRequests, 1);
+          await page.clock.runFor(30100);
+          await page
+            .getByText('Updating rankings. Showing the last complete chart.', {
+              exact: true,
+            })
+            .waitFor();
+          assert.equal(
+            discoveryRequests,
+            2,
+            'A stale response must not stop indexing',
+          );
+          await page.clock.runFor(3600);
+          await page.waitForFunction(
+            () =>
+              !document.body.textContent.includes(
+                'Updating rankings. Showing the last complete chart.',
+              ),
+          );
+          assert.equal(
+            discoveryRequests,
+            3,
+            'A completed chart shown during a rebuild must keep polling',
+          );
+          await page.clock.runFor(10000);
+          assert.equal(
+            discoveryRequests,
+            3,
+            'Completed fresh charts must stop polling',
+          );
+        } finally {
+          await context.close();
+        }
+      },
+    );
     for (const height of [800, 2000]) {
       await t.test(
         `Home defers Trending until scrolling near its section at ${height}px height`,
@@ -997,6 +1073,112 @@ void test('player controls stop playback and the phone dialog stays inside the b
         }
       });
     }
+    await t.test(
+      'official transcripts seek audio, link complete text, and avoid study-tool requests',
+      async () => {
+        const { context, page } = await openPlayer({ width: 390, height: 844 });
+        let reads = 0,
+          statuses = 0;
+        let unavailable = false;
+        try {
+          await context.route('**/api/transcript?*', (route) => {
+            reads++;
+            return unavailable
+              ? route.fulfill({
+                  status: 503,
+                  json: { error: 'Temporarily unavailable' },
+                })
+              : route.fulfill({
+                  json: {
+                    id: '900001',
+                    source: 'official-yutorah',
+                    transcriptId: 'official-900001-fixture',
+                    version: 'c'.repeat(64),
+                    title: shiur.title,
+                    teacher: shiur.teacher,
+                    segments: [
+                      {
+                        startMs: 0,
+                        endMs: 12000,
+                        text: 'Official transcript from YUTorah.',
+                        speaker: null,
+                      },
+                      {
+                        startMs: 12345,
+                        endMs: 60000,
+                        text: 'שָׁלוֹם, second timed passage.',
+                        speaker: null,
+                      },
+                    ],
+                    notes: null,
+                  },
+                });
+          });
+          await context.route('**/api/transcript-status?*', (route) => {
+            statuses++;
+            return route.fulfill({ status: 503, json: { error: 'Unused' } });
+          });
+          await page.clock.install();
+          await page
+            .getByRole('button', { name: 'Expand player controls' })
+            .click();
+          await page
+            .getByRole('button', { name: 'Open shiur details and notes' })
+            .click();
+          const region = page.getByRole('region', {
+            name: 'Transcript',
+            exact: true,
+          });
+          await region
+            .getByText('Official transcript from YUTorah.', { exact: true })
+            .waitFor();
+          assert.equal(
+            await region
+              .getByRole('button', { name: 'Study notes', exact: true })
+              .count(),
+            0,
+          );
+          assert.equal(
+            await region
+              .getByRole('button', { name: 'Sources', exact: true })
+              .count(),
+            0,
+          );
+          assert.match(
+            await region
+              .getByRole('link', { name: 'Open complete text' })
+              .getAttribute('href'),
+            /version=c{64}&source=official-yutorah$/,
+          );
+          await page.clock.fastForward(600_000);
+          assert.equal(reads, 1);
+          assert.equal(statuses, 0, 'official content has no notes polling');
+          await region
+            .getByRole('button', { name: 'Play from 0:12', exact: true })
+            .click();
+          await page.waitForFunction(() => {
+            const audio = document.querySelector('audio');
+            return (
+              audio && audio.currentTime >= 12.345 && audio.currentTime < 14
+            );
+          });
+          unavailable = true;
+          await region
+            .getByRole('button', { name: 'Refresh', exact: true })
+            .click();
+          await region
+            .getByText(/Your loaded transcript is still available/)
+            .waitFor();
+          await region
+            .getByText('Official transcript from YUTorah.', { exact: true })
+            .waitFor();
+          assert.equal(reads, 2);
+          assert.equal(statuses, 0);
+        } finally {
+          await context.close();
+        }
+      },
+    );
     await t.test(
       'transcript notes polling pauses in hidden tabs, has a retry limit, and keeps manual refresh',
       async () => {

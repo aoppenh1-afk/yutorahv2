@@ -95,8 +95,17 @@ export type DiscoveryData = {
   nextPage?: number;
   /** Server-only coverage bitmap. Never serialized by the API route. */
   seen?: string;
+  /** Server-only shared index, persisted with its coverage cursor. */
+  index?: {
+    version: 2;
+    items: Shiur[];
+    charts: Record<string, { ids: number[]; total: number }>;
+    retryPages: number[];
+  };
   total: number;
   partial: boolean;
+  /** A completed chart remains visible while its replacement is indexed. */
+  refreshing?: boolean;
   fetchedAt: string;
   period: TrendingPeriod;
   minutes: TrendingOptions['minutes'];

@@ -54,9 +54,11 @@ for (const period of periods) {
         `${period}: upstream unavailable; the cached chart was preserved.`,
       );
     console.log(
-      `${period}: ${data.sampled}/${data.libraryTotal ?? data.total} indexed${data.partial ? '' : ', complete'}`,
+      data.refreshing
+        ? `${period}: rebuilding the shared index; the completed chart is still available`
+        : `${period}: ${data.sampled}/${data.libraryTotal ?? data.total} indexed${data.partial ? '' : ', complete'}`,
     );
-    if (!data.partial) {
+    if (!data.partial && !data.refreshing) {
       complete = true;
       break;
     }

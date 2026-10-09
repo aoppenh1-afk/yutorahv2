@@ -8,11 +8,17 @@ export async function GET(request: Request) {
   try {
     const options = parseTrendingOptions(new URL(request.url).searchParams);
     const data = await discover(options);
-    const { seen: _coverage, ...publicData } = data;
+    const {
+      seen: _coverage,
+      index: _index,
+      nextId: _id,
+      nextPage: _page,
+      ...publicData
+    } = data;
     return Response.json(publicData, {
       headers: {
         'Cache-Control':
-          data.stale || data.partial
+          data.stale || data.partial || data.refreshing
             ? 'no-store'
             : 'public, max-age=60, s-maxage=300, stale-while-revalidate=300',
         'X-Trending-Fetched-At': data.fetchedAt,

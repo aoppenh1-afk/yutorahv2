@@ -116,8 +116,7 @@
 .home-hero,
 .m-hero,
 .learning-goal-band,
-.m-goal,
-.m-today-scroller button {
+.m-goal {
   background: var(--panel);
 }
 

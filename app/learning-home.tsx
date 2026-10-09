@@ -11,7 +11,6 @@ import {
   ArrowRight,
   Bookmark,
   BookOpen,
-  CalendarDays,
   Check,
   Eye,
   Flame,
@@ -24,6 +23,7 @@ import {
   RefreshCw,
   Settings2,
   Sparkles,
+  Star,
   Target,
   Timer,
   Users,
@@ -124,6 +124,7 @@ export function LearningHome(props: Props) {
   const [tab, setTab] = useState('for-you');
   const [minutes, setMinutes] = useState('all');
   const [limit, setLimit] = useState(8);
+  const [browseMore, setBrowseMore] = useState(false);
   const [preferences, setPreferences] = useState(false);
   const [feedItems, setFeedItems] = useState<Shiur[]>([]);
   const [feedLoading, setFeedLoading] = useState(false);
@@ -149,7 +150,10 @@ export function LearningHome(props: Props) {
       : tab;
   useEffect(() => {
     if (currentTab !== 'trending' || discoveryLoading) return;
-    const indexing = discovery?.partial && !discovery.stale && !discoveryError;
+    const indexing =
+      (discovery?.partial || discovery?.refreshing) &&
+      !discovery.stale &&
+      !discoveryError;
     if (!indexing && !discoveryRetry) return;
     const timer = window.setTimeout(
       () => setDiscoveryPass((n) => n + 1),
@@ -268,11 +272,14 @@ export function LearningHome(props: Props) {
     fetch('/api/discover?' + query, { signal: abort.signal })
       .then(async (res) => {
         if (!res.ok) {
-          if (res.status === 503 && !abort.signal.aborted)
+          if (
+            (res.status === 503 || res.status === 502) &&
+            !abort.signal.aborted
+          )
             setDiscoveryRetry(
               Math.min(
                 30,
-                Math.max(5, Number(res.headers.get('Retry-After')) || 5),
+                Math.max(5, Number(res.headers.get('Retry-After')) || 30),
               ),
             );
           throw new Error('Discovery unavailable');
@@ -280,8 +287,10 @@ export function LearningHome(props: Props) {
         const data = (await res.json()) as DiscoveryData;
         if (data.period !== trendingPeriod || data.minutes !== trendingMinutes)
           throw new Error('Discovery returned a different chart');
-        if (!abort.signal.aborted)
+        if (!abort.signal.aborted) {
           setDiscoveryCharts((old) => ({ ...old, [discoveryKey]: data }));
+          if (data.stale) setDiscoveryRetry(30);
+        }
       })
       .catch(() => {
         if (!abort.signal.aborted) setDiscoveryError(true);
@@ -347,11 +356,15 @@ export function LearningHome(props: Props) {
     [allItems, home, library, currentTab, minutes],
   );
   const items =
-    currentTab === 'latest'
-      ? [...ranked].sort(
-          (a, b) =>
-            (Date.parse(b.shiur.date) || 0) - (Date.parse(a.shiur.date) || 0),
-        )
+    currentTab === 'featured'
+      ? (home?.featured || [])
+          .filter(
+            (s) =>
+              !library.hidden.includes(s.id) &&
+              (minutes === 'all' ||
+                (s.duration > 0 && s.duration <= Number(minutes) * 60)),
+          )
+          .map((shiur) => ({ shiur, reason: 'Editors’ pick', score: 0 }))
       : ranked;
   const continuing = library.history.filter(
     (h) => h.seconds > 0 && !isLearned(h.shiur, library),
@@ -532,6 +545,7 @@ export function LearningHome(props: Props) {
       {isHome && isMobile && (
         <MobileDiscover
           onTrending={() => setTrendingWanted(true)}
+          subjects={subjects}
           home={home}
           directory={directory}
           library={library}
@@ -598,11 +612,7 @@ export function LearningHome(props: Props) {
                 { value: 'for-you', label: 'For you', icon: Sparkles },
                 { value: 'trending', label: 'Trending', icon: Flame },
                 { value: 'following', label: 'Following', icon: Users },
-                {
-                  value: 'latest',
-                  label: 'Recently added',
-                  icon: CalendarDays,
-                },
+                { value: 'featured', label: 'Featured', icon: Star },
                 {
                   value: 'continue',
                   label: 'Continue learning',
@@ -615,6 +625,7 @@ export function LearningHome(props: Props) {
                   onClick={() => {
                     setTab(value);
                     setLimit(8);
+                    setBrowseMore(false);
                   }}
                 >
                   <Icon size={15} />
@@ -688,7 +699,9 @@ export function LearningHome(props: Props) {
                   )}
                   <button
                     className="hero-link"
-                    onClick={() => (pick ? onDetails(pick) : onNavigate('search'))}
+                    onClick={() =>
+                      pick ? onDetails(pick) : onNavigate('search')
+                    }
                   >
                     {pick ? 'Shiur details' : 'Search the library'}
                     <ArrowRight size={16} />
@@ -874,11 +887,13 @@ export function LearningHome(props: Props) {
             <section className="discovery-section">
               {sectionHeading(
                 'What listeners are exploring',
-                discovery?.partial
-                  ? `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
-                  : discovery
-                    ? `Most viewed among ${discovery.total.toLocaleString()} matching shiurim${trendingPeriod === 'all' ? ' across the library' : ' in this date range'}.`
-                    : 'View counts come directly from YUTorah.',
+                discovery?.refreshing
+                  ? 'Updating rankings. Showing the last complete chart.'
+                  : discovery?.partial
+                    ? `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
+                    : discovery
+                      ? `Most viewed among ${discovery.total.toLocaleString()} matching shiurim${trendingPeriod === 'all' ? ' across the library' : ' in this date range'}.`
+                      : 'View counts come directly from YUTorah.',
               )}
               <div className="discovery-toolbar">
                 <fieldset
@@ -986,7 +1001,7 @@ export function LearningHome(props: Props) {
                       className="outline-button discovery-more"
                       onClick={() => setTrendingLimit((n) => n + 12)}
                     >
-                      Show more <ArrowRight size={15} />
+                      Browse more shiurim <ArrowRight size={15} />
                     </button>
                   )}
                 </>
@@ -1010,20 +1025,20 @@ export function LearningHome(props: Props) {
               {sectionHeading(
                 currentTab === 'following'
                   ? 'From your follows'
-                  : currentTab === 'latest'
-                    ? 'Recently added'
+                  : currentTab === 'featured'
+                    ? 'Featured shiurim'
                     : hasInterests
                       ? 'Recommended for you'
                       : 'Discover something new',
                 currentTab === 'following'
                   ? 'A selection from your teachers, topics, and series.'
-                  : currentTab === 'latest'
-                    ? 'New learning, straight from the YUTorah library.'
+                  : currentTab === 'featured'
+                    ? 'Selected by the YUTorah editors.'
                     : hasInterests
                       ? 'Inspired by what you listen to, save, and follow.'
                       : 'Featured and recent shiurim from the YUTorah library.',
-                isHome ? () => setTab('latest') : undefined,
-                'New shiurim',
+                isHome ? () => setTab('featured') : undefined,
+                'Editors’ picks',
               )}
               {currentTab === 'following' && library.following.length > 0 && (
                 <div className="following-chips">
@@ -1112,15 +1127,33 @@ export function LearningHome(props: Props) {
                 </StatePanel>
               ) : items.length ? (
                 <>
-                  {isHome ? cards(items, 5, true) : cards(items)}
-                  {!isHome && items.length > limit && (
+                  {isHome
+                    ? cards(items, browseMore ? limit : 5, !browseMore)
+                    : cards(items)}
+                  {items.length > (isHome && !browseMore ? 5 : limit) ? (
                     <button
                       className="outline-button discovery-more"
-                      onClick={() => setLimit((n) => n + 8)}
+                      onClick={() => {
+                        if (isHome && !browseMore) {
+                          setBrowseMore(true);
+                          setLimit(15);
+                        } else setLimit((n) => n + 10);
+                      }}
                     >
-                      More to discover
+                      Browse more shiurim
                       <ArrowRight size={15} />
                     </button>
+                  ) : (
+                    isHome &&
+                    browseMore && (
+                      <button
+                        className="outline-button discovery-more"
+                        onClick={() => onNavigate('search')}
+                      >
+                        Search the full library
+                        <ArrowRight size={15} />
+                      </button>
+                    )
                   )}
                 </>
               ) : (

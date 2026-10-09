@@ -19,6 +19,7 @@ type Content = {
   title: string;
   teacher: string;
   version?: string;
+  source?: 'official-yutorah';
   segments: Array<{
     startMs: number;
     endMs: number;
@@ -51,7 +52,7 @@ export function TranscriptReader({
   const sources = useTranscriptSources(
     shiurId,
     content?.transcriptId,
-    sourcesEnabled,
+    sourcesEnabled && content?.source !== 'official-yutorah',
     content?.version,
   );
   useEffect(() => {
@@ -76,7 +77,11 @@ export function TranscriptReader({
       try {
         const options = { signal: abort.signal };
         let version: string | undefined;
-        if ((statusOnly || current) && current) {
+        if (
+          (statusOnly || current) &&
+          current &&
+          current.source !== 'official-yutorah'
+        ) {
           const statusResponse = await fetch(
             `/api/transcript-status?id=${shiurId}`,
             options,
@@ -139,14 +144,19 @@ export function TranscriptReader({
           readerVersions.set(shiurId + ':' + data.version, data, 60 * 60_000);
         last.current = { id: shiurId, content: data };
         setContent(data);
+        if (data.source === 'official-yutorah') {
+          setTab('transcript');
+          setSourcesEnabled(false);
+        }
         setState('');
         setRefreshError('');
         pendingNotes =
-          (!data.notes && awaitingNotes < 3) ||
-          Boolean(
-            data.notes &&
-            ['queued', 'cleaning', 'generating'].includes(data.notes.status),
-          );
+          data.source !== 'official-yutorah' &&
+          ((!data.notes && awaitingNotes < 3) ||
+            Boolean(
+              data.notes &&
+              ['queued', 'cleaning', 'generating'].includes(data.notes.status),
+            ));
         // Bound automatic retries even when notes remain queued indefinitely.
         if (pendingNotes && awaitingNotes++ < 10 && !document.hidden)
           timer = setTimeout(() => void read(true), 30_000);
@@ -205,14 +215,22 @@ export function TranscriptReader({
   return (
     <section
       className="detail-section generated-study"
-      aria-label="Transcript, study notes, and sources"
+      aria-label={
+        content?.source === 'official-yutorah'
+          ? 'Transcript'
+          : 'Transcript, study notes, and sources'
+      }
     >
-      <h3>Transcript &amp; study tools</h3>
+      <h3>
+        {content?.source === 'official-yutorah'
+          ? 'Transcript'
+          : 'Transcript & study tools'}
+      </h3>
       <div className="study-tabs">
         {content && (
           <a
             className="text-button"
-            href={`/api/transcript-text?id=${shiurId}${content.version ? '&version=' + content.version : ''}`}
+            href={`/api/transcript-text?id=${shiurId}${content.version ? '&version=' + content.version : ''}${content.source === 'official-yutorah' ? '&source=official-yutorah' : ''}`}
             target="_blank"
             rel="noreferrer"
           >
@@ -226,23 +244,27 @@ export function TranscriptReader({
         >
           Transcript
         </button>
-        <button
-          type="button"
-          aria-pressed={tab === 'notes'}
-          onClick={() => setTab('notes')}
-        >
-          Study notes
-        </button>
-        <button
-          type="button"
-          aria-pressed={tab === 'sources'}
-          onClick={() => {
-            setTab('sources');
-            setSourcesEnabled(true);
-          }}
-        >
-          Sources
-        </button>
+        {content?.source !== 'official-yutorah' && (
+          <>
+            <button
+              type="button"
+              aria-pressed={tab === 'notes'}
+              onClick={() => setTab('notes')}
+            >
+              Study notes
+            </button>
+            <button
+              type="button"
+              aria-pressed={tab === 'sources'}
+              onClick={() => {
+                setTab('sources');
+                setSourcesEnabled(true);
+              }}
+            >
+              Sources
+            </button>
+          </>
+        )}
         <button type="button" onClick={() => setRetry((n) => n + 1)}>
           Refresh
         </button>
@@ -254,6 +276,11 @@ export function TranscriptReader({
             </button>
           )}
       </div>
+      {content?.source === 'official-yutorah' && (
+        <p className="study-note-label">
+          Transcript from YUTorah. Automatically generated; accuracy may vary.
+        </p>
+      )}
       {refreshError && (
         <output className="study-state">
           {refreshError} Your loaded transcript is still available.

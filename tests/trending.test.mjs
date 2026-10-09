@@ -805,9 +805,9 @@ void test('the public endpoint strips the internal library coverage bitmap', asy
     const page = Number(u.searchParams.get('start'));
     return Response.json({
       response: {
-        numFound: 150,
+        numFound: 600,
         docs: Array.from({ length: 30 }, (_, i) =>
-          raw(150 - (page - 1) * 30 - i, {
+          raw(600 - (page - 1) * 30 - i, {
             shiurdatesubmitted: new Date(Date.now() - 3600000).toISOString(),
           }),
         ),
@@ -822,9 +822,416 @@ void test('the public endpoint strips the internal library coverage bitmap', asy
     const data = await response.json();
     assert.equal(data.seen, undefined);
     assert.equal(data.source, 'mobile');
-    assert.equal(data.sampled, 120);
+    assert.equal(data.sampled, 360);
+    assert.equal(data.index, undefined);
+    assert.equal(data.nextPage, undefined);
     assert.equal(response.headers.get('Cache-Control'), 'no-store');
   } finally {
     globalThis.fetch = original;
   }
+});
+
+void test('default trending shares durable scan progress across month, year and duration charts', async () => {
+  const original = globalThis.fetch;
+  const { db, sqlite } = database();
+  let now = initial;
+  const pages = [];
+  globalThis.fetch = async (url) => {
+    const u = new URL(url);
+    if (u.pathname === '/Search/GetSearchResults')
+      return new Response('', { status: 403 });
+    const page = Number(u.searchParams.get('start'));
+    pages.push(page);
+    return Response.json({
+      response: {
+        numFound: 600,
+        docs: Array.from(
+          { length: Math.min(30, Math.max(0, 600 - (page - 1) * 30)) },
+          (_, i) =>
+            raw(600 - (page - 1) * 30 - i, {
+              shiurvisitsnum: page === 20 ? 1000 : 10,
+              shiurdatesubmitted: '2026-09-20T12:00:00Z',
+            }),
+        ),
+      },
+    });
+  };
+  try {
+    const config = { database: () => db, now: () => now };
+    const first = await createTrendingService(config)({
+      period: 'month',
+      minutes: 0,
+    });
+    now += 3500;
+    const next = await createTrendingService(config)({
+      period: 'year',
+      minutes: 10,
+    });
+    assert.ok(
+      next.sampled > first.sampled,
+      'Changing chart must resume the same saved library scan',
+    );
+    assert.equal(
+      next.partial,
+      false,
+      '600 records must finish in two bounded passes',
+    );
+    const month = await createTrendingService(config)({
+      period: 'month',
+      minutes: 0,
+    });
+    assert.equal(month.partial, false);
+    assert.equal(
+      month.trending[0].id,
+      30,
+      'The final page winner must reach every matching chart',
+    );
+    assert.equal(month.total, 600);
+    assert.equal(
+      sqlite.prepare('SELECT count(*) AS n FROM search_runs').get().n,
+      1,
+    );
+    assert.equal(
+      new Set(pages).size,
+      pages.length,
+      'Successful pages must not be downloaded again per chart',
+    );
+  } finally {
+    globalThis.fetch = original;
+    sqlite.close();
+  }
+});
+
+const { readTrendingResponse } = await load('lib/trending-source.ts');
+const { readTrendingIndex, selectTrendingChart, validTrendingIndex } =
+  await load('lib/trending-index.ts');
+
+void test('trending reads complete results across byte boundaries and cancels unused facets', async () => {
+  const docs = [raw(42, { shiurtitle: 'תורה } \\"response\\": { [ test' })];
+  const prefix = new TextEncoder().encode(
+    JSON.stringify({
+      SHIURS_NOTEBOOK: [{ response: 'not the results' }],
+      response: { numFound: 1, docs },
+    }).slice(0, -1),
+  );
+  let offset = 0,
+    cancelled = false;
+  const response = new Response(
+    new ReadableStream(
+      {
+        pull(controller) {
+          if (offset < prefix.length)
+            controller.enqueue(prefix.slice(offset, ++offset));
+          else
+            controller.error(
+              new Error('The facet payload must not be consumed'),
+            );
+        },
+        cancel() {
+          cancelled = true;
+        },
+      },
+      { highWaterMark: 0 },
+    ),
+  );
+  const result = await readTrendingResponse(response);
+  assert.deepEqual(result.response.docs, docs);
+  assert.equal(cancelled, true);
+  for (const body of [
+    '{"response":null}',
+    '{"response":{"docs":[]',
+    'not JSON',
+    '{"response":[',
+  ])
+    await assert.rejects(readTrendingResponse(new Response(body)), /JSON/);
+  await assert.rejects(
+    readTrendingResponse(
+      new Response('{"response":{"docs":["' + 'a'.repeat(2_000_001) + '"]}}'),
+    ),
+    /size limit/,
+  );
+});
+
+void test('one shared traversal computes all twenty exact cohort rankings, including late winners and archived uploads', async () => {
+  const original = globalThis.fetch;
+  const rows = Array.from({ length: 601 }, (_, i) =>
+    raw(601 - i, {
+      shiurvisitsnum: i % 7 ? (i * 17) % 113 : 0,
+      duration: [0, 5, 15, 25, 45][i % 5],
+      shiurdatesubmitted:
+        i % 13 === 0
+          ? undefined
+          : new Date(
+              initial - [0, 1, 7, 30, 365, 500, -1][i % 7] * 86400000,
+            ).toISOString(),
+      shiurdate: '1990-01-01T12:00:00Z',
+    }),
+  );
+  let active = 0,
+    peak = 0;
+  globalThis.fetch = async (url) => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    active--;
+    const page = Number(new URL(url).searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: rows.length,
+        docs: rows.slice((page - 1) * 30, page * 30),
+      },
+    });
+  };
+  try {
+    const first = await readTrendingIndex(options, initial);
+    const result = await readTrendingIndex(options, initial + 10000, first);
+    assert.equal(result.partial, false);
+    assert.equal(result.sampled, rows.length);
+    assert.equal(result.before, first.before);
+    assert.equal(validTrendingIndex(result), true);
+    assert.ok(peak <= 6, 'Upstream concurrency must remain bounded');
+    const normalized = rows.map(normalize);
+    for (const { value: period } of trendingPeriods)
+      for (const minutes of [0, 10, 20, 30]) {
+        const selected = { period, minutes };
+        const chart = selectTrendingChart(result, selected);
+        assert.deepEqual(
+          chart.trending.map((s) => s.id),
+          rankTrending(normalized, 30, selected, initial).map((s) => s.id),
+          `${period}:${minutes}`,
+        );
+        assert.equal(
+          chart.total,
+          normalized.filter(
+            (s) =>
+              (!minutes || (s.duration > 0 && s.duration <= minutes * 60)) &&
+              (period === 'all' ||
+                (Date.parse(s.uploadedAt) >=
+                  Date.parse(trendingWindow(period, initial).after) &&
+                  Date.parse(s.uploadedAt) <= initial)),
+          ).length,
+        );
+        assert.equal(chart.index, undefined);
+        assert.equal(chart.seen, undefined);
+      }
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('shared indexing retries a failed page on the next pass and retains progress through an outage', async () => {
+  const original = globalThis.fetch;
+  let failed = false,
+    offline = false;
+  const pages = [];
+  globalThis.fetch = async (url) => {
+    const page = Number(new URL(url).searchParams.get('start'));
+    pages.push(page);
+    if (offline || (page === 2 && !failed)) {
+      failed = true;
+      throw new Error('offline');
+    }
+    return Response.json({
+      response: {
+        numFound: 1800,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(1800 - (page - 1) * 30 - i),
+        ),
+      },
+    });
+  };
+  try {
+    const first = await readTrendingIndex(options, initial);
+    assert.equal(first.sampled, 330);
+    assert.deepEqual(first.index.retryPages, [2]);
+    const saved = JSON.stringify(first);
+    offline = true;
+    await assert.rejects(
+      readTrendingIndex(options, initial + 3500, first),
+      /offline/,
+    );
+    assert.equal(
+      JSON.stringify(first),
+      saved,
+      'A failed pass must not mutate the saved checkpoint',
+    );
+    offline = false;
+    pages.length = 0;
+    const next = await readTrendingIndex(options, initial + 7000, first);
+    assert.equal(
+      pages[0],
+      2,
+      'Retry before traversing the rest of the archive',
+    );
+    assert.equal(next.sampled, 1410);
+    assert.deepEqual(next.index.retryPages, []);
+    const done = await readTrendingIndex(options, initial + 11000, next);
+    assert.equal(done.partial, false);
+    assert.equal(done.sampled, 1800);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('duplicate shared pages cannot complete coverage and shrinking libraries invalidate the cursor', async () => {
+  const original = globalThis.fetch;
+  let repeated = true,
+    total = 600;
+  globalThis.fetch = async (url) => {
+    let page = Number(new URL(url).searchParams.get('start'));
+    if (repeated && page === 2) page = 1;
+    return Response.json({
+      response: {
+        numFound: total,
+        docs: Array.from(
+          { length: Math.min(30, Math.max(0, total - (page - 1) * 30)) },
+          (_, i) => raw(total - (page - 1) * 30 - i),
+        ),
+      },
+    });
+  };
+  try {
+    const first = await readTrendingIndex(options, initial);
+    const next = await readTrendingIndex(options, initial + 3500, first);
+    assert.equal(next.sampled, 570);
+    assert.equal(next.partial, true);
+    repeated = false;
+    const done = await readTrendingIndex(options, initial + 7000, next);
+    assert.equal(done.partial, false);
+    assert.equal(done.sampled, 600);
+    total = 300;
+    await assert.rejects(
+      readTrendingIndex(options, initial + 11000, first),
+      /library changed/,
+    );
+    const corrupt = structuredClone(first);
+    corrupt.seen = 'AAAA';
+    await assert.rejects(
+      readTrendingIndex(options, initial, corrupt),
+      /coverage is invalid/,
+    );
+    const invalid = structuredClone(done);
+    delete invalid.index.charts['month:10'];
+    assert.equal(Boolean(validTrendingIndex(invalid)), false);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('concurrent periods share one index lease and return their own cohort filters', async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (url) => {
+    calls++;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    const page = Number(new URL(url).searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: 30,
+        docs:
+          page === 1 ? Array.from({ length: 30 }, (_, i) => raw(30 - i)) : [],
+      },
+    });
+  };
+  try {
+    const service = createTrendingService({ now: () => initial });
+    const results = await Promise.all(
+      trendingPeriods.map(({ value: period }) =>
+        service({ period, minutes: 0 }),
+      ),
+    );
+    assert.equal(calls, 1);
+    assert.deepEqual(
+      results.map((result) => result.period),
+      trendingPeriods.map((period) => period.value),
+    );
+    assert.ok(results.every((result) => !result.partial));
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('a shared rebuild serves completed rankings and resumes its new cursor across restarts', async () => {
+  const original = globalThis.fetch;
+  const { db, sqlite } = database();
+  let now = initial,
+    total = 30;
+  globalThis.fetch = async (url) => {
+    const page = Number(new URL(url).searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: total,
+        docs: Array.from(
+          { length: Math.min(30, Math.max(0, total - (page - 1) * 30)) },
+          (_, i) => raw(total - (page - 1) * 30 - i),
+        ),
+      },
+    });
+  };
+  try {
+    const config = { database: () => db, now: () => now };
+    const first = await createTrendingService(config)({
+      period: 'month',
+      minutes: 0,
+    });
+    assert.equal(first.partial, false);
+    total = 600;
+    now += 12 * 3600000;
+    const refreshing = await createTrendingService(config)({
+      period: 'year',
+      minutes: 10,
+    });
+    assert.equal(refreshing.refreshing, true);
+    assert.equal(refreshing.partial, false);
+    assert.equal(refreshing.total, 30);
+    assert.equal(refreshing.fetchedAt, first.fetchedAt);
+    const saved = JSON.parse(
+      sqlite.prepare('SELECT plan FROM search_runs').get().plan,
+    );
+    assert.equal(saved.snapshot.sampled, 360);
+    assert.equal(saved.lastComplete.sampled, 30);
+    now += 3500;
+    const finished = await createTrendingService(config)({
+      period: 'month',
+      minutes: 0,
+    });
+    assert.equal(finished.refreshing, undefined);
+    assert.equal(finished.partial, false);
+    assert.equal(finished.total, 600);
+    assert.notEqual(finished.before, first.before);
+  } finally {
+    globalThis.fetch = original;
+    sqlite.close();
+  }
+});
+
+void test('a completed chart being rebuilt bypasses CDN caching so polling advances the index', async () => {
+  const { GET: rebuilding } = await load('app/api/discover/route.ts', [
+    {
+      name: 'rebuilding-chart',
+      setup(build) {
+        build.onResolve({ filter: /^@\/lib\/trending-cache$/ }, () => ({
+          path: 'cache',
+          namespace: 'mock',
+        }));
+        build.onResolve({ filter: /^@\/lib\/search-db$/ }, () => ({
+          path: 'db',
+          namespace: 'mock',
+        }));
+        build.onLoad({ filter: /.*/, namespace: 'mock' }, ({ path }) => ({
+          contents:
+            path === 'db'
+              ? 'export const searchDatabase = () => undefined;'
+              : `export class TrendingBusyError extends Error {};
+           export const createTrendingService = () => async () => (${JSON.stringify({ ...snapshot(), refreshing: true })});`,
+        }));
+      },
+    },
+  ]);
+  const response = await rebuilding(
+    new Request('http://localhost/api/discover?period=week'),
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).refreshing, true);
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
 });

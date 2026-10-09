@@ -1,4 +1,4 @@
-import { transcriptGateway } from '@/lib/transcript-gateway';
+import { websiteTranscript } from '@/lib/website-transcript';
 import type { PublicContent } from '@/packages/transcription/src/public-content';
 
 /** A complete plain-text view preserves browser find, copying and screen readers. */
@@ -12,9 +12,13 @@ export async function GET(request: Request) {
   if (version && !/^[a-f0-9]{64}$/.test(version))
     return Response.json({ error: 'Invalid version.' }, { status: 400 });
   if (version) query.set('version', version);
-  const response = await transcriptGateway(`/v1/transcripts/${id}`, query);
+  if (params.has('source')) query.set('source', params.get('source')!);
+  const response = await websiteTranscript(id, query);
   if (!response.ok) return response;
-  const content = (await response.json()) as PublicContent;
+  const content = (await response.json()) as Pick<
+    PublicContent,
+    'title' | 'teacher' | 'segments'
+  >;
   const text =
     content.title +
     '\n' +

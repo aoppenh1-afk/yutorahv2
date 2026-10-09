@@ -1,4 +1,8 @@
-import { createDiscoveryReader, type getDiscovery } from './discovery';
+import {
+  readTrendingIndex,
+  selectTrendingChart,
+  validTrendingIndex,
+} from './trending-index';
 import {
   TrendingChangedError,
   type DiscoveryData,
@@ -25,19 +29,43 @@ export { TrendingChangedError } from './trending';
 
 export class TrendingBusyError extends Error {}
 
-/** Twenty reserved run IDs cache bounded top-30 rankings and scan cursors.
+/** Reserved run IDs cache bounded rankings and scan cursors.
  * No search_hits are created. Ordinary search fingerprints are SHA-256 digests,
  * so these records cannot be reused as metadata-search candidate sets.
  */
 export function createTrendingService({
   database,
-  read = createDiscoveryReader(),
+  read,
   now = Date.now,
+  cacheKey,
+  validate = () => true,
+  preferCompleted = false,
 }: {
   database?: () => SearchDatabase;
-  read?: typeof getDiscovery;
+  read?: (
+    options: TrendingOptions,
+    now: number,
+    previous?: DiscoveryData,
+  ) => Promise<DiscoveryData>;
   now?: () => number;
-} = {}) {
+  /** Internal key for the shared library index. */
+  cacheKey?: string;
+  validate?: (data: DiscoveryData) => boolean;
+  preferCompleted?: boolean;
+} = {}): (options: TrendingOptions) => Promise<DiscoveryData> {
+  if (!read) {
+    const shared = createTrendingService({
+      database,
+      now,
+      read: readTrendingIndex,
+      cacheKey: 'trending:v1:shared:2',
+      validate: validTrendingIndex,
+      preferCompleted: true,
+    });
+    return async (options: TrendingOptions) =>
+      selectTrendingChart(await shared({ period: 'all', minutes: 0 }), options);
+  }
+  const readSource = read;
   const memory = new Map<string, DiscoveryData>();
   const completed = new Map<string, DiscoveryData>();
   const pending = new Map<string, Promise<DiscoveryData>>();
@@ -45,6 +73,13 @@ export function createTrendingService({
   const age = (data: DiscoveryData) => now() - Date.parse(data.fetchedAt);
   const usable = (data: DiscoveryData | undefined, ttl: number) =>
     !!data && age(data) >= 0 && age(data) < ttl;
+
+  const present = (key: string, data: DiscoveryData) => {
+    const complete = completed.get(key);
+    return preferCompleted && data.partial && usable(complete, staleFor)
+      ? { ...complete!, refreshing: true, stale: data.stale }
+      : data;
+  };
 
   const fallback = (key: string, previous?: DiscoveryData) => {
     const complete = completed.get(key);
@@ -79,6 +114,7 @@ export function createTrendingService({
             const last = parsed.lastComplete;
             if (
               last &&
+              validate(last) &&
               !last.partial &&
               last.period === options.period &&
               last.minutes === options.minutes &&
@@ -94,6 +130,7 @@ export function createTrendingService({
             const snapshot = parsed.snapshot;
             if (
               snapshot &&
+              validate(snapshot) &&
               snapshot.period === options.period &&
               snapshot.minutes === options.minutes &&
               snapshot.dateBasis === 'upload-date' &&
@@ -174,7 +211,7 @@ export function createTrendingService({
       db = undefined;
     }
     try {
-      const data = await read(
+      const data = await readSource(
         options,
         now(),
         usable(previous, staleFor) ? previous : undefined,
@@ -193,7 +230,7 @@ export function createTrendingService({
                 kind: 'trending',
                 options,
                 snapshot: data,
-                lastComplete: completed.get(key),
+                lastComplete: data.partial ? completed.get(key) : undefined,
               }),
               data.libraryTotal ?? data.total,
               Math.ceil(data.sampled / 30) + 1,
@@ -252,18 +289,18 @@ export function createTrendingService({
   }
 
   return async (options: TrendingOptions) => {
-    const key = `trending:v1:${options.period}:${options.minutes}`;
+    const key = cacheKey ?? `trending:v1:${options.period}:${options.minutes}`;
     const hit = memory.get(key);
     if (usable(hit, hit?.partial ? progressFor : freshFor(options)))
-      return hit!;
+      return present(key, hit!);
     const cooldown = cooldowns.get(key);
     if (cooldown && cooldown.until > now()) {
       const cached = fallback(key, hit);
-      if (cached) return { ...cached, stale: true };
+      if (cached) return present(key, { ...cached, stale: true });
       throw cooldown.error;
     }
     const existing = pending.get(key);
-    if (existing) return existing;
+    if (existing) return present(key, await existing);
     const request = refresh(key, options);
     pending.set(key, request);
     try {
@@ -274,7 +311,7 @@ export function createTrendingService({
           error: new TrendingBusyError('This chart is refreshing.'),
         });
       } else cooldowns.delete(key);
-      return data;
+      return present(key, data);
     } catch (error) {
       cooldowns.set(key, { until: now() + retryFor, error });
       throw error;

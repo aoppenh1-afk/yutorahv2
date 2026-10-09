@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Search,
   Settings2,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   Avatar,
@@ -30,8 +31,19 @@ import {
 import type { LibraryState } from '@/lib/library';
 import { learningStats } from '@/lib/learning';
 
+type Subject = {
+  key: string;
+  label: string;
+  title: string;
+  hebrew: string;
+  note: string;
+  icon: LucideIcon;
+  go: () => void;
+};
+
 type Props = {
   onTrending: () => void;
+  subjects: Subject[];
   home: HomeData | null;
   directory: Directory | null;
   library: LibraryState;
@@ -63,6 +75,7 @@ type Props = {
 };
 
 export function MobileDiscover({
+  subjects,
   home,
   directory,
   library,
@@ -86,6 +99,7 @@ export function MobileDiscover({
 }: Props) {
   const [query, setQuery] = useState('');
   const [feed, setFeed] = useState('recommended');
+  const [shown, setShown] = useState(5);
   const stats = learningStats(library.learningDays);
   const shelfSeries = useSeriesWithArt(
     [...(home?.series || []), ...(directory?.series || [])],
@@ -94,12 +108,12 @@ export function MobileDiscover({
   const entries = useMemo(() => {
     if (feed === 'trending') return trending;
     if (feed === 'recommended') return items;
-    return home?.recent.length
-      ? home.recent
-      : [...items].sort(
-          (a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0),
-        );
-  }, [feed, home, items, trending]);
+    return (home?.featured || []).filter(
+      (s) => s.id !== pick?.id && !library.hidden.includes(s.id),
+    );
+  }, [feed, home, items, trending, pick, library.hidden]);
+  const browseAll = () =>
+    feed === 'trending' ? onNavigate('trending') : onNavigate('search');
   const loading = refreshing || (feed === 'trending' && trendingLoading);
   const open = (s: Shiur) =>
     mediaKind(s) === 'audio' ? onPlay(s) : onDetails(s);
@@ -107,13 +121,17 @@ export function MobileDiscover({
     title: string,
     action: () => void,
     label = 'See all',
+    extra?: React.ReactNode,
   ) => (
     <div className="m-section-heading">
       <h2>{title}</h2>
-      <button onClick={action}>
-        {label}
-        <ChevronRight size={16} />
-      </button>
+      <div className="m-section-actions">
+        {extra}
+        <button onClick={action}>
+          {label}
+          <ChevronRight size={16} />
+        </button>
+      </div>
     </div>
   );
   const recordings = (records: Shiur[]) => (
@@ -135,11 +153,11 @@ export function MobileDiscover({
   const goal = Math.min(1, stats.today / 60 / (library.dailyGoal || 1));
   const daily = home
     ? [
-        ['Parsha', 'פרשת השבוע', home.parsha || ''],
-        ['Daf Yomi', 'דף יומי', home.daf],
-        ['Mishna Yomi', 'משנה יומית', home.mishna],
-        ['Nach Yomi', 'נ״ך יומי', home.nach],
-      ].filter(([, , value]) => value)
+        ['This week’s parsha', home.parsha || ''],
+        ['Daf Yomi', home.daf],
+        ['Mishna Yomi', home.mishna],
+        ['Nach Yomi', home.nach],
+      ].filter(([, value]) => value)
     : [];
 
   return (
@@ -288,22 +306,31 @@ export function MobileDiscover({
       )}
 
       <section className="m-section" aria-label="Shiurim from the library">
-        {sectionTitle('Listen now', () =>
-          feed === 'latest'
-            ? onSearch('', { ...noFilters, sort: 'new' })
-            : onNavigate('trending'),
+        {sectionTitle(
+          'Discover',
+          browseAll,
+          'See all',
+          <button
+            className="m-icon-action"
+            aria-label="Refresh library selections"
+            onClick={onRefresh}
+            disabled={refreshing}
+          >
+            <RefreshCw size={16} className={refreshing ? 'spin' : ''} />
+          </button>,
         )}
         <div className="m-feed-tabs" aria-label="Library selections">
           {[
             ['recommended', 'For you'],
             ['trending', 'Trending'],
-            ['latest', 'New'],
+            ['featured', 'Featured'],
           ].map(([value, label]) => (
             <button
               key={value}
               aria-pressed={feed === value}
               onClick={() => {
                 setFeed(value);
+                setShown(5);
                 if (value === 'trending') onTrending();
               }}
             >
@@ -311,8 +338,26 @@ export function MobileDiscover({
             </button>
           ))}
         </div>
+        {feed === 'featured' && (
+          <p className="m-feed-note">Selected by the YUTorah editors.</p>
+        )}
         {entries.length ? (
-          recordings(entries.slice(0, 5))
+          <>
+            {recordings(entries.slice(0, shown))}
+            <button
+              className="m-browse-more"
+              onClick={() =>
+                entries.length > shown ? setShown((n) => n + 5) : browseAll()
+              }
+            >
+              {entries.length > shown
+                ? 'Browse more shiurim'
+                : feed === 'trending'
+                  ? 'See the full chart'
+                  : 'Search the full library'}
+              <ArrowRight size={16} />
+            </button>
+          </>
         ) : (
           <StatePanel
             title={
@@ -346,14 +391,9 @@ export function MobileDiscover({
           <div className="m-section-heading">
             <h2>Today in Torah</h2>
           </div>
-          <div className="m-today-scroller">
-            {daily.map(([label, hebrew, value]) => (
+          <div className="m-today-grid">
+            {daily.map(([label, value]) => (
               <button key={label} onClick={() => onSearch(value)}>
-                <span
-                  className="m-today-hebrew"
-                  data-he={hebrew}
-                  aria-hidden="true"
-                />
                 <small>{label}</small>
                 <strong dir="auto">{value}</strong>
               </button>
@@ -363,41 +403,31 @@ export function MobileDiscover({
       )}
 
       <section className="m-section">
-        {sectionTitle('Browse by subject', () => onNavigate('topics'))}
+        {sectionTitle(
+          'Explore by subject',
+          () => onNavigate('topics'),
+          'All topics',
+        )}
         <div className="m-subjects">
-          {[
-            ['Halacha', 'Jewish law', 'הלכה'],
-            ['Gemara', 'Talmud study', 'גמרא'],
-            ['Machshava', 'Jewish thought', 'מחשבה'],
-            ['Tefillah', 'Prayer', 'תפילה'],
-          ].map(([name, description, hebrew], i) => {
-            const topic = directory?.topics.find(
-              (t) => t.name.toLowerCase() === name.toLowerCase(),
-            );
-            return (
-              <button
-                key={name}
-                className={'subject-' + i}
-                onClick={() =>
-                  topic
-                    ? onSearch('', { ...noFilters, topic: String(topic.id) })
-                    : onSearch(name)
-                }
-              >
+          {subjects.map(
+            ({ key, label, title, hebrew, note, icon: Icon, go }) => (
+              <button key={key} onClick={go}>
+                <span className="m-subject-top">
+                  <span className="m-subject-icon">
+                    <Icon size={15} aria-hidden="true" />
+                  </span>
+                  <span>{label}</span>
+                </span>
                 <span
                   className="m-subject-hebrew"
                   data-he={hebrew}
                   aria-hidden="true"
                 />
-                <strong>{name}</strong>
-                <small>
-                  {topic
-                    ? `${topic.count.toLocaleString()} shiurim`
-                    : description}
-                </small>
+                <strong>{title}</strong>
+                <small>{note}</small>
               </button>
-            );
-          })}
+            ),
+          )}
         </div>
       </section>
 
@@ -478,14 +508,9 @@ export function MobileDiscover({
           <Settings2 size={18} />
         </button>
       </section>
-      <button className="m-refresh" onClick={onRefresh} disabled={refreshing}>
-        <RefreshCw size={14} className={refreshing ? 'spin' : ''} />
-        {refreshing ? 'Refreshing…' : 'Refresh library selections'}
-      </button>
-      <div className="m-colophon">
-        <strong>The Marcos and Adina Katz YUTorah Online</strong>
-        <span>A project of Yeshiva University–RIETS</span>
-      </div>
+      <p className="m-local-note">
+        Your saved shiurim, progress, and follows stay on this device.
+      </p>
     </div>
   );
 }
