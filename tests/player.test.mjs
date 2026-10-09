@@ -973,7 +973,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .waitFor();
           await page
             .getByRole('region', {
-              name: 'Transcript, study notes, and sources',
+              name: 'Transcript, notes, and sources',
             })
             .waitFor();
           assert.equal(details, 1);
@@ -1138,7 +1138,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .getByRole('button', { name: 'Open shiur details and notes' })
             .click();
           const region = page.getByRole('region', {
-            name: 'Transcript, study notes, and sources',
+            name: 'Transcript, notes, and sources',
             exact: true,
           });
           await region
@@ -1146,7 +1146,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .waitFor();
           assert.equal(
             await region
-              .getByRole('button', { name: 'Study notes', exact: true })
+              .getByRole('button', { name: 'Notes', exact: true })
               .count(),
             1,
           );
@@ -1192,7 +1192,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
           assert.equal(reads, 2);
           assert.equal(statuses, 0);
           await region
-            .getByRole('button', { name: 'Study notes', exact: true })
+            .getByRole('button', { name: 'Notes', exact: true })
             .click();
           await region.getByRole('heading', { name: 'Hosted notes' }).waitFor();
           await region.getByRole('heading', { name: 'תשובה' }).waitFor();
@@ -1201,7 +1201,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .getByRole('button', { name: 'Transcript', exact: true })
             .click();
           await region
-            .getByRole('button', { name: 'Study notes', exact: true })
+            .getByRole('button', { name: 'Notes', exact: true })
             .click();
           await region.getByRole('heading', { name: 'Hosted notes' }).waitFor();
           await page.clock.fastForward(600_000);
@@ -1242,14 +1242,14 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .getByRole('button', { name: 'Open shiur details and notes' })
             .click();
           const region = page.getByRole('region', {
-            name: 'Transcript, study notes, and sources',
+            name: 'Transcript, notes, and sources',
             exact: true,
           });
           await region
             .getByText('Transcript temporarily unavailable', { exact: false })
             .waitFor();
           await region
-            .getByRole('button', { name: 'Study notes', exact: true })
+            .getByRole('button', { name: 'Notes', exact: true })
             .click();
           await region
             .getByRole('heading', { name: 'Saved study notes', exact: true })
@@ -1373,7 +1373,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
           queued = false;
           await page
             .getByRole('region', {
-              name: 'Transcript, study notes, and sources',
+              name: 'Transcript, notes, and sources',
             })
             .getByRole('button', { name: 'Refresh', exact: true })
             .click();
@@ -1400,7 +1400,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
           );
           await page
             .getByRole('region', {
-              name: 'Transcript, study notes, and sources',
+              name: 'Transcript, notes, and sources',
             })
             .getByRole('button', { name: 'Refresh', exact: true })
             .click();
@@ -1415,7 +1415,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
           unavailable = true;
           await page
             .getByRole('region', {
-              name: 'Transcript, study notes, and sources',
+              name: 'Transcript, notes, and sources',
             })
             .getByRole('button', { name: 'Refresh', exact: true })
             .click();
