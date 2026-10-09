@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setImmediate as nextTurn } from 'node:timers/promises';
-import { runNotesPool } from '../deploy/notes-only/pool.mjs';
+import {
+  runNotesPool,
+  createMemoryAdmission,
+} from '../deploy/notes-only/pool.mjs';
 
 function fixture(count = 12) {
   const jobs = Array.from({ length: count }, (_, i) => ({
@@ -45,6 +48,82 @@ async function until(check) {
   }
   assert.fail('Pool did not reach the expected state.');
 }
+
+void test('memory admission holds new claims while active notes finish, then resumes', async () => {
+  const f = fixture(3);
+  const gates = new Map();
+  let hasMemory = true;
+  let clock = 0;
+  const run = runNotesPool({
+    ...f,
+    concurrency: 10,
+    limit: 3,
+    canAdmit: () => {
+      const allowed = hasMemory;
+      hasMemory = false;
+      return allowed;
+    },
+    now: () => clock,
+    sleep: async (ms) => {
+      clock += ms;
+      await nextTurn();
+    },
+    processJob: (job) => new Promise((resolve) => gates.set(job.id, resolve)),
+  });
+  await until(() => gates.size > 0);
+  await nextTurn();
+  assert.deepEqual(f.claims, ['1']);
+  gates.get('1')('completed');
+  await until(() => f.events.some((event) => event.status === 'completed'));
+  assert.deepEqual(f.claims, ['1']);
+  hasMemory = true;
+  await until(() => gates.has('2'));
+  gates.get('2')('completed');
+  hasMemory = true;
+  await until(() => gates.has('3'));
+  gates.get('3')('completed');
+  assert.deepEqual(await run, { processed: 3, failed: false });
+});
+
+void test('memory admission uses available RAM, holds on unknown readings, and logs transitions', () => {
+  let memory = 'MemAvailable: 3145728 kB\n';
+  const events = [];
+  const allowed = createMemoryAdmission({
+    minAvailableMiB: 3072,
+    readMemory: () => memory,
+    log: (event) => events.push(event),
+  });
+  assert.equal(allowed(), true);
+  memory = 'MemAvailable: 2097152 kB\n';
+  assert.equal(allowed(), false);
+  assert.equal(allowed(), false);
+  memory = 'unknown';
+  assert.equal(allowed(), false);
+  memory = 'MemAvailable: 4194304 kB\n';
+  assert.equal(allowed(), true);
+  assert.deepEqual(
+    events.map((event) => event.status),
+    ['waiting_for_memory', 'memory_admission_resumed'],
+  );
+  assert.equal(
+    createMemoryAdmission({
+      minAvailableMiB: 3072,
+      readMemory: () => {
+        throw new Error('unavailable');
+      },
+      log: () => {},
+    })(),
+    false,
+  );
+  assert.equal(
+    createMemoryAdmission({
+      readMemory: () => {
+        throw new Error('unused');
+      },
+    })(),
+    true,
+  );
+});
 
 for (const concurrency of [6, 10])
   void test(`${concurrency} distinct transcripts run concurrently and a freed slot refills immediately`, async () => {

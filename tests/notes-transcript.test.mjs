@@ -103,6 +103,7 @@ void test('reinstallation replaces old bundled transcript code and is idempotent
       filename,
       `// VM concurrent notes support v2
 import { vmCatalogText } from "../catalog-fetch.mjs";
+const HELP = '--concurrency 1..6             Each agent gets one transcript; refill free slots';
 // lib/webvtt.mjs
 function parseVtt() { throw new Error('Empty or invalid WebVTT cue.'); }
 // packages/notes-only/src/pipeline.ts

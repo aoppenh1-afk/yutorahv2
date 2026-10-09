@@ -104,6 +104,12 @@ stops admitting jobs, drains active jobs, and bounds idle/backoff waits, so anot
 discovery batch can run. Bounded pilots reserve slots against `--limit`, avoiding
 extra jobs beyond that limit. `--concurrency` accepts 1 through 10 and defaults to 6;
 the installed supervisor explicitly selects 10.
+It also passes `--min-free-memory-mib 3072`: another agent starts only when the
+host reports at least 3 GiB available RAM. Active notes finish normally while
+new claims wait, and admission resumes automatically as memory becomes available.
+This keeps the configured ceiling at ten while allowing fewer simultaneous
+agents when the VM's other applications consume the headroom. Memory waits and
+resumes appear in the progress log.
 Each completed cycle verifies the second local backup, then waits 30 seconds.
 Cron checks for a stopped supervisor every minute, starts it when cron starts
 via `@reboot`, and runs an extra backup hourly at minute 15. Existing crontab

@@ -1,4 +1,36 @@
 import { setTimeout as delay } from 'node:timers/promises';
+import { readFileSync } from 'node:fs';
+
+/** Check host headroom before starting another native runtime. */
+export function createMemoryAdmission({
+  minAvailableMiB = 0,
+  readMemory = () => readFileSync('/proc/meminfo', 'utf8'),
+  log = (value) => console.log(JSON.stringify(value)),
+} = {}) {
+  if (!Number.isInteger(minAvailableMiB) || minAvailableMiB < 0)
+    throw new Error('Minimum available memory must be a nonnegative integer.');
+  let waiting = false;
+  return () => {
+    if (!minAvailableMiB) return true;
+    let availableMiB = null;
+    try {
+      const match = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(readMemory());
+      if (match) availableMiB = Math.floor(Number(match[1]) / 1024);
+    } catch {
+      // An unreadable memory budget must not admit another process.
+    }
+    const allowed = availableMiB !== null && availableMiB >= minAvailableMiB;
+    if (waiting !== !allowed) {
+      log({
+        status: allowed ? 'memory_admission_resumed' : 'waiting_for_memory',
+        availableMiB,
+        minAvailableMiB,
+      });
+      waiting = !allowed;
+    }
+    return allowed;
+  };
+}
 
 function errorMessage(error, secrets) {
   let message = String(error.message ?? 'Unknown error');
@@ -29,6 +61,7 @@ export async function runNotesPool({
   now = Date.now,
   sleep = (ms, signal) => delay(ms, undefined, { signal }),
   secrets = [],
+  canAdmit = () => true,
 }) {
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 10)
     throw new Error('Concurrency must be between 1 and 10.');
@@ -114,28 +147,32 @@ export async function runNotesPool({
         active.size < concurrency &&
         now() >= Math.max(nextStartAt, nextPollAt)
       ) {
-        queue.recheckMissing();
-        const job = queue.claim();
-        if (job) {
-          const pending = Promise.resolve()
-            .then(() => processJob(job))
-            .then(
-              (status) => ({ job, status }),
-              (error) => ({ job, error }),
-            );
-          active.set(job.id, pending);
-          nextStartAt = now() + paceMs;
-          nextPollAt = 0;
-          log({
-            id: job.id,
-            status: 'started',
-            active: active.size,
-            concurrency,
-          });
-          continue;
+        if (!canAdmit()) {
+          nextPollAt = now() + 5000;
+        } else {
+          queue.recheckMissing();
+          const job = queue.claim();
+          if (job) {
+            const pending = Promise.resolve()
+              .then(() => processJob(job))
+              .then(
+                (status) => ({ job, status }),
+                (error) => ({ job, error }),
+              );
+            active.set(job.id, pending);
+            nextStartAt = now() + paceMs;
+            nextPollAt = 0;
+            log({
+              id: job.id,
+              status: 'started',
+              active: active.size,
+              concurrency,
+            });
+            continue;
+          }
+          empty = true;
+          nextPollAt = now() + 60000;
         }
-        empty = true;
-        nextPollAt = now() + 60000;
       }
       if (!active.size && (!admitting || (empty && !follow))) break;
       const canStart =

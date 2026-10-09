@@ -63,6 +63,8 @@ void test('a newly built high-thinking package accepts VM preparation and runs i
   assert.match(prepared, /VM concurrent notes support v2/);
   const help = await execFile(process.execPath, [bundle, 'help']);
   assert.match(help.stdout, /--concurrency 1\.\.10/);
+  assert.match(help.stdout, /--min-free-memory-mib N/);
+  assert.match(prepared, /canAdmit: createMemoryAdmission/);
   const state = join(root, 'state');
   await execFile(process.execPath, [
     bundle,

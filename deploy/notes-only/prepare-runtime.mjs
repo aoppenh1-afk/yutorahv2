@@ -130,6 +130,30 @@ source = source
     '--concurrency 1..6             ',
     '--concurrency 1..10            ',
   );
+source = source.replace(
+  'import { runNotesPool } from "../pool.mjs";',
+  'import { runNotesPool, createMemoryAdmission } from "../pool.mjs";',
+);
+if (!source.includes('canAdmit: createMemoryAdmission(')) {
+  const original = '    const result = await runNotesPool({\n      queue,';
+  if (!source.includes(original))
+    throw new Error('Unsupported pool configuration.');
+  source = source.replace(
+    original,
+    original +
+      '\n      canAdmit: createMemoryAdmission({ minAvailableMiB: integer("--min-free-memory-mib", 0, 0, 1048576) }),',
+  );
+}
+if (!source.includes('  --min-free-memory-mib ')) {
+  const original =
+    '--concurrency 1..10            Each agent gets one transcript; refill free slots';
+  if (!source.includes(original)) throw new Error('Unsupported pool help.');
+  source = source.replace(
+    original,
+    original +
+      '\\n  --min-free-memory-mib N        Wait for host memory before starting another agent',
+  );
+}
 const catalogImport = 'import { vmCatalogText } from "../catalog-fetch.mjs";';
 if (!source.includes(catalogImport)) {
   const original =

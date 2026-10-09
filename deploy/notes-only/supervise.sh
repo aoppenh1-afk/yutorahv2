@@ -36,6 +36,7 @@ while [[ "$notes_stopping" == 0 && ! -f "$notes_state/paused" ]]; do
   [[ "$notes_stopping" == 0 ]] || break
   printf '{"phase":"worker","at":"%s"}\n' "$(date -u +%FT%TZ)"
   run_phase "$notes_state/run.sh" run --all --follow --concurrency 10 --max-runtime-ms 1800000 \
+    --min-free-memory-mib 3072 \
     --opencode /home/box/.local/bin/opencode-notes || true
   [[ "$notes_stopping" == 0 ]] || break
   run_phase "$notes_state/backup.sh" || true
