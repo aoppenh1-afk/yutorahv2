@@ -7,7 +7,7 @@ import {
   HeadingLevel,
   AlignmentType,
 } from 'docx';
-import { notesBlocks, notesDirection } from './notes-document';
+import { notesBlocks } from './notes-document';
 
 export async function createNotesDocx(markdown: string): Promise<Blob> {
   const headings = [
@@ -19,15 +19,13 @@ export async function createNotesDocx(markdown: string): Promise<Blob> {
     HeadingLevel.HEADING_6,
   ];
   const children = notesBlocks(markdown).map((block) => {
-    const rtl =
-      notesDirection(block.runs.map((run) => run.text).join('')) === 'rtl';
     const runs = block.runs.flatMap((run) =>
       run.text.split('\n').map((text, index) => {
         const child = new TextRun({
           text,
           bold: run.bold,
           italics: run.italic,
-          rightToLeft: rtl,
+          rightToLeft: false,
           ...(index ? { break: 1 } : {}),
           ...(run.code ? { font: 'Courier New' } : {}),
         });
@@ -39,16 +37,16 @@ export async function createNotesDocx(markdown: string): Promise<Blob> {
     return new Paragraph({
       children: [
         ...(block.prefix
-          ? [new TextRun({ text: block.prefix, rightToLeft: rtl })]
+          ? [new TextRun({ text: block.prefix, rightToLeft: false })]
           : []),
         ...runs,
       ],
       heading: block.heading ? headings[block.heading - 1] : undefined,
-      bidirectional: rtl,
-      alignment: rtl ? AlignmentType.RIGHT : AlignmentType.LEFT,
-      indent: rtl
-        ? { right: (block.indent ?? 0) * 360 }
-        : { left: (block.indent ?? 0) * 360 },
+      // The preview inherits LTR from its English notes label. A leading
+      // Hebrew term must not reverse the paragraph or its English runs.
+      bidirectional: false,
+      alignment: AlignmentType.LEFT,
+      indent: { left: (block.indent ?? 0) * 360 },
       spacing: { after: 160, line: 300 },
       keepNext: Boolean(block.heading),
     });

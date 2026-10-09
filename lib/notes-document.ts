@@ -94,9 +94,3 @@ export function notesBlocks(markdown: string): NotesBlock[] {
   visit(root.children);
   return blocks;
 }
-
-// Use the first strong character, matching HTML dir="auto" for mixed notes.
-export function notesDirection(text: string): 'rtl' | 'ltr' {
-  const first = text.match(/[\p{Letter}]/u)?.[0];
-  return first && /[\u0590-\u08ff]/.test(first) ? 'rtl' : 'ltr';
-}

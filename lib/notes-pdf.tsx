@@ -1,5 +1,5 @@
 import { Document, Page, Text, Link, Font, pdf } from '@react-pdf/renderer';
-import { notesBlocks, notesDirection } from './notes-document';
+import { notesBlocks } from './notes-document';
 
 let registered = false;
 export async function createNotesPdf(markdown: string): Promise<Blob> {
@@ -54,9 +54,6 @@ export async function createNotesPdf(markdown: string): Promise<Blob> {
         }}
       >
         {notesBlocks(markdown).map((block, index) => {
-          const rtl =
-            notesDirection(block.runs.map((run) => run.text).join('')) ===
-            'rtl';
           return (
             <Text
               key={index}
@@ -68,11 +65,11 @@ export async function createNotesPdf(markdown: string): Promise<Blob> {
                 fontWeight: block.heading ? 700 : 400,
                 marginTop: block.heading ? 12 : 0,
                 marginBottom: 8,
-                textAlign: rtl ? 'right' : 'left',
-                direction: rtl ? 'rtl' : 'ltr',
-                ...(rtl
-                  ? { marginRight: (block.indent ?? 0) * 14 }
-                  : { marginLeft: (block.indent ?? 0) * 14 }),
+                // Match the preview's LTR outline while the text renderer
+                // handles the reading order of Hebrew within each paragraph.
+                textAlign: 'left',
+                direction: 'ltr',
+                marginLeft: (block.indent ?? 0) * 14,
               }}
             >
               {block.prefix}
