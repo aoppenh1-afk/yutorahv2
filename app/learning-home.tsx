@@ -4,6 +4,7 @@ import { ShiurViews } from './shiur-views';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BoundedCache } from '@/lib/bounded-cache';
+import { loadDiscovery } from '@/lib/discovery-client';
 const feedBatches = new BoundedCache<{ items: Shiur[]; partial: boolean }>(
   64,
   4 * 1024 * 1024,
@@ -135,6 +136,8 @@ export function LearningHome(props: Props) {
   const [discoveryCharts, setDiscoveryCharts] = useState<
     Record<string, DiscoveryData>
   >({});
+  const discoveryChartsRef = useRef(discoveryCharts);
+  discoveryChartsRef.current = discoveryCharts;
   const trendingMinutes = minutes === 'all' ? 0 : Number(minutes);
   const discoveryKey = `${trendingPeriod}:${trendingMinutes}`;
   const discovery = discoveryCharts[discoveryKey] ?? null;
@@ -266,33 +269,18 @@ export function LearningHome(props: Props) {
     setDiscoveryLoading(true);
     setDiscoveryError(false);
     setDiscoveryRetry(0);
-    const query = new URLSearchParams({
-      period: trendingPeriod,
-      minutes: String(trendingMinutes),
-    });
-    fetch('/api/discover?' + query, { signal: abort.signal })
-      .then(async (res) => {
-        if (!res.ok) {
-          if (
-            (res.status === 503 || res.status === 502) &&
-            !abort.signal.aborted
-          )
-            setDiscoveryRetry(
-              Math.min(
-                30,
-                Math.max(5, Number(res.headers.get('Retry-After')) || 30),
-              ),
-            );
-          throw new Error('Discovery unavailable');
-        }
-        const data = (await res.json()) as DiscoveryData;
-        if (data.period !== trendingPeriod || data.minutes !== trendingMinutes)
-          throw new Error('Discovery returned a different chart');
-        if (!abort.signal.aborted) {
-          setDiscoveryCharts((old) => ({ ...old, [discoveryKey]: data }));
-          if (data.stale) setDiscoveryRetry(30);
-        }
-      })
+    loadDiscovery(
+      {
+        period: trendingPeriod,
+        minutes: trendingMinutes as 0 | 10 | 20 | 30,
+      },
+      abort.signal,
+      (data) => {
+        setDiscoveryCharts((old) => ({ ...old, [discoveryKey]: data }));
+      },
+      setDiscoveryRetry,
+      !discoveryChartsRef.current[discoveryKey],
+    )
       .catch(() => {
         if (!abort.signal.aborted) setDiscoveryError(true);
       })
