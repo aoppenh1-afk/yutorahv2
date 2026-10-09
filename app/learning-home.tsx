@@ -279,7 +279,7 @@ export function LearningHome(props: Props) {
         setDiscoveryCharts((old) => ({ ...old, [discoveryKey]: data }));
       },
       setDiscoveryRetry,
-      !discoveryChartsRef.current[discoveryKey],
+      currentTab === 'trending' && !discoveryChartsRef.current[discoveryKey],
     )
       .catch(() => {
         if (!abort.signal.aborted) setDiscoveryError(true);

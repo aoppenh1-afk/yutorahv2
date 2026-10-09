@@ -235,7 +235,9 @@ async function openPlayer(viewport, stalled = false, options = {}) {
     };
   }
   await options.onPage?.(page, context);
-  await page.goto(origin, { waitUntil: 'domcontentloaded' });
+  await page.goto(new URL(options.path || '/', origin).href, {
+    waitUntil: 'domcontentloaded',
+  });
   await page
     .getByRole('region', { name: 'Audio player', exact: true })
     .waitFor();
@@ -295,9 +297,88 @@ async function closeAndVerify(page, minSeconds = 42) {
 void test('player controls stop playback and the phone dialog stays inside the built viewport', async (t) => {
   try {
     await t.test(
+      'a direct Trending visit displays saved recordings before a blocked refresh completes',
+      async () => {
+        let release;
+        const blocked = new Promise((resolve) => {
+          release = resolve;
+        });
+        let savedRequests = 0;
+        let refreshRequests = 0;
+        let refreshed = false;
+        const freshTitle = 'Refreshed trending recording';
+        const { context, page } = await openPlayer(
+          { width: 1280, height: 800 },
+          false,
+          {
+            path: '/?view=trending',
+            onPage: async (_page, context) => {
+              await context.route('**/api/discover?*', async (route) => {
+                const params = new URL(route.request().url()).searchParams;
+                const saved = params.get('cached') === '1';
+                if (saved) savedRequests++;
+                else {
+                  refreshRequests++;
+                  await blocked;
+                  refreshed = true;
+                }
+                await route
+                  .fulfill({
+                    json: {
+                      trending: [
+                        { ...shiur, title: saved ? shiur.title : freshTitle },
+                      ],
+                      sampled: saved ? 30 : 60,
+                      total: 60,
+                      libraryTotal: 60,
+                      partial: saved,
+                      stale: saved,
+                      period: params.get('period'),
+                      minutes: Number(params.get('minutes')),
+                      fetchedAt: new Date().toISOString(),
+                      before: new Date().toISOString(),
+                    },
+                  })
+                  .catch(() => {});
+              });
+            },
+          },
+        );
+        try {
+          await page
+            .locator('.trending-list')
+            .getByText(shiur.title, { exact: true })
+            .waitFor();
+          assert.equal(
+            refreshed,
+            false,
+            'Saved recordings must render while the refresh is blocked',
+          );
+          assert.equal(savedRequests, 1);
+          assert.equal(refreshRequests, 1);
+          release();
+          await page
+            .locator('.trending-list')
+            .getByText(freshTitle, { exact: true })
+            .waitFor();
+          assert.equal(
+            await page
+              .locator('.trending-list')
+              .getByText(shiur.title, { exact: true })
+              .count(),
+            0,
+          );
+        } finally {
+          release();
+          await context.close();
+        }
+      },
+    );
+    await t.test(
       'Trending retries stale charts and keeps polling completed charts during rebuilds',
       async () => {
         let discoveryRequests = 0;
+        let savedRequests = 0;
         const { context, page } = await openPlayer(
           { width: 1280, height: 800 },
           false,
@@ -305,8 +386,10 @@ void test('player controls stop playback and the phone dialog stays inside the b
             onPage: async (page, context) => {
               await page.clock.install();
               await context.route('**/api/discover?*', (route) => {
-                discoveryRequests++;
                 const selected = new URL(route.request().url()).searchParams;
+                const saved = selected.get('cached') === '1';
+                if (saved) savedRequests++;
+                else discoveryRequests++;
                 return route.fulfill({
                   json: {
                     trending: [shiur],
@@ -314,8 +397,8 @@ void test('player controls stop playback and the phone dialog stays inside the b
                     total: 30,
                     libraryTotal: 30,
                     partial: false,
-                    stale: discoveryRequests === 1,
-                    refreshing: discoveryRequests === 2,
+                    stale: saved || discoveryRequests === 1,
+                    refreshing: !saved && discoveryRequests === 2,
                     period: selected.get('period'),
                     minutes: Number(selected.get('minutes')),
                     fetchedAt: new Date().toISOString(),
@@ -336,6 +419,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .getByText(shiur.title, { exact: true })
             .waitFor();
           assert.equal(discoveryRequests, 1);
+          assert.equal(savedRequests, 1);
           await page.clock.runFor(30100);
           await page
             .getByText('Updating rankings. Showing the last complete chart.', {
@@ -365,6 +449,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             3,
             'Completed fresh charts must stop polling',
           );
+          assert.equal(savedRequests, 1, 'Polling reuses the displayed chart');
         } finally {
           await context.close();
         }
