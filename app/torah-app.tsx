@@ -1123,113 +1123,115 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   );
   return (
     <SidebarProvider
-      style={{ '--sidebar-width': '232px' } as React.CSSProperties}
+      style={{ '--sidebar-width': '248px' } as React.CSSProperties}
     >
       <a href="#main-content" className="skip-link">
         Skip to content
       </a>
       <Sidebar className="torah-sidebar">
-        <SidebarHeader>
-          <Link
-            prefetch={false}
-            className="brand"
-            href="/"
-            onClick={(e) => {
-              e.preventDefault();
-              navigate('discover');
-            }}
-          >
-            <img
-              src="/images/yutorah-wordmark.png"
-              width={298}
-              height={69}
-              alt="The Marcos and Adina Katz YUTorah Online. A project of Yeshiva University–RIETS."
-            />
-          </Link>
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-            <div className="nav-label">EXPLORE</div>
-            <SidebarMenu>
-              {(
-                [
-                  { icon: Compass, view: 'discover' },
-                  { icon: Flame, view: 'trending' },
-                  { icon: Users, view: 'following' },
-                  { icon: Search, view: 'search' },
-                  { icon: Users, view: 'teachers' },
-                  { icon: BookOpen, view: 'series' },
-                  { icon: LayoutGrid, view: 'topics' },
-                ] as const
-              ).map((item) => (
-                <NavItem
-                  key={item.view}
-                  icon={item.icon}
-                  label={labels[item.view]}
-                  active={view === item.view}
-                  shortcut={item.view === 'search'}
-                  onClick={() => navigate(item.view)}
-                />
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
-          <SidebarGroup>
-            <div className="nav-label">YOUR LEARNING</div>
-            <SidebarMenu>
-              {(
-                [
-                  { icon: Bookmark, view: 'saved' },
-                  { icon: History, view: 'history' },
-                  { icon: Library, view: 'playlists' },
-                ] as const
-              ).map((item) => (
-                <NavItem
-                  key={item.view}
-                  icon={item.icon}
-                  label={labels[item.view]}
-                  active={view === item.view}
-                  count={
-                    item.view === 'saved' ? library.saved.length : undefined
-                  }
-                  onClick={() => navigate(item.view)}
-                />
-              ))}
-              <NavItem
-                icon={ListMusic}
-                label="Listening queue"
-                active={false}
-                count={library.queue.length}
-                onClick={() => setQueueOpen(true)}
-              />
-            </SidebarMenu>
-            <button
-              className="new-playlist-button"
-              onClick={() => {
-                setEditingPlaylist('');
-                setPlaylistTarget(null);
-                setPlaylistName('');
-                setPlaylistDialog(true);
+        <nav aria-label="Primary" className="flex min-h-0 flex-1 flex-col">
+          <SidebarHeader>
+            <Link
+              prefetch={false}
+              className="brand"
+              href="/"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate('discover');
               }}
             >
-              <Plus size={15} /> Create playlist
-            </button>
-          </SidebarGroup>
-        </SidebarContent>
-        <SidebarFooter>
-          <div className="yu-affiliate">
-            YESHIVA UNIVERSITY
-            <br />
-            <span>The Marcos and Adina Katz YUTorah</span>
-          </div>
-          <a
-            href="https://yutorah.org"
-            target="_blank"
-            rel="noreferrer"
-            className="original-link"
-          >
-            YUTorah.org <ArrowUpRight size={14} />
-          </a>
-        </SidebarFooter>
+              <img
+                src="/images/yutorah-wordmark.png"
+                width={298}
+                height={69}
+                alt="The Marcos and Adina Katz YUTorah Online. A project of Yeshiva University–RIETS."
+              />
+            </Link>
+          </SidebarHeader>
+          <SidebarContent>
+            <SidebarGroup>
+              <div className="nav-label">Explore</div>
+              <SidebarMenu>
+                {(
+                  [
+                    { icon: Compass, view: 'discover' },
+                    { icon: Flame, view: 'trending' },
+                    { icon: Users, view: 'following' },
+                    { icon: Search, view: 'search' },
+                    { icon: Users, view: 'teachers' },
+                    { icon: BookOpen, view: 'series' },
+                    { icon: LayoutGrid, view: 'topics' },
+                  ] as const
+                ).map((item) => (
+                  <NavItem
+                    key={item.view}
+                    icon={item.icon}
+                    label={labels[item.view]}
+                    active={view === item.view}
+                    shortcut={item.view === 'search'}
+                    onClick={() => navigate(item.view)}
+                  />
+                ))}
+              </SidebarMenu>
+            </SidebarGroup>
+            <SidebarGroup>
+              <div className="nav-label">Your learning</div>
+              <SidebarMenu>
+                {(
+                  [
+                    { icon: Bookmark, view: 'saved' },
+                    { icon: History, view: 'history' },
+                    { icon: Library, view: 'playlists' },
+                  ] as const
+                ).map((item) => (
+                  <NavItem
+                    key={item.view}
+                    icon={item.icon}
+                    label={labels[item.view]}
+                    active={view === item.view}
+                    count={
+                      item.view === 'saved' ? library.saved.length : undefined
+                    }
+                    onClick={() => navigate(item.view)}
+                  />
+                ))}
+                <NavItem
+                  icon={ListMusic}
+                  label="Listening queue"
+                  active={false}
+                  count={library.queue.length}
+                  onClick={() => setQueueOpen(true)}
+                />
+              </SidebarMenu>
+              <button
+                className="new-playlist-button"
+                onClick={() => {
+                  setEditingPlaylist('');
+                  setPlaylistTarget(null);
+                  setPlaylistName('');
+                  setPlaylistDialog(true);
+                }}
+              >
+                <Plus size={15} /> Create playlist
+              </button>
+            </SidebarGroup>
+          </SidebarContent>
+          <SidebarFooter>
+            <div className="yu-affiliate">
+              YESHIVA UNIVERSITY
+              <br />
+              <span>The Marcos and Adina Katz YUTorah</span>
+            </div>
+            <a
+              href="https://yutorah.org"
+              target="_blank"
+              rel="noreferrer"
+              className="original-link"
+            >
+              YUTorah.org <ArrowUpRight size={14} />
+            </a>
+          </SidebarFooter>
+        </nav>
       </Sidebar>
       <nav className="mobile-nav" aria-label="Main navigation">
         {(
@@ -1289,7 +1291,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               className="header-home"
               onClick={() => navigate('discover')}
             >
-              <span className="desktop-home-label">Your learning</span>
+              <span className="desktop-home-label">YUTorah</span>
               <span className="mobile-home-label">
                 <img
                   src="/images/yutorah-wordmark.png"
@@ -1410,9 +1412,12 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               className={'search-view ' + (results ? 'has-results' : '')}
             >
               <div className="view-heading">
-                <div className="eyebrow">THE YUTORAH LIBRARY</div>
-                <h1>Search the library</h1>
-                <p>Find shiurim by topic, teacher, title or source.</p>
+                <div className="eyebrow">The YUTorah library</div>
+                <h1>What would you like to learn?</h1>
+                <p>
+                  Search {home ? home.total.toLocaleString() + ' ' : ''}
+                  shiurim by topic, teacher, title or source.
+                </p>
               </div>
               {searchBar}
               <SearchOptions
@@ -1897,8 +1902,17 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                   </section>
                 ) : (
                   <div className="search-start">
+                    <img
+                      className="band-art"
+                      src="/images/art/hero-library.webp"
+                      alt=""
+                      width={1600}
+                      height={900}
+                      loading="lazy"
+                      decoding="async"
+                    />
                     <BookOpen size={28} />
-                    <h2>What would you like to learn?</h2>
+                    <h2>Try one of these</h2>
                     <p>
                       Search a subject, a teacher’s full name, or a source. Add
                       “under 20 minutes” to fit your time.
@@ -2016,28 +2030,30 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           </SheetHeader>
           {detail && (
             <div className="detail-body">
-              <div className="detail-topic">
-                {detail.topics.slice(0, 3).join(' · ') || detail.category}
-              </div>
-              <h2 dir="auto">{detail.title}</h2>
-              <button
-                className="detail-teacher"
-                onClick={() => {
-                  setDetail(null);
-                  void runSearch('', {
-                    ...noFilters,
-                    teacher: String(detail.teacherId),
-                  });
-                }}
-              >
-                <Avatar src={detail.image} name={detail.teacher} />
-                <div>
-                  <strong>{detail.teacher}</strong>
-                  <span>
-                    More from this teacher <ArrowRight size={13} />
-                  </span>
+              <div className="detail-hero">
+                <div className="detail-topic">
+                  {detail.topics.slice(0, 3).join(' · ') || detail.category}
                 </div>
-              </button>
+                <h2 dir="auto">{detail.title}</h2>
+                <button
+                  className="detail-teacher"
+                  onClick={() => {
+                    setDetail(null);
+                    void runSearch('', {
+                      ...noFilters,
+                      teacher: String(detail.teacherId),
+                    });
+                  }}
+                >
+                  <Avatar src={detail.image} name={detail.teacher} />
+                  <div>
+                    <strong>{detail.teacher}</strong>
+                    <span>
+                      More from this teacher <ArrowRight size={13} />
+                    </span>
+                  </div>
+                </button>
+              </div>
               <div className="detail-follow-controls">
                 <FollowButton
                   follow={{

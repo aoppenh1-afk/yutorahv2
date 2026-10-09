@@ -201,16 +201,61 @@ export function FilterSelect({
     </Select>
   );
 }
-export function SeriesCover({ name, id }: { name: string; id: number }) {
+export const tone = (id: number) => 'tone-' + (Math.abs(id || 0) % 6);
+export function Artwork({
+  src,
+  name,
+  id,
+  className = '',
+  children,
+}: {
+  src: string;
+  name: string;
+  id: number;
+  className?: string;
+  children?: React.ReactNode;
+}) {
   return (
-    <span className={'series-cover cover-tone-' + (id % 4)} aria-hidden="true">
-      <BookOpen className="mobile-series-symbol" size={23} />
-      <span className="cover-imprint">YUTORAH / SERIES</span>
-      <span className="cover-title" dir="auto">
-        {name}
-      </span>
-      <span className="cover-rule" />
-      <span className="cover-caption">THE YUTORAH LIBRARY</span>
+    <span className={`artwork ${tone(id)} ${className}`}>
+      <Avatar src={src} name={name} className="artwork-portrait" />
+      {children}
+    </span>
+  );
+}
+export function SeriesCover({
+  name,
+  id,
+  image = '',
+}: {
+  name: string;
+  id: number;
+  image?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  // Series without artwork share a 50px RIETS placeholder GIF.
+  const usable = !!image && !failed && !/\.gif$/i.test(image);
+  return (
+    <span
+      className={`series-cover ${tone(id)} ${usable ? 'has-image' : ''}`}
+      aria-hidden="true"
+    >
+      {usable ? (
+        <img
+          src={image}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <>
+          <BookOpen className="cover-symbol" size={20} />
+          <span className="cover-title" dir="auto">
+            {name}
+          </span>
+          <span className="cover-caption">YUTorah series</span>
+        </>
+      )}
     </span>
   );
 }
@@ -235,7 +280,7 @@ export function MobileRecordingCard({
       className={'mobile-recording-card' + (active ? ' is-playing' : '')}
     >
       <button
-        className="recording-portrait"
+        className={'recording-portrait ' + tone(s.teacherId)}
         onClick={() => (kind === 'audio' ? onPlay(s) : onDetails(s))}
         aria-label={
           (kind === 'audio' ? (active ? 'Pause ' : 'Play ') : 'Open ') + s.title
@@ -317,45 +362,11 @@ export function ShiurCard({
       />
     );
   const open = () => (kind === 'audio' ? onPlay(s) : onDetails(s));
+  const subject = s.category || s.topics[0];
   return (
-    <article
-      className={
-        'shiur-card archive-recording-tile ' + (active ? 'is-playing' : '')
-      }
-    >
-      <div className="recording-tile-identity">
-        <Avatar src={s.image} name={s.teacher} />
-        <div>
-          <p>{s.teacher}</p>
-          <span dir="auto">{s.category || s.topics[0] || s.format}</span>
-        </div>
-        <button
-          className="recording-tile-save"
-          aria-label={(saved ? 'Unsave ' : 'Save ') + s.title}
-          aria-pressed={saved}
-          onClick={() => onSave(s)}
-        >
-          <Bookmark size={18} fill={saved ? 'currentColor' : 'none'} />
-        </button>
-      </div>
-      <h3 dir="auto">
-        <button onClick={() => onDetails(s)}>{s.title}</button>
-      </h3>
-      <div className="card-bottom">
-        <span>
-          {kind === 'text' ? (
-            <FileText size={14} />
-          ) : kind === 'video' ? (
-            <Video size={14} />
-          ) : (
-            <Headphones size={14} />
-          )}
-          {s.duration
-            ? Math.round(s.duration / 60) + ' min'
-            : kind === 'text'
-              ? 'Article'
-              : 'Recording'}
-        </span>
+    <article className={'shiur-card' + (active ? ' is-playing' : '')}>
+      <div className="card-media">
+        <Artwork src={s.image} name={s.teacher} id={s.teacherId} />
         <button
           className="card-play"
           aria-label={
@@ -365,22 +376,50 @@ export function ShiurCard({
           onClick={open}
         >
           {kind === 'text' ? (
-            <FileText size={15} />
+            <FileText size={18} />
           ) : active ? (
-            <Pause size={14} fill="currentColor" />
+            <Pause size={18} fill="currentColor" />
           ) : (
-            <Play size={14} fill="currentColor" />
+            <Play size={18} fill="currentColor" />
+          )}
+        </button>
+        <button
+          className="card-save"
+          aria-label={(saved ? 'Unsave ' : 'Save ') + s.title}
+          aria-pressed={saved}
+          onClick={() => onSave(s)}
+        >
+          <Bookmark size={16} fill={saved ? 'currentColor' : 'none'} />
+        </button>
+      </div>
+      <div className="card-copy">
+        <h3 dir="auto">
+          <button onClick={() => onDetails(s)}>{s.title}</button>
+        </h3>
+        <p>{s.teacher}</p>
+        <p className="card-meta">
+          {active ? (
+            <span className="eq" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          ) : kind === 'text' ? (
+            <FileText size={13} />
+          ) : kind === 'video' ? (
+            <Video size={13} />
+          ) : (
+            <Headphones size={13} />
           )}
           <span>
-            {kind === 'text'
-              ? 'Read'
-              : kind === 'video'
-                ? 'Watch'
-                : active
-                  ? 'Pause'
-                  : 'Play'}
+            {s.duration
+              ? Math.round(s.duration / 60) + ' min'
+              : kind === 'text'
+                ? 'Article'
+                : 'Recording'}
           </span>
-        </button>
+          {subject && <span dir="auto">{subject}</span>}
+        </p>
       </div>
     </article>
   );
@@ -435,28 +474,40 @@ export function ShiurRow({
       />
     );
   return (
-    <article className="shiur-row">
+    <article className={'shiur-row' + (active ? ' is-playing' : '')}>
       <button
-        className="row-cover"
+        className={'row-cover ' + tone(s.teacherId)}
         onClick={() => (kind === 'audio' ? onPlay(s) : onDetails(s))}
         aria-label={(kind === 'audio' ? 'Play ' : 'Open ') + s.title}
       >
         <Avatar src={s.image} name={s.teacher} />
         <span>
-          <Play size={18} fill="currentColor" />
+          {active ? (
+            <span className="eq" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          ) : kind === 'text' ? (
+            <FileText size={18} />
+          ) : (
+            <Play size={18} fill="currentColor" />
+          )}
         </span>
       </button>
       <div className="row-content">
         <div className="row-meta">
           {learned && <span className="learned-label">Learned</span>}
-          {s.topics.slice(0, 2).join(' · ') || s.category}
-          {s.series && <span> · {s.series}</span>}
+          <span dir="auto">
+            {s.topics.slice(0, 2).join(' · ') || s.category}
+          </span>
+          {s.series && <span dir="auto">{s.series}</span>}
         </div>
         <h3 dir="auto">
           <button onClick={() => onDetails(s)}>{s.title}</button>
         </h3>
-        <p>
-          {s.teacher}
+        <p className="row-byline">
+          <strong>{s.teacher}</strong>
           <span> · </span>
           {s.duration ? `${Math.round(s.duration / 60)} min` : kind}
           <span> · </span>
@@ -519,10 +570,15 @@ export function ShiurRow({
         <button
           className="row-play"
           onClick={() => (kind === 'audio' ? onPlay(s) : onDetails(s))}
-          aria-label={(kind === 'audio' ? 'Play ' : 'Read ') + s.title}
+          aria-label={
+            (kind === 'audio' ? (active ? 'Pause ' : 'Play ') : 'Read ') +
+            s.title
+          }
         >
           {kind === 'text' ? (
             <FileText size={17} />
+          ) : active ? (
+            <Pause size={16} fill="currentColor" />
           ) : (
             <Play size={16} fill="currentColor" />
           )}
@@ -568,10 +624,13 @@ export function Player({
       ) : (
         p.active && (
           <section
-            className={'player ' + (expanded ? 'player-expanded' : '')}
+            className={
+              'player ' +
+              (expanded ? 'player-expanded ' : '') +
+              (p.playing ? 'is-playing' : '')
+            }
             aria-label="Audio player"
           >
-            <span className="player-eyebrow">NOW PLAYING</span>
             <button
               className="player-expand icon-button"
               aria-label={
@@ -584,7 +643,7 @@ export function Player({
             </button>
             <div className="player-track">
               <button
-                className="player-art"
+                className={'player-art ' + tone(p.active.teacherId)}
                 onClick={() => onDetails(p.active!)}
                 aria-label="Open playing shiur"
               >
@@ -654,17 +713,6 @@ export function Player({
                   aria-label="Play next in queue"
                 >
                   <SkipForward size={18} />
-                </button>
-                <button
-                  className="icon-button player-close"
-                  aria-label="Close player"
-                  title="Close player and stop playback"
-                  onClick={() => {
-                    setExpanded(false);
-                    p.stop();
-                  }}
-                >
-                  <X size={20} />
                 </button>
               </div>
               <div className="player-progress">
@@ -737,6 +785,17 @@ export function Player({
                 {library.queue.length > 0 && (
                   <span>{library.queue.length}</span>
                 )}
+              </button>
+              <button
+                className="icon-button player-close"
+                aria-label="Close player"
+                title="Close player and stop playback"
+                onClick={() => {
+                  setExpanded(false);
+                  p.stop();
+                }}
+              >
+                <X size={19} />
               </button>
             </div>
             {p.error && (
@@ -932,7 +991,10 @@ function MobileAudioPlayer({
   };
   return (
     <>
-      <section className="mobile-miniplayer player" aria-label="Audio player">
+      <section
+        className={'mobile-miniplayer player' + (p.playing ? ' is-playing' : '')}
+        aria-label="Audio player"
+      >
         <button
           className="mobile-miniplayer-open"
           onClick={() => setExpanded(true)}
