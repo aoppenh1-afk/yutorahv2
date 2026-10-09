@@ -3,7 +3,7 @@ import test from 'node:test';
 import { build } from 'esbuild';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, cp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, cp, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -37,10 +37,32 @@ void test('a newly built high-thinking package accepts VM preparation and runs i
     bundle,
   ]);
   assert.equal(await readFile(bundle, 'utf8'), prepared);
+  // An installed six-lane bundle upgrades through the same preparation path.
+  await writeFile(
+    bundle,
+    prepared
+      .replace(
+        'integer("--concurrency", 6, 1, 10)',
+        'integer("--concurrency", 6, 1, 6)',
+      )
+      .replace(
+        'Continue with up to ten high-thinking agents',
+        'Continue with six high-thinking agents',
+      )
+      .replace(
+        '--concurrency 1..10            ',
+        '--concurrency 1..6             ',
+      ),
+  );
+  await execFile(process.execPath, [
+    'deploy/notes-only/prepare-runtime.mjs',
+    bundle,
+  ]);
+  assert.equal(await readFile(bundle, 'utf8'), prepared);
   assert.match(prepared, /await select\("effort", "high"\)/);
   assert.match(prepared, /VM concurrent notes support v2/);
   const help = await execFile(process.execPath, [bundle, 'help']);
-  assert.match(help.stdout, /--concurrency 1\.\.6/);
+  assert.match(help.stdout, /--concurrency 1\.\.10/);
   const state = join(root, 'state');
   await execFile(process.execPath, [
     bundle,

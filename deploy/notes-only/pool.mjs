@@ -30,8 +30,8 @@ export async function runNotesPool({
   sleep = (ms, signal) => delay(ms, undefined, { signal }),
   secrets = [],
 }) {
-  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 6)
-    throw new Error('Concurrency must be between 1 and 6.');
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 10)
+    throw new Error('Concurrency must be between 1 and 10.');
   const active = new Map();
   let processed = 0;
   let retried = 0;
@@ -81,7 +81,7 @@ export async function runNotesPool({
       active: active.size,
     });
     if (!signal.aborted) {
-      // A shared cooldown prevents six lanes from hammering an exhausted provider.
+      // A shared cooldown prevents all lanes from hammering an exhausted provider.
       const status = Number(
         error.status ?? error.statusCode ?? error.response?.status,
       );

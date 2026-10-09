@@ -11,7 +11,7 @@ fallback. Database/provider errors retain retryable work and back off. The TiDB
 Starter spending limit remains the handoff's $0 limit; this installation makes
 no billing or capacity changes.
 
-The worker runs up to **six Muse Spark agents at once**, with one complete
+The worker runs up to **ten Muse Spark agents at once**, with one complete
 transcript per job. Before every generation or repair request, ACP explicitly
 sets and confirms the free model, plan mode, and **high** thinking. It stops that
 request if any selection is unavailable or unconfirmed. Free slots refill
@@ -99,10 +99,11 @@ lock. The supplied bundle SHA-256 is
 `eae8478d6d46dab7319b50c5f9ab00f67e50518f9ec3c50281062fd2a63e04e3`.
 
 The supervisor discovers up to 20 pages while the worker is stopped, then runs
-`run --all --follow --concurrency 6 --max-runtime-ms 1800000`. The runtime limit
+`run --all --follow --concurrency 10 --max-runtime-ms 1800000`. The runtime limit
 stops admitting jobs, drains active jobs, and bounds idle/backoff waits, so another
 discovery batch can run. Bounded pilots reserve slots against `--limit`, avoiding
-extra jobs beyond that limit. `--concurrency` accepts 1 through 6 and defaults to 6.
+extra jobs beyond that limit. `--concurrency` accepts 1 through 10 and defaults to 6;
+the installed supervisor explicitly selects 10.
 Each completed cycle verifies the second local backup, then waits 30 seconds.
 Cron checks for a stopped supervisor every minute, starts it when cron starts
 via `@reboot`, and runs an extra backup hourly at minute 15. Existing crontab

@@ -99,7 +99,7 @@ if (!source.includes(poolMarker)) {
       queue,
       processJob: (job) => createPipeline().process(job),
       signal: controller,
-      concurrency: integer("--concurrency", 6, 1, 6),
+      concurrency: integer("--concurrency", 6, 1, 10),
       limit,
       follow: args.includes("--follow"),
       runUntil: args.includes("--max-runtime-ms")
@@ -112,10 +112,24 @@ if (!source.includes(poolMarker)) {
     source.slice(end);
   replace(
     '  run --all --follow            Continue the queue, wait for quota resets',
-    '  run --all --follow            Continue with six high-thinking agents\n  --concurrency 1..6             Each agent gets one transcript; refill free slots',
+    '  run --all --follow            Continue with up to ten high-thinking agents\n  --concurrency 1..10            Each agent gets one transcript; refill free slots',
   );
   source = 'import { runNotesPool } from "../pool.mjs";\n' + source;
 }
+// Upgrade the concurrency ceiling in packages already prepared for six lanes.
+source = source
+  .replace(
+    'integer("--concurrency", 6, 1, 6)',
+    'integer("--concurrency", 6, 1, 10)',
+  )
+  .replace(
+    'Continue with six high-thinking agents',
+    'Continue with up to ten high-thinking agents',
+  )
+  .replace(
+    '--concurrency 1..6             ',
+    '--concurrency 1..10            ',
+  );
 const catalogImport = 'import { vmCatalogText } from "../catalog-fetch.mjs";';
 if (!source.includes(catalogImport)) {
   const original =

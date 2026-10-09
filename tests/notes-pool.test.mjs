@@ -46,27 +46,33 @@ async function until(check) {
   assert.fail('Pool did not reach the expected state.');
 }
 
-void test('six distinct transcripts run concurrently and a freed slot refills immediately', async () => {
-  const f = fixture();
-  const gates = new Map();
-  const run = runNotesPool({
-    ...f,
-    processJob: (job) => new Promise((resolve) => gates.set(job.id, resolve)),
+for (const concurrency of [6, 10])
+  void test(`${concurrency} distinct transcripts run concurrently and a freed slot refills immediately`, async () => {
+    const count = concurrency + 6;
+    const f = fixture(count);
+    const gates = new Map();
+    const run = runNotesPool({
+      ...f,
+      concurrency,
+      processJob: (job) => new Promise((resolve) => gates.set(job.id, resolve)),
+    });
+    await until(() => gates.size === concurrency);
+    assert.deepEqual(
+      f.claims,
+      Array.from({ length: concurrency }, (_, i) => String(i + 1)),
+    );
+    gates.get('3')('completed');
+    await until(() => gates.has(String(concurrency + 1)));
+    assert.ok(!gates.has(String(concurrency + 2)));
+    // The other original jobs stay active while the freed slot refills.
+    while (f.events.filter((e) => e.status === 'completed').length < count) {
+      for (const resolve of gates.values()) resolve('completed');
+      await nextTurn();
+    }
+    assert.deepEqual(await run, { processed: count, failed: false });
+    assert.equal(new Set(f.claims).size, count);
+    assert.equal(Math.max(...f.events.map((e) => e.active)), concurrency);
   });
-  await until(() => gates.size === 6);
-  assert.deepEqual(f.claims, ['1', '2', '3', '4', '5', '6']);
-  gates.get('3')('completed');
-  await until(() => gates.has('7'));
-  assert.ok(!gates.has('8'));
-  // Jobs 1, 2, 4, 5, 6 are still active when job 7 starts.
-  while (f.events.filter((e) => e.status === 'completed').length < 12) {
-    for (const resolve of gates.values()) resolve('completed');
-    await nextTurn();
-  }
-  assert.deepEqual(await run, { processed: 12, failed: false });
-  assert.equal(new Set(f.claims).size, 12);
-  assert.equal(Math.max(...f.events.map((e) => e.active)), 6);
-});
 
 void test('bounded pilots never claim more jobs than their limit', async () => {
   const f = fixture();
@@ -78,8 +84,8 @@ void test('bounded pilots never claim more jobs than their limit', async () => {
   assert.equal(result.processed, 2);
   assert.equal(f.claims.length, 2);
   await assert.rejects(
-    runNotesPool({ ...f, concurrency: 7 }),
-    /between 1 and 6/,
+    runNotesPool({ ...f, concurrency: 11 }),
+    /between 1 and 10/,
   );
 });
 
@@ -295,16 +301,25 @@ void test('error messages are bounded, single-line, and redact credentials befor
 void test('the scheduling deadline stops new claims and drains in-flight jobs', async () => {
   const f = fixture();
   let clock = 0;
-  const result = await runNotesPool({
+  const gates = new Map();
+  let finished = false;
+  const run = runNotesPool({
     ...f,
-    concurrency: 1,
+    concurrency: 10,
     runUntil: 100,
     now: () => clock,
-    processJob: async () => {
-      clock = 101;
-      return 'completed';
-    },
+    processJob: (job) => new Promise((resolve) => gates.set(job.id, resolve)),
+  }).then((result) => {
+    finished = true;
+    return result;
   });
-  assert.deepEqual(result, { processed: 1, failed: false });
-  assert.equal(f.claims.length, 1);
+  await until(() => gates.size === 10);
+  clock = 101;
+  gates.get('1')('completed');
+  await until(() => f.events.some((event) => event.status === 'completed'));
+  assert.equal(finished, false);
+  assert.equal(f.claims.length, 10);
+  for (const resolve of gates.values()) resolve('completed');
+  assert.deepEqual(await run, { processed: 10, failed: false });
+  assert.equal(f.claims.length, 10);
 });
