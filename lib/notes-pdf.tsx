@@ -65,8 +65,8 @@ export async function createNotesPdf(markdown: string): Promise<Blob> {
                 fontWeight: block.heading ? 700 : 400,
                 marginTop: block.heading ? 12 : 0,
                 marginBottom: 8,
-                // Match the preview's LTR outline while the text renderer
-                // handles the reading order of Hebrew within each paragraph.
+                // Shared directional marks keep source labels and Hebrew
+                // explanations in the same LTR outline as the viewer.
                 textAlign: 'left',
                 direction: 'ltr',
                 marginLeft: (block.indent ?? 0) * 14,

@@ -4,9 +4,110 @@ import JSZip from 'jszip';
 import { Font } from '@react-pdf/renderer';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { fileURLToPath } from 'node:url';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import Markdown from 'react-markdown';
 import { createNotesDocx } from '../lib/notes-docx';
 import { createNotesPdf } from '../lib/notes-pdf';
 import { notesBlocks } from '../lib/notes-document';
+import {
+  remarkNotesDirection,
+  stripNotesDirectionControls,
+} from '../lib/notes-direction';
+
+const directionExamples = [
+  [
+    '**גמ׳:** שמע מינה מצטמק ויפה לו מותר.',
+    '\u200eגמ׳\u200e: \u200e\u200fשמע מינה מצטמק ויפה לו מותר.\u200f\u200e',
+  ],
+  [
+    '**רב יצחק בר נחמני אמר רב אושעיא:** קטמה והובערה, משהין עליה חמין שהוחמו כל צרכן',
+    '\u200eרב יצחק בר נחמני אמר רב אושעיא\u200e: \u200eקטמה והובערה, משהין עליה חמין שהוחמו כל צרכן\u200e',
+  ],
+  [
+    '**גמ׳ (שבת דף ל״ז:-ל״ח.)**',
+    '\u200e\u200fגמ׳ (שבת דף ל״ז:-ל״ח.)\u200f\u200e',
+  ],
+  ['**משנה (דף ל״ו:)**', '\u200e\u200fמשנה (דף ל״ו:)\u200f\u200e'],
+  [
+    '**חנניה:** נותנים means חזרה',
+    '\u200eחנניה\u200e: \u200eנותנים\u200e means \u200eחזרה\u200e',
+  ],
+  ['אין **טומנין** on שבת', '\u200eאין טומנין\u200e on \u200eשבת\u200e'],
+  [
+    'On שבת (שלא יוסיף הבל בשבת)',
+    'On \u200eשבת\u200e \u200e\u200f(שלא יוסיף הבל בשבת)\u200f\u200e',
+  ],
+  [
+    'See גמ׳ דף לו: and compare דף לז.',
+    'See \u200e\u200fגמ׳ דף לו:\u200f\u200e and compare \u200e\u200fדף לז.\u200f\u200e',
+  ],
+  ['English with **bold** and *italic*.', 'English with bold and italic.'],
+] as const;
+
+void test('viewer and export keep Lectern source labels before Hebrew explanations and retain whole Hebrew phrases', () => {
+  for (const [source, expected] of directionExamples) {
+    const exported = notesBlocks(source)[0]
+      .runs.map((run) => run.text)
+      .join('');
+    assert.equal(exported, expected, source);
+    const html = renderToStaticMarkup(
+      createElement(
+        Markdown,
+        { remarkPlugins: [remarkNotesDirection] },
+        stripNotesDirectionControls(source),
+      ),
+    );
+    assert.equal(
+      html.replace(/<[^>]*>/gu, '').replace(/&quot;/gu, '"'),
+      expected,
+      source,
+    );
+    const original = renderToStaticMarkup(createElement(Markdown, {}, source));
+    assert.equal(
+      stripNotesDirectionControls(html),
+      original,
+      'Direction formatting preserves text, emphasis, and markup',
+    );
+  }
+});
+
+void test('pasted direction controls are rebuilt without disturbing headings, lists, links, or hard breaks', () => {
+  const source =
+    '\u200f# \u202bשבת\u202c\n\n\u200e- **\u2067גמ׳\u2069:** שמע מינה  \n  תורה\n  - [רש״י](https://www.sefaria.org) on שבת\n';
+  const clean = stripNotesDirectionControls(source);
+  assert.deepEqual(notesBlocks(source), notesBlocks(clean));
+  const blocks = notesBlocks(source);
+  assert.equal(blocks[0].heading, 1);
+  assert.equal(blocks[1].indent, 1);
+  assert.equal(blocks[2].indent, 2);
+  assert.equal(
+    blocks[2].runs.find((run) => run.url)?.url,
+    'https://www.sefaria.org',
+  );
+  assert.ok(blocks[1].runs.some((run) => run.text.includes('\n')));
+  const html = renderToStaticMarkup(
+    createElement(Markdown, { remarkPlugins: [remarkNotesDirection] }, clean),
+  );
+  assert.match(html, /<h1>/u);
+  assert.match(html, /<br\/>/u);
+  assert.match(html, /href="https:\/\/www.sefaria.org"/u);
+  assert.match(html, /\u200eגמ׳\u200e:/u);
+  const hardBreak = '**גמ׳:** שמע מינה  \nתורה';
+  const hardBreakHtml = renderToStaticMarkup(
+    createElement(
+      Markdown,
+      { remarkPlugins: [remarkNotesDirection] },
+      hardBreak,
+    ),
+  );
+  assert.equal(
+    hardBreakHtml.replace(/<br\/>\n?/gu, '\n').replace(/<[^>]*>/gu, ''),
+    notesBlocks(hardBreak)[0]
+      .runs.map((run) => run.text)
+      .join(''),
+  );
+});
 
 const markdown = `# Notes
 
@@ -77,6 +178,8 @@ const mixedNotes = `# Notes
 - **לפי תוס׳:** returning before Shabbat is discussed here.
 
 English with תורה and learning.
+
+- **גמ׳:** שמע מינה מצטמק ויפה לו מותר.
 `;
 
 void test('Word paragraphs keep the preview’s left-to-right layout when an English explanation starts in Hebrew', async () => {
@@ -84,15 +187,20 @@ void test('Word paragraphs keep the preview’s left-to-right layout when an Eng
   const zip = await JSZip.loadAsync(await blob.arrayBuffer());
   const xml = await zip.file('word/document.xml')!.async('string');
   const paragraphs = xml.match(/<w:p>.*?<\/w:p>/g)!;
-  assert.equal(paragraphs.length, 4);
+  assert.equal(paragraphs.length, 5);
   for (const paragraph of paragraphs) {
     assert.match(paragraph, /<w:bidi w:val="false"\/>/);
     assert.match(paragraph, /<w:jc w:val="left"\/>/);
     assert.doesNotMatch(paragraph, /<w:rtl\/>/);
   }
+  assert.match(paragraphs[4], /<w:b\/>.*?\u200eגמ׳\u200e:/u);
+  assert.match(
+    paragraphs[4],
+    /\u200e\u200fשמע מינה מצטמק ויפה לו מותר\.\u200f\u200e/u,
+  );
 });
 
-void test('PDF keeps Hebrew-led English explanations on the left with Hebrew before the explanation', async () => {
+void test('PDF keeps bold Hebrew source labels on the left before Hebrew or English explanations', async () => {
   // Pre-register local copies so the real browser exporter also runs in Node.
   for (const [family, name] of [
     ['Notes', 'NotoSansHebrew'],
@@ -152,6 +260,20 @@ void test('PDF keeps Hebrew-led English explanations on the left with Hebrew bef
       'Bold Hebrew label stays to the left of its explanation',
     );
     assert.equal(label.transform[5], explanation.transform[5]);
+    const gemara = items.find((item) => item.str.includes('גמ׳'))!;
+    const hebrewExplanation = items.find((item) => item.str.includes('שמע'))!;
+    assert.ok(gemara, 'Bold Gemara label survives the export');
+    assert.ok(hebrewExplanation, 'Hebrew explanation survives the export');
+    assert.ok(
+      gemara.transform[4] < hebrewExplanation.transform[4],
+      'Bold Gemara label stays on the left before a Hebrew explanation',
+    );
+    assert.equal(gemara.transform[5], hebrewExplanation.transform[5]);
+    assert.notEqual(
+      gemara.fontName,
+      hebrewExplanation.fontName,
+      'Only the source label uses the bold font',
+    );
   } finally {
     await loading.destroy();
   }

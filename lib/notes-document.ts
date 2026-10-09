@@ -1,6 +1,10 @@
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import type { Root, RootContent, PhrasingContent } from 'mdast';
+import {
+  directionalNotesRuns,
+  stripNotesDirectionControls,
+} from './notes-direction';
 
 export type NotesRun = {
   text: string;
@@ -58,7 +62,9 @@ function safeLink(url: string) {
 }
 
 export function notesBlocks(markdown: string): NotesBlock[] {
-  const root = unified().use(remarkParse).parse(markdown) as Root;
+  const root = unified()
+    .use(remarkParse)
+    .parse(stripNotesDirectionControls(markdown)) as Root;
   const blocks: NotesBlock[] = [];
   const links = new Map(
     root.children.flatMap((node) =>
@@ -71,7 +77,7 @@ export function notesBlocks(markdown: string): NotesBlock[] {
     for (const node of nodes) {
       if (node.type === 'heading' || node.type === 'paragraph') {
         blocks.push({
-          runs: inline(node.children, {}, links),
+          runs: directionalNotesRuns(inline(node.children, {}, links)),
           indent,
           ...(node.type === 'heading' ? { heading: node.depth } : {}),
         });

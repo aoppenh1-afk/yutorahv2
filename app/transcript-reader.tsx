@@ -20,6 +20,10 @@ import { timeLabel } from '@/lib/library';
 import type { ContentStatus } from '../packages/transcription/src/public-content';
 import { indexSourceHighlights } from '@/lib/source-highlights';
 import { useTranscriptSources } from '@/hooks/use-transcript-sources';
+import {
+  remarkNotesDirection,
+  stripNotesDirectionControls,
+} from '@/lib/notes-direction';
 
 type Content = {
   id: string;
@@ -258,7 +262,7 @@ export function TranscriptReader({
     };
   }, [shiurId, retry]);
   const notesContent = displayedNotes?.markdown ? (
-    <div className="study-markdown" dir="auto">
+    <div className="study-markdown" dir="ltr">
       <p className="study-note-label">
         Automatically generated from this shiur’s transcript.
       </p>
@@ -272,6 +276,7 @@ export function TranscriptReader({
       <ScreenBoundary>
         <Markdown
           skipHtml
+          remarkPlugins={[remarkNotesDirection]}
           allowedElements={[
             'h1',
             'h2',
@@ -294,7 +299,7 @@ export function TranscriptReader({
             ),
           }}
         >
-          {displayedNotes.markdown}
+          {stripNotesDirectionControls(displayedNotes.markdown)}
         </Markdown>
       </ScreenBoundary>
     </div>

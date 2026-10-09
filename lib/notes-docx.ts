@@ -42,8 +42,8 @@ export async function createNotesDocx(markdown: string): Promise<Blob> {
         ...runs,
       ],
       heading: block.heading ? headings[block.heading - 1] : undefined,
-      // The preview inherits LTR from its English notes label. A leading
-      // Hebrew term must not reverse the paragraph or its English runs.
+      // Keep the viewer's LTR outline. The shared directional marks separate
+      // source labels from explanations while retaining Hebrew phrase order.
       bidirectional: false,
       alignment: AlignmentType.LEFT,
       indent: { left: (block.indent ?? 0) * 360 },
