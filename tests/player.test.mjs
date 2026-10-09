@@ -1364,10 +1364,18 @@ void test('player controls stop playback and the phone dialog stays inside the b
     );
     for (const width of [320, 390, 667]) {
       await t.test(
-        `phone details sheet fills and centers in ${width}px`,
+        `phone details sheet fills, centers, and scrolls in ${width}px`,
         async () => {
           const viewport = { width, height: 844 };
-          const { context, page } = await openPlayer(viewport);
+          const description =
+            'A longer shiur description for scrolling. '.repeat(40);
+          const { context, page } = await openPlayer(viewport, false, {
+            onPage: async (_page, context) => {
+              await context.route('**/api/shiur?id=900001', (route) =>
+                route.fulfill({ json: { ...shiur, description } }),
+              );
+            },
+          });
           try {
             await page
               .getByRole('button', { name: 'Expand player controls' })
@@ -1380,6 +1388,9 @@ void test('player controls stop playback and the phone dialog stays inside the b
               exact: true,
             });
             await sheet.waitFor();
+            await sheet
+              .getByText(description, { exact: true })
+              .waitFor({ state: 'attached' });
             await page.waitForFunction(() => {
               const panel = document.querySelector('.detail-sheet');
               return (
@@ -1396,6 +1407,30 @@ void test('player controls stop playback and the phone dialog stays inside the b
             assert.ok(
               Math.abs(rect.x + rect.width / 2 - width / 2) <= 1,
               JSON.stringify(rect),
+            );
+            assert.ok(
+              await sheet.evaluate(
+                (panel) => panel.scrollHeight > panel.clientHeight,
+              ),
+              'details include content below the phone viewport',
+            );
+            await sheet.hover();
+            await page.mouse.wheel(0, 500);
+            await page.waitForFunction(
+              () => document.querySelector('.detail-sheet')?.scrollTop > 0,
+              undefined,
+              { timeout: 2000 },
+            );
+            await page.mouse.wheel(0, 10000);
+            await page.waitForFunction(() => {
+              const panel = document.querySelector('.detail-sheet');
+              return (
+                panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1
+              );
+            });
+            await assertInViewport(
+              sheet.locator('.original-shiur-link'),
+              viewport,
             );
           } finally {
             await context.close();
