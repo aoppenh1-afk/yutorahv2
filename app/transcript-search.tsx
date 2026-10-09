@@ -74,13 +74,10 @@ export function TranscriptSearch({
       aria-label="Search inside shiur audio"
     >
       <div className="transcript-search-heading">
-        <div>
-          <h2>Inside the shiurim</h2>
-          <p>
-            Find spoken words in completed transcripts and jump to that point in
-            the audio.
-          </p>
-        </div>
+        <p>
+          Find the moment a word or phrase is spoken, then jump straight to it
+          in the audio.
+        </p>
         <label>
           Match
           <select
@@ -97,7 +94,7 @@ export function TranscriptSearch({
       </div>
       {!query.trim() ? (
         <p className="transcript-search-state">
-          Search above for a word or phrase spoken in a shiur.
+          Type a word or phrase above and press Enter.
         </p>
       ) : loading ? (
         <p className="transcript-search-state">

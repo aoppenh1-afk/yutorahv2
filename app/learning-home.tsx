@@ -60,7 +60,6 @@ import {
   learningStats,
   recommend,
   mergeShiurim,
-  relatedShiurim,
   type Follow,
 } from '@/lib/learning';
 
@@ -140,8 +139,6 @@ export function LearningHome(props: Props) {
   const [discoveryError, setDiscoveryError] = useState(false);
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
   const [relatedItems, setRelatedItems] = useState<Shiur[]>([]);
-  const [relatedLoading, setRelatedLoading] = useState(false);
-  const [relatedError, setRelatedError] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [discoveryPass, setDiscoveryPass] = useState(0);
   const [discoveryRetry, setDiscoveryRetry] = useState(0);
@@ -178,8 +175,7 @@ export function LearningHome(props: Props) {
       window.removeEventListener('scroll', want);
     };
   }, [trendingWanted, tab, followingPage, trendingPage, isMobile]);
-  const anchor = library.history[0]?.shiur || library.saved[0];
-  const anchorId = anchor?.id;
+  const anchorId = (library.history[0]?.shiur || library.saved[0])?.id;
 
   const sources = useMemo(() => {
     const chosen = [...library.following];
@@ -300,25 +296,15 @@ export function LearningHome(props: Props) {
 
   useEffect(() => {
     setRelatedItems([]);
-    setRelatedError(false);
     if (!anchorId) return;
     const abort = new AbortController();
-    setRelatedLoading(true);
     fetch('/api/related?id=' + anchorId, { signal: abort.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error('Related learning unavailable');
-        const data = (await res.json()) as { items: Shiur[]; partial: boolean };
-        if (!abort.signal.aborted) {
-          setRelatedItems(data.items);
-          setRelatedError(data.partial);
-        }
+        const data = (await res.json()) as { items: Shiur[] };
+        if (!abort.signal.aborted) setRelatedItems(data.items);
       })
-      .catch(() => {
-        if (!abort.signal.aborted) setRelatedError(true);
-      })
-      .finally(() => {
-        if (!abort.signal.aborted) setRelatedLoading(false);
-      });
+      .catch(() => {});
     return () => abort.abort();
   }, [anchorId, refresh]);
 
@@ -365,13 +351,6 @@ export function LearningHome(props: Props) {
     (h) => h.seconds > 0 && !isLearned(h.shiur, library),
   );
   const stats = learningStats(library.learningDays);
-  const followups = useMemo(
-    () =>
-      anchor
-        ? relatedShiurim(anchor, [...relatedItems, ...allItems], library)
-        : [],
-    [anchor, relatedItems, allItems, library],
-  );
   const teachers = (directory?.teachers || []).slice(0, 7);
   const suggestedTopics = [
     ...new Map(
@@ -431,8 +410,8 @@ export function LearningHome(props: Props) {
       )}
     </div>
   );
-  const cards = (entries: typeof ranked, count = limit) => (
-    <div className="discovery-card-grid">
+  const cards = (entries: typeof ranked, count = limit, row = false) => (
+    <div className={'discovery-card-grid' + (row ? ' is-row' : '')}>
       {entries.slice(0, count).map(({ shiur: s }) => (
         <div className="recommendation-item" key={s.id}>
           <ShiurCard
@@ -1127,13 +1106,11 @@ export function LearningHome(props: Props) {
                 </StatePanel>
               ) : items.length ? (
                 <>
-                  {cards(items, isHome ? Math.min(limit, 8) : limit)}
-                  {items.length > (isHome ? Math.min(limit, 8) : limit) && (
+                  {isHome ? cards(items, 5, true) : cards(items)}
+                  {!isHome && items.length > limit && (
                     <button
                       className="outline-button discovery-more"
-                      onClick={() =>
-                        isHome ? setTab('latest') : setLimit((n) => n + 8)
-                      }
+                      onClick={() => setLimit((n) => n + 8)}
                     >
                       More to discover
                       <ArrowRight size={15} />
@@ -1156,6 +1133,53 @@ export function LearningHome(props: Props) {
                 )
               )}
             </section>
+          )}
+          {isHome && (
+                <section
+                  className="discovery-section trending-section"
+                  ref={trendingSection}
+                >
+                  {sectionHeading(
+                    'Trending this week',
+                    'The most viewed new shiurim in the library.',
+                    () => onNavigate('trending'),
+                    'Full chart',
+                  )}
+                  {(discoveryLoading || !trendingWanted) && !discovery ? (
+                    <div className="trending-skeleton" aria-hidden="true">
+                      {Array.from({ length: 6 }, (_, i) => (
+                        <span key={i} />
+                      ))}
+                    </div>
+                  ) : discoveryError && !discovery ? (
+                    <p className="discovery-muted">
+                      Popularity data couldn&apos;t load.{' '}
+                      <button className="text-button" onClick={refreshAll}>
+                        Try again
+                      </button>
+                    </p>
+                  ) : (
+                    trendingList(6)
+                  )}
+                  {discovery && (
+                    <p className="trending-source">
+                      <Eye size={12} />
+                      {discovery.partial ? (
+                        `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
+                      ) : (
+                        <>
+                          Most viewed among {discovery.total.toLocaleString()}{' '}
+                          matching shiurim
+                          {discovery.period === 'all'
+                            ? ' across the library'
+                            : ' in this date range'}
+                          , using YUTorah&apos;s upload date.
+                        </>
+                      )}
+                      {discovery.stale && ' Showing cached results.'}
+                    </p>
+                  )}
+                </section>
           )}
           {isHome && (
             <>
@@ -1190,91 +1214,6 @@ export function LearningHome(props: Props) {
                     </button>
                   ))}
                 </div>
-              </section>
-              {anchor && (
-                <section className="discovery-section based-on-section">
-                  {sectionHeading(
-                    'Keep the learning going',
-                    `Because you listened to “${anchor.title}”`,
-                    () => onDetails(anchor),
-                    'View shiur',
-                  )}
-                  {relatedLoading && !followups.length ? (
-                    <output className="feed-loading">
-                      <Loader2 size={14} className="spin" />
-                      Finding related series, topics, and teachers…
-                    </output>
-                  ) : followups.length ? (
-                    cards(followups, 4)
-                  ) : (
-                    <p className="discovery-muted">
-                      No related shiurim are available in this selection yet.{' '}
-                      <button
-                        className="text-button"
-                        onClick={() =>
-                          onSearch('', {
-                            ...noFilters,
-                            teacher: String(anchor.teacherId),
-                          })
-                        }
-                      >
-                        Explore this teacher
-                        <ArrowRight size={14} />
-                      </button>
-                    </p>
-                  )}
-                  {relatedError && (
-                    <p className="feed-notice">
-                      Some related learning could not load.{' '}
-                      <button onClick={refreshAll}>Try again</button>
-                    </p>
-                  )}
-                </section>
-              )}
-              <section
-                className="discovery-section trending-section"
-                ref={trendingSection}
-              >
-                {sectionHeading(
-                  'Trending this week',
-                  'The most viewed new shiurim in the library.',
-                  () => onNavigate('trending'),
-                  'Full chart',
-                )}
-                {(discoveryLoading || !trendingWanted) && !discovery ? (
-                  <div className="trending-skeleton" aria-hidden="true">
-                    {Array.from({ length: 6 }, (_, i) => (
-                      <span key={i} />
-                    ))}
-                  </div>
-                ) : discoveryError && !discovery ? (
-                  <p className="discovery-muted">
-                    Popularity data couldn&apos;t load.{' '}
-                    <button className="text-button" onClick={refreshAll}>
-                      Try again
-                    </button>
-                  </p>
-                ) : (
-                  trendingList(6)
-                )}
-                {discovery && (
-                  <p className="trending-source">
-                    <Eye size={12} />
-                    {discovery.partial ? (
-                      `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
-                    ) : (
-                      <>
-                        Most viewed among {discovery.total.toLocaleString()}{' '}
-                        matching shiurim
-                        {discovery.period === 'all'
-                          ? ' across the library'
-                          : ' in this date range'}
-                        , using YUTorah&apos;s upload date.
-                      </>
-                    )}
-                    {discovery.stale && ' Showing cached results.'}
-                  </p>
-                )}
               </section>
               {teachers.length > 0 && (
                 <section className="discovery-section teacher-shelf-section">

@@ -70,6 +70,11 @@ export function Avatar({
 }) {
   return <Portrait key={src} src={src} name={name} className={className} />;
 }
+// Square crops of verified original photographs, keyed by YUTorah's portrait file name.
+// Provenance is in public/images/teachers/README.md.
+const squarePortraits: Record<string, string> = {
+  'alebowitz.jpg': '/images/teachers/aryeh-lebowitz-square',
+};
 function Portrait({
   src,
   name,
@@ -81,6 +86,15 @@ function Portrait({
 }) {
   const [failures, setFailures] = useState(0);
   const image = useRef<HTMLImageElement>(null);
+  const square =
+    squarePortraits[
+      src
+        .split('/')
+        .pop()
+        ?.replace(/_lp(\.[^.]+)$/, '$1')
+        .toLowerCase() ?? ''
+    ];
+  const local = square && `${square}-320.jpg`;
   // YUTorah publishes the original 240×280 portraits with its `_lp` suffix.
   // Older API responses expose the 50px thumbnails. Fall back if the original is absent.
   const original =
@@ -89,9 +103,13 @@ function Portrait({
     ) && !/_lp\.|_default\.|missingpicture/i.test(src)
       ? src.replace(/(\.[^.]+)$/, '_lp$1')
       : src;
-  const upgraded = original !== src;
-  const imageSource = upgraded && failures === 0 ? original : src;
-  const available = failures < (upgraded ? 2 : 1);
+  const attempts = [
+    ...(local ? [local] : []),
+    ...(original !== src ? [original] : []),
+    src,
+  ];
+  const imageSource = attempts[failures] ?? src;
+  const available = failures < attempts.length;
   useEffect(() => {
     // A server-rendered image can fail before React attaches its error handler.
     if (image.current?.complete) {
@@ -103,6 +121,9 @@ function Portrait({
       ref={image}
       className={'avatar ' + className}
       src={imageSource}
+      srcSet={
+        imageSource === local ? `${local} 1x, ${square}-640.jpg 2x` : undefined
+      }
       alt=""
       loading="lazy"
       decoding="async"

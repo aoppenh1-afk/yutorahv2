@@ -501,6 +501,25 @@
   grid-template-columns: repeat(auto-fill, minmax(212px, 1fr));
   gap: 28px 20px;
 }
+.discovery-card-grid.is-row {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+@media (max-width: 1280px) {
+  .discovery-card-grid.is-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .discovery-card-grid.is-row > :nth-child(n + 5) {
+    display: none;
+  }
+}
+@media (max-width: 1000px) {
+  .discovery-card-grid.is-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .discovery-card-grid.is-row > :nth-child(n + 4) {
+    display: none;
+  }
+}
 .shiur-card {
   position: relative;
   display: flex;

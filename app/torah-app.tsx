@@ -5,7 +5,12 @@ import { pollDelay } from '@/lib/poll-delay';
 import Link from 'next/link';
 import { type Filters, noFilters } from '@/lib/search-filters';
 import { SearchBox } from './search-box';
-import { SearchTools } from './search-tools';
+import {
+  copySearchLink,
+  QueryPreview,
+  SearchPresets,
+  SearchTools,
+} from './search-tools';
 import { MobileSearchSummary } from './mobile-search-summary';
 import type { TranscriptHit } from './transcript-search';
 import { ScreenBoundary } from './screen-boundary';
@@ -50,7 +55,9 @@ import {
   Download,
   Share2,
   ExternalLink,
+  AudioLines,
   FileText,
+  Link2,
   SlidersHorizontal,
   Loader2,
   ChevronUp,
@@ -248,6 +255,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   const [topicGroup, setTopicGroup] = useState('all');
   const [grid, setGrid] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState(false);
+  const [searchScope, setSearchScope] = useState<'shiurim' | 'audio'>(
+    'shiurim',
+  );
   const [withinResults, setWithinResults] = useState('');
   const [learningFilter, setLearningFilter] = useState('all');
   const [libraryQuery, setLibraryQuery] = useState('');
@@ -1103,6 +1113,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           { value: 'title', label: 'Title A–Z' },
         ]}
       />
+      <button
+        className="icon-button"
+        aria-label="Copy search link"
+        title="Copy search link"
+        onClick={() => void copySearchLink(submitted, filters, notify)}
+      >
+        <Link2 size={17} />
+      </button>
       <div className="view-switch">
         <button
           aria-label="List view"
@@ -1420,42 +1438,38 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 </p>
               </div>
               {searchBar}
+              <div className="search-scope" aria-label="What to search">
+                <button
+                  aria-pressed={searchScope === 'shiurim'}
+                  onClick={() => setSearchScope('shiurim')}
+                >
+                  <Library size={16} />
+                  Shiurim
+                  {results && searchScope === 'shiurim' && (
+                    <span>{results.total.toLocaleString()}</span>
+                  )}
+                </button>
+                <button
+                  aria-pressed={searchScope === 'audio'}
+                  onClick={() => setSearchScope('audio')}
+                >
+                  <AudioLines size={16} />
+                  Inside the audio
+                </button>
+              </div>
+              {searchScope === 'audio' ? (
+                <ScreenBoundary>
+                  <TranscriptSearch
+                    query={results?.plan.term ?? submitted}
+                    onSelect={openTranscriptHit}
+                  />
+                </ScreenBoundary>
+              ) : (
+              <>
               <SearchOptions
                 collapsed={isMobile}
-                label="Filters & search tools"
+                label="Filters & saved searches"
               >
-                <SearchTools
-                  query={q}
-                  filters={filters}
-                  directory={directory}
-                  library={library}
-                  update={update}
-                  onSearch={(query, fs) => void runSearch(query, fs)}
-                  notify={notify}
-                  hasResults={!!results}
-                />
-                {isMobile ? (
-                  <details className="mobile-transcript-disclosure">
-                    <summary>
-                      <FileText size={18} />
-                      <span>Search inside the audio</span>
-                      <ChevronDown size={16} />
-                    </summary>
-                    <ScreenBoundary>
-                      <TranscriptSearch
-                        query={results?.plan.term ?? submitted}
-                        onSelect={openTranscriptHit}
-                      />
-                    </ScreenBoundary>
-                  </details>
-                ) : (
-                  <ScreenBoundary>
-                    <TranscriptSearch
-                      query={results?.plan.term ?? submitted}
-                      onSelect={openTranscriptHit}
-                    />
-                  </ScreenBoundary>
-                )}
                 <div className="filter-bar">
                   <button
                     className="filter-toggle"
@@ -1469,7 +1483,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                     }}
                     onClick={() => setAdvancedFilters(!advancedFilters)}
                   >
-                    <SlidersHorizontal size={16} /> Advanced search{' '}
+                    <SlidersHorizontal size={16} /> More filters{' '}
                     <ChevronDown size={14} />
                   </button>
                   <FilterSelect
@@ -1525,7 +1539,17 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                       Clear filters <X size={13} />
                     </button>
                   )}
+                  <SearchTools
+                    query={q}
+                    filters={filters}
+                    directory={directory}
+                    library={library}
+                    update={update}
+                    onSearch={(query, fs) => void runSearch(query, fs)}
+                    notify={notify}
+                  />
                 </div>
+                {!results && <QueryPreview query={q} directory={directory} />}
                 {advancedFilters && (
                   <ScreenBoundary>
                     <AdvancedSearch
@@ -1864,6 +1888,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                     className="mobile-search-browse"
                     aria-label="Browse the library"
                   >
+                    <SearchPresets
+                      query={q}
+                      filters={filters}
+                      onSearch={(query, fs) => void runSearch(query, fs)}
+                    />
                     <h2>Browse the library</h2>
                     {[
                       {
@@ -1902,24 +1931,29 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                   </section>
                 ) : (
                   <div className="search-start">
-                    <BookOpen size={28} />
-                    <h2>Try one of these</h2>
-                    <p>
-                      Search a subject, a teacher’s full name, or a source. Add
-                      “under 20 minutes” to fit your time.
-                    </p>
-                    <div className="search-prompts">
-                      {[
-                        'How can I improve my prayer?',
-                        'Rosh Hashana',
-                        'Rabbi Aryeh Lebowitz',
-                        'Chullin 130',
-                      ].map((t) => (
-                        <button key={t} onClick={() => void runSearch(t)}>
-                          {t}
-                          <ArrowUpRight size={15} />
-                        </button>
-                      ))}
+                    <div>
+                      <h2>Try a search</h2>
+                      <div className="search-prompts">
+                        {[
+                          'How can I improve my prayer?',
+                          'Rosh Hashana',
+                          'Rabbi Aryeh Lebowitz',
+                          'Chullin 130',
+                        ].map((t) => (
+                          <button key={t} onClick={() => void runSearch(t)}>
+                            {t}
+                            <ArrowUpRight size={15} />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <h2>Or start with</h2>
+                      <SearchPresets
+                        query={q}
+                        filters={filters}
+                        onSearch={(query, fs) => void runSearch(query, fs)}
+                      />
                     </div>
                     <button
                       className="text-button"
@@ -1929,6 +1963,8 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                     </button>
                   </div>
                 ))}
+              </>
+              )}
             </section>
           )}
           {[

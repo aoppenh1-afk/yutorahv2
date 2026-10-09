@@ -1,7 +1,9 @@
 /* ─── Search box (top bar + search view) ────────────────────── */
 .search-workbench {
-  position: relative;
   display: block;
+}
+.search-field {
+  position: relative;
 }
 .main-search {
   display: flex;
@@ -85,7 +87,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(100% + 10px);
+  top: calc(100% + 6px);
   z-index: 40;
   padding: 10px;
   border-radius: 22px;
@@ -228,14 +230,39 @@
   width: 48px;
   height: 48px;
 }
-.search-shortcuts {
+.search-scope {
   display: flex;
-  flex-wrap: wrap;
+  gap: 24px;
+  margin-top: 28px;
+  border-bottom: 1px solid var(--line);
+}
+.search-scope button {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  max-width: 880px;
-  margin: 18px 0 0;
+  gap: 8px;
+  margin-bottom: -1px;
+  padding: 0 2px 12px;
+  border-bottom: 2px solid transparent;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  transition: color 0.15s, border-color 0.15s;
+}
+.search-scope button:hover {
+  color: var(--ink);
+}
+.search-scope button[aria-pressed='true'] {
+  border-bottom-color: var(--ink);
+  color: var(--ink);
+}
+.search-scope button span {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 12px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
 }
 .search-presets {
   display: flex;
@@ -243,71 +270,75 @@
   align-items: center;
   gap: 8px;
 }
-.search-presets > span {
-  margin-right: 4px;
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
 .search-save-tools {
   display: flex;
-  gap: 16px;
+  gap: 4px;
+  margin-left: auto;
+}
+.toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink-2);
+  transition: background 0.15s, color 0.15s;
+}
+.toolbar-button:hover {
+  background: var(--panel);
+  color: var(--ink);
 }
 .tab-count {
   padding: 0 7px;
   border-radius: 999px;
-  background: var(--brand-tint);
+  background: var(--panel);
   font-size: 11.5px;
 }
 .query-preview {
   display: flex;
-  gap: 12px;
-  max-width: 880px;
-  margin-top: 16px;
-  padding: 14px 18px;
-  border-radius: 18px;
-  background: var(--gold-tint);
-  color: #5d431c;
-}
-.query-preview strong {
-  font-size: 13.5px;
-}
-.query-preview div div {
-  display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-  margin-top: 6px;
+  margin-top: 14px;
+  font-size: 12.5px;
+  color: var(--ink-3);
 }
-.query-preview span {
+.query-preview span + span {
   padding: 2px 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
-  font-size: 12.5px;
-}
-.copy-search {
-  margin-top: 10px;
-  font-size: 12.5px;
+  background: var(--panel);
+  color: var(--ink-2);
 }
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-top: 24px;
+  margin-top: 20px;
 }
 .filter-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-height: 38px;
-  padding: 0 16px;
+  padding: 0 14px;
   border-radius: 999px;
-  background: var(--ink);
-  color: #fff;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 550;
+}
+.filter-toggle:hover {
+  border-color: var(--ink);
 }
 .filter-toggle[aria-expanded='true'] {
-  background: var(--brand);
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
 }
 .filter-toggle[aria-expanded='true'] svg:last-child {
   transform: rotate(180deg);
@@ -339,32 +370,21 @@
 .search-start {
   display: grid;
   justify-items: start;
-  gap: 12px;
+  gap: 24px;
   max-width: 880px;
-  margin-top: 40px;
-  padding: 28px;
-  border-radius: var(--r-xl);
+  margin-top: 32px;
   color: var(--ink);
-  background: var(--panel);
-}
-.search-start > svg {
-  color: var(--ink-3);
 }
 .search-start h2 {
-  font-family: var(--display);
-  letter-spacing: -0.025em;
-  font-weight: 650;
-  font-size: 24px;
-}
-.search-start p {
-  max-width: 520px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--ink-3);
 }
 .search-prompts {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 8px 0;
 }
 .search-start .search-prompts button {
   min-height: 38px;
@@ -2166,15 +2186,13 @@
   .suggestion-kind {
     display: none;
   }
-  .mobile-search-options,
-  .mobile-transcript-disclosure {
+  .mobile-search-options {
     margin-top: 14px;
     border-radius: 18px;
     background: var(--surface);
     box-shadow: inset 0 0 0 1px var(--line);
   }
-  .mobile-search-options > summary,
-  .mobile-transcript-disclosure > summary {
+  .mobile-search-options > summary {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -2185,24 +2203,24 @@
     list-style: none;
     cursor: pointer;
   }
-  .mobile-search-options > summary::-webkit-details-marker,
-  .mobile-transcript-disclosure > summary::-webkit-details-marker {
+  .mobile-search-options > summary::-webkit-details-marker {
     display: none;
   }
-  .mobile-search-options > summary svg:last-child,
-  .mobile-transcript-disclosure > summary svg:last-child {
+  .mobile-search-options > summary svg:last-child {
     margin-left: auto;
     transition: transform 0.2s;
   }
-  .mobile-search-options[open] > summary svg:last-child,
-  .mobile-transcript-disclosure[open] > summary svg:last-child {
+  .mobile-search-options[open] > summary svg:last-child {
     transform: rotate(180deg);
   }
   .mobile-search-options-body {
     padding: 0 16px 16px;
   }
-  .mobile-transcript-disclosure > :not(summary) {
-    margin: 0 12px 12px;
+  .search-scope {
+    margin-top: 20px;
+  }
+  .mobile-search-options .search-save-tools {
+    margin-left: 0;
   }
   .mobile-search-browse {
     display: grid;
@@ -2241,11 +2259,6 @@
   .mobile-search-browse small {
     font-size: 12.5px;
     color: var(--ink-3);
-  }
-  .search-shortcuts {
-    flex-direction: column;
-    align-items: stretch;
-    margin-top: 4px;
   }
   .search-presets {
     flex-wrap: nowrap;
