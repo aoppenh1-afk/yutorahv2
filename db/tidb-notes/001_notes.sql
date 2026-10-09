@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS shiur_notes (
+  shiur_id BIGINT UNSIGNED PRIMARY KEY CLUSTERED,
+  source_sha256 BINARY(32) NOT NULL,
+  notes_sha256 BINARY(32) NOT NULL,
+  generator_version VARCHAR(128) NOT NULL,
+  language VARCHAR(16) NOT NULL,
+  raw_bytes INT UNSIGNED NOT NULL,
+  created_at_ms BIGINT UNSIGNED NOT NULL,
+  notes_gzip MEDIUMBLOB NOT NULL
+);

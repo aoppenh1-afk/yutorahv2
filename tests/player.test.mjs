@@ -1074,11 +1074,12 @@ void test('player controls stop playback and the phone dialog stays inside the b
       });
     }
     await t.test(
-      'official transcripts seek audio, link complete text, and avoid study-tool requests',
+      'official transcripts seek audio and read hosted notes without notes polling',
       async () => {
         const { context, page } = await openPlayer({ width: 390, height: 844 });
         let reads = 0,
-          statuses = 0;
+          statuses = 0,
+          noteReads = 0;
         let unavailable = false;
         try {
           await context.route('**/api/transcript?*', (route) => {
@@ -1118,6 +1119,17 @@ void test('player controls stop playback and the phone dialog stays inside the b
             statuses++;
             return route.fulfill({ status: 503, json: { error: 'Unused' } });
           });
+          await context.route('**/api/study-notes?*', (route) => {
+            noteReads++;
+            return route.fulfill({
+              json: {
+                status: 'completed',
+                markdown:
+                  '# Hosted notes\n\n## תשובה\n\n- Complete lecture notes.',
+                sourceHash: 'c'.repeat(64),
+              },
+            });
+          });
           await page.clock.install();
           await page
             .getByRole('button', { name: 'Expand player controls' })
@@ -1126,7 +1138,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .getByRole('button', { name: 'Open shiur details and notes' })
             .click();
           const region = page.getByRole('region', {
-            name: 'Transcript',
+            name: 'Transcript, study notes, and sources',
             exact: true,
           });
           await region
@@ -1136,7 +1148,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             await region
               .getByRole('button', { name: 'Study notes', exact: true })
               .count(),
-            0,
+            1,
           );
           assert.equal(
             await region
@@ -1153,6 +1165,11 @@ void test('player controls stop playback and the phone dialog stays inside the b
           await page.clock.fastForward(600_000);
           assert.equal(reads, 1);
           assert.equal(statuses, 0, 'official content has no notes polling');
+          assert.equal(
+            noteReads,
+            0,
+            'reading a transcript does not read TiDB notes',
+          );
           await region
             .getByRole('button', { name: 'Play from 0:12', exact: true })
             .click();
@@ -1174,6 +1191,81 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .waitFor();
           assert.equal(reads, 2);
           assert.equal(statuses, 0);
+          await region
+            .getByRole('button', { name: 'Study notes', exact: true })
+            .click();
+          await region.getByRole('heading', { name: 'Hosted notes' }).waitFor();
+          await region.getByRole('heading', { name: 'תשובה' }).waitFor();
+          assert.equal(noteReads, 1);
+          await region
+            .getByRole('button', { name: 'Transcript', exact: true })
+            .click();
+          await region
+            .getByRole('button', { name: 'Study notes', exact: true })
+            .click();
+          await region.getByRole('heading', { name: 'Hosted notes' }).waitFor();
+          await page.clock.fastForward(600_000);
+          assert.equal(
+            noteReads,
+            1,
+            'tab switching and elapsed time reuse saved notes',
+          );
+        } finally {
+          await context.close();
+        }
+      },
+    );
+    await t.test(
+      'hosted notes remain readable when the initial transcript request fails',
+      async () => {
+        const { context, page } = await openPlayer({ width: 390, height: 844 });
+        try {
+          await context.route('**/api/transcript?*', (route) =>
+            route.fulfill({
+              status: 503,
+              json: { error: 'Transcript temporarily unavailable' },
+            }),
+          );
+          await context.route('**/api/study-notes?*', (route) =>
+            route.fulfill({
+              json: {
+                status: 'completed',
+                markdown:
+                  '# Saved study notes\n\n## Teaching\n\n- Stored independently.',
+              },
+            }),
+          );
+          await page
+            .getByRole('button', { name: 'Expand player controls' })
+            .click();
+          await page
+            .getByRole('button', { name: 'Open shiur details and notes' })
+            .click();
+          const region = page.getByRole('region', {
+            name: 'Transcript, study notes, and sources',
+            exact: true,
+          });
+          await region
+            .getByText('Transcript temporarily unavailable', { exact: false })
+            .waitFor();
+          await region
+            .getByRole('button', { name: 'Study notes', exact: true })
+            .click();
+          await region
+            .getByRole('heading', { name: 'Saved study notes', exact: true })
+            .waitFor();
+          assert.equal(
+            await region
+              .getByText('Stored independently.', { exact: true })
+              .count(),
+            1,
+          );
+          assert.equal(
+            await region
+              .getByRole('button', { name: 'Download', exact: true })
+              .count(),
+            1,
+          );
         } finally {
           await context.close();
         }
