@@ -39,6 +39,7 @@ export default defineConfig(async () => {
   if (process.env.VERCEL || process.env.DEPLOY_TARGET === 'vercel') {
     const { nitro } = await import('nitro/vite');
     return {
+      optimizeDeps: { include: ['@react-pdf/renderer', 'docx'] },
       css: { postcss: { plugins: [tailwindcss()] } },
       resolve: {
         alias: {
@@ -76,6 +77,7 @@ export default defineConfig(async () => {
   const { cloudflare } = await import('@cloudflare/vite-plugin');
 
   return {
+    optimizeDeps: { include: ['@react-pdf/renderer', 'docx'] },
     css: { postcss: { plugins: [tailwindcss()] } },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }

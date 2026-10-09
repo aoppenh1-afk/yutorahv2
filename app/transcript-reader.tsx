@@ -6,7 +6,15 @@ const Markdown = lazy(() => import('react-markdown'));
 const SourcesPanel = lazy(() =>
   import('./sources-panel').then((m) => ({ default: m.SourcesPanel })),
 );
-import { Download, Loader2 } from 'lucide-react';
+import { Download, Loader2, Maximize2, Minimize2 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+} from '@/components/ui/dialog';
+import { NotesDownload, type NotesFormat } from './notes-download';
 import { BoundedCache } from '@/lib/bounded-cache';
 import { timeLabel } from '@/lib/library';
 import type { ContentStatus } from '../packages/transcription/src/public-content';
@@ -56,6 +64,14 @@ export function TranscriptReader({
   const [loading, setLoading] = useState(true);
   const [refreshError, setRefreshError] = useState('');
   const [hosted, setHosted] = useState<HostedStudyNote | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [exporting, setExporting] = useState<NotesFormat | null>(null);
+  const [exportError, setExportError] = useState('');
+  const exportLock = useRef(false);
+  useEffect(() => {
+    setExpanded(false);
+    setExportError('');
+  }, [shiurId]);
   const lastNotesRetry = useRef(retry);
   useEffect(() => {
     if (tab !== 'notes') return;
@@ -138,8 +154,7 @@ export function TranscriptReader({
             `/api/transcript-status?id=${shiurId}`,
             options,
           );
-          if (!statusResponse.ok)
-            throw new Error('Could not refresh study notes.');
+          if (!statusResponse.ok) throw new Error('Could not refresh notes.');
           const status = (await statusResponse.json()) as ContentStatus;
           version = status.version;
           if (
@@ -242,184 +257,265 @@ export function TranscriptReader({
       document.removeEventListener('visibilitychange', visibilityChanged);
     };
   }, [shiurId, retry]);
+  const notesContent = displayedNotes?.markdown ? (
+    <div className="study-markdown" dir="auto">
+      <p className="study-note-label">
+        Automatically generated from this shiur’s transcript.
+      </p>
+      {content?.source === 'official-yutorah' &&
+        hostedNote?.sourceHash &&
+        hostedNote.sourceHash !== content.version && (
+          <p className="study-note-label">
+            These notes use an earlier version of the official transcript.
+          </p>
+        )}
+      <ScreenBoundary>
+        <Markdown
+          skipHtml
+          allowedElements={[
+            'h1',
+            'h2',
+            'h3',
+            'p',
+            'ul',
+            'ol',
+            'li',
+            'strong',
+            'em',
+            'a',
+            'code',
+            'br',
+          ]}
+          components={{
+            a: ({ children, ...props }) => (
+              <a {...props} target="_blank" rel="noreferrer">
+                {children}
+              </a>
+            ),
+          }}
+        >
+          {displayedNotes.markdown}
+        </Markdown>
+      </ScreenBoundary>
+    </div>
+  ) : null;
+  const downloadNotes = async (format: NotesFormat) => {
+    if (!displayedNotes?.markdown || exportLock.current) return;
+    exportLock.current = true;
+    setExporting(format);
+    setExportError('');
+    try {
+      const markdown = displayedNotes.markdown;
+      const blob =
+        format === 'pdf'
+          ? await (await import('@/lib/notes-pdf')).createNotesPdf(markdown)
+          : await (await import('@/lib/notes-docx')).createNotesDocx(markdown);
+      saveDownload(blob, `shiur-${shiurId}-notes.${format}`);
+    } catch {
+      setExportError('Could not download notes. Please try again.');
+    } finally {
+      exportLock.current = false;
+      setExporting(null);
+    }
+  };
   const download = () => {
-    if (!content && tab !== 'notes') return;
-    const text =
-      tab === 'notes'
-        ? displayedNotes?.markdown
-        : content?.segments
-            .map(
-              (s) =>
-                `[${timeLabel(s.startMs / 1000)}] ${s.speaker ? `${s.speaker}: ` : ''}${s.text}`,
-            )
-            .join('\n\n');
-    if (!text) return;
-    const url = URL.createObjectURL(
+    if (!content) return;
+    const text = content.segments
+      .map(
+        (s) =>
+          `[${timeLabel(s.startMs / 1000)}] ${s.speaker ? `${s.speaker}: ` : ''}${s.text}`,
+      )
+      .join('\n\n');
+    saveDownload(
       new Blob([text], { type: 'text/plain;charset=utf-8' }),
+      `shiur-${shiurId}-transcript.txt`,
     );
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `shiur-${shiurId}-${tab === 'notes' ? 'notes.md' : 'transcript.txt'}`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   return (
-    <section
-      className="detail-section generated-study"
-      aria-label={'Transcript, study notes, and sources'}
-    >
-      <h3>Transcript & study tools</h3>
-      <div className="study-tabs">
-        {content && (
-          <a
-            className="text-button"
-            href={`/api/transcript-text?id=${shiurId}${content.version ? '&version=' + content.version : ''}${content.source === 'official-yutorah' ? '&source=official-yutorah' : ''}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open complete text
-          </a>
-        )}
-        <button
-          type="button"
-          aria-pressed={tab === 'transcript'}
-          onClick={() => setTab('transcript')}
-        >
-          Transcript
-        </button>
-        <button
-          type="button"
-          aria-pressed={tab === 'notes'}
-          onClick={() => setTab('notes')}
-        >
-          Study notes
-        </button>
-        {content && content.source !== 'official-yutorah' && (
-          <>
-            <button
-              type="button"
-              aria-pressed={tab === 'sources'}
-              onClick={() => {
-                setTab('sources');
-                setSourcesEnabled(true);
-              }}
+    <>
+      <section
+        className="detail-section generated-study"
+        aria-label={'Transcript, notes, and sources'}
+      >
+        <h3>Transcript & study tools</h3>
+        <div className="study-tabs">
+          {content && (
+            <a
+              className="text-button"
+              href={`/api/transcript-text?id=${shiurId}${content.version ? '&version=' + content.version : ''}${content.source === 'official-yutorah' ? '&source=official-yutorah' : ''}`}
+              target="_blank"
+              rel="noreferrer"
             >
-              Sources
-            </button>
-          </>
-        )}
-        <button type="button" onClick={() => setRetry((n) => n + 1)}>
-          Refresh
-        </button>
-        {((content && tab === 'transcript') ||
-          (tab === 'notes' && displayedNotes?.markdown)) && (
-          <button className="study-download" type="button" onClick={download}>
-            <Download size={14} /> Download
+              Open complete text
+            </a>
+          )}
+          <button
+            type="button"
+            aria-pressed={tab === 'transcript'}
+            onClick={() => setTab('transcript')}
+          >
+            Transcript
           </button>
-        )}
-      </div>
-      {content?.source === 'official-yutorah' && tab === 'transcript' && (
-        <p className="study-note-label">
-          Transcript from YUTorah. Automatically generated; accuracy may vary.
-        </p>
-      )}
-      {refreshError && tab === 'transcript' && (
-        <output className="study-state">
-          {refreshError} Your loaded transcript is still available.
-        </output>
-      )}
-      {tab !== 'notes' && loading ? (
-        <p className="feed-loading">
-          <Loader2 size={14} className="spin" /> Loading transcript…
-        </p>
-      ) : tab !== 'notes' && state ? (
-        <output className="study-state">
-          {state}{' '}
+          <button
+            type="button"
+            aria-pressed={tab === 'notes'}
+            onClick={() => setTab('notes')}
+          >
+            Notes
+          </button>
+          {content && content.source !== 'official-yutorah' && (
+            <>
+              <button
+                type="button"
+                aria-pressed={tab === 'sources'}
+                onClick={() => {
+                  setTab('sources');
+                  setSourcesEnabled(true);
+                }}
+              >
+                Sources
+              </button>
+            </>
+          )}
           <button type="button" onClick={() => setRetry((n) => n + 1)}>
             Refresh
           </button>
-        </output>
-      ) : content && tab === 'transcript' ? (
-        <TranscriptSegments
-          key={content.transcriptId + ':' + (content.version ?? '')}
-          content={content}
-          sources={sources}
-          shiurId={shiurId}
-          onSeek={onSeek}
-        />
-      ) : content && tab === 'sources' ? (
-        <ScreenBoundary>
-          <SourcesPanel
-            key={content.transcriptId}
+          {content && tab === 'transcript' && (
+            <button className="study-download" type="button" onClick={download}>
+              <Download size={14} /> Download
+            </button>
+          )}
+          {tab === 'notes' && displayedNotes?.markdown && (
+            <div className="study-notes-actions">
+              <NotesDownload
+                busy={exporting}
+                onDownload={(format) => void downloadNotes(format)}
+              />
+              <button
+                className="study-expand"
+                type="button"
+                onClick={() => setExpanded(true)}
+                aria-label="Expand notes"
+                title="Expand notes"
+              >
+                <Maximize2 size={14} /> <span>Expand</span>
+              </button>
+            </div>
+          )}
+        </div>
+        {exportError && tab === 'notes' && (
+          <p role="alert" className="study-state">
+            {exportError}
+          </p>
+        )}
+        {content?.source === 'official-yutorah' && tab === 'transcript' && (
+          <p className="study-note-label">
+            Transcript from YUTorah. Automatically generated; accuracy may vary.
+          </p>
+        )}
+        {refreshError && tab === 'transcript' && (
+          <output className="study-state">
+            {refreshError} Your loaded transcript is still available.
+          </output>
+        )}
+        {tab !== 'notes' && loading ? (
+          <p className="feed-loading">
+            <Loader2 size={14} className="spin" /> Loading transcript…
+          </p>
+        ) : tab !== 'notes' && state ? (
+          <output className="study-state">
+            {state}{' '}
+            <button type="button" onClick={() => setRetry((n) => n + 1)}>
+              Refresh
+            </button>
+          </output>
+        ) : content && tab === 'transcript' ? (
+          <TranscriptSegments
+            key={content.transcriptId + ':' + (content.version ?? '')}
+            content={content}
+            sources={sources}
             shiurId={shiurId}
-            title={content.title}
-            teacher={content.teacher}
-            result={sources.result}
-            error={sources.error}
-            recovering={sources.recovering}
-            onRetry={sources.retry}
             onSeek={onSeek}
           />
-        </ScreenBoundary>
-      ) : displayedNotes?.markdown ? (
-        <div className="study-markdown" dir="auto">
-          <p className="study-note-label">
-            Automatically generated from this shiur’s transcript.
-          </p>
-          {content?.source === 'official-yutorah' &&
-            hostedNote?.sourceHash &&
-            hostedNote.sourceHash !== content.version && (
-              <p className="study-note-label">
-                These notes use an earlier version of the official transcript.
-              </p>
-            )}
+        ) : content && tab === 'sources' ? (
           <ScreenBoundary>
-            <Markdown
-              skipHtml
-              allowedElements={[
-                'h1',
-                'h2',
-                'h3',
-                'p',
-                'ul',
-                'ol',
-                'li',
-                'strong',
-                'em',
-                'a',
-                'code',
-                'br',
-              ]}
-              components={{
-                a: ({ children, ...props }) => (
-                  <a {...props} target="_blank" rel="noreferrer">
-                    {children}
-                  </a>
-                ),
-              }}
-            >
-              {displayedNotes.markdown}
-            </Markdown>
+            <SourcesPanel
+              key={content.transcriptId}
+              shiurId={shiurId}
+              title={content.title}
+              teacher={content.teacher}
+              result={sources.result}
+              error={sources.error}
+              recovering={sources.recovering}
+              onRetry={sources.retry}
+              onSeek={onSeek}
+            />
           </ScreenBoundary>
-        </div>
-      ) : (
-        <output className="study-state">
-          {displayedNotes?.status === 'loading'
-            ? 'Loading study notes…'
-            : displayedNotes?.status === 'unavailable'
-              ? 'Study notes are temporarily unavailable. Try Refresh.'
-              : displayedNotes &&
-                  ['queued', 'cleaning', 'generating'].includes(
-                    displayedNotes.status,
-                  )
-                ? 'Study notes are being generated.'
-                : displayedNotes?.status === 'failed'
-                  ? 'Study notes could not be generated yet. The transcript is available.'
-                  : 'Study notes have not been generated for this shiur yet.'}
-        </output>
-      )}
-    </section>
+        ) : displayedNotes?.markdown ? (
+          notesContent
+        ) : (
+          <output className="study-state">
+            {displayedNotes?.status === 'loading'
+              ? 'Loading notes…'
+              : displayedNotes?.status === 'unavailable'
+                ? 'Notes are temporarily unavailable. Try Refresh.'
+                : displayedNotes &&
+                    ['queued', 'cleaning', 'generating'].includes(
+                      displayedNotes.status,
+                    )
+                  ? 'Notes are being generated.'
+                  : displayedNotes?.status === 'failed'
+                    ? 'Notes could not be generated yet. The transcript is available.'
+                    : 'Notes have not been generated for this shiur yet.'}
+          </output>
+        )}
+      </section>
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent
+          className="notes-expanded translate-x-0 translate-y-0"
+          showCloseButton={false}
+        >
+          <header className="notes-expanded-header">
+            <div>
+              <DialogTitle>Notes</DialogTitle>
+              <DialogDescription dir="auto">
+                {content?.title || `Shiur ${shiurId}`}
+              </DialogDescription>
+            </div>
+            <div className="study-tabs study-notes-actions">
+              <NotesDownload
+                busy={exporting}
+                onDownload={(format) => void downloadNotes(format)}
+              />
+              <DialogClose
+                className="study-expand"
+                aria-label="Close expanded notes"
+              >
+                <Minimize2 size={14} /> Close
+              </DialogClose>
+            </div>
+          </header>
+          {exportError && (
+            <p role="alert" className="study-state">
+              {exportError}
+            </p>
+          )}
+          {notesContent}
+        </DialogContent>
+      </Dialog>
+    </>
   );
+}
+
+function saveDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function TranscriptSegments({

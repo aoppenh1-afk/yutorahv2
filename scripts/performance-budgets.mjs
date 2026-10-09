@@ -23,9 +23,9 @@ assert.ok(files.size, 'A production client build is required.');
 const js = [...files].filter(([path]) => path.endsWith('.js'));
 const css = [...files].filter(([path]) => path.endsWith('.css'));
 const graph = new Set();
-function visit(path) {
-  if (graph.has(path) || !files.has(path)) return;
-  graph.add(path);
+function visit(path, target = graph) {
+  if (target.has(path) || !files.has(path)) return;
+  target.add(path);
   if (!path.endsWith('.js')) return;
   const ast = ts.createSourceFile(
     path,
@@ -42,8 +42,9 @@ function visit(path) {
     )
       continue;
     const specifier = statement.moduleSpecifier.text;
-    if (specifier.startsWith('.')) visit(resolve(dirname(path), specifier));
-    else if (specifier.startsWith('/')) visit(join(root, specifier));
+    if (specifier.startsWith('.'))
+      visit(resolve(dirname(path), specifier), target);
+    else if (specifier.startsWith('/')) visit(join(root, specifier), target);
   }
 }
 const manifest = JSON.parse(
@@ -60,11 +61,28 @@ for (const [path] of js)
     visit(path);
 const sum = (entries) =>
   entries.reduce((total, [, file]) => total + file.gzip, 0);
+// File conversion is requested explicitly by Download. Keep its dependencies
+// out of the reading budget, with a separate cap and a check for eager imports.
+const exportGraph = new Set();
+for (const [path] of js)
+  if (/\/notes-(pdf|docx)-/.test(path)) visit(path, exportGraph);
+const readingGraph = new Set();
+for (const [path] of js) if (!exportGraph.has(path)) visit(path, readingGraph);
+const exportOnly = new Set(
+  [...exportGraph].filter((path) => !readingGraph.has(path)),
+);
+for (const path of exportOnly)
+  assert.ok(!graph.has(path), `${path} must load only when downloading notes`);
 const measurements = {
   initialHomeJs: sum([...files].filter(([path]) => graph.has(path))),
-  totalJs: sum(js),
+  totalJs: sum(js.filter(([path]) => !exportOnly.has(path))),
+  notesExportJs: sum(js.filter(([path]) => exportOnly.has(path))),
   totalCss: sum(css),
-  largestJsChunk: Math.max(...js.map(([, file]) => file.gzip)),
+  largestJsChunk: Math.max(
+    ...js
+      .filter(([path]) => !exportOnly.has(path))
+      .map(([, file]) => file.gzip),
+  ),
   applicationChunk: Math.max(
     ...js
       .filter(([path]) => /\/torah-app-/.test(path))
@@ -74,6 +92,7 @@ const measurements = {
 const budgets = {
   initialHomeJs: 300_000,
   totalJs: 360_000,
+  notesExportJs: 600_000,
   totalCss: 50_000,
   largestJsChunk: 80_000,
   applicationChunk: 40_000,

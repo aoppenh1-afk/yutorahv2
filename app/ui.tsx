@@ -1169,7 +1169,7 @@ function MobileAudioPlayer({
               aria-label="Open shiur details and notes"
             >
               <NotebookPen size={19} />
-              Study notes
+              Notes
             </button>
             <button
               aria-label="Play next in queue"
