@@ -3,12 +3,72 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { NotesQueue } from '../packages/notes-only/src/queue';
+import { NotesQueue, type NoteJob } from '../packages/notes-only/src/queue';
 import { NotesPipeline } from '../packages/notes-only/src/pipeline';
 import { packNote, unpackNote, type SavedNote } from '../lib/tidb-notes-store';
+import { runNotesPool } from '../deploy/notes-only/pool.mjs';
 const vtt =
   'WEBVTT\n\n00:00.000 --> 00:02.000\nShalom שלום תשובה\n\n00:01.900 --> 00:03.000\nFull second cue\n';
 const markdown = '# תשובה\n\n## Teaching\n\n- Shalom שלום\n';
+void test('a malformed transcript is blocked while the next real pipeline job sorts cues and publishes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'notes-resilience-'));
+  const queue = new NotesQueue(join(root, 'queue.sqlite'));
+  const signal = new AbortController().signal;
+  const saved = new Map<string, SavedNote>();
+  const pipeline = new NotesPipeline({
+    root,
+    queue,
+    store: {
+      get: async (id) => saved.get(id) ?? null,
+      publish: async (note) => {
+        saved.set(note.shiurId, note);
+      },
+    },
+    generatorVersion: 'pilot',
+    language: 'hebrewEnglish',
+    signal,
+    fetchTranscript: async (id) =>
+      id === '1'
+        ? 'bad transcript'
+        : 'WEBVTT\n\n00:02.000 --> 00:04.000\nLater\n\n00:01.000 --> 00:03.000\nEarlier\n',
+    generate: async (source) => {
+      assert.equal(source, 'Earlier\n\nLater');
+      return markdown;
+    },
+  });
+  try {
+    queue.enqueue([{ id: '1' }, { id: '2' }]);
+    const result = await runNotesPool({
+      queue,
+      signal,
+      concurrency: 1,
+      paceMs: 0,
+      log: () => {},
+      processJob: (job: NoteJob) => pipeline.process(job),
+      sleep: async (ms) => {
+        assert.equal(ms, 0, 'Malformed VTT must not delay the next job');
+      },
+    });
+    assert.deepEqual(result, { processed: 2, failed: false });
+    assert.deepEqual(
+      {
+        ...queue.db
+          .prepare('SELECT status,error FROM jobs WHERE id=?')
+          .get('1'),
+      },
+      { status: 'blocked', error: 'invalid_transcript' },
+    );
+    assert.equal(saved.size, 1);
+    assert.equal(await unpackNote(saved.get('2')!), markdown);
+    assert.equal(
+      queue.db.prepare('SELECT status FROM jobs WHERE id=?').get('2')?.status,
+      'completed',
+    );
+  } finally {
+    queue.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 void test('Hebrew bytes survive compression; corrupt hashes and expansion above the cap are rejected', async () => {
   const note = await packNote({
     shiurId: '1190357',

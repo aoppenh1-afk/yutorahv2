@@ -268,14 +268,33 @@ Model is pinned to ${FREE_NOTES_MODEL}; paid fallback is forbidden.`);
           code?: string;
           status?: number;
           retryAfterMs?: number;
+          retryAfter?: string;
         };
-        // Logs omit remote SQL/messages, credentials, prompts and source text.
+        const message = [credential.username, credential.password]
+          .reduce(
+            (text, secret) =>
+              secret ? text.replaceAll(secret, '[REDACTED]') : text,
+            error.message ?? 'Unknown error',
+          )
+          .replace(/\b(?:Bearer|Basic)\s+\S+/gi, '[REDACTED]')
+          .replace(/https?:\/\/[^\s"'<>]+/gi, '[URL REDACTED]')
+          .replace(
+            /(["']?(?:password|passwd|secret|token|api[_-]?key|authorization|credential)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+            '$1[REDACTED]',
+          )
+          .replace(/\p{Cc}/gu, ' ')
+          .slice(0, 300);
         const code =
           error.code ??
           (error.status ? `database_${error.status}` : 'processing_failed');
-        if (/conflict|checksum|version/i.test(error.message)) {
+        if (
+          code === 'invalid_transcript' ||
+          /conflict|checksum|version/i.test(error.message)
+        ) {
           queue.blocked(job.id, code);
-          console.log(JSON.stringify({ id: job.id, status: 'blocked', code }));
+          console.log(
+            JSON.stringify({ id: job.id, status: 'blocked', code, message }),
+          );
           processed++;
           continue;
         }
@@ -289,16 +308,25 @@ Model is pinned to ${FREE_NOTES_MODEL}; paid fallback is forbidden.`);
             id: job.id,
             status: 'retry',
             code,
+            message,
             retryAfterMs: after,
           }),
         );
         if (controller.aborted) break;
+        const providerCooldown =
+          code === 'quota_exhausted' ||
+          error.status === 429 ||
+          error.status === 503 ||
+          error.retryAfterMs != null ||
+          error.retryAfter != null;
         if (!args.includes('--follow')) {
           process.exitCode = 1;
-          break;
+          processed++;
+          if (providerCooldown) break;
         }
-        // Pause all work on provider/database failures rather than hammering the quota.
-        await delay(after, undefined, { signal: controller });
+        // Only provider/rate-limit failures delay unrelated queued work.
+        if (args.includes('--follow') && providerCooldown)
+          await delay(after, undefined, { signal: controller });
       }
       if (!controller.aborted)
         await delay(integer('--pace-ms', 2000, 1000, 60000), undefined, {

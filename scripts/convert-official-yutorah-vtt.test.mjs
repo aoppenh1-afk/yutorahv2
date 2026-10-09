@@ -63,12 +63,25 @@ void test('rejects malformed timestamps and reversed cue timing', () => {
     '00:00:02.000 --> 00:00:01.000',
     '00:00:00.00 --> 00:00:01.000',
   ])
-    assert.throws(() => parseVtt(`WEBVTT\n\n${timing}\nWords\n`));
-  assert.throws(
-    () =>
-      parseVtt(
-        'WEBVTT\n\n00:00:02.000 --> 00:00:03.000\nFirst\n\n00:00:01.000 --> 00:00:02.000\nSecond\n',
-      ),
-    /invalid WebVTT cue/,
+    assert.throws(() => parseVtt(`WEBVTT\n\n${timing}\nWords\n`), {
+      code: 'invalid_transcript',
+    });
+  for (const input of [
+    '<html>challenge</html>',
+    'WEBVTT\n\nnot a timing line\nWords\n',
+  ])
+    assert.throws(() => parseVtt(input), { code: 'invalid_transcript' });
+});
+
+void test('stable-sorts out-of-order cues without changing their text or overlapping bounds', () => {
+  assert.deepEqual(
+    parseVtt(
+      'WEBVTT\n\n00:00:02.000 --> 00:00:04.000\nFirst\n\n00:00:01.000 --> 00:00:03.000\nSecond\n\n00:00:02.000 --> 00:00:03.000\nThird\n',
+    ),
+    [
+      { startMs: 1000, endMs: 3000, text: 'Second' },
+      { startMs: 2000, endMs: 4000, text: 'First' },
+      { startMs: 2000, endMs: 3000, text: 'Third' },
+    ],
   );
 });

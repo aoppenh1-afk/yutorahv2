@@ -5,10 +5,11 @@ import {
   packNote,
   unpackNote,
   notesHash,
-  streamBytes,
   type SavedNote,
 } from '../../../lib/tidb-notes-store.js';
 import { parseVtt } from '../../../lib/webvtt.mjs';
+import { fetchOfficialVtt } from '../../../lib/official-transcript.mjs';
+export { fetchOfficialVtt } from '../../../lib/official-transcript.mjs';
 import { NotesQueue, type NoteJob } from './queue.js';
 
 export async function durableWrite(path: string, data: string | Uint8Array) {
@@ -141,40 +142,4 @@ export class NotesPipeline {
     await durableWrite(join(path, 'notes.md.gz'), gzip);
     await durableWrite(join(path, 'metadata.json'), JSON.stringify(metadata));
   }
-}
-export async function fetchOfficialVtt(
-  id: string,
-  signal: AbortSignal,
-): Promise<string | null> {
-  const response = await fetch(
-    `https://api.yutorah.org/transcriptions/shiur/${id}/vtt`,
-    {
-      redirect: 'error',
-      signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
-    },
-  );
-  if (response.status === 404 || response.status === 204) {
-    await response.body?.cancel();
-    return null;
-  }
-  if (!response.ok) {
-    await response.body?.cancel();
-    const error = new Error(`Upstream HTTP ${response.status}`) as Error & {
-      retryAfterMs?: number;
-    };
-    const value = response.headers.get('Retry-After');
-    const seconds = Number(value);
-    if (value)
-      error.retryAfterMs = Number.isFinite(seconds)
-        ? seconds * 1000
-        : Math.max(0, Date.parse(value) - Date.now());
-    throw error;
-  }
-  if (!response.body) throw new Error('Empty transcript response.');
-  const bytes = await streamBytes(response.body, 8 * 1024 * 1024);
-  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  if (!text.trim()) return null;
-  const cues = parseVtt(text);
-  if (cues.length > 5000) throw new Error('Too many transcript cues.');
-  return cues.length ? text : null;
 }

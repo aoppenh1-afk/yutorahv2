@@ -130,5 +130,52 @@ if (!source.includes(catalogImport)) {
       'await vmCatalogText(\n        `https://yutorah.org/api/search/get?${params}`,',
     );
 }
+// Replace the bundled implementations with the same parser/fetcher used in source.
+// Do this on every install, including bundles already patched for concurrency.
+const parserStart = source.indexOf('// lib/webvtt.mjs');
+const parserEnd = source.indexOf(
+  '\n// ',
+  parserStart + '// lib/webvtt.mjs'.length,
+);
+const fetchMarker = '// lib/official-transcript.mjs';
+const fetchStart = source.includes(fetchMarker)
+  ? source.indexOf(fetchMarker)
+  : source.indexOf('async function fetchOfficialVtt(');
+const fetchEnd = source.indexOf('\n// ', fetchStart + 1);
+if (parserStart < 0 || parserEnd < 0 || fetchStart < 0 || fetchEnd < 0)
+  throw new Error('Unsupported transcript implementation.');
+const parser = (
+  await readFile(new URL('../../lib/webvtt.mjs', import.meta.url), 'utf8')
+).replaceAll('export function ', 'function ');
+const fetcher = (
+  await readFile(
+    new URL('../../lib/official-transcript.mjs', import.meta.url),
+    'utf8',
+  )
+)
+  .replace(/^import[^\n]+\n/, '')
+  .replace('export async function ', 'async function ');
+source =
+  source.slice(0, fetchStart) +
+  fetchMarker +
+  '\n' +
+  fetcher.trim() +
+  '\n\n' +
+  source.slice(fetchEnd);
+source =
+  source.slice(0, parserStart) +
+  '// lib/webvtt.mjs\n' +
+  parser.trim() +
+  '\n\n' +
+  source.slice(parserEnd);
+if (!source.includes('secrets: [credential.username, credential.password]')) {
+  const original = '    const result = await runNotesPool({\n      queue,';
+  if (!source.includes(original))
+    throw new Error('Unsupported pool configuration.');
+  source = source.replace(
+    original,
+    original + '\n      secrets: [credential.username, credential.password],',
+  );
+}
 if (source !== originalSource)
   await writeFile(filename, source, { mode: 0o600 });

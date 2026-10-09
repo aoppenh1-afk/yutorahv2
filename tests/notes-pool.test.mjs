@@ -83,6 +83,72 @@ void test('bounded pilots never claim more jobs than their limit', async () => {
   );
 });
 
+void test('invalid transcripts are blocked and freed lanes claim immediately', async () => {
+  const f = fixture(7);
+  const gates = new Map();
+  const waits = [];
+  const run = runNotesPool({
+    ...f,
+    sleep: (ms) => {
+      waits.push(ms);
+      assert.equal(
+        ms,
+        0,
+        'A permanent failure must never cool down other lanes.',
+      );
+      return nextTurn();
+    },
+    processJob: (job) =>
+      new Promise((resolve, reject) => gates.set(job.id, { resolve, reject })),
+  });
+  await until(() => gates.size === 6);
+  gates.get('1').reject(
+    Object.assign(new Error('Malformed WebVTT cue.'), {
+      code: 'invalid_transcript',
+    }),
+  );
+  await until(() => f.blocked.length || f.retries.length);
+  await until(() => gates.has('7') || f.retries.length);
+  for (const gate of gates.values()) gate.resolve('completed');
+  gates.get('7')?.resolve('completed');
+  const result = await run;
+  assert.deepEqual(f.blocked, [['1', 'invalid_transcript']]);
+  assert.deepEqual(f.retries, []);
+  assert.deepEqual(result, { processed: 7, failed: false });
+  assert.equal(
+    f.events.find((e) => e.status === 'blocked').message,
+    'Malformed WebVTT cue.',
+  );
+});
+
+void test('ordinary errors back off just the failing job in a following pool', async () => {
+  const f = fixture(7);
+  const gates = new Map();
+  const run = runNotesPool({
+    ...f,
+    follow: true,
+    limit: 6,
+    sleep: async (ms) => {
+      assert.equal(ms, 0, 'An ordinary error must not set a shared cooldown.');
+      await nextTurn();
+    },
+    processJob: (job) =>
+      new Promise((resolve, reject) => gates.set(job.id, { resolve, reject })),
+  });
+  await until(() => gates.size === 6);
+  gates.get('1').reject(new Error('Upstream HTTP 500'));
+  await until(() => f.retries.length === 1);
+  for (const gate of gates.values()) gate.resolve('completed');
+  await until(() => gates.has('7'));
+  gates.get('7').resolve('completed');
+  assert.deepEqual(await run, { processed: 6, failed: false });
+  assert.deepEqual(f.retries, [['1', 'processing_failed', 120000]]);
+  assert.equal(
+    f.events.find((e) => e.status === 'retry').message,
+    'Upstream HTTP 500',
+  );
+});
+
 void test('quota errors cool down all new work while allowing active jobs to finish', async () => {
   const f = fixture(4);
   let clock = 0;
@@ -116,6 +182,37 @@ void test('quota errors cool down all new work while allowing active jobs to fin
   assert.ok(times[2] >= 180000);
 });
 
+/** @type {Array<[string, { status: number, retryAfter?: string, retryAfterMs?: number }]>} */
+const cooldownCases = [
+  ['HTTP 429', { status: 429 }],
+  ['HTTP 503', { status: 503 }],
+  ['Retry-After', { status: 502, retryAfter: '180', retryAfterMs: 180000 }],
+];
+for (const [name, details] of cooldownCases)
+  void test(`${name} pauses new claims across lanes`, async () => {
+    const f = fixture(3);
+    let clock = 0;
+    const starts = [];
+    const result = await runNotesPool({
+      ...f,
+      concurrency: 1,
+      follow: true,
+      limit: 2,
+      now: () => clock,
+      sleep: async (ms) => {
+        await nextTurn();
+        clock += ms;
+      },
+      processJob: async (job) => {
+        starts.push(clock);
+        if (job.id === '1') throw Object.assign(new Error(name), details);
+        return 'completed';
+      },
+    });
+    assert.equal(result.processed, 2);
+    assert.ok(starts[1] >= (details.retryAfterMs ?? 120000));
+  });
+
 void test('abort drains every active session before returning and stops claiming', async () => {
   const f = fixture();
   const controller = new AbortController();
@@ -138,7 +235,7 @@ void test('abort drains every active session before returning and stops claiming
   assert.equal(f.claims.length, 6);
 });
 
-void test('a retry stops a bounded pilot and drains the remaining jobs; conflicts are blocked', async () => {
+void test('a bounded pilot reports retries and drains the remaining jobs; conflicts are blocked', async () => {
   const f = fixture(6);
   const result = await runNotesPool({
     ...f,
@@ -153,6 +250,46 @@ void test('a retry stops a bounded pilot and drains the remaining jobs; conflict
   assert.equal(result.processed, 5);
   assert.deepEqual(f.blocked, [['1', 'processing_failed']]);
   assert.deepEqual(f.retries, [['2', 'transport', 120000]]);
+});
+
+void test('an ordinary failure also lets a bounded pilot fill its next lane', async () => {
+  const f = fixture(8);
+  const result = await runNotesPool({
+    ...f,
+    concurrency: 1,
+    limit: 3,
+    processJob: async (job) => {
+      if (job.id === '1') throw new Error('Upstream HTTP 500');
+      return 'completed';
+    },
+    sleep: async (ms) => assert.equal(ms, 0),
+  });
+  assert.deepEqual(result, { processed: 2, failed: true });
+  assert.deepEqual(f.claims, ['1', '2', '3']);
+});
+
+void test('error messages are bounded, single-line, and redact credentials before truncation', async () => {
+  const f = fixture(1);
+  await runNotesPool({
+    ...f,
+    secrets: ['private-value'],
+    processJob: async () => {
+      throw Object.assign(
+        new Error(
+          'Malformed cue: private-value\npassword="another-value" Authorization: Bearer third-value https://user:pass@example.com/?token=fourth-value ' +
+            'x'.repeat(400),
+        ),
+        { code: 'invalid_transcript' },
+      );
+    },
+  });
+  const event = f.events.find((e) => e.status === 'blocked');
+  assert.equal(event.message.length, 300);
+  assert.match(event.message, /Malformed cue/);
+  assert.doesNotMatch(
+    event.message,
+    /private-value|another-value|third-value|fourth-value|user:pass|\n/,
+  );
 });
 
 void test('the scheduling deadline stops new claims and drains in-flight jobs', async () => {

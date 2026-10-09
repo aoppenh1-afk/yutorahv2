@@ -34,7 +34,7 @@
     "operator": "node .worker-build/apps/worker/src/cli.js serve-operator",
     "transcription": "node scripts/transcription-control.mjs",
     "test:transcription-control": "node --test scripts/transcription-control.test.mjs",
-    "test:notes-vm": "node --test tests/notes-backup.test.mjs tests/notes-catalog-fetch.test.mjs tests/notes-catalog-vm.test.mjs tests/notes-pool.test.mjs tests/notes-package.test.mjs",
+    "test:notes-vm": "node --test tests/notes-backup.test.mjs tests/notes-catalog-fetch.test.mjs tests/notes-catalog-vm.test.mjs tests/notes-pool.test.mjs tests/notes-package.test.mjs tests/notes-transcript.test.mjs",
     "build:vercel": "DEPLOY_TARGET=vercel NITRO_PRESET=vercel vinext build",
     "data:maintain": "tsx scripts/maintain-data.ts",
     "test:maintenance": "tsx --test tests/data-maintenance.test.ts",

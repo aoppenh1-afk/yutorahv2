@@ -1,5 +1,20 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
+function errorMessage(error, secrets) {
+  let message = String(error.message ?? 'Unknown error');
+  for (const secret of secrets)
+    if (secret) message = message.replaceAll(String(secret), '[REDACTED]');
+  return message
+    .replace(/\b(?:Bearer|Basic)\s+\S+/gi, '[REDACTED]')
+    .replace(/https?:\/\/[^\s"'<>]+/gi, '[URL REDACTED]')
+    .replace(
+      /(["']?(?:password|passwd|secret|token|api[_-]?key|authorization|credential)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+      '$1[REDACTED]',
+    )
+    .replace(/\p{Cc}/gu, ' ')
+    .slice(0, 300);
+}
+
 /** One queue owner; each active job owns a separate transcript and ACP session. */
 export async function runNotesPool({
   queue,
@@ -13,12 +28,15 @@ export async function runNotesPool({
   log = (value) => console.log(JSON.stringify(value)),
   now = Date.now,
   sleep = (ms, signal) => delay(ms, undefined, { signal }),
+  secrets = [],
 }) {
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 6)
     throw new Error('Concurrency must be between 1 and 6.');
   const active = new Map();
   let processed = 0;
+  let retried = 0;
   let failed = false;
+  let stopped = false;
   let nextStartAt = 0;
   let nextPollAt = 0;
   const accept = ({ job, status, error }) => {
@@ -31,38 +49,68 @@ export async function runNotesPool({
     const code =
       error.code ??
       (error.status ? `database_${error.status}` : 'processing_failed');
-    if (/conflict|checksum|version/i.test(error.message ?? '')) {
+    const message = errorMessage(error, secrets);
+    if (
+      code === 'invalid_transcript' ||
+      /conflict|checksum|version/i.test(error.message ?? '')
+    ) {
       queue.blocked(job.id, code);
       processed++;
-      log({ id: job.id, status: 'blocked', code, active: active.size });
+      log({
+        id: job.id,
+        status: 'blocked',
+        code,
+        message,
+        active: active.size,
+      });
       return;
     }
+    const retryAfterMs = Number(error.retryAfterMs);
     const after = Math.max(
-      error.retryAfterMs ?? 0,
+      Number.isFinite(retryAfterMs) ? Math.max(0, retryAfterMs) : 0,
       Math.min(6 * 3600000, 60000 * 2 ** Math.min(job.attempts, 9)),
     );
     queue.retry(job.id, code, after);
+    retried++;
     log({
       id: job.id,
       status: 'retry',
       code,
+      message,
       retryAfterMs: after,
       active: active.size,
     });
     if (!signal.aborted) {
       // A shared cooldown prevents six lanes from hammering an exhausted provider.
-      nextStartAt = Math.max(nextStartAt, now() + after);
+      const status = Number(
+        error.status ?? error.statusCode ?? error.response?.status,
+      );
+      const providerCooldown =
+        code === 'quota_exhausted' ||
+        status === 429 ||
+        status === 503 ||
+        error.retryAfterMs != null ||
+        error.retryAfter != null ||
+        error.headers?.get?.('Retry-After') != null ||
+        error.response?.headers?.get?.('Retry-After') != null;
+      if (providerCooldown) {
+        nextStartAt = Math.max(nextStartAt, now() + after);
+        if (!follow) stopped = true;
+      }
       if (!follow) failed = true;
     }
   };
   try {
     while (true) {
+      // Bounded pilots count attempted retries against their limit, while a
+      // following queue can keep running until it reaches its terminal limit.
+      const settled = processed + (follow ? 0 : retried);
       const admitting =
-        !signal.aborted && !failed && processed < limit && now() < runUntil;
+        !signal.aborted && !stopped && settled < limit && now() < runUntil;
       let empty = false;
       if (
         admitting &&
-        processed + active.size < limit &&
+        settled + active.size < limit &&
         active.size < concurrency &&
         now() >= Math.max(nextStartAt, nextPollAt)
       ) {
@@ -93,7 +141,7 @@ export async function runNotesPool({
       const canStart =
         admitting &&
         active.size < concurrency &&
-        processed + active.size < limit &&
+        settled + active.size < limit &&
         (follow || !empty);
       const wakeAt = Math.min(
         admitting ? runUntil : Infinity,

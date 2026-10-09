@@ -16,12 +16,27 @@ transcript per job. Before every generation or repair request, ACP explicitly
 sets and confirms the free model, plan mode, and **high** thinking. It stops that
 request if any selection is unavailable or unconfirmed. Free slots refill
 independently as jobs finish; job starts are spaced two seconds apart. A shared
-cooldown stops new starts after provider/database failures while existing jobs
-finish. One coordinator owns SQLite; each job has its own ACP workspace/session
+cooldown stops new starts for quota exhaustion, HTTP 429/503, or Retry-After
+while existing jobs finish. Other errors back off only their own job; malformed
+transcripts are blocked with `invalid_transcript` without delaying other lanes.
+Official VTT cues are stable-sorted by start time, preserving text and cue ends.
+Missing headers, unreadable timings, reversed bounds, invalid UTF-8, and transcript
+size limits remain validation failures. Failure logs include a bounded message
+with credentials redacted. One coordinator owns SQLite; each job has its own ACP workspace/session
 and TiDB SDK connection. Already published notes are preserved.
 
 ## Verified on October 9, 2026
 
+- The transcript resilience upgrade requeued 1190881, 1190760, and 1191002 from
+  `vtt_out_of_order`; all three completed with the pinned free model and high
+  thinking. Independent TiDB readback matched their compressed local notes and
+  completed checkpoints, and temporary transcripts/workspaces were deleted.
+  Thirty parser/deployment checks and eight website transcript checks passed;
+  the opt-in live catalog test was skipped. Lint and TypeScript checks passed.
+  The original private bundle's reinstall path was checked for syntax and
+  idempotence. Runtime and consistent SQLite rollback copies are under the
+  state's `upgrades/` directory; `transcript-resilience-deployment.json` records
+  verification. The existing writer remained unchanged at mode 600.
 - Fresh shiur 1191069 generated on its first attempt at 06:15:52 UTC: 16,312 raw
   UTF-8 bytes and 6,487 gzip bytes. Independent TiDB readback decompressed to
   readable Markdown with a title, sections, and outline; it exactly matched the
