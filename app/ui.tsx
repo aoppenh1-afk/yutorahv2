@@ -222,6 +222,56 @@ export function Artwork({
     </span>
   );
 }
+// Some series art exists only as a 58×65 thumbnail, which blurs when stretched to a cover.
+const minCoverWidth = 200;
+// Series without artwork share this 50px RIETS placeholder GIF.
+const seriesPlaceholder =
+  'https://cdnyutorah.cachefly.net/_images/series/riets.gif';
+const mayHaveCoverArt = (image?: string) => !!image && !/\.gif$/i.test(image);
+const coverArtChecks = new Map<string, Promise<boolean>>();
+function hasCoverArt(image: string) {
+  let check = coverArtChecks.get(image);
+  if (!check) {
+    check = new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img.naturalWidth >= minCoverWidth);
+      img.onerror = () => resolve(false);
+      img.src = image;
+    });
+    coverArtChecks.set(image, check);
+  }
+  return check;
+}
+/** The first `count` series whose artwork is large enough for a cover, or null while checking. */
+export function useSeriesWithArt<T extends { id: number; image?: string }>(
+  candidates: T[],
+  count: number,
+) {
+  const [result, setResult] = useState<{ key: string; series: T[] } | null>(
+    null,
+  );
+  const unique = [...new Map(candidates.map((s) => [s.id, s])).values()].filter(
+    (s) => mayHaveCoverArt(s.image),
+  );
+  const key = unique.map((s) => s.id + (s.image || '')).join('|');
+  const latest = useRef(unique);
+  latest.current = unique;
+  useEffect(() => {
+    let live = true;
+    const series = latest.current;
+    void Promise.all(series.map((s) => hasCoverArt(s.image!))).then((ok) => {
+      if (live)
+        setResult({
+          key,
+          series: series.filter((_, i) => ok[i]).slice(0, count),
+        });
+    });
+    return () => {
+      live = false;
+    };
+  }, [key, count]);
+  return result?.key === key ? result.series : null;
+}
 export function SeriesCover({
   name,
   id,
@@ -231,21 +281,22 @@ export function SeriesCover({
   id: number;
   image?: string;
 }) {
-  const [failed, setFailed] = useState(false);
-  // Series without artwork share a 50px RIETS placeholder GIF.
-  const usable = !!image && !failed && !/\.gif$/i.test(image);
+  const [failures, setFailures] = useState(0);
+  const sources = [image, seriesPlaceholder].filter(Boolean);
+  const source = sources[failures];
   return (
     <span
-      className={`series-cover ${tone(id)} ${usable ? 'has-image' : ''}`}
+      className={`series-cover ${tone(id)} ${source ? 'has-image' : ''}`}
       aria-hidden="true"
     >
-      {usable ? (
+      {source ? (
         <img
-          src={image}
+          key={source}
+          src={source}
           alt=""
           loading="lazy"
           decoding="async"
-          onError={() => setFailed(true)}
+          onError={() => setFailures(failures + 1)}
         />
       ) : (
         <>

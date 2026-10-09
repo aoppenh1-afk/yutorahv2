@@ -18,6 +18,7 @@ import {
   SeriesCover,
   StatePanel,
   tone,
+  useSeriesWithArt,
 } from './ui';
 import { noFilters, type Filters } from '@/lib/search-filters';
 import {
@@ -86,6 +87,10 @@ export function MobileDiscover({
   const [query, setQuery] = useState('');
   const [feed, setFeed] = useState('recommended');
   const stats = learningStats(library.learningDays);
+  const shelfSeries = useSeriesWithArt(
+    [...(home?.series || []), ...(directory?.series || [])],
+    8,
+  );
   const entries = useMemo(() => {
     if (feed === 'trending') return trending;
     if (feed === 'recommended') return items;
@@ -418,11 +423,11 @@ export function MobileDiscover({
         </section>
       )}
 
-      {!!home?.series.length && (
+      {!!shelfSeries?.length && (
         <section className="m-section">
           {sectionTitle('Series', () => onNavigate('series'))}
           <div className="m-series">
-            {home.series.slice(0, 8).map((s) => (
+            {shelfSeries.map((s) => (
               <button
                 key={s.id}
                 onClick={() =>

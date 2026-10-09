@@ -43,6 +43,7 @@ import {
   ShiurRow,
   StatePanel,
   tone,
+  useSeriesWithArt,
 } from './ui';
 import { noFilters, type Filters } from '@/lib/search-filters';
 import { MobileDiscover } from './mobile-discover';
@@ -387,6 +388,10 @@ export function LearningHome(props: Props) {
     /^ten minute halacha$/i.test(s.name),
   );
   const pick = selectHomeFeature(home);
+  const shelfSeries = useSeriesWithArt(
+    [...(home?.series || []), ...(directory?.series || [])],
+    5,
+  );
   const hasInterests = !!(
     library.history.length ||
     library.saved.length ||
@@ -1313,7 +1318,7 @@ export function LearningHome(props: Props) {
                   </div>
                 </section>
               )}
-              {home && home.series.length > 0 && (
+              {!!shelfSeries?.length && (
                 <section className="discovery-section series-shelf-section">
                   {sectionHeading(
                     'Go deeper with a series',
@@ -1322,7 +1327,7 @@ export function LearningHome(props: Props) {
                     'All series',
                   )}
                   <div className="series-shelf">
-                    {home.series.slice(0, 5).map((s) => (
+                    {shelfSeries.map((s) => (
                       <article key={s.id}>
                         <button
                           onClick={() =>
