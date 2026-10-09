@@ -35,7 +35,7 @@ function client(behavior = 'normal') {
     20,
   );
 }
-void test('OpenCode selects and confirms Muse Free without Google authentication or audio support', async () => {
+void test('OpenCode selects and confirms Muse Free with high thinking', async () => {
   const c = client();
   try {
     await c.initialize();
@@ -104,6 +104,9 @@ for (const [behavior, code] of [
   ['missing_model', 'configuration'],
   ['missing_mode', 'configuration'],
   ['unconfirmed_model', 'configuration'],
+  ['missing_effort', 'configuration'],
+  ['unconfirmed_effort', 'configuration'],
+  ['changed_model', 'configuration'],
   ['quota', 'quota_exhausted'],
   ['auth', 'auth_required'],
   ['tool', 'off_task'],
@@ -160,6 +163,13 @@ void test('OpenCode runtime pins free helper calls, requires permission for tool
     assert.equal(config.model, FREE_NOTES_MODEL);
     assert.equal(config.small_model, FREE_NOTES_MODEL);
     assert.equal(config.agentModel, FREE_NOTES_MODEL);
+    assert.equal(notesAgentConfig().agent.plan.variant, 'high');
+    const effortSelection = events.find(
+      (event) =>
+        event.method === 'session/set_config_option' &&
+        event.configId === 'effort',
+    );
+    assert.equal(effortSelection.value, 'high');
     assert.equal(config.permission['*'], 'ask');
     assert.equal(config.permission.edit, 'deny');
     assert.ok(events.some((event) => event.method === 'session/delete'));

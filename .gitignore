@@ -48,3 +48,24 @@ next-env.d.ts
 /antigravity-runtime/
 **/acp_token.json
 /benchmarks/**/scratch/
+
+# Private notes-worker credentials, handoffs, and generated state
+**/writer.json
+*.zip
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db-wal
+*.db-shm
+*.vtt
+*.srt
+**/notes.md.gz
+**/transcripts/
+/notes/
+**/notes-state/
+**/yutorah-notes-vm/
+**/yutorah-notes-backup/
+**/note-verification.json
+**/pool-verification.json
+**/cron-verification.json

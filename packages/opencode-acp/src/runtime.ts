@@ -23,7 +23,7 @@ export type OpenCodeConfig = {
   version?: string;
 };
 export const openCodeIdentity = (config: OpenCodeConfig) =>
-  `opencode:${config.version ?? OPENCODE_VERSION}:notes-2`;
+  `opencode:${config.version ?? OPENCODE_VERSION}:notes-3-high`;
 
 type Value = Record<string, unknown>;
 const object = (value: unknown): Value =>
@@ -95,6 +95,17 @@ export class OpenCodeClient extends ACPClient {
     };
     await select('mode', 'plan');
     await select('model', model);
+    await select('effort', 'high');
+    for (const [id, value] of [
+      ['mode', 'plan'],
+      ['model', model],
+      ['effort', 'high'],
+    ])
+      if (
+        rows(result.configOptions).find((o) => o.id === id)?.currentValue !==
+        value
+      )
+        throw new Failure('configuration');
     return [model];
   }
   override async close(): Promise<void> {
@@ -124,6 +135,7 @@ export function notesAgentConfig() {
     agent: {
       plan: {
         model: FREE_NOTES_MODEL,
+        variant: 'high',
       },
     },
   };

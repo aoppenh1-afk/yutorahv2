@@ -22,6 +22,7 @@ if (process.argv[2] === 'session' && process.argv[3] === 'delete') {
 const model = 'opencode/muse-spark-1.3-contributor-free';
 let selectedModel = 'opencode/exo-free';
 let mode = 'build';
+let effort = 'minimal';
 const send = (value) =>
   process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...value }) + '\n');
 const record = (method, extra = {}) =>
@@ -33,6 +34,11 @@ const options = () => [
     options: [
       { value: behavior === 'missing_model' ? 'opencode/paid-model' : model },
     ],
+  },
+  {
+    id: 'effort',
+    currentValue: effort,
+    options: [{ value: behavior === 'missing_effort' ? 'minimal' : 'high' }],
   },
   {
     id: 'mode',
@@ -61,6 +67,13 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     if (request.params.configId === 'mode') mode = request.params.value;
     if (request.params.configId === 'model' && behavior !== 'unconfirmed_model')
       selectedModel = request.params.value;
+    if (
+      request.params.configId === 'effort' &&
+      behavior !== 'unconfirmed_effort'
+    )
+      effort = request.params.value;
+    if (request.params.configId === 'effort' && behavior === 'changed_model')
+      selectedModel = 'opencode/paid-model';
     result = { configOptions: options() };
   } else if (request.method === 'session/prompt') {
     if (behavior === 'quota' || behavior === 'auth') {
@@ -87,7 +100,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       return;
     }
     if (behavior === 'hang') return;
-    if (selectedModel !== model || mode !== 'plan') {
+    if (selectedModel !== model || mode !== 'plan' || effort !== 'high') {
       send({
         id: request.id,
         error: { code: 500, message: 'Model or mode was not pinned' },
