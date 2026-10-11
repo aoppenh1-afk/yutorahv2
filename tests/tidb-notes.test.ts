@@ -114,6 +114,47 @@ void test('a lost upload acknowledgement verifies the saved row without reading 
   assert.equal(writes, 1);
   assert.equal(reads, 1);
 });
+void test('a competing publication returns the verified existing note instead of blocking the job', async (t) => {
+  const candidate = await note('2170010');
+  const existing = await packNote({
+    shiurId: candidate.shiurId,
+    sourceHash: 'b'.repeat(64),
+    generatorVersion: 'previous-generator',
+    language: 'hebrewEnglish',
+    markdown: '# Existing verified note',
+  });
+  const queries: string[] = [];
+  t.mock.method(
+    globalThis,
+    'fetch',
+    async (_url: unknown, init: RequestInit) => {
+      const query = sqlQuery(init);
+      queries.push(query);
+      if (query.startsWith('INSERT')) throw new Error('Duplicate entry');
+      return wire(existing);
+    },
+  );
+  const published = await new TiDBNotesStore(credential).publish(candidate);
+  assert.equal(published?.notesHash, existing.notesHash);
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every((query) => /^(SELECT|INSERT)/.test(query)));
+});
+void test('a duplicate cannot complete against a corrupt published note', async (t) => {
+  const candidate = await note('2170011');
+  t.mock.method(
+    globalThis,
+    'fetch',
+    async (_url: unknown, init: RequestInit) => {
+      if (sqlQuery(init).startsWith('INSERT'))
+        throw new Error('Duplicate entry');
+      return wire({ ...candidate, notesHash: 'b'.repeat(64) });
+    },
+  );
+  await assert.rejects(
+    new TiDBNotesStore(credential).publish(candidate),
+    /checksum/,
+  );
+});
 void test('simultaneous and repeated website reads share one TiDB lookup, including ETags', async (t) => {
   environment(t);
   const saved = await note('2170003');

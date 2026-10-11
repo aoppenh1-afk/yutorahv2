@@ -145,7 +145,7 @@ export class TiDBNotesStore {
       gzip: row.notes_gzip,
     };
   }
-  /** An insert-only writer cannot replace published notes on a stale retry. */
+  /** First verified publication wins; return the canonical note on stale retries. */
   async publish(note: SavedNote) {
     await unpackNote(note);
     const binary = (value: string) =>
@@ -169,23 +169,11 @@ export class TiDBNotesStore {
       // Resolve duplicate inserts and lost acknowledgements by reading durable state.
       saved = await this.get(note.shiurId).catch(() => null);
       if (!saved) throw error;
-      if (
-        saved.sourceHash !== note.sourceHash ||
-        saved.notesHash !== note.notesHash ||
-        saved.generatorVersion !== note.generatorVersion
-      )
-        throw new Error(
-          'Published notes conflict; explicit replacement is required.',
-        );
     }
     saved ??= await this.get(note.shiurId);
-    if (
-      !saved ||
-      saved.sourceHash !== note.sourceHash ||
-      saved.notesHash !== note.notesHash ||
-      saved.generatorVersion !== note.generatorVersion ||
-      (await unpackNote(saved)) !== (await unpackNote(note))
-    )
+    if (!saved || saved.shiurId !== note.shiurId)
       throw new Error('Notes publication was not confirmed.');
+    await unpackNote(saved);
+    return saved;
   }
 }

@@ -29,7 +29,9 @@ export async function durableWrite(path: string, data: string | Uint8Array) {
     await directory.close();
   }
 }
-export type NotesPublisher = Pick<TiDBNotesStore, 'get' | 'publish'>;
+export type NotesPublisher = Pick<TiDBNotesStore, 'get'> & {
+  publish: (note: SavedNote) => Promise<SavedNote | void>;
+};
 export class NotesPipeline {
   constructor(
     readonly config: {
@@ -57,6 +59,8 @@ export class NotesPipeline {
     await this.config.cleanupRuntime?.(join(temporary, 'acp'));
     const published = await store.get(job.id);
     if (published) {
+      if (published.shiurId !== job.id)
+        throw new Error('Notes publication was not confirmed.');
       await unpackNote(published);
       await this.saveBackup(backup, published);
       queue.completed(job.id, published.notesHash);
@@ -131,13 +135,58 @@ export class NotesPipeline {
       await this.config.cleanupRuntime?.(join(temporary, 'acp'));
     }
     signal.throwIfAborted();
-    await store.publish(note);
+    const canonical = await store.publish(note);
+    if (canonical) {
+      if (canonical.shiurId !== job.id)
+        throw new Error('Notes publication was not confirmed.');
+      await unpackNote(canonical);
+      if (
+        canonical.notesHash !== note.notesHash ||
+        canonical.sourceHash !== note.sourceHash ||
+        canonical.generatorVersion !== note.generatorVersion ||
+        canonical.createdAtMs !== note.createdAtMs ||
+        canonical.language !== note.language
+      )
+        await this.saveBackup(backup, canonical);
+    }
     // A durable completion checkpoint precedes source deletion. publish verifies hashes.
-    queue.completed(job.id, note.notesHash);
+    queue.completed(job.id, canonical?.notesHash ?? note.notesHash);
     await rm(temporary, { recursive: true, force: true });
-    return 'completed';
+    return canonical && canonical.notesHash !== note.notesHash
+      ? 'already_published'
+      : 'completed';
   }
   private async saveBackup(path: string, note: SavedNote) {
+    // Keep a generated alternative before adopting a different published note.
+    const previous = await readFile(join(path, 'metadata.json'), 'utf8')
+      .then(JSON.parse)
+      .catch((e: NodeJS.ErrnoException) => {
+        if (e.code === 'ENOENT') return null;
+        throw e;
+      });
+    if (previous && previous.notesHash !== note.notesHash) {
+      const alternative: SavedNote = {
+        ...previous,
+        gzip: new Uint8Array(await readFile(join(path, 'notes.md.gz'))),
+      };
+      if (alternative.shiurId !== note.shiurId)
+        throw new Error('Backup shiur conflict.');
+      await unpackNote(alternative);
+      const archive = join(path, 'unpublished', alternative.notesHash);
+      await mkdir(archive, { recursive: true, mode: 0o700 });
+      const { gzip, ...metadata } = alternative;
+      await durableWrite(join(archive, 'notes.md.gz'), gzip);
+      await durableWrite(
+        join(archive, 'metadata.json'),
+        JSON.stringify(metadata),
+      );
+      const directory = await open(join(path, 'unpublished'), 'r');
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
+    }
     const { gzip, ...metadata } = note;
     await durableWrite(join(path, 'notes.md.gz'), gzip);
     await durableWrite(join(path, 'metadata.json'), JSON.stringify(metadata));

@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { NotesQueue, type NoteJob } from '../packages/notes-only/src/queue';
-import { NotesPipeline } from '../packages/notes-only/src/pipeline';
+import {
+  NotesPipeline,
+  durableWrite,
+} from '../packages/notes-only/src/pipeline';
 import { packNote, unpackNote, type SavedNote } from '../lib/tidb-notes-store';
 import { runNotesPool } from '../deploy/notes-only/pool.mjs';
 const vtt =
@@ -189,3 +192,79 @@ void test('already published notes skip source and generation; missing transcrip
     await rm(root, { recursive: true, force: true });
   }
 });
+for (const alreadyPublished of [false, true])
+  void test(`a ${alreadyPublished ? 'preexisting' : 'competing'} published note completes the queue and preserves the generated alternative`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'notes-reconcile-'));
+    const queue = new NotesQueue(join(root, 'queue.sqlite'));
+    const candidate = await packNote({
+      shiurId: '1190357',
+      sourceHash: 'a'.repeat(64),
+      generatorVersion: 'new',
+      language: 'hebrewEnglish',
+      markdown,
+    });
+    const canonical = await packNote({
+      shiurId: candidate.shiurId,
+      sourceHash: 'b'.repeat(64),
+      generatorVersion: 'old',
+      language: 'hebrewEnglish',
+      markdown: '# Published notes\n\nExisting complete outline.',
+    });
+    const backup = join(root, 'notes', candidate.shiurId);
+    await mkdir(backup, { recursive: true });
+    const { gzip, ...metadata } = candidate;
+    await durableWrite(join(backup, 'notes.md.gz'), gzip);
+    await durableWrite(join(backup, 'metadata.json'), JSON.stringify(metadata));
+    try {
+      queue.enqueue([{ id: candidate.shiurId }]);
+      const pipeline = new NotesPipeline({
+        root,
+        queue,
+        store: {
+          get: async () => (alreadyPublished ? canonical : null),
+          publish: async () => canonical,
+        },
+        generatorVersion: 'new',
+        language: 'hebrewEnglish',
+        signal: new AbortController().signal,
+        fetchTranscript: async () => assert.fail('Unnecessary download'),
+        generate: async () => assert.fail('Unnecessary AI call'),
+      });
+      assert.equal(await pipeline.process(queue.claim()!), 'already_published');
+      const savedMetadata = JSON.parse(
+        await readFile(join(backup, 'metadata.json'), 'utf8'),
+      );
+      assert.equal(savedMetadata.notesHash, canonical.notesHash);
+      assert.equal(
+        await unpackNote({
+          ...savedMetadata,
+          gzip: new Uint8Array(await readFile(join(backup, 'notes.md.gz'))),
+        }),
+        '# Published notes\n\nExisting complete outline.',
+      );
+      const archived = join(backup, 'unpublished', candidate.notesHash);
+      assert.deepEqual(
+        await readFile(join(archived, 'notes.md.gz')),
+        Buffer.from(candidate.gzip),
+      );
+      assert.equal(
+        JSON.parse(await readFile(join(archived, 'metadata.json'), 'utf8'))
+          .notesHash,
+        candidate.notesHash,
+      );
+      assert.deepEqual(
+        {
+          ...queue.db
+            .prepare('SELECT status,notes_hash,error FROM jobs WHERE id=?')
+            .get(candidate.shiurId),
+        },
+        { status: 'completed', notes_hash: canonical.notesHash, error: null },
+      );
+      await assert.rejects(stat(join(root, 'jobs', candidate.shiurId)), {
+        code: 'ENOENT',
+      });
+    } finally {
+      queue.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });

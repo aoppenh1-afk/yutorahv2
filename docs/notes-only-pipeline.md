@@ -59,7 +59,7 @@ second between pages. Run further catalog batches while the worker is stopped.
 One test page reported 434,295 catalog records; this does not establish how many
 have transcripts. Missing transcripts are eligible for another check after seven
 days. The portable base CLI processes one job at a time. The managed VM runner adds
-six concurrent jobs with pacing and shared backoff for provider or database
+up to ten concurrent jobs with pacing and shared backoff for provider or database
 failures. Its installation and verification are documented in
 [notes-only-vm.md](notes-only-vm.md). `status` can run while the worker is active.
 
@@ -79,9 +79,11 @@ fails or its acknowledgement is lost, it compares hashes and retries from the
 backup without repeating generation. It checkpoints completion before deleting
 temporary source material.
 
-The database writer has SELECT and INSERT privileges only. Existing notes are
-immutable: conflicting source, generator, or output hashes require an explicit
-administrative replacement. This prevents stale retries from overwriting notes.
+The database writer has SELECT and INSERT privileges only. The first verified
+published note wins, including when another writer publishes during generation.
+The worker adopts its hash and completes the job. A different locally generated
+note is archived under `notes/<id>/unpublished/<hash>` in both local backups.
+Replacing a published note still requires an administrative writer.
 
 To restore local backups to the configured database:
 
@@ -120,7 +122,7 @@ A normal new job makes three targeted SQL calls: look up its shiur ID, insert
 that shiur's compressed notes, and read the row back to verify publication.
 Completion does not trigger a library sync, table scan, or database export.
 Backups scan local compressed files and make no database calls. Already completed
-jobs remain checkpointed in SQLite. Six VM workers share a cooldown after quota
+jobs remain checkpointed in SQLite. Up to ten VM workers share a cooldown after quota
 or provider errors and drain active jobs before stopping new claims.
 
 The website coalesces simultaneous requests for the same shiur and limits

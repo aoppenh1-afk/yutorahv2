@@ -23,7 +23,26 @@ Official VTT cues are stable-sorted by start time, preserving text and cue ends.
 Missing headers, unreadable timings, reversed bounds, invalid UTF-8, and transcript
 size limits remain validation failures. Failure logs include a bounded message
 with credentials redacted. One coordinator owns SQLite; each job has its own ACP workspace/session
-and TiDB SDK connection. Already published notes are preserved.
+and TiDB SDK connection. The first verified published note wins, including when
+another writer publishes during generation. A different generated note is retained
+under `notes/<id>/unpublished/<hash>` in both local backups; the queue completes
+against the published hash without another AI call.
+
+## Verified on October 10, 2026
+
+- Lowered the admission reserve from 3 GiB to 1 GiB and extended processing
+  windows from thirty minutes to six hours. After installation, all ten jobs
+  were generating with the pinned free model and high thinking; no memory
+  admission pauses occurred during refill. Sustained hourly throughput has
+  not yet been measured.
+- Reconciled all nineteen publication conflicts against independently verified
+  existing TiDB notes with no AI calls. All 1,621 previously completed
+  checkpoints retained their hashes and attempt counts. The second local backup
+  verified 1,640 canonical notes and preserved all nineteen generated alternatives.
+- Forty-three pipeline tests, TypeScript, targeted lint, and shell checks passed.
+  The optional live catalog regression was skipped. Runtime, queue, and note
+  rollback copies and reconciliation evidence are in the private state's
+  `upgrades/throughput-632z2h4_` directory. Cron restarts are enabled.
 
 ## Verified on October 9, 2026
 
@@ -99,17 +118,18 @@ lock. The supplied bundle SHA-256 is
 `eae8478d6d46dab7319b50c5f9ab00f67e50518f9ec3c50281062fd2a63e04e3`.
 
 The supervisor discovers up to 20 pages while the worker is stopped, then runs
-`run --all --follow --concurrency 10 --max-runtime-ms 1800000`. The runtime limit
+`run --all --follow --concurrency 10 --max-runtime-ms 21600000`. The six-hour runtime limit
 stops admitting jobs, drains active jobs, and bounds idle/backoff waits, so another
 discovery batch can run. Bounded pilots reserve slots against `--limit`, avoiding
 extra jobs beyond that limit. `--concurrency` accepts 1 through 10 and defaults to 6;
 the installed supervisor explicitly selects 10.
-It also passes `--min-free-memory-mib 3072`: another agent starts only when the
-host reports at least 3 GiB available RAM. Active notes finish normally while
+It also passes `--min-free-memory-mib 1024`: another agent starts only when the
+host reports at least 1 GiB available RAM. Active notes finish normally while
 new claims wait, and admission resumes automatically as memory becomes available.
 This keeps the configured ceiling at ten while allowing fewer simultaneous
 agents when the VM's other applications consume the headroom. Memory waits and
-resumes appear in the progress log.
+resumes appear in the progress log. The longer processing window avoids draining
+the entire pool every thirty minutes; catalog discovery runs between windows.
 Each completed cycle verifies the second local backup, then waits 30 seconds.
 Cron checks for a stopped supervisor every minute, starts it when cron starts
 via `@reboot`, and runs an extra backup hourly at minute 15. Existing crontab
@@ -141,15 +161,16 @@ The primary durable compressed copies are `notes/<id>/notes.md.gz` and
 ```
 
 `./backup.sh` verifies decompression, length, and SHA-256 before copying. It syncs
-files and directories, rejects conflicting note hashes, skips unfinished notes,
+files and directories, retains archived alternatives when a published note is adopted,
+rejects unexplained conflicting note hashes, skips unfinished notes,
 and avoids rewriting unchanged copies. It never copies credentials, transcripts,
 ACP state, or prompts. `status.json` in the backup directory records the last
 successful verification. This second directory is on the same VM disk, not an
 off-VM backup.
 
 To restore, copy verified note directories back under the state's `notes` folder,
-then run `./run.sh restore --limit 20`. Existing identical database rows are
-accepted; conflicting published notes require explicit administrative replacement.
+then run `./run.sh restore --limit 20`. Existing verified database rows are
+accepted and preserved; replacing a published note still requires an administrative writer.
 
 ## Limits and separate website work
 

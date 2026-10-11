@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFile as execFileCallback } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -81,5 +81,70 @@ void test('an unfinished note is skipped until its durable metadata exists', asy
   await assert.rejects(
     readFile(join(destination, '1190000', 'metadata.json')),
     { code: 'ENOENT' },
+  );
+});
+void test('reconciliation backs up the canonical note and preserves its unpublished alternative', async (t) => {
+  const { state, destination, note, metadata } = await fixture(t);
+  await execFile(process.execPath, [backup, state, destination]);
+  const archive = join(note, 'unpublished', metadata.notesHash);
+  await mkdir(archive, { recursive: true });
+  for (const name of ['notes.md.gz', 'metadata.json'])
+    await cp(join(note, name), join(archive, name));
+  const raw = Buffer.from('# Canonical published notes');
+  const canonical = {
+    ...metadata,
+    rawBytes: raw.length,
+    notesHash: createHash('sha256').update(raw).digest('hex'),
+  };
+  await writeFile(join(note, 'notes.md.gz'), gzipSync(raw));
+  await writeFile(join(note, 'metadata.json'), JSON.stringify(canonical));
+  await execFile(process.execPath, [backup, state, destination]);
+  assert.deepEqual(
+    await readFile(join(destination, '1190833', 'notes.md.gz')),
+    gzipSync(raw),
+  );
+  assert.deepEqual(
+    await readFile(
+      join(
+        destination,
+        '1190833',
+        'unpublished',
+        metadata.notesHash,
+        'notes.md.gz',
+      ),
+    ),
+    await readFile(join(archive, 'notes.md.gz')),
+  );
+  await execFile(process.execPath, [backup, state, destination]);
+  // A fresh destination also receives alternatives.
+  const fresh = join(destination, '..', 'fresh');
+  await execFile(process.execPath, [backup, state, fresh]);
+  assert.deepEqual(
+    await readFile(
+      join(fresh, '1190833', 'unpublished', metadata.notesHash, 'notes.md.gz'),
+    ),
+    await readFile(join(archive, 'notes.md.gz')),
+  );
+});
+void test('a different valid note without an archived previous copy cannot replace a backup', async (t) => {
+  const { state, destination, note, metadata } = await fixture(t);
+  await execFile(process.execPath, [backup, state, destination]);
+  const original = await readFile(join(destination, '1190833', 'notes.md.gz'));
+  const raw = Buffer.from('# Unexplained replacement');
+  await writeFile(join(note, 'notes.md.gz'), gzipSync(raw));
+  await writeFile(
+    join(note, 'metadata.json'),
+    JSON.stringify({
+      ...metadata,
+      rawBytes: raw.length,
+      notesHash: createHash('sha256').update(raw).digest('hex'),
+    }),
+  );
+  await assert.rejects(
+    execFile(process.execPath, [backup, state, destination]),
+  );
+  assert.deepEqual(
+    await readFile(join(destination, '1190833', 'notes.md.gz')),
+    original,
   );
 });

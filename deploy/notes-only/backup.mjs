@@ -22,6 +22,36 @@ async function durableCopy(filename, bytes) {
   await rename(temporary, filename);
 }
 
+function verifyNote(metadataBytes, compressed, id) {
+  const metadata = JSON.parse(metadataBytes.toString('utf8'));
+  const raw = gunzipSync(compressed, { maxOutputLength: 1024 * 1024 });
+  if (
+    metadata.shiurId !== id ||
+    raw.length !== metadata.rawBytes ||
+    createHash('sha256').update(raw).digest('hex') !== metadata.notesHash
+  )
+    throw new Error('Note backup failed checksum verification.');
+  return metadata;
+}
+
+async function copyPair(target, metadataBytes, compressed) {
+  await mkdir(target, { recursive: true, mode: 0o700 });
+  await durableCopy(join(target, 'notes.md.gz'), compressed);
+  await durableCopy(join(target, 'metadata.json'), metadataBytes);
+  const directory = await open(target, 'r');
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
+  const parent = await open(join(target, '..'), 'r');
+  try {
+    await parent.sync();
+  } finally {
+    await parent.close();
+  }
+}
+
 let copied = 0;
 let pending = 0;
 let unchanged = 0;
@@ -38,46 +68,71 @@ for (const id of await readdir(join(state, 'notes'))) {
     }
     throw error;
   }
-  const metadata = JSON.parse(metadataBytes.toString('utf8'));
   const compressed = await readFile(join(source, 'notes.md.gz'));
-  const raw = gunzipSync(compressed, { maxOutputLength: 1024 * 1024 });
-  if (
-    metadata.shiurId !== id ||
-    raw.length !== metadata.rawBytes ||
-    createHash('sha256').update(raw).digest('hex') !== metadata.notesHash
-  )
-    throw new Error('Note backup failed checksum verification.');
+  const metadata = verifyNote(metadataBytes, compressed, id);
   const target = join(destination, id);
   await mkdir(target, { recursive: true, mode: 0o700 });
+  const alternatives = new Set();
+  for (const hash of await readdir(join(source, 'unpublished')).catch(
+    (error) => {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    },
+  )) {
+    if (!/^[a-f0-9]{64}$/.test(hash))
+      throw new Error('Invalid unpublished note hash.');
+    const archive = join(source, 'unpublished', hash);
+    const archiveMetadata = await readFile(join(archive, 'metadata.json'));
+    const archiveGzip = await readFile(join(archive, 'notes.md.gz'));
+    if (verifyNote(archiveMetadata, archiveGzip, id).notesHash !== hash)
+      throw new Error('Unpublished note failed checksum verification.');
+    const archiveTarget = join(target, 'unpublished', hash);
+    const oldMetadata = await readFile(
+      join(archiveTarget, 'metadata.json'),
+    ).catch((error) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    const oldGzip = oldMetadata
+      ? await readFile(join(archiveTarget, 'notes.md.gz'))
+      : null;
+    if (oldMetadata && verifyNote(oldMetadata, oldGzip, id).notesHash !== hash)
+      throw new Error(
+        'Existing unpublished backup conflicts with current notes.',
+      );
+    if (!oldMetadata?.equals(archiveMetadata) || !oldGzip?.equals(archiveGzip))
+      await copyPair(archiveTarget, archiveMetadata, archiveGzip);
+    alternatives.add(hash);
+  }
   const previous = await readFile(join(target, 'metadata.json')).catch(
     (error) => {
       if (error.code === 'ENOENT') return null;
       throw error;
     },
   );
-  if (
+  const changed =
     previous &&
-    JSON.parse(previous.toString('utf8')).notesHash !== metadata.notesHash
-  )
-    throw new Error('Existing backup conflicts with current notes.');
+    JSON.parse(previous.toString('utf8')).notesHash !== metadata.notesHash;
   const previousGzip = previous
     ? await readFile(join(target, 'notes.md.gz')).catch((error) => {
         if (error.code === 'ENOENT') return null;
         throw error;
       })
     : null;
+  if (changed) {
+    // Reconciliation may adopt the database note only after the old generated
+    // note has been verified and durably archived in this second backup too.
+    if (
+      !previousGzip ||
+      !alternatives.has(verifyNote(previous, previousGzip, id).notesHash)
+    )
+      throw new Error('Existing backup conflicts with current notes.');
+  }
   if (previous?.equals(metadataBytes) && previousGzip?.equals(compressed)) {
     unchanged++;
     continue;
   }
-  await durableCopy(join(target, 'notes.md.gz'), compressed);
-  await durableCopy(join(target, 'metadata.json'), metadataBytes);
-  const directory = await open(target, 'r');
-  try {
-    await directory.sync();
-  } finally {
-    await directory.close();
-  }
+  await copyPair(target, metadataBytes, compressed);
   copied++;
 }
 await durableCopy(
