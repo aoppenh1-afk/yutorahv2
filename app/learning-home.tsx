@@ -428,7 +428,7 @@ export function LearningHome(props: Props) {
             onPlay={onPlay}
             onDetails={onDetails}
             onTeacher={(s) =>
-              void onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+              onSearch('', { ...noFilters, teacher: String(s.teacherId) })
             }
             onSave={onSave}
             saved={savedIds.has(s.id)}
@@ -870,7 +870,7 @@ export function LearningHome(props: Props) {
                       onPlay={(s) => onPlay(s, h.seconds)}
                       onDetails={onDetails}
                       onTeacher={(s) =>
-                        void onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+                        onSearch('', { ...noFilters, teacher: String(s.teacherId) })
                       }
                       onSave={onSave}
                       onQueue={onQueue}
