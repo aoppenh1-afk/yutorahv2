@@ -1158,6 +1158,103 @@ void test('player controls stop playback and the phone dialog stays inside the b
         }
       });
     }
+    for (const viewport of [
+      { width: 320, height: 568 },
+      { width: 390, height: 844 },
+      { width: 768, height: 844 },
+      { width: 1440, height: 900 },
+    ]) {
+      await t.test(
+        `fullscreen controls and speed at ${viewport.width}px`,
+        async () => {
+          const { context, page } = await openPlayer(viewport);
+          const desktop = viewport.width >= 768;
+          try {
+            const open = page.getByRole('button', {
+              name: desktop
+                ? 'Open fullscreen player'
+                : 'Expand player controls',
+              exact: true,
+            });
+            await open.click();
+            const dialog = page.getByRole('dialog');
+            await assertInViewport(dialog, viewport);
+            const controls = dialog.locator('.now-playing-actions');
+            await controls.scrollIntoViewIfNeeded();
+            const alignment = await controls.evaluate((row) => {
+              const buttons = [...row.querySelectorAll(':scope > button')].map(
+                (button) => button.getBoundingClientRect(),
+              );
+              return {
+                widths: buttons.map((r) => r.width),
+                centers: buttons.map((r) => r.y + r.height / 2),
+                heights: buttons.map((r) => r.height),
+                text: row.textContent,
+              };
+            });
+            assert.ok(Math.abs(alignment.widths[0] - alignment.widths[1]) < 1);
+            assert.ok(
+              Math.max(...alignment.centers) - Math.min(...alignment.centers) <
+                1,
+            );
+            assert.ok(alignment.heights.every((height) => height >= 44));
+            assert.match(alignment.text, /Details/);
+            assert.doesNotMatch(alignment.text, /Notes/);
+            await dialog
+              .getByRole('combobox', { name: 'Playback speed' })
+              .click();
+            const menu = page.locator('.playback-speed-menu');
+            await assertInViewport(menu, viewport);
+            assert.equal(
+              await menu.evaluate((el) => getComputedStyle(el).backgroundColor),
+              'rgb(24, 24, 27)',
+            );
+            await page
+              .getByRole('option', { name: '1.5×', exact: true })
+              .click();
+            await page.waitForFunction(
+              () => document.querySelector('audio').playbackRate === 1.5,
+            );
+            assert.equal(
+              await dialog
+                .getByRole('combobox', { name: 'Playback speed' })
+                .locator('[data-slot=select-value]')
+                .textContent(),
+              '1.5× speed',
+            );
+            await dialog
+              .getByRole('combobox', { name: 'Playback speed' })
+              .click();
+            await page.waitForFunction(
+              () =>
+                document.activeElement?.getAttribute('role') === 'option' &&
+                document.activeElement.textContent === '1.5×',
+            );
+            await page.keyboard.press('ArrowDown');
+            await page.keyboard.press('Enter');
+            await page.waitForFunction(
+              () => document.querySelector('audio').playbackRate === 1.75,
+            );
+            await page.keyboard.press('Escape');
+            await dialog.waitFor({ state: 'hidden' });
+            assert.equal(
+              await page.locator('audio').evaluate((audio) => audio.paused),
+              false,
+            );
+            assert.equal(
+              await open.evaluate(
+                (button) => button === document.activeElement,
+              ),
+              true,
+            );
+            await open.click();
+            await closeAndVerify(page);
+          } finally {
+            await context.close();
+          }
+        },
+      );
+    }
     await t.test(
       'official transcripts seek audio and read hosted notes without notes polling',
       async () => {

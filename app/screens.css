@@ -1816,13 +1816,58 @@
   justify-content: flex-end;
   gap: 4px;
 }
-.player-options .filter-select,
-.now-playing-actions .filter-select {
+.playback-speed-trigger {
   min-height: 32px !important;
   background: rgba(255, 255, 255, 0.08) !important;
   border-color: transparent !important;
   color: #fff !important;
   font-variant-numeric: tabular-nums;
+  border-radius: 999px;
+  padding: 0 12px;
+  font-weight: 600;
+}
+.playback-speed-trigger svg {
+  color: rgba(255, 255, 255, 0.65);
+}
+.playback-speed-trigger:hover,
+.playback-speed-trigger[data-popup-open] {
+  background: rgba(255, 255, 255, 0.16) !important;
+}
+[data-slot='select-content'].playback-speed-menu {
+  width: 184px;
+  padding: 6px;
+  color: var(--on-night);
+  background: var(--night-2);
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4) !important;
+}
+.playback-speed-menu [data-slot='select-label'] {
+  padding: 8px 10px 10px;
+  color: var(--on-night-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+.playback-speed-menu [data-slot='select-item'] {
+  min-height: 40px;
+  padding-left: 10px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.playback-speed-menu [data-slot='select-item'][data-selected] {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.playback-speed-menu [data-slot='select-item'][data-highlighted] {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+.playback-speed-menu [data-slot='select-item']:focus * {
+  color: inherit;
+}
+.playback-speed-menu small {
+  margin-left: auto;
+  color: var(--on-night-2);
+  font-size: 12px;
 }
 .volume-control {
   display: flex;
@@ -1878,7 +1923,8 @@
 
 @media (max-width: 1240px) {
   .player:not(.mobile-miniplayer) {
-    grid-template-columns: minmax(180px, 1fr) minmax(300px, 1.4fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 1.4fr) auto;
+    gap: 16px;
   }
   .volume-control {
     display: none;
@@ -1895,7 +1941,7 @@
     grid-column: 1 / -1;
     grid-row: 2;
   }
-  .player-options .filter-select,
+  .player-options .playback-speed-trigger,
   .player-notes {
     display: none !important;
   }
@@ -2157,23 +2203,30 @@
   box-shadow: 0 20px 40px -14px rgba(0, 0, 0, 0.7);
 }
 .now-playing-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
   margin-top: clamp(16px, 3.5dvh, 30px);
 }
 .now-playing-actions > button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  min-height: 40px;
-  padding: 0 16px;
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  min-height: 44px !important;
+  padding: 0 10px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
   font-size: 13.5px;
   font-weight: 600;
+}
+.now-playing-actions [data-slot='select-value'] {
+  flex: initial;
 }
 .now-playing-actions > button:last-child {
   width: 44px;
@@ -2192,6 +2245,56 @@
 }
 .now-playing-volume [data-slot='slider'] {
   flex: 1;
+}
+
+@media (min-width: 768px) {
+  .desktop-now-playing {
+    display: grid !important;
+    grid-template-columns: minmax(220px, 380px) minmax(0, 480px);
+    grid-template-rows: auto 1fr auto auto auto auto 1fr;
+    justify-content: center;
+    column-gap: clamp(32px, 6vw, 96px) !important;
+    padding: 32px clamp(32px, 5vw, 80px) !important;
+  }
+  .desktop-now-playing .now-playing-top {
+    grid-column: 1 / -1;
+  }
+  .desktop-now-playing .now-playing-portrait {
+    grid-column: 1;
+    grid-row: 2 / 8;
+    align-self: center;
+    width: min(100%, 46dvh);
+    margin: 32px auto;
+    border-radius: 36px;
+  }
+  .desktop-now-playing .now-playing-title {
+    grid-column: 2;
+    grid-row: 3;
+  }
+  .desktop-now-playing .now-playing-title [data-slot='dialog-title'] {
+    font-size: clamp(28px, 3vw, 42px) !important;
+    line-height: 1.12;
+  }
+  .desktop-now-playing .now-playing-seek {
+    grid-column: 2;
+    grid-row: 4;
+  }
+  .desktop-now-playing .now-playing-transport {
+    grid-column: 2;
+    grid-row: 5;
+  }
+  .desktop-now-playing .now-playing-actions {
+    grid-column: 2;
+    grid-row: 6;
+  }
+  .desktop-now-playing .now-playing-volume {
+    grid-column: 2;
+    grid-row: 7;
+    align-self: start;
+  }
+  .desktop-now-playing .now-playing-error {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 767px) {
