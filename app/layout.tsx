@@ -17,7 +17,15 @@ export const metadata: Metadata = {
   title: 'YUTorah | The Torah Library',
   description:
     'Listen and learn from the YUTorah library. Search shiurim by topic, teacher, series and more. Save your learning and pick up where you left off.',
-  icons: { icon: '/images/yutorah-shield.png' },
+  icons: {
+    icon: '/images/yutorah-shield.png',
+    apple: {
+      url: '/apple-touch-icon.png',
+      sizes: '180x180',
+      type: 'image/png',
+    },
+  },
+  appleWebApp: { title: 'YUTorah' },
 };
 export const viewport: Viewport = {
   width: 'device-width',
