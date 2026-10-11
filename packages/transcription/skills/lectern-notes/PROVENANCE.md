@@ -1,7 +1,7 @@
 # Upstream provenance
 
-Copied verbatim from Lectern commit `1b1032f96039aaac63261afc84a86cd20ce63867`.
+Copied verbatim from Lectern commit `38a481e03ea19884a0b23bd033205f44d4e878ba`.
 
-https://github.com/aoppenh1-afk/Lectern/blob/1b1032f96039aaac63261afc84a86cd20ce63867/.agents/skills/lectern-notes/SKILL.md
+https://github.com/aoppenh1-afk/Lectern/blob/38a481e03ea19884a0b23bd033205f44d4e878ba/.agents/skills/lectern-notes/SKILL.md
 
 The worker supplies this complete contract inline to Antigravity.

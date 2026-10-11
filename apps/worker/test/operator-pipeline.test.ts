@@ -101,8 +101,7 @@ void test('notes validation and one repair preserve the full source and copied c
   assert.ok(requests[1].includes(saved));
   assert.match(requests[2], /<draft-notes>/);
   assert.ok(
-    notesViolations('# Test\n\n## Test\n\n- A\n  - B', 'source', 'english')
-      .length,
+    notesViolations('# Test\n\n## Test\n\n- A\n  - B', 'source').length,
   );
   await assert.rejects(
     generateNotes({

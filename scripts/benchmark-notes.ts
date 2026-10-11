@@ -292,7 +292,7 @@ if (!providers.includes('prepare')) {
           words: markdown ? markdown.split(/\s+/).length : 0,
           hebrewWords: markdown.match(/[\u0590-\u05ff]+/g)?.length ?? 0,
           violations: markdown
-            ? notesViolations(markdown, source.text, profile.language)
+            ? notesViolations(markdown, source.text)
             : null,
           notesFile: markdown ? `${key}-notes.md` : null,
         };

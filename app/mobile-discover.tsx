@@ -145,7 +145,7 @@ export function MobileDiscover({
           onPlay={onPlay}
           onDetails={onDetails}
           onTeacher={(s) =>
-            void onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+            onSearch('', { ...noFilters, teacher: String(s.teacherId) })
           }
           onSave={onSave}
           saved={library.saved.some((v) => v.id === s.id)}
