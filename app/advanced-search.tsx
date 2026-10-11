@@ -279,7 +279,7 @@ export function AdvancedSearch({
             type="button"
             className="text-button"
             onClick={() => {
-              setDraft({ ...noFilters });
+              setDraft({ ...noFilters, resolved: filters.resolved });
               setError('');
             }}
           >

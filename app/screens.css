@@ -367,6 +367,31 @@
   font-size: 13px;
   color: var(--ink-2);
 }
+.search-query-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 18px;
+  row-gap: 6px;
+  margin-top: 18px;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.search-query-notice p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.search-query-notice > button {
+  text-align: start;
+}
+.search-query-notice .text-button {
+  display: inline;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
 .search-start {
   display: grid;
   justify-items: start;

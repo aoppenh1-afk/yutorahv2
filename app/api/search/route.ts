@@ -65,6 +65,8 @@ export async function GET(request: Request) {
         phrase: p.get('phrase') || '',
         exclude: p.get('exclude') || '',
         scope: p.get('scope') === 'title' ? 'title' : '',
+        literal: p.get('literal') === '1',
+        resolved: p.get('resolved') === '1',
         language: ['EN', 'HE'].includes(p.get('language') || '')
           ? p.get('language')!
           : '',

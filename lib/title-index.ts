@@ -132,6 +132,24 @@ export async function changedTitleStatements(
   );
 }
 
+/** Exact archive spellings protect words before request interpretation. */
+export async function knownTitleWords(
+  db: SearchDatabase,
+  query: string,
+): Promise<string[]> {
+  const words = [
+    ...new Set(searchText(query).split(' ').filter(Boolean)),
+  ].slice(0, 32);
+  if (!words.length) return [];
+  const { results } = await db
+    .prepare(
+      `SELECT term FROM search_title_terms WHERE words=1 AND documents>0 AND term IN (${words.map(() => '?').join(',')})`,
+    )
+    .bind(...words)
+    .all<{ term: string }>();
+  return results.map((row) => row.term);
+}
+
 /** Look up only candidates for this request; never load all titles into memory.
  * Quoted spans and numbers remain literal. Actual title frequency breaks ties.
  */

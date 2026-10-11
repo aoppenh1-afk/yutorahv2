@@ -3,7 +3,11 @@
 'use client';
 import { pollDelay } from '@/lib/poll-delay';
 import Link from 'next/link';
-import { type Filters, noFilters } from '@/lib/search-filters';
+import {
+  type Filters,
+  noFilters,
+  resolvedSearchFilters,
+} from '@/lib/search-filters';
 import { SearchBox } from './search-box';
 import {
   copySearchLink,
@@ -12,6 +16,7 @@ import {
   SearchTools,
 } from './search-tools';
 import { MobileSearchSummary } from './mobile-search-summary';
+import { SearchQueryNotice } from './search-query-notice';
 import type { TranscriptHit } from './transcript-search';
 import { ScreenBoundary } from './screen-boundary';
 import {
@@ -445,26 +450,8 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           if (page === 1) {
             setResultOrder(result.plan.sort || 'relevance');
             setAdvancedFilters(false);
-            const resolved: Filters = {
-              teacher: result.plan.teacherId
-                ? String(result.plan.teacherId)
-                : '',
-              series: result.plan.seriesId ? String(result.plan.seriesId) : '',
-              topic: result.plan.topicId ? String(result.plan.topicId) : '',
-              max: result.plan.max ? String(result.plan.max) : '',
-              language: result.plan.language,
-              format: result.plan.format,
-              min: result.plan.min ? String(result.plan.min) : '',
-              after: result.plan.after || '',
-              before: result.plan.before || '',
-              phrase: result.plan.phrase || '',
-              exclude: result.plan.exclude || '',
-              scope: result.plan.scope || '',
-              sort: result.plan.sort || '',
-            };
+            const resolved = resolvedSearchFilters(result.plan);
             setFilters(resolved);
-            setSubmitted(result.plan.term);
-            setQ(result.plan.term);
           }
         }
         return result;
@@ -902,7 +889,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       onChange={setQ}
       directory={directory}
       onSearch={(query) =>
-        void runSearch(query, view === 'search' ? filters : noFilters)
+        void runSearch(query, view === 'search'
+          ? { ...filters, resolved: query === submitted ? filters.resolved : '' }
+          : noFilters)
       }
       onSelect={(suggestion) =>
         void runSearch('', {
@@ -1522,11 +1511,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                     ]}
                   />
                   {Object.entries(filters).some(
-                    ([key, value]) => key !== 'sort' && value,
+                    ([key, value]) => key !== 'sort' && key !== 'resolved' && value,
                   ) && (
                     <button
                       className="text-button"
-                      onClick={() => void runSearch(submitted, noFilters)}
+                      onClick={() => void runSearch(submitted, { ...noFilters, resolved: '1' })}
                     >
                       Clear filters <X size={13} />
                     </button>
@@ -1541,7 +1530,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                     notify={notify}
                   />
                 </div>
-                {!results && <QueryPreview query={q} directory={directory} />}
+                {!results && (
+                  <QueryPreview
+                    query={q}
+                    directory={directory}
+                    literal={filters.literal === '1'}
+                    resolved={filters.resolved === '1'}
+                  />
+                )}
                 {advancedFilters && (
                   <ScreenBoundary>
                     <AdvancedSearch
@@ -1555,11 +1551,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 )}
               </SearchOptions>
               {Object.entries(filters).some(
-                ([key, value]) => key !== 'sort' && value,
+                ([key, value]) => key !== 'sort' && key !== 'resolved' && value,
               ) && (
                 <div className="applied-filters" aria-label="Active filters">
                   {(Object.entries(filters) as [keyof Filters, string][])
-                    .filter(([key, v]) => v && key !== 'sort')
+                    .filter(([key, v]) => v && key !== 'sort' && key !== 'resolved')
                     .map(([key, value]) => {
                       const extraLabels: Partial<
                         Record<keyof Filters, string>
@@ -1570,6 +1566,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                         phrase: `Exact phrase: ${value}`,
                         exclude: `Exclude: ${value}`,
                         scope: 'Title only',
+                        literal: 'Exact wording',
                       };
                       const label =
                         extraLabels[key] ||
@@ -1608,6 +1605,12 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                       );
                     })}
                 </div>
+              )}
+              {results && (
+                <SearchQueryNotice
+                  result={results}
+                  onSearch={(query, fs) => void runSearch(query, fs)}
+                />
               )}
               {!!results?.plan.labels.filter((l) =>
                 /→|^Topic:|^Keywords:|^Related topics:|^Broadened search:/.test(

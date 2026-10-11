@@ -1,6 +1,7 @@
 import {
   getDirectory,
   parseSearch,
+  matchesPlan,
   upstream,
   SearchReadError,
   normalize,
@@ -18,7 +19,11 @@ import {
   searchRetrieval,
   searchVocabulary,
 } from './search-matching';
-import { changedTitleStatements, titleVocabulary } from './title-index';
+import {
+  changedTitleStatements,
+  knownTitleWords,
+  titleVocabulary,
+} from './title-index';
 
 import { BoundedCache } from './bounded-cache';
 import { performanceSample } from './performance-metrics';
@@ -68,14 +73,13 @@ async function searchPass(
   runId = '',
 ): Promise<SearchResult> {
   const directory = await getDirectory();
-  const plan = parseSearch(query, options, directory);
-  if (plan.min && plan.max && plan.min > plan.max)
-    throw new RangeError('Minimum duration must not exceed maximum duration.');
+  let plan = parseSearch(query, options, directory);
   // The expansion is snapshotted on the run. Learning more titles must not
   // change a pending scan's source query, title matching, or candidate counts.
   const criteria = {
-    version: 9,
-    term: plan.term || plan.phrase || '',
+    version: 10,
+    query,
+    literal: !!plan.literal,
     quoted: /"[^"]+"/.test(query),
     teacher: plan.teacherId,
     topic: plan.topicId,
@@ -112,6 +116,8 @@ async function searchPass(
     searchTerm: string;
     vocabulary: string[];
     corrections: string[];
+    knownWords: string[];
+    suggestion?: string;
   };
   let creationOwner = '';
   if (!run) {
@@ -147,16 +153,24 @@ async function searchPass(
   let retrieval!: ReturnType<typeof searchRetrieval>;
   try {
     if (!expansion) {
-      const learned = await titleVocabulary(db, plan.term);
-      const spacing = interpretSpacing(plan.term, learned.phrases);
+      const knownWords = plan.literal ? [] : await knownTitleWords(db, query);
+      plan = parseSearch(query, options, directory, knownWords);
+      const learned = plan.literal
+        ? { words: [], phrases: [] }
+        : await titleVocabulary(db, plan.term);
+      const spacing = plan.literal
+        ? { term: plan.term, labels: [] }
+        : interpretSpacing(plan.term, learned.phrases);
       expansion = {
         sourceQuery: '',
         related: false,
         searchTerm: spacing.term,
         corrections: spacing.labels,
+        knownWords,
         vocabulary: [
           ...new Set([
             ...learned.words,
+            ...knownWords,
             ...searchVocabulary([
               ...directory.teachers.map((teacher) => teacher.name),
               ...directory.topics.map((topic) => topic.name),
@@ -166,12 +180,20 @@ async function searchPass(
         ],
       };
     }
+    // Resume with the same dictionary protection even if another search has
+    // learned new words since this run began.
+    plan = parseSearch(query, options, directory, expansion.knownWords);
+    if (plan.min && plan.max && plan.min > plan.max)
+      throw new RangeError(
+        'Minimum duration must not exceed maximum duration.',
+      );
     plan.labels.push(...expansion.corrections);
-    // Keep the parsed request in the public plan: the UI resumes with plan.term.
-    // The repaired retrieval term lives in the run snapshot independently.
+    // The original input stays in the UI. The repaired retrieval term and the
+    // dictionary protection live in the run snapshot independently.
     retrieval = searchRetrieval(
       expansion.searchTerm || plan.phrase || '',
       expansion.vocabulary,
+      !!plan.literal,
     );
     const relatedQuery = criteria.quoted ? '' : retrieval.relatedQuery;
     if (!run) {
@@ -194,15 +216,29 @@ async function searchPass(
         firstPage.response.numFound === 0 &&
         !criteria.quoted &&
         !plan.phrase &&
-        retrieval.spellingQuery
+        retrieval.spellingTerm
       ) {
-        sourceQuery = retrieval.spellingQuery;
-        firstPage = await fetchFirst();
-        if (firstPage.response.numFound > 0) {
-          const label =
-            'Spelling alternatives: no original match; showing close indexed spellings.';
-          expansion.corrections.push(label);
-          plan.labels.push(label);
+        try {
+          const suggestion = await upstream<SearchResponse>(
+            sourceParams(plan, retrieval.spellingQuery, 1),
+            0,
+          );
+          if (
+            Array.isArray(suggestion.response?.docs) &&
+            Number.isSafeInteger(suggestion.response.numFound) &&
+            suggestion.response.numFound > 0 &&
+            suggestion.response.docs.some((raw) =>
+              matchesPlan(normalize(raw), {
+                ...plan,
+                term: retrieval.spellingTerm,
+              }),
+            )
+          )
+            expansion.suggestion = retrieval.spellingTerm;
+        } catch (error) {
+          // An optional spelling check must not replace a valid empty response
+          // with an error or change the original result set.
+          if (!(error instanceof SearchReadError)) throw error;
         }
       }
       let related = false;
@@ -564,7 +600,12 @@ async function searchPass(
       `NOT EXISTS (SELECT 1 FROM json_each(?) AS word WHERE instr(' ' || ${field} || ' ', ' ' || word.value || ' ') > 0)`,
       JSON.stringify(excluded),
     );
-  if (plan.scope === 'title' && plan.term) predicates.push('matched = 1');
+  if (plan.literal && plan.term)
+    add(
+      `NOT EXISTS (SELECT 1 FROM json_each(?) AS word WHERE instr(' ' || ${field} || ' ', ' ' || word.value || ' ') = 0)`,
+      JSON.stringify(searchText(plan.term).split(' ').filter(Boolean)),
+    );
+  else if (plan.scope === 'title' && plan.term) predicates.push('matched = 1');
   const where = predicates.join(' AND ');
   const counts = { scanned: run.scanned, matches: run.scanned };
   const order = sorts[plan.sort || 'relevance'] || sorts.relevance;
@@ -590,6 +631,11 @@ async function searchPass(
     retryAfterMs: 1500,
     expiresAt: run.created + 60 * 60_000,
     related,
+    suggestion: expansion.suggestion,
+    correction:
+      !plan.literal && plan.labels.some((label) => label.includes(' → '))
+        ? expansion.searchTerm || plan.term
+        : undefined,
     run: run.id,
     plan,
     filtered: false,

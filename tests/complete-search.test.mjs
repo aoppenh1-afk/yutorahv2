@@ -14,6 +14,17 @@ const { completeSearch } = await import(
   'data:text/javascript;base64,' +
     Buffer.from(compiled.outputFiles[0].text).toString('base64')
 );
+const titleIndexCompiled = await build({
+  entryPoints: ['lib/title-index.ts'],
+  bundle: true,
+  write: false,
+  platform: 'node',
+  format: 'esm',
+});
+const { indexTitleStatements: indexFixtureTitles } = await import(
+  'data:text/javascript;base64,' +
+    Buffer.from(titleIndexCompiled.outputFiles[0].text).toString('base64')
+);
 function database() {
   const sqlite = new DatabaseSync(':memory:');
   for (const file of readdirSync('drizzle')
@@ -447,7 +458,123 @@ void test('an interrupted page cannot hide invalid responses elsewhere in the sa
   }
 });
 
-void test('an indexed title spelling can recover after zero source results without losing teacher filters', async () => {
+void test('valid chapter names and exact archive spellings reach the source without a typo rewrite', async (t) => {
+  for (const [query, title, unwanted] of [
+    ['perek kirah', 'Shabbos Perek Kirah', 'kinah'],
+    ['pryaer', 'A Lesson Named Pryaer', 'tefillah'],
+  ]) {
+    const db = database();
+    await db.batch(indexFixtureTitles(db, [{ id: 9001, title }]));
+    t.mock.method(globalThis, 'fetch', async (input) => {
+      const url = new URL(input);
+      if (url.pathname.includes('/browse/')) return Response.json([]);
+      const sourceQuery = url.searchParams.get('searchTerm');
+      assert.ok(sourceQuery.includes(query.split(' ').at(-1)), sourceQuery);
+      assert.ok(!sourceQuery.includes(unwanted), sourceQuery);
+      assert.equal(url.searchParams.get('teacherID'), '1');
+      return Response.json({
+        response: {
+          numFound: 1,
+          docs: [{ ...records[0], shiurtitle: title, duration: 10 }],
+        },
+      });
+    });
+    const result = await completeSearch(db, query, {
+      teacherId: 1,
+      max: 30,
+      scope: 'title',
+    });
+    assert.equal(result.plan.term, query);
+    assert.equal(result.plan.original, query);
+    assert.equal(result.total, 1);
+    assert.equal(result.correction, undefined);
+    assert.equal(result.suggestion, undefined);
+    t.mock.restoreAll();
+  }
+});
+
+void test('choosing the original spelling bypasses all expansion and keeps a separate filtered run', async (t) => {
+  const db = database();
+  const queries = [];
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    const url = new URL(input);
+    if (url.pathname.includes('/browse/')) return Response.json([]);
+    const query = url.searchParams.get('searchTerm');
+    queries.push(query);
+    assert.equal(url.searchParams.get('teacherID'), '1');
+    assert.equal(url.searchParams.get('seriesID'), '20');
+    assert.equal(url.searchParams.get('subcategoryID'), '10');
+    const docs = [
+      {
+        ...records[0],
+        shiurtitle: 'The Meaning of Tefillah',
+        duration: 10,
+      },
+    ];
+    return Response.json({ response: { docs, numFound: docs.length } });
+  });
+  const filters = {
+    teacherId: 1,
+    seriesId: 20,
+    topicId: 10,
+    max: 30,
+    language: 'EN',
+    format: 'audio',
+    scope: 'title',
+  };
+  const corrected = await completeSearch(db, 'pryaer', filters);
+  assert.equal(corrected.correction, 'tefillah');
+  assert.equal(corrected.plan.original, 'pryaer');
+  assert.equal(corrected.total, 1);
+  const original = await completeSearch(db, 'pryaer', {
+    ...filters,
+    literal: true,
+  });
+  assert.equal(queries.at(-1), 'pryaer');
+  assert.equal(original.total, 0);
+  assert.equal(original.plan.literal, true);
+  assert.equal(original.plan.term, 'pryaer');
+  assert.equal(original.plan.teacherId, 1);
+  assert.equal(original.plan.seriesId, 20);
+  assert.equal(original.plan.topicId, 10);
+  assert.equal(original.plan.max, 30);
+  assert.equal(original.plan.language, 'EN');
+  assert.equal(original.plan.format, 'audio');
+  assert.equal(original.correction, undefined);
+  assert.equal(original.suggestion, undefined);
+  assert.notEqual(original.run, corrected.run);
+});
+
+void test('learning a formerly unknown spelling does not change an in-progress correction', async (t) => {
+  const db = database();
+  const queries = [];
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    const url = new URL(input);
+    if (url.pathname.includes('/browse/')) return Response.json([]);
+    queries.push(url.searchParams.get('searchTerm'));
+    const page = Number(url.searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: records.length,
+        docs: records
+          .slice((page - 1) * 30, page * 30)
+          .map((raw) => ({ ...raw, shiurtitle: 'Tefillah' })),
+      },
+    });
+  });
+  const first = await completeSearch(db, 'pryaer', {});
+  assert.equal(first.complete, false);
+  assert.equal(first.correction, 'tefillah');
+  await db.batch(indexFixtureTitles(db, [{ id: 9001, title: 'Pryaer' }]));
+  const resumed = await completeSearch(db, 'pryaer', {}, 1, first.run);
+  assert.equal(resumed.run, first.run);
+  assert.equal(resumed.complete, true);
+  assert.equal(resumed.plan.term, 'tefillah');
+  assert.equal(resumed.total, records.length);
+  assert.ok(queries.every((query) => query.includes('tefillah')));
+});
+
+void test('a zero-result indexed spelling offers a verified alternative without changing the query or filters', async () => {
   const { completeSearch: recoveredSearch } = await import(
     'data:text/javascript;base64,' +
       Buffer.from(compiled.outputFiles[0].text).toString('base64') +
@@ -497,22 +624,43 @@ void test('an indexed title spelling can recover after zero source results witho
       );
       return db;
     };
-    const result = await recoveredSearch(await seeded(), 'teshvu', {
+    const seededDb = await seeded();
+    const result = await recoveredSearch(seededDb, 'teshvu', {
       teacherId: 1,
       max: 30,
     });
     assert.doesNotMatch(queries[0], /teshuva/);
     assert.match(queries[1], /teshuva/);
-    assert.equal(result.total, 1);
+    assert.equal(result.total, 0);
     assert.equal(result.complete, true);
-    assert.equal(result.items[0].teacherId, 1);
+    assert.equal(result.items.length, 0);
+    assert.equal(result.plan.term, 'teshvu');
+    assert.equal(result.plan.teacherId, 1);
     assert.equal(result.plan.max, 30);
     assert.equal(result.related, false);
-    assert.ok(
-      result.plan.labels.some((label) =>
-        label.startsWith('Spelling alternatives:'),
-      ),
+    assert.equal(result.suggestion, 'teshuva');
+    const callsBeforeResume = queries.length;
+    const resumed = await recoveredSearch(
+      seededDb,
+      'teshvu',
+      { teacherId: 1, max: 30 },
+      1,
+      result.run,
     );
+    assert.equal(resumed.suggestion, 'teshuva');
+    assert.equal(resumed.run, result.run);
+    assert.equal(
+      queries.length,
+      callsBeforeResume,
+      'The suggestion is snapshotted with the run',
+    );
+    const selected = await recoveredSearch(seededDb, result.suggestion, {
+      teacherId: 1,
+      max: 30,
+    });
+    assert.equal(selected.total, 1);
+    assert.equal(selected.plan.teacherId, 1);
+    assert.equal(selected.plan.max, 30);
     const calls = queries.length;
     await recoveredSearch(await seeded(), '"teshvu"', {
       teacherId: 1,
@@ -530,12 +678,23 @@ void test('an indexed title spelling can recover after zero source results witho
     });
     assert.equal(strict.total, 1);
     assert.doesNotMatch(queries.at(-1), /teshuva/);
-    assert.equal(
-      strict.plan.labels.some((label) =>
-        label.startsWith('Spelling alternatives:'),
-      ),
-      false,
+    assert.equal(strict.suggestion, undefined);
+    exact = false;
+    globalThis.fetch = async (input) => {
+      const url = new URL(input);
+      if (url.pathname.includes('/browse/')) return Response.json([]);
+      if (url.searchParams.get('searchTerm').includes('teshuva'))
+        throw new DOMException('The operation timed out.', 'TimeoutError');
+      return Response.json({ response: { numFound: 0, docs: [] } });
+    };
+    const unavailableSuggestion = await recoveredSearch(
+      await seeded(),
+      'teshvu',
+      { teacherId: 1, max: 30 },
     );
+    assert.equal(unavailableSuggestion.total, 0);
+    assert.equal(unavailableSuggestion.complete, true);
+    assert.equal(unavailableSuggestion.suggestion, undefined);
   } finally {
     globalThis.fetch = fixtureFetch;
   }

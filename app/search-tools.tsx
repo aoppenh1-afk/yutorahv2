@@ -73,14 +73,20 @@ export function SearchPresets({
 export function QueryPreview({
   query,
   directory,
+  literal = false,
+  resolved = false,
 }: {
   query: string;
   directory: Directory | null;
+  literal?: boolean;
+  resolved?: boolean;
 }) {
   const interpretation = useMemo(
     () =>
-      query.trim() ? parseSearch(query, {}, directory || undefined) : null,
-    [query, directory],
+      query.trim()
+        ? parseSearch(query, { literal, resolved }, directory || undefined)
+        : null,
+    [query, directory, literal, resolved],
   );
   const labels = interpretation?.labels || [];
   if (!labels.length || query.trim() === interpretation?.term) return null;
@@ -172,7 +178,10 @@ export function SearchTools({
             <span className="tab-count">{library.savedSearches.length}</span>
           )}
         </button>
-        {(query || Object.values(filters).some(Boolean)) && (
+        {(query ||
+          Object.entries(filters).some(
+            ([key, value]) => key !== 'resolved' && value,
+          )) && (
           <button className="toolbar-button" onClick={saveSearch}>
             <BookmarkPlus size={16} />
             Save search
@@ -226,7 +235,12 @@ export function SearchTools({
                 <Search size={16} />
                 {query || 'All keywords'}
                 <span>
-                  {Object.values(filters).filter(Boolean).length} filters
+                  {
+                    Object.entries(filters).filter(
+                      ([key, value]) => key !== 'resolved' && value,
+                    ).length
+                  }{' '}
+                  filters
                 </span>
               </div>
               <button className="primary-button" type="submit">

@@ -162,6 +162,8 @@ const knownSubjectWords = new Set(
       concept.forms.flatMap((form) => form.split(' ')),
     ),
     'erev',
+    'kirah',
+    'kira',
   ].map(lexicalBase),
 );
 const compoundForms = [...conceptForms.keys()]
@@ -246,18 +248,23 @@ const intentPatterns = concepts.flatMap((concept) => [
  * dictionary-backed word families. Quoted text and other subjects stay intact.
  * Ambiguous corrections, fuzzy prefixes, and two-edit words are not rewritten.
  */
-export function interpretIntent(term: string): {
+export function interpretIntent(
+  term: string,
+  knownWords: readonly string[] = [],
+): {
   term: string;
   labels: string[];
 } {
   const tokens = [...term.matchAll(/"[^"]*"|[\p{L}\p{M}\p{N}'’״׳]+/gu)];
   const labels: string[] = [];
+  const indexed = new Set(knownWords.map(searchText));
   let result = '',
     end = 0;
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i][0].startsWith('"')) continue;
     const typed = searchText(tokens[i][0]);
-    const known = knownSubjectWords.has(lexicalBase(typed));
+    const known =
+      knownSubjectWords.has(lexicalBase(typed)) || indexed.has(typed);
     const hits = intentPatterns
       .flatMap((pattern) => {
         if (
@@ -298,6 +305,7 @@ export function interpretIntent(term: string): {
           )
             return [];
           const score = wordMatch(searchText(token[0]), word);
+          if (indexed.has(searchText(token[0])) && score < 0.9) return [];
           if (score < 0.9 && score !== 0.65) return [];
           if (score === 0.65) edits++;
           if (edits > 2) return [];
@@ -342,7 +350,10 @@ export function interpretIntent(term: string): {
 
 /** Common request wording, shared by metadata, smart transcripts, and local
  * searches. Filter extraction stays with the metadata parser. */
-export function interpretSearchRequest(query: string): {
+export function interpretSearchRequest(
+  query: string,
+  knownWords: readonly string[] = [],
+): {
   term: string;
   labels: string[];
 } {
@@ -352,7 +363,7 @@ export function interpretSearchRequest(query: string): {
     return `EXACTREQUESTQUOTE${quotes.length - 1}TOKEN`;
   });
   const labels: string[] = [];
-  const intent = interpretIntent(term);
+  const intent = interpretIntent(term, knownWords);
   term = intent.term;
   labels.push(...intent.labels);
   // Hebrew wrappers use Unicode-aware boundaries; JavaScript's \b is ASCII.
@@ -738,11 +749,15 @@ export function matchingSpans(
 }
 
 /** Disclosed, exact aliases; quoted text is deliberately left literal. */
-export function interpretAliases(term: string): {
+export function interpretAliases(
+  term: string,
+  knownWords: readonly string[] = [],
+): {
   term: string;
   labels: string[];
 } {
   const labels: string[] = [];
+  const indexed = new Set(knownWords.map(searchText));
   const result = term.replace(aliasTokens, (word) => {
     if (word.startsWith('"') || word.includes(' ') || word.includes('-'))
       return word;
@@ -750,7 +765,12 @@ export function interpretAliases(term: string): {
     const base = lexicalBase(normalized);
     let canonical = aliases.get(base)?.canonical;
     if (!canonical && base !== normalized) canonical = base;
-    if (!canonical && normalized.length >= 4) {
+    if (
+      !canonical &&
+      normalized.length >= 4 &&
+      !indexed.has(normalized) &&
+      !knownSubjectWords.has(base)
+    ) {
       const matches = aliasGroups
         .map((group) => ({
           canonical: group.canonical,
@@ -953,13 +973,35 @@ function compileLibrarySearchQuery(
  * Known subjects and numbers stay required, with at least two groups per branch.
  * The same policy validates title-only results after retrieval.
  */
-export function searchRetrieval(term: string, vocabulary: string[] = []) {
+export function searchRetrieval(
+  term: string,
+  vocabulary: string[] = [],
+  literal = false,
+) {
+  if (literal) {
+    const words = [...new Set(searchText(term).split(' ').filter(Boolean))];
+    if (words.length > 32)
+      throw new RangeError('Please use up to 32 search words.');
+    const strictQuery = words.join(' AND ');
+    if (encodedQueryLength(strictQuery) > 1800)
+      throw new RangeError('Please use a shorter search.');
+    return {
+      strictQuery,
+      spellingQuery: '',
+      spellingTerm: '',
+      relatedQuery: '',
+      matches(text: string): boolean {
+        const padded = ` ${searchText(text)} `;
+        return words.every((word) => padded.includes(` ${word} `));
+      },
+    };
+  }
   term = interpretSpacing(term).term;
   const tokens = [...new Set(searchTerms(term))];
   const known = new Set(vocabulary.map(searchText));
   // A real title may itself contain a misspelling or an uncommon transliteration.
-  // Preserve its exact retrieval first; only zero source results may try nearby
-  // indexed spellings. Reviewed subjects and numeric constraints stay literal.
+  // Preserve exact retrieval. Nearby spellings can be offered after zero source
+  // results. Reviewed subjects and numeric constraints stay literal.
   const recoverable = new Set(
     tokens.filter(
       (token) =>
@@ -970,14 +1012,34 @@ export function searchRetrieval(term: string, vocabulary: string[] = []) {
     ),
   );
   const strictQuery = librarySearchQuery(term, vocabulary);
-  const spellingCandidate = recoverable.size
-    ? librarySearchQuery(
-        term,
-        vocabulary.filter((word) => !recoverable.has(searchText(word))),
-      )
+  // A suggestion must name one complete query. Prefix completions and equally
+  // plausible spellings are not evidence that a real word was mistyped.
+  const replacements = new Map<string, string>();
+  for (const token of recoverable) {
+    const spellings = vocabulary
+      .map((word) => ({ word, score: wordMatch(token, word) }))
+      .filter(({ score }) => score >= 0.55 && score <= 0.65)
+      .sort((a, b) => b.score - a.score);
+    const readings = new Map<string, (typeof spellings)[number]>();
+    for (const spelling of spellings) {
+      const base = lexicalBase(spelling.word);
+      const reading = aliases.get(base)?.canonical ?? base;
+      if (!readings.has(reading)) readings.set(reading, spelling);
+    }
+    const candidates = [...readings.values()];
+    if (
+      candidates[0] &&
+      (!candidates[1] || candidates[0].score > candidates[1].score)
+    )
+      replacements.set(token, candidates[0].word);
+  }
+  const suggested = term.replace(/"[^"]*"|[\p{L}\p{M}\p{N}'’״׳]+/gu, (word) =>
+    word.startsWith('"') ? word : (replacements.get(searchText(word)) ?? word),
+  );
+  const spellingTerm = suggested !== term ? suggested : '';
+  const spellingQuery = spellingTerm
+    ? librarySearchQuery(spellingTerm, vocabulary)
     : '';
-  const spellingQuery =
-    spellingCandidate !== strictQuery ? spellingCandidate : '';
   const secondary = new Set(
     'practical basics basic beginner beginners introduction introductory overview guide examples'.split(
       ' ',
@@ -1010,6 +1072,7 @@ export function searchRetrieval(term: string, vocabulary: string[] = []) {
   return {
     strictQuery,
     spellingQuery,
+    spellingTerm,
     relatedQuery,
     matches(text: string, related = false): boolean {
       const matched = tokens.map((token) => textMatchScore(text, token) > 0);

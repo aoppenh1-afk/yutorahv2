@@ -26,6 +26,39 @@ const {
 const { parseSearch } = await load('lib/yutorah.ts');
 const { matchQuery: directoryMatch } = await load('lib/search-matching.ts');
 
+void test('perek kirah preserves the requested chapter instead of rewriting it to kinah', () => {
+  const plan = parseSearch('perek kirah');
+  assert.equal(plan.term, 'perek kirah');
+  assert.ok(!plan.labels.includes('kirah → kinah'));
+});
+
+void test('archive vocabulary protects exact spellings before subject and request-word correction', () => {
+  assert.equal(parseSearch('pryaer', {}, undefined, ['pryaer']).term, 'pryaer');
+  assert.equal(parseSearch('finder', {}, undefined, ['finder']).term, 'finder');
+  assert.equal(
+    parseSearch('pryaer').term,
+    'tefillah',
+    'An unrecognized transposition still recovers',
+  );
+});
+
+void test('exact wording bypasses spelling, topic and teacher interpretation while retaining explicit filters', () => {
+  const plan = parseSearch(
+    'perek kirah by Rabbi Hershl Schact',
+    {
+      literal: true,
+      teacherId: 1,
+      max: 30,
+    },
+    directory,
+  );
+  assert.equal(plan.term, 'perek kirah by Rabbi Hershl Schact');
+  assert.equal(plan.literal, true);
+  assert.equal(plan.teacherId, 1);
+  assert.equal(plan.max, 30);
+  assert.ok(!plan.labels.some((label) => label.includes('→')));
+});
+
 void test('an empty directory filter stays responsive across thousands of entries', () => {
   const start = performance.now();
   for (let i = 0; i < 4000; i++)
@@ -72,6 +105,27 @@ void test('name suggestions tolerate missing letters while preserving exact matc
     suggestSearch('unrelated astronomical query', directory).length,
     0,
   );
+});
+
+void test('keeping the typed query does not reapply natural filters after the reader clears them', () => {
+  const query =
+    'Find me audio shiurim on teshuva by Rabbi Hershel Schachter under 30 minutes in English';
+  const initial = parseSearch(query, {}, directory);
+  assert.equal(initial.teacherId, 1);
+  assert.equal(initial.max, 30);
+  assert.equal(initial.language, 'EN');
+  assert.equal(initial.format, 'audio');
+  const cleared = parseSearch(query, { resolved: true }, directory);
+  assert.equal(cleared.term, 'teshuva');
+  assert.equal(cleared.teacherId, 0);
+  assert.equal(cleared.max, 0);
+  assert.equal(cleared.language, '');
+  assert.equal(cleared.format, '');
+  assert.equal(
+    parseSearch('Daf Yomi', { resolved: true }, directory).seriesId,
+    0,
+  );
+  assert.equal(parseSearch('Daf Yomi', { resolved: true }, directory).term, '');
 });
 
 void test('teacher, topic and series suggestions preserve their entity types', () => {
@@ -178,6 +232,23 @@ const shiur = {
   format: 'mp3',
   audio: '',
 };
+
+void test('exact wording rejects neighboring spellings in title refinements', () => {
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'Hilchos Teshuva' },
+      parseSearch('teshvu', { literal: true, scope: 'title' }),
+    ),
+    false,
+  );
+  assert.equal(
+    matchesPlan(
+      { ...shiur, title: 'BaSukkos Teshvu' },
+      parseSearch('teshvu', { literal: true, scope: 'title' }),
+    ),
+    true,
+  );
+});
 
 void test('advanced filters combine and date endpoints include the whole day', () => {
   const plan = parseSearch('', {

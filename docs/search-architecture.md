@@ -23,11 +23,13 @@ and ambiguous word boundaries remain literal. An exact indexed spelling does not
 expand to neighboring words simply because they are popular.
 
 If that exact indexed spelling yields zero source results under the selected
-teacher/topic/series, retrieval may retry close indexed spellings while retaining
-every subject and filter. This handles misspellings already present in titles,
-which would otherwise suppress typo recovery. Recognized subjects, numbers, and
-explicit quotes remain protected; successful spelling recovery is disclosed and
-snapshotted on the search run. Exact results always keep their original query.
+teacher/topic/series, search may offer a verified close spelling as **Did you
+mean**, while keeping the original results. Recognized subjects, numbers, and
+explicit quotes remain protected. Exact archive words also protect request
+interpretation before fuzzy correction. Suggestions and dictionary protection
+are snapshotted on the search run. The search box keeps the submitted text, and
+an exact-wording action bypasses rewriting. See [the correction research and
+behavior](search-corrections.md).
 
 The upstream index contains the full archive; the application's new learned
 vocabulary covers the titles ingested so far. `lib/title-catalog.ts` and

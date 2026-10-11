@@ -9,10 +9,12 @@ import {
 export function naturalSearch(
   query: string,
   now = new Date(),
+  knownWords: readonly string[] = [],
 ): { term: string; options: Partial<SearchPlan>; labels: string[] } {
   let term = query.trim();
   const options: Partial<SearchPlan> = {};
   const labels: string[] = [];
+  const indexed = new Set(knownWords.map(searchText));
   // Protect quoted phrases from conversational cleanup.
   const quotes: string[] = [];
   term = term.replace(/"[^"]+"/g, (value) => {
@@ -45,7 +47,12 @@ export function naturalSearch(
   ];
   term = term.replace(/[\p{L}\p{M}]+/gu, (word) => {
     const normalized = searchText(word);
-    if (normalized.length < 4 || controls.includes(normalized)) return word;
+    if (
+      normalized.length < 4 ||
+      controls.includes(normalized) ||
+      indexed.has(normalized)
+    )
+      return word;
     const matches = [
       ...new Set(
         controls
@@ -206,7 +213,7 @@ export function naturalSearch(
       return ' ';
     },
   );
-  const request = interpretSearchRequest(term);
+  const request = interpretSearchRequest(term, knownWords);
   term = request.term;
   labels.push(...request.labels);
   term = term.replace(/QUOTED(\d+)TOKEN/g, (_, i) => quotes[Number(i)]);

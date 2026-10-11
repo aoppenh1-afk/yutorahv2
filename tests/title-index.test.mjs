@@ -50,6 +50,45 @@ void test('title evidence recovers a transposition plus missing letter in Shmini
   assert.equal(matching.wordMatch('cat', 'charity'), 0);
 });
 
+void test('exact archive words are looked up independently of fuzzy candidate ranking', async () => {
+  const db = database();
+  await db.batch(
+    index.indexTitleStatements(db, [
+      { id: 9001, title: 'Perek Kirah and PrYaEr' },
+      { id: 9002, title: 'Kinah and Prayer' },
+    ]),
+  );
+  assert.deepEqual(
+    (await index.knownTitleWords(db, 'perek KIRAH pryaer missing')).sort(),
+    ['kirah', 'perek', 'pryaer'],
+  );
+  assert.deepEqual(await index.knownTitleWords(db, ''), []);
+});
+
+void test('spelling suggestions keep qualifiers and numbers and withhold ambiguous readings', () => {
+  const suggestion = matching.searchRetrieval('crate 12', ['crate', 'crane']);
+  assert.equal(suggestion.spellingTerm, 'crane 12');
+  assert.match(suggestion.spellingQuery, /crane.* AND 12/);
+  assert.equal(
+    matching.searchRetrieval('crate', ['crate', 'crane', 'craze']).spellingTerm,
+    '',
+  );
+  assert.equal(
+    matching.searchRetrieval('"crate"', ['crate', 'crane']).spellingTerm,
+    '',
+  );
+  assert.equal(
+    matching.searchRetrieval('perek kirah', ['perek', 'kirah', 'kinah'])
+      .spellingTerm,
+    '',
+  );
+  const literal = matching.searchRetrieval('pryaer OR title:kinah*', [], true);
+  assert.equal(literal.strictQuery, 'pryaer AND or AND title AND kinah');
+  assert.equal(literal.matches('A discussion of prayer'), false);
+  assert.equal(literal.relatedQuery, '');
+  assert.equal(literal.spellingQuery, '');
+});
+
 void test('Vercel schema setup survives partial application and preserves indexed titles on redeployment', async () => {
   const db = database();
   await db
@@ -110,7 +149,7 @@ void test('journal migrations upgrade autocomplete and retain an existing previe
     const { entries } = JSON.parse(
       readFileSync('drizzle/meta/_journal.json', 'utf8'),
     );
-    for (const entry of entries.filter(entry=>entry.idx<5))
+    for (const entry of entries.filter((entry) => entry.idx < 5))
       sqlite.exec(readFileSync(`drizzle/${entry.tag}.sql`, 'utf8'));
     sqlite.exec(
       `INSERT INTO search_title_catalog(id,title,terms) VALUES(42,'Quantum Halacha','["quantum","halacha"]')`,
@@ -123,7 +162,8 @@ void test('journal migrations upgrade autocomplete and retain an existing previe
     sqlite.exec(
       "INSERT INTO sources_runs VALUES('cached-source','{}',0,1791000000000)",
     );
-    for (const entry of entries.filter(entry=>entry.idx>=5)) sqlite.exec(readFileSync(`drizzle/${entry.tag}.sql`, 'utf8'));
+    for (const entry of entries.filter((entry) => entry.idx >= 5))
+      sqlite.exec(readFileSync(`drizzle/${entry.tag}.sql`, 'utf8'));
     assert.equal(
       sqlite
         .prepare("SELECT expires FROM sources_runs WHERE id='cached-source'")
@@ -155,6 +195,7 @@ void test('an indexed spelling keeps exact retrieval first and can recover a clo
   const retrieval = matching.searchRetrieval('teshvu', learned.words);
   assert.doesNotMatch(retrieval.strictQuery, /teshuva/);
   assert.match(retrieval.spellingQuery, /teshuva/);
+  assert.equal(retrieval.spellingTerm, 'teshuva');
   assert.equal(
     matching.searchRetrieval('eruv', ['eruv', 'erev']).spellingQuery,
     '',

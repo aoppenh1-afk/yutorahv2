@@ -434,6 +434,8 @@ export type SearchPlan = {
   phrase?: string;
   exclude?: string;
   scope?: string;
+  literal?: boolean;
+  resolved?: boolean;
   language: string;
   format: string;
   teacherId: number;
@@ -447,10 +449,14 @@ export function parseSearch(
   query: string,
   options: Partial<SearchPlan> = {},
   directory?: Directory,
+  knownWords: readonly string[] = [],
 ): SearchPlan {
-  const natural = naturalSearch(query.trim().slice(0, 300));
+  const literal = options.literal === true;
+  const natural = literal
+    ? { term: query.trim().slice(0, 300), options: {}, labels: [] as string[] }
+    : naturalSearch(query.trim().slice(0, 300), new Date(), knownWords);
   options = {
-    ...natural.options,
+    ...(options.resolved ? {} : natural.options),
     ...Object.fromEntries(
       Object.entries(options).filter(
         ([, v]) => v !== '' && v !== 0 && v !== undefined,
@@ -475,64 +481,77 @@ export function parseSearch(
     excluded.push(word);
     return ' ';
   });
-  const spacing = interpretSpacing(
-    term,
-    directory
-      ? [
-          ...directory.teachers.map(
-            (teacher) => `${teacher.firstName} ${teacher.lastName}`,
-          ),
-          ...directory.topics.map((topic) => topic.name),
-          ...directory.series.map((series) => series.name),
-        ]
-      : [],
-  );
+  const spacing = literal
+    ? { term, labels: [] }
+    : interpretSpacing(
+        term,
+        directory
+          ? [
+              ...directory.teachers.map(
+                (teacher) => `${teacher.firstName} ${teacher.lastName}`,
+              ),
+              ...directory.topics.map((topic) => topic.name),
+              ...directory.series.map((series) => series.name),
+            ]
+          : [],
+      );
   term = spacing.term;
   labels.push(...spacing.labels);
   const exclude = [...new Set(excluded)].join(' ');
   const scope = options.scope === 'title' ? 'title' : '';
   let format = options.format || '';
-  term = term.replace(
-    /\b(audio|video|articles?)\s+(?:shiurim|shiur|lectures?|on|about)\b/gi,
-    (_, kind) => {
-      if (!format)
-        format = /^article/i.test(kind) ? 'text' : kind.toLowerCase();
-      return ' ';
-    },
-  );
+  if (!literal)
+    term = term.replace(
+      /\b(audio|video|articles?)\s+(?:shiurim|shiur|lectures?|on|about)\b/gi,
+      (_, kind) => {
+        if (!format && !options.resolved)
+          format = /^article/i.test(kind) ? 'text' : kind.toLowerCase();
+        return ' ';
+      },
+    );
   let max = Number(options.max) || 0;
   let language = options.language || '';
   let teacherId = options.teacherId || 0;
   let teacherName = options.teacherName || '';
   let seriesId = options.seriesId || 0;
   let seriesName = options.seriesName || '';
-  term = term.replace(
-    /\b(?:under|less than|up to|within)\s+(\d+)\s*(?:minutes?|mins?)(?:\s+long)?\b/gi,
-    (_, n) => {
-      if (!max) max = Math.min(240, Number(n));
+  if (!literal)
+    term = term.replace(
+      /\b(?:under|less than|up to|within)\s+(\d+)\s*(?:minutes?|mins?)(?:\s+long)?\b/gi,
+      (_, n) => {
+        if (!max && !options.resolved) max = Math.min(240, Number(n));
+        return ' ';
+      },
+    );
+  if (!literal)
+    term = term.replace(/\bin (hebrew|english)\b/gi, (_, l) => {
+      if (!language && !options.resolved)
+        language = l.toLowerCase() === 'hebrew' ? 'HE' : 'EN';
       return ' ';
-    },
-  );
-  term = term.replace(/\bin (hebrew|english)\b/gi, (_, l) => {
-    if (!language) language = l.toLowerCase() === 'hebrew' ? 'HE' : 'EN';
-    return ' ';
-  });
-  term = term.replace(
-    /\b(\d+)[ -]minute\s+(?:shiurim|shiur|lectures?|classes?)\b/gi,
-    (_, n) => {
-      if (!max) max = Math.min(240, Number(n));
-      return ' ';
-    },
-  );
-  if (directory) {
+    });
+  if (!literal)
+    term = term.replace(
+      /\b(\d+)[ -]minute\s+(?:shiurim|shiur|lectures?|classes?)\b/gi,
+      (_, n) => {
+        if (!max && !options.resolved) max = Math.min(240, Number(n));
+        return ' ';
+      },
+    );
+  if (directory && !literal) {
     const mention = teacherMention(term, directory);
-    if (mention && (!teacherId || teacherId === mention.teacher.id)) {
-      teacherId = mention.teacher.id;
-      teacherName = mention.teacher.name;
+    if (
+      mention &&
+      (options.resolved || !teacherId || teacherId === mention.teacher.id)
+    ) {
+      if (!options.resolved) {
+        teacherId = mention.teacher.id;
+        teacherName = mention.teacher.name;
+      }
       const typed = term
         .slice(mention.start, mention.end)
         .replace(/^(?:by\s+)?(?:rabbi|rabi|rabby|rav|r[.'’]?)\s+/i, '');
       if (
+        !options.resolved &&
         searchText(typed) !==
           searchText(
             `${mention.teacher.firstName} ${mention.teacher.lastName}`,
@@ -543,7 +562,7 @@ export function parseSearch(
       term = term.slice(0, mention.start) + ' ' + term.slice(mention.end);
     }
   }
-  if (directory && !seriesId) {
+  if (directory && (options.resolved || !seriesId) && !literal) {
     const typed = searchText(term);
     const tokens = typed.split(' ').filter(Boolean);
     const exact = directory.series.filter(
@@ -561,36 +580,41 @@ export function parseSearch(
         });
     const found = candidates.length === 1 ? candidates[0] : undefined;
     if (found) {
-      seriesId = found.id;
-      seriesName = found.name;
-      if (typed !== searchText(found.name))
+      if (!options.resolved) {
+        seriesId = found.id;
+        seriesName = found.name;
+      }
+      if (!options.resolved && typed !== searchText(found.name))
         labels.push(`${term.trim()} → ${found.name}`);
       term = '';
     }
   }
-  term = term
-    .replace(/\b(?:shiurim|shiur|lectures?|classes)\s*(?:on|about)?\b/gi, ' ')
-    .replace(/\bby\s+(?=(?:rabbi|rabi|rabby|rav|r[.'’]?)\b)/gi, ' ')
-    .replace(/\b(?:rabbi|rabi|rabby|rav)\s+/gi, ' ')
-    .replace(
-      /^\s*(?:teach me about|what does judaism say about|learn about|on|about|by)\s+/i,
-      '',
-    )
-    .trim();
+  if (!literal)
+    term = term
+      .replace(/\b(?:shiurim|shiur|lectures?|classes)\s*(?:on|about)?\b/gi, ' ')
+      .replace(/\bby\s+(?=(?:rabbi|rabi|rabby|rav|r[.'’]?)\b)/gi, ' ')
+      .replace(/\b(?:rabbi|rabi|rabby|rav)\s+/gi, ' ')
+      .replace(
+        /^\s*(?:teach me about|what does judaism say about|learn about|on|about|by)\s+/i,
+        '',
+      )
+      .trim();
   const phrases: Record<string, string> = {
     'ראש השנה': 'Rosh Hashana',
     'יום כיפור': 'Yom Kippur',
     'rosh hashanah': 'Rosh Hashana',
   };
-  const translated = phrases[searchText(term)];
+  const translated = !literal && phrases[searchText(term)];
   if (translated) {
     labels.push(`${term} → ${translated}`);
     term = translated;
   }
-  const interpreted = interpretAliases(term);
+  const interpreted = literal
+    ? { term, labels: [] }
+    : interpretAliases(term, knownWords);
   term = interpreted.term;
   labels.push(...interpreted.labels);
-  labels.push(...intentLabels(term));
+  if (!literal) labels.push(...intentLabels(term));
   term = term.replace(/EXACTQUOTED(\d+)TOKEN/g, (_, i) => quoted[Number(i)]);
   if (directory) {
     teacherName =
@@ -624,6 +648,8 @@ export function parseSearch(
     phrase,
     exclude,
     scope,
+    literal,
+    resolved: !!options.resolved,
     max,
     language,
     format,
@@ -654,7 +680,13 @@ export function matchesPlan(s: Shiur, plan: SearchPlan) {
         .split(' ')
         .filter(Boolean)
         .every((word) => !padded.includes(` ${word} `))) &&
-    (!plan.scope || matchQuery(s.title, plan.term)) &&
+    (!(plan.scope || plan.literal) ||
+      (plan.literal
+        ? searchText(plan.term)
+            .split(' ')
+            .filter(Boolean)
+            .every((word) => padded.includes(` ${word} `))
+        : matchQuery(s.title, plan.term))) &&
     (!plan.max || (s.duration > 0 && s.duration <= plan.max * 60)) &&
     (!plan.language || s.language === plan.language) &&
     (!plan.format || mediaKind(s) === plan.format)
@@ -682,6 +714,8 @@ export type SearchResult = {
   scanned?: number;
   sourceTotal?: number;
   related?: boolean;
+  suggestion?: string;
+  correction?: string;
   run?: string;
   facets: {
     teachers: { id: number; name: string; count: number }[];
