@@ -742,9 +742,16 @@ input[type='search']::-webkit-search-cancel-button {
 }
 .page-footer div {
   display: flex;
+  flex-wrap: wrap;
   gap: 18px;
 }
-.page-footer button:hover {
+.page-footer .brand-description {
+  flex-basis: 100%;
+  margin: 0;
+  line-height: 1.6;
+}
+.page-footer button:hover,
+.page-footer a:hover {
   color: var(--ink);
 }
 .mobile-nav,

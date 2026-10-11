@@ -1,13 +1,17 @@
 import Link from 'next/link';
 
+export const metadata = {
+  title: 'Privacy policy | YUTorah Library',
+};
+
 export default function PrivacyPage() {
   return (
     <main className="auth-callback privacy-page">
-      <h1>Privacy</h1>
+      <h1>YUTorah Library privacy policy</h1>
       <p>Updated October 11, 2026.</p>
       <p>
-        This is an independent interface to YUTorah&apos;s public library. You
-        can browse without creating an account.
+        YUTorah Library is an independent interface to YUTorah&apos;s public
+        library. You can browse without creating an account.
       </p>
       <h2>Google sign-in and teacher follows</h2>
       <p>

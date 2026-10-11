@@ -2062,8 +2062,13 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               {home ? `${home.total.toLocaleString()} shiurim. ` : ''}One shared
               tradition.
             </span>
+            <p className="brand-description">
+              YUTorah Library is an independent interface for browsing shiurim,
+              following teachers, and receiving new-shiur notifications.
+            </p>
             <div>
               <button onClick={() => setHelp(true)}>About the library</button>
+              <Link href="/privacy">Privacy policy</Link>
               <span>Audio and teaching © YUTorah</span>
             </div>
           </footer>
