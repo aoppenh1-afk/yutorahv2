@@ -190,10 +190,13 @@ async function runWorker() {
         pages++;
       } catch (e) {
         failed++;
+        const retryAt = new Date();
+        retryAt.setUTCMinutes(0, 0, 0);
+        retryAt.setUTCHours(retryAt.getUTCHours() + 1);
         await db
           .from('teacher_poll_state')
           .update({
-            retry_at: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+            retry_at: retryAt.toISOString(),
             last_error: (e instanceof Error
               ? e.message
               : 'Polling failed'

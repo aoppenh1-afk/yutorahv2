@@ -106,8 +106,14 @@ await request('/config/auth', {
   }),
 });
 const schedules = await query(
-  "select jobname,schedule,active from cron.job where jobname='yutorah-notifications-every-six-hours'",
+  "select jobname,schedule,active from cron.job where jobname='yutorah-notifications-hourly'",
 );
+if (
+  schedules.length !== 1 ||
+  schedules[0].schedule !== '0 * * * *' ||
+  !schedules[0].active
+)
+  throw new Error('The hourly notification scheduler is not active.');
 console.log('Verified scheduler:', JSON.stringify(schedules));
 console.log(
   'Cloudflare services created: none. Supabase billing plan is unchanged.',

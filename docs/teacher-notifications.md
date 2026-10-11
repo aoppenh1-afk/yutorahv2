@@ -26,8 +26,8 @@ still depend on the device's connection, permission, and Focus settings.
 
 ## Detecting new shiurim
 
-Supabase Cron runs `dispatch_notification_worker` at `0 */6 * * *`, or
-00:00, 06:00, 12:00, and 18:00 UTC. It calls the `notify-shiurim` Edge Function
+Supabase Cron runs `dispatch_notification_worker` at `0 * * * *`, at the
+start of every hour in UTC. It calls the `notify-shiurim` Edge Function
 with a private scheduler secret from Supabase Vault. No open browser is needed.
 
 The worker scans each followed teacher once per cycle, shared by all followers.
@@ -46,7 +46,7 @@ page through bounded continuation requests.
 Deliveries are stored once per device, teacher, and shiur. The worker checks that
 the account still follows the teacher before sending. Expired push endpoints
 are removed. Temporary failures retry, with at most five attempts; the next
-six-hour run picks up retries that are due. Notification tags collapse repeated
+hourly run picks up retries that are due. Notification tags collapse repeated
 delivery of the same shiur on a device. Pending deliveries expire after 30 days.
 
 Cloud follow changes use a local per-account outbox. Network failures leave
@@ -75,7 +75,7 @@ Supabase Auth SDK. The callback handles the SDK's `sb_flow_id` parameter.
 
 The deployment script applies each SQL migration once and rejects edited
 migrations. It deploys the tracked Edge Function, installs push secrets, sets
-the Vault scheduler credentials, and verifies the six-hour cron job.
+the Vault scheduler credentials, and verifies the hourly cron job.
 
 ```sh
 export NOTIFICATION_CREDENTIALS_FILE="$HOME/.config/yutorah/supabase-notifications-credentials.json"
@@ -111,7 +111,7 @@ operation is not a guarantee of uninterrupted service at arbitrary scale.
 Monitor the project's Database and Edge Functions usage in the dashboard.
 No paid upgrade is enabled automatically. Catalog scans use one request per
 30 shiurim per followed teacher; popular teachers can require hundreds of
-pages. Six hours is the polling interval, not an instant-delivery guarantee.
+pages. One hour is the polling interval, not an instant-delivery guarantee.
 
 Operational state is in `notification_worker` and `teacher_poll_state`.
 Inspect `last_result`, `last_finished_at`, `next_page`, and `last_error` to check

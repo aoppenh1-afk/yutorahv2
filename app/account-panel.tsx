@@ -99,8 +99,8 @@ export function AccountPanel({
             <Bell size={18} /> New shiur notifications
           </h3>
           <p>
-            We check for new shiurim every six hours. Notifications work when
-            this website is closed.
+            We check for new shiurim every hour. Notifications work when this
+            website is closed.
           </p>
           {account.support === 'iphone-install' ? (
             <div className="account-install">
