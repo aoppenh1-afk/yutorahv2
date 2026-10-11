@@ -3,6 +3,7 @@
 
 import { useMemo, useState } from 'react';
 import { ShiurViews } from './shiur-views';
+import { TeacherLink } from './teacher-link';
 import {
   ArrowRight,
   Bookmark,
@@ -143,6 +144,9 @@ export function MobileDiscover({
           shiur={s}
           onPlay={onPlay}
           onDetails={onDetails}
+          onTeacher={(s) =>
+            void onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+          }
           onSave={onSave}
           saved={library.saved.some((v) => v.id === s.id)}
           active={activeId === s.id && playing}
@@ -231,7 +235,12 @@ export function MobileDiscover({
             </button>
           </h2>
           <p>
-            {pick.teacher}
+            <TeacherLink
+              shiur={pick}
+              onTeacher={(s) =>
+                onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+              }
+            />
             {pick.duration > 0 && (
               <span> · {Math.round(pick.duration / 60)} min</span>
             )}

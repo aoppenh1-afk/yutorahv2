@@ -189,6 +189,16 @@ a {
   text-decoration: none;
   color: inherit;
 }
+.teacher-link {
+  position: relative;
+  z-index: 2;
+}
+.teacher-link:hover,
+.teacher-link:focus-visible {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 h1,
 h2,
 h3,

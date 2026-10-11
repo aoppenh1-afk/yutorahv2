@@ -1,6 +1,7 @@
 /* oxlint-disable next/no-img-element -- Subject art is pre-sized, lazy-loaded local WebP. */
 'use client';
 import { ShiurViews } from './shiur-views';
+import { TeacherLink } from './teacher-link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BoundedCache } from '@/lib/bounded-cache';
@@ -426,6 +427,9 @@ export function LearningHome(props: Props) {
             shiur={s}
             onPlay={onPlay}
             onDetails={onDetails}
+            onTeacher={(s) =>
+              void onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+            }
             onSave={onSave}
             saved={savedIds.has(s.id)}
             active={activeId === s.id && playing}
@@ -466,7 +470,14 @@ export function LearningHome(props: Props) {
             <button dir="auto" onClick={() => onDetails(s)}>
               {s.title}
             </button>
-            <p>{s.teacher}</p>
+            <p>
+              <TeacherLink
+                shiur={s}
+                onTeacher={(s) =>
+                  onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+                }
+              />
+            </p>
             <small>
               <ShiurViews shiur={s} /><span>·</span>
               {s.duration ? Math.round(s.duration / 60) + ' min' : mediaKind(s)}
@@ -640,7 +651,14 @@ export function LearningHome(props: Props) {
                 </h2>
                 {pick && (
                   <p className="home-hero-byline">
-                    <strong>{pick.teacher}</strong>
+                    <strong>
+                      <TeacherLink
+                        shiur={pick}
+                        onTeacher={(s) =>
+                          onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+                        }
+                      />
+                    </strong>
                     {pick.duration > 0 && (
                       <span>{Math.round(pick.duration / 60)} min</span>
                     )}
@@ -851,6 +869,9 @@ export function LearningHome(props: Props) {
                       shiur={h.shiur}
                       onPlay={(s) => onPlay(s, h.seconds)}
                       onDetails={onDetails}
+                      onTeacher={(s) =>
+                        void onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+                      }
                       onSave={onSave}
                       onQueue={onQueue}
                       saved={savedIds.has(h.shiur.id)}

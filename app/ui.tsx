@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ShiurViews } from './shiur-views';
+import { TeacherLink } from './teacher-link';
 import {
   Sheet,
   SheetContent,
@@ -282,6 +283,7 @@ export function MobileRecordingCard({
   shiur: s,
   onPlay,
   onDetails,
+  onTeacher,
   onSave,
   saved,
   active = false,
@@ -289,6 +291,7 @@ export function MobileRecordingCard({
   shiur: Shiur;
   onPlay: (s: Shiur) => void;
   onDetails: (s: Shiur) => void;
+  onTeacher?: (s: Shiur) => void;
   onSave: (s: Shiur) => void;
   saved: boolean;
   active?: boolean;
@@ -322,9 +325,13 @@ export function MobileRecordingCard({
         <h3>
           <button onClick={() => onDetails(s)}>
             <span dir="auto">{s.title}</span>
-            <span className="recording-teacher">{s.teacher}</span>
           </button>
         </h3>
+        <TeacherLink
+          shiur={s}
+          onTeacher={onTeacher}
+          className="recording-teacher"
+        />
         <div className="recording-meta">
           <span>
             {s.duration
@@ -355,6 +362,7 @@ export function ShiurCard({
   shiur: s,
   onPlay,
   onDetails,
+  onTeacher,
   onSave,
   saved,
   active = false,
@@ -363,6 +371,7 @@ export function ShiurCard({
   index?: number;
   onPlay: (s: Shiur) => void;
   onDetails: (s: Shiur) => void;
+  onTeacher?: (s: Shiur) => void;
   onSave: (s: Shiur) => void;
   saved: boolean;
   active?: boolean;
@@ -376,6 +385,7 @@ export function ShiurCard({
         shiur={s}
         onPlay={onPlay}
         onDetails={onDetails}
+        onTeacher={onTeacher}
         onSave={onSave}
         saved={saved}
         active={active}
@@ -416,7 +426,9 @@ export function ShiurCard({
         <h3 dir="auto">
           <button onClick={() => onDetails(s)}>{s.title}</button>
         </h3>
-        <p>{s.teacher}</p>
+        <p>
+          <TeacherLink shiur={s} onTeacher={onTeacher} />
+        </p>
         <p className="card-meta">
           {active ? (
             <span className="eq" aria-hidden="true">
@@ -450,6 +462,7 @@ export function ShiurRow({
   shiur: s,
   onPlay,
   onDetails,
+  onTeacher,
   onSave,
   onQueue,
   saved,
@@ -464,6 +477,7 @@ export function ShiurRow({
   shiur: Shiur;
   onPlay: (s: Shiur) => void;
   onDetails: (s: Shiur) => void;
+  onTeacher?: (s: Shiur) => void;
   onSave: (s: Shiur) => void;
   onQueue: (s: Shiur) => void;
   saved: boolean;
@@ -483,6 +497,7 @@ export function ShiurRow({
         shiur={s}
         onPlay={onPlay}
         onDetails={onDetails}
+        onTeacher={onTeacher}
         onSave={onSave}
         onQueue={onQueue}
         saved={saved}
@@ -528,7 +543,9 @@ export function ShiurRow({
           <button onClick={() => onDetails(s)}>{s.title}</button>
         </h3>
         <p className="row-byline">
-          <strong>{s.teacher}</strong>
+          <strong>
+            <TeacherLink shiur={s} onTeacher={onTeacher} />
+          </strong>
           <span> · </span>
           {s.duration ? `${Math.round(s.duration / 60)} min` : kind}
           <span> · </span>
@@ -847,6 +864,7 @@ function MobileShiurRow({
   shiur: s,
   onPlay,
   onDetails,
+  onTeacher,
   onSave,
   onQueue,
   onPlaylist,
@@ -860,6 +878,7 @@ function MobileShiurRow({
   shiur: Shiur;
   onPlay: (s: Shiur) => void;
   onDetails: (s: Shiur) => void;
+  onTeacher?: (s: Shiur) => void;
   onSave: (s: Shiur) => void;
   onQueue: (s: Shiur) => void;
   onPlaylist?: () => void;
@@ -895,7 +914,9 @@ function MobileShiurRow({
               {s.title}
             </button>
           </h3>
-          <p>{s.teacher}</p>
+          <p>
+            <TeacherLink shiur={s} onTeacher={onTeacher} />
+          </p>
           <div>
             <span>
               {s.duration

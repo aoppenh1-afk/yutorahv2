@@ -75,7 +75,6 @@ import {
   SidebarProvider,
   SidebarContent,
   SidebarHeader,
-  SidebarFooter,
   SidebarGroup,
   SidebarMenu,
   SidebarMenuItem,
@@ -836,6 +835,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             query={view === 'search' ? results?.plan.term : undefined}
             onPlay={play}
             onDetails={showDetail}
+            onTeacher={(s) =>
+              void runSearch('', { ...noFilters, teacher: String(s.teacherId) })
+            }
             onSave={save}
             onQueue={enqueue}
             onPlaylist={() => addToPlaylist(s)}
@@ -883,6 +885,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             query={view === 'search' ? results?.plan.term : undefined}
             onPlay={play}
             onDetails={showDetail}
+            onTeacher={(s) =>
+              void runSearch('', { ...noFilters, teacher: String(s.teacherId) })
+            }
             onSave={save}
             saved={savedIds.has(s.id)}
             active={player.active?.id === s.id && player.playing}
@@ -1236,21 +1241,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               </button>
             </SidebarGroup>
           </SidebarContent>
-          <SidebarFooter>
-            <div className="yu-affiliate">
-              YESHIVA UNIVERSITY
-              <br />
-              <span>The Marcos and Adina Katz YUTorah</span>
-            </div>
-            <a
-              href="https://yutorah.org"
-              target="_blank"
-              rel="noreferrer"
-              className="original-link"
-            >
-              YUTorah.org <ArrowUpRight size={14} />
-            </a>
-          </SidebarFooter>
         </nav>
       </Sidebar>
       <nav className="mobile-nav" aria-label="Main navigation">

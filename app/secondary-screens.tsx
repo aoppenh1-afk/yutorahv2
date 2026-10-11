@@ -612,6 +612,9 @@ export function SecondaryScreens({
                                 shiur={s}
                                 onPlay={play}
                                 onDetails={showDetail}
+                                onTeacher={(s) =>
+                                  void runSearch('', { ...noFilters, teacher: String(s.teacherId) })
+                                }
                                 onSave={save}
                                 onQueue={enqueue}
                                 saved={savedIds.has(s.id)}
