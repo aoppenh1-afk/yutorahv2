@@ -96,7 +96,7 @@ const results = await Promise.all(
         elapsedMs: performance.now() - jobStarted,
         calls,
         repairCalls: Math.max(0, calls - 1),
-        violations: notesViolations(result.markdown, source, profile.language),
+        violations: notesViolations(result.markdown, source),
         sourceHash: digest(source),
         requests,
       };

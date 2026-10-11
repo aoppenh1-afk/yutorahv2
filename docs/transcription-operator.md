@@ -294,8 +294,16 @@ temporary storage counter includes scratch and conversation artifacts.
 ## Lectern generation and storage
 
 Both skills are copied verbatim from Lectern commit
-`1b1032f96039aaac63261afc84a86cd20ce63867`; each copy has a provenance file.
+`38a481e03ea19884a0b23bd033205f44d4e878ba`; each copy has a provenance file.
 The transcription request attaches native audio and includes the full skill.
+Audio transcription, transcript cleanup, and notes keep `davening`, `leining`,
+`bentching`, `shul`, `yahrzeit`, `yeshiva`, and `chavrusa` in English spelling,
+including inflected forms. Other recognizable Torah terms use Hebrew script;
+Hebrew source quotations retain their original wording. Structural validation
+does not require Hebrew characters just because the source contains them:
+an outline about shul or yeshiva can correctly use only English letters.
+Skill changes produce new profile hashes for future jobs. Existing jobs retain
+their pinned contracts and published artifacts are not regenerated automatically.
 The generation sequence follows Lectern's Swift `GenerationService` and
 `Prompts`: clean the full transcript first, persist it, generate a grounded
 Markdown outline, normalize presentation, validate structure, and allow one

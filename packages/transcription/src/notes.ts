@@ -61,12 +61,8 @@ export function notesPrompt(
   return `${policy}\n\n<notes-contract>\n${p.notesSkill}\n</notes-contract>\n\nLanguage branch: ${branch(p.language)}.\nCreate the complete grounded Markdown outline in lecture order. Use the text outline; omit the optional visual.\n${draft ? `Repair this draft, preserving its grounded content and order. Fix:\n${violations.map((v) => `- ${v}`).join('\n')}\n<draft-notes>\n${draft}\n</draft-notes>\n` : ''}\n<lecture-source>\n${source}\n</lecture-source>`;
 }
 
-/** Lectern's structural checks, with the current skill's four-space list contract. */
-export function notesViolations(
-  markdown: string,
-  source: string,
-  language: Settings['language'],
-): string[] {
+/** Structural checks; contextual spelling and source quotations follow the skill. */
+export function notesViolations(markdown: string, source: string): string[] {
   const lines = markdown.trim().split('\n');
   const failures: string[] = [];
   if (
@@ -112,12 +108,6 @@ export function notesViolations(
     failures.push(
       'Restore developed arguments and examples; the outline is too sparse.',
     );
-  if (
-    language === 'hebrewEnglish' &&
-    /[\u0590-\u05ff]/.test(source) &&
-    !/[\u0590-\u05ff]/.test(markdown)
-  )
-    failures.push('Preserve Torah terminology in Hebrew script.');
   return failures;
 }
 
@@ -155,7 +145,7 @@ export async function generateNotes(input: {
     await input.request(notesPrompt(input.profile, cleaned)),
   );
   checkAbort(input.signal);
-  let violations = notesViolations(markdown, cleaned, input.profile.language);
+  let violations = notesViolations(markdown, cleaned);
   if (violations.length) {
     markdown = normalizeNotes(
       await input.request(
@@ -163,7 +153,7 @@ export async function generateNotes(input: {
       ),
     );
     checkAbort(input.signal);
-    violations = notesViolations(markdown, cleaned, input.profile.language);
+    violations = notesViolations(markdown, cleaned);
   }
   if (violations.length) throw new Failure('incomplete_output');
   return { cleaned, markdown };

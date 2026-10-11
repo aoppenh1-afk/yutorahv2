@@ -32,6 +32,14 @@ generation. User plugin and
 agent configuration is isolated; provider state remains available to the native
 runtime. No paid fallback is allowed.
 
+The packaged Lectern skills keep `davening`, `leining`, `bentching`, `shul`,
+`yahrzeit`, `yeshiva`, and `chavrusa` in English spelling, including inflected
+forms. Other recognizable Torah terms use Hebrew script, and source quotations
+retain their original Hebrew wording. These rules also apply when the official
+VTT uses Hebrew spellings for those everyday words. Rebuild the package and
+install it on the worker to update its contracts; already published notes and
+completed backups retain their existing text.
+
 From the extracted package:
 
 ```sh
