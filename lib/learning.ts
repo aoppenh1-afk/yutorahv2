@@ -51,7 +51,13 @@ export function restoreLearning(
               f.id > 0 &&
               typeof f.name === 'string',
           )
-          .slice(0, 100)
+          .filter(
+            ((counts: Record<string, number>) => (f: Follow) => {
+              const group = f.kind === 'teacher' ? 'teachers' : 'other';
+              counts[group] = (counts[group] ?? 0) + 1;
+              return counts[group] <= 100;
+            })({}),
+          )
       : [],
     hidden: ids(value.hidden),
     completed: ids(value.completed),

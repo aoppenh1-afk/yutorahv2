@@ -1,6 +1,8 @@
 # YUTorah Study
 
-A responsive reading and listening interface connected to YUTorah's public library. All featured shiurim, teacher profiles, series, topic counts, daily learning, audio, and source materials come from live YUTorah endpoints. Personal learning data stays in the browser.
+A responsive reading and listening interface connected to YUTorah's public library. All featured shiurim, teacher profiles, series, topic counts, daily learning, audio, and source materials come from live YUTorah endpoints. Google sign-in syncs teacher follows and enables new-shiur notifications. Saved shiurim and listening progress stay in the browser.
+
+Teacher notifications use a dedicated Supabase Free project and a six-hour schedule. See [setup, operation, and iPhone installation](docs/teacher-notifications.md). This service adds no Cloudflare usage.
 
 ## Run
 

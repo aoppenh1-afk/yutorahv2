@@ -23,6 +23,7 @@
     "typeCheck": true
   },
   "ignorePatterns": [
+    "supabase/functions/**",
     ".next/**",
     ".vinext/**",
     "out/**",

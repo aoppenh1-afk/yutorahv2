@@ -57,6 +57,13 @@ jobs:
       - run: npm run test:sources
       - run: npm run test:search
       - run: npm run test:learning
+      - run: npm run test:notifications
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+      - name: Check notification Edge Function
+        working-directory: /tmp
+        run: deno check --no-config --node-modules-dir=manual "$GITHUB_WORKSPACE/supabase/functions/notify-shiurim/index.ts"
       - run: npm run performance:fixtures
       - run: npm run test:performance
       - run: npm run test:api

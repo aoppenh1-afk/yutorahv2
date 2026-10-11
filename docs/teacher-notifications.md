@@ -1,0 +1,120 @@
+# Teacher notifications
+
+Google sign-in syncs teacher follows across devices. Notifications are opt-in
+on each device. Saved shiurim, playlists, listening progress, topics, and series
+remain in browser storage. Browsing and local follows work without signing in.
+
+The dedicated Supabase Free project is `spdyqnkbuvszhnethmke`, named
+`yutorah-notifications`. Its dashboard is
+https://supabase.com/dashboard/project/spdyqnkbuvszhnethmke.
+Google OAuth uses the separate `yutorah-notifications` Google Cloud project,
+owned by `yutorahv2@gmail.com`. The website remains on Vercel.
+This notification service uses no Cloudflare Worker, paid plan, or billing account.
+
+## Turn on notifications
+
+Open Account and notifications, continue with Google, and enable notifications.
+Follow a teacher anywhere in the app. Each device has its own enable/disable
+setting and a test button. Unfollowing stops future notifications for that
+teacher. Signing out unsubscribes that device.
+
+On iPhone or iPad, use iOS/iPadOS 16.4 or later. Open the website in Safari,
+choose Share, then Add to Home Screen. Open that installed app, sign in, and
+tap Enable notifications. Accept the system permission prompt. The website
+does not need to stay open for push notifications to arrive. Notifications
+still depend on the device's connection, permission, and Focus settings.
+
+## Detecting new shiurim
+
+Supabase Cron runs `dispatch_notification_worker` at `0 */6 * * *`, or
+00:00, 06:00, 12:00, and 18:00 UTC. It calls the `notify-shiurim` Edge Function
+with a private scheduler secret from Supabase Vault. No open browser is needed.
+
+The worker scans each followed teacher once per cycle, shared by all followers.
+It reads the teacher's recent audio RSS feed, then paginates the complete search
+catalog. Shiur IDs determine whether an upload is new. Recording dates do not:
+an old recording uploaded today still qualifies. The catalog scan also catches
+videos and audio omitted from the RSS feed.
+
+A teacher's first complete scan records a silent baseline. It does not notify
+about their existing library. New follows and new devices also complete one
+scan quietly before receiving alerts, including when a teacher's last scan
+was long ago. Allow a first scheduled scan to
+complete before expecting new-upload alerts. Large catalogs resume from a saved
+page through bounded continuation requests.
+
+Deliveries are stored once per device, teacher, and shiur. The worker checks that
+the account still follows the teacher before sending. Expired push endpoints
+are removed. Temporary failures retry, with at most five attempts; the next
+six-hour run picks up retries that are due. Notification tags collapse repeated
+delivery of the same shiur on a device. Pending deliveries expire after 30 days.
+
+Cloud follow changes use a local per-account outbox. Network failures leave
+the change pending, with a visible retry action. Refreshing, reconnecting, and
+returning to the app retry sync. Switching accounts replaces teacher follows
+with the new account's cloud state.
+
+## Credentials and deployment
+
+`lib/account-config.ts` contains only the public Supabase URL, anon key, and
+VAPID public key. Row-level security protects each account's follows and device
+records. Only authenticated RPCs can change them. Scheduler, observation, and
+delivery functions are restricted to the service role.
+
+The service-role key, database password, VAPID private key, scheduler secret,
+and OAuth client secret belong outside the repository. On the setup computer,
+private files are under `~/.config/yutorah/`, readable only by the owner.
+Never rotate VAPID keys during a routine redeploy: existing device subscriptions
+depend on them.
+
+Google's Web application client uses origin `https://yutorah.vercel.app` and
+redirect URI `https://spdyqnkbuvszhnethmke.supabase.co/auth/v1/callback`.
+Supabase redirects back to `https://yutorah.vercel.app/auth/callback`.
+The login requests only `openid email profile`. Auth uses PKCE and the official
+Supabase Auth SDK. The callback handles the SDK's `sb_flow_id` parameter.
+
+The deployment script applies each SQL migration once and rejects edited
+migrations. It deploys the tracked Edge Function, installs push secrets, sets
+the Vault scheduler credentials, and verifies the six-hour cron job.
+
+```sh
+export NOTIFICATION_CREDENTIALS_FILE="$HOME/.config/yutorah/supabase-notifications-credentials.json"
+export SUPABASE_SESSION_FILE="$HOME/.config/yutorah/supabase-deploy-session.json"
+export GOOGLE_OAUTH_CREDENTIALS_FILE="$HOME/.config/yutorah/google-notifications-oauth.json"
+npm run notifications:deploy
+npm run notifications:verify
+```
+
+For unattended deployment, use a private `SUPABASE_ACCESS_TOKEN` instead of a
+short-lived dashboard session. Deployment does not change the billing plan.
+The optional Google credentials file configures the provider; omitting it keeps
+the existing Google client ID and private secret unchanged.
+
+## Checks and limits
+
+`npm run test:notifications` checks follow merging, account switching, API and
+RSS parsing, delivery retry rules, endpoint validation, and service-worker
+behavior. `notifications:verify` uses disposable users to verify live database
+permissions, silent baselines, deduplication, unfollowing, and device cleanup.
+It deletes its fixtures when finished. Deno checks the Edge Function separately:
+
+```sh
+deno check --no-config --node-modules-dir=manual supabase/functions/notify-shiurim/index.ts
+```
+
+The app allows 100 teacher follows and another 100 topic/series follows.
+The database allows up to ten notification devices per account. Web-push
+endpoints are limited to Google's, Mozilla's, and Apple's push services.
+
+Supabase's Free plan has usage limits and may pause inactive projects. Free
+operation is not a guarantee of uninterrupted service at arbitrary scale.
+Monitor the project's Database and Edge Functions usage in the dashboard.
+No paid upgrade is enabled automatically. Catalog scans use one request per
+30 shiurim per followed teacher; popular teachers can require hundreds of
+pages. Six hours is the polling interval, not an instant-delivery guarantee.
+
+Operational state is in `notification_worker` and `teacher_poll_state`.
+Inspect `last_result`, `last_finished_at`, `next_page`, and `last_error` to check
+progress. The initial live catalog check recorded 1,648 shiur IDs, completed
+its continuation requests, and queued zero old-upload notifications.
+Physical iPhone permission and delivery checks require an actual device.

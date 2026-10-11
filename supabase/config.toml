@@ -1,0 +1,5 @@
+project_id = "yutorah-notifications"
+
+[functions.notify-shiurim]
+# Cron uses a private secret; browser tests validate the user JWT in the handler.
+verify_jwt = false

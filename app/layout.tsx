@@ -4,6 +4,7 @@ import './globals.css';
 import './home.css';
 import './screens.css';
 import './study.css';
+import './account.css';
 import { PerformanceMonitor } from './performance-monitor';
 const sans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 const mono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
@@ -14,6 +15,7 @@ const hebrew = Frank_Ruhl_Libre({
   display: 'swap',
 });
 export const metadata: Metadata = {
+  manifest: '/manifest.webmanifest',
   title: 'YUTorah | The Torah Library',
   description:
     'Listen and learn from the YUTorah library. Search shiurim by topic, teacher, series and more. Save your learning and pick up where you left off.',
@@ -25,7 +27,7 @@ export const metadata: Metadata = {
       type: 'image/png',
     },
   },
-  appleWebApp: { title: 'YUTorah' },
+  appleWebApp: { title: 'YUTorah', capable: true, statusBarStyle: 'default' },
 };
 export const viewport: Viewport = {
   width: 'device-width',

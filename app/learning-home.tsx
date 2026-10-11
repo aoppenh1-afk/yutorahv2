@@ -1386,7 +1386,7 @@ export function LearningHome(props: Props) {
                 </button>
               </section>
               <p className="learning-local-note">
-                Your saved shiurim, progress, and follows stay on this device.
+                Your saved shiurim and listening progress stay on this device.
               </p>
             </>
           )}

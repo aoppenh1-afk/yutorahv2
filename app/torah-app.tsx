@@ -28,6 +28,8 @@ import {
 import { PagedItems } from './paged-items';
 import { useViewPerformance } from './performance-monitor';
 import { FollowButton } from './follow-button';
+import { useAccount } from '@/lib/use-account';
+import { AccountPanel } from './account-panel';
 import { ShiurViews } from './shiur-views';
 import { isLearned, relatedShiurim, type Follow } from '@/lib/learning';
 import { createRelevanceScorer } from '@/lib/search-discovery';
@@ -74,6 +76,8 @@ import {
   List,
   Flame,
   Info,
+  UserRound,
+  Bell,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -286,6 +290,8 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   const [toast, setToast] = useState('');
   const [help, setHelp] = useState(false);
 
+  const [accountOpen, setAccountOpen] = useState(false);
+
   const searchAbort = useRef<AbortController | null>(null);
   const detailAbort = useRef<AbortController | null>(null);
   const initialized = useRef(false);
@@ -306,6 +312,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     [isMobile],
   );
   const { library, update, ready } = useLibrary(notify);
+  const account = useAccount(library, update, ready);
   const player = usePlaybackState();
   const {
     active: activeShiur,
@@ -670,8 +677,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     const exists = library.following.some(
       (f) => f.kind === item.kind && f.id === item.id,
     );
-    if (!exists && library.following.length >= 100) {
-      notify('You can follow up to 100 teachers, topics, and series.');
+    const sameGroup = library.following.filter(
+      (f) => (f.kind === 'teacher') === (item.kind === 'teacher'),
+    );
+    if (!exists && sameGroup.length >= 100) {
+      notify('You can follow up to 100 teachers and 100 topics or series.');
       return;
     }
     update((old) => ({
@@ -682,6 +692,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           )
         : [...old.following, item],
     }));
+    account.changedFollow(item, !exists);
     notify(
       exists
         ? `Unfollowed ${item.name}.`
@@ -1142,6 +1153,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       <a href="#main-content" className="skip-link">
         Skip to content
       </a>
+      <AccountPanel
+        account={account}
+        open={accountOpen}
+        onOpenChange={setAccountOpen}
+        teacherCount={
+          library.following.filter((f) => f.kind === 'teacher').length
+        }
+      />
       <Sidebar className="torah-sidebar">
         <nav aria-label="Primary" className="flex min-h-0 flex-1 flex-col">
           <SidebarHeader>
@@ -1308,6 +1327,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           )}
           <div className="header-right">
             <button
+              className="header-account-button"
+              aria-label="Account and notifications"
+              onClick={() => setAccountOpen(true)}
+            >
+              <UserRound size={19} />
+              {account.user && <span className="account-status-dot" />}
+            </button>
+            <button
               className="mobile-header-search"
               aria-label="Search the library"
               onClick={() => navigate('search')}
@@ -1334,6 +1361,24 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           </div>
         </header>
         <main id="main-content" className="main-content" tabIndex={-1}>
+          {view === 'following' && (
+            <div className="following-notifications">
+              <div>
+                <strong>Hear when your teachers post</strong>
+                <p>
+                  {account.subscriptionId
+                    ? 'Notifications are on for this device.'
+                    : 'Get new shiur notifications, even when YUTorah is closed.'}
+                </p>
+              </div>
+              <button
+                className="account-secondary"
+                onClick={() => setAccountOpen(true)}
+              >
+                <Bell size={16} /> Notifications
+              </button>
+            </div>
+          )}
           {['saved', 'history', 'playlists'].includes(view) && (
             <div className="mobile-library-heading">
               <h1>Your library</h1>
@@ -2595,12 +2640,12 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             library. Shiurim, teachers, series, audio, and available source
             sheets come from YUTorah.
           </p>
-          <h3>Your learning stays on this device</h3>
+          <h3>Your library and teacher follows</h3>
           <p>
-            Saved shiurim, playlists, and listening progress are stored in this
-            browser, along with follows, saved searches, and learning goals.
-            They do not sync to your YUTorah account. Clearing your browser’s
-            site data removes them.
+            Teacher follows sync across devices when you sign in with Google.
+            Saved shiurim, playlists, listening progress, topics, series, saved
+            searches, and learning goals stay in this browser. Clearing this
+            browser&apos;s site data removes those local items.
           </p>
           <button
             className="outline-button"
