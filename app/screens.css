@@ -632,9 +632,6 @@
 .shiur-row h3 button:hover {
   color: var(--brand);
 }
-.shiur-row.is-playing h3 {
-  color: var(--brand);
-}
 .row-byline {
   font-size: 13px;
   color: var(--ink-3);
@@ -712,9 +709,6 @@
 .row-play:hover {
   transform: scale(1.06);
   background: var(--brand);
-}
-.shiur-row.is-playing .row-play {
-  background: var(--gold);
 }
 
 /* Mobile row variant */
@@ -801,9 +795,6 @@
   border-radius: 50%;
   background: var(--ink);
   color: #fff;
-}
-.mobile-shiur-row.is-playing .mobile-row-play {
-  background: var(--gold);
 }
 .mobile-row-more {
   display: grid;

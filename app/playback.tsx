@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useAudio } from '@/lib/library';
 import { Player } from './ui';
+import { PlayerDialogProvider } from '@/hooks/use-player-dialog';
 
 type Audio = ReturnType<typeof useAudio>;
 type State = Pick<
@@ -116,7 +117,7 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
   const [store] = useState(createPlayback);
   return (
     <PlaybackContext.Provider value={store}>
-      {children}
+      <PlayerDialogProvider>{children}</PlayerDialogProvider>
     </PlaybackContext.Provider>
   );
 }

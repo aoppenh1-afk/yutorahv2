@@ -131,6 +131,7 @@ async function openPlayer(viewport, stalled = false, options = {}) {
         nach: '',
         mishna: '',
         fetchedAt: new Date().toISOString(),
+        ...options.home,
       },
     }),
   );
@@ -297,6 +298,100 @@ async function closeAndVerify(page, minSeconds = 42) {
 
 void test('player controls stop playback and the phone dialog stays inside the built viewport', async (t) => {
   try {
+    await t.test(
+      'active mobile shiur keeps its title and play button colors',
+      async () => {
+        const { context, page } = await openPlayer(
+          { width: 390, height: 844 },
+          false,
+          {
+            home: { featured: [shiur], recent: [shiur] },
+          },
+        );
+        try {
+          const card = page
+            .locator('.mobile-recording-card')
+            .filter({ hasText: shiur.title })
+            .first();
+          await card.waitFor();
+          await page.waitForFunction(() =>
+            [...document.querySelectorAll('.mobile-recording-card')].some(
+              (el) => el.classList.contains('is-playing'),
+            ),
+          );
+          const colors = await card.evaluate((el) => ({
+            title: getComputedStyle(el.querySelector('h3 button > span')).color,
+            button: getComputedStyle(
+              el.querySelector('.recording-portrait > span'),
+            ).backgroundColor,
+          }));
+          await page
+            .getByRole('button', { name: 'Pause', exact: true })
+            .click();
+          await page.waitForFunction(
+            () => document.querySelector('audio').paused,
+          );
+          await page.waitForFunction(
+            () => !document.querySelector('.mobile-recording-card.is-playing'),
+          );
+          const paused = await card.evaluate((el) => ({
+            title: getComputedStyle(el.querySelector('h3 button > span')).color,
+            button: getComputedStyle(
+              el.querySelector('.recording-portrait > span'),
+            ).backgroundColor,
+          }));
+          assert.deepEqual(colors, paused);
+        } finally {
+          await context.close();
+        }
+      },
+    );
+    await t.test('mobile Listen now opens the full audio player', async () => {
+      const { context, page } = await openPlayer(
+        { width: 390, height: 844 },
+        false,
+        {
+          home: {
+            featured: [{ ...shiur, teacher: 'Rabbi Test teacher' }],
+            recent: [shiur],
+          },
+        },
+      );
+      try {
+        await page.getByRole('button', { name: 'Pause', exact: true }).click();
+        await page.locator('.m-hero-play').getByText('Listen now').waitFor();
+        await page.locator('.m-hero-play').click();
+        await page.waitForFunction(
+          () => !document.querySelector('audio').paused,
+        );
+        await page.locator('.mobile-now-playing').waitFor();
+        assert.equal(
+          await page.locator('.mobile-now-playing').isVisible(),
+          true,
+        );
+        await page
+          .getByRole('button', { name: 'Collapse player controls' })
+          .click();
+        await page.locator('.mobile-now-playing').waitFor({ state: 'hidden' });
+        assert.equal(
+          await page.locator('.mobile-now-playing').isVisible(),
+          false,
+        );
+        await page
+          .getByRole('button', { name: 'Close player', exact: true })
+          .click();
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await page.locator('.m-hero-play').getByText('Listen now').waitFor();
+        assert.equal(await page.locator('.player').count(), 0);
+        await page.locator('.m-hero-play').click();
+        await page.locator('.mobile-now-playing').waitFor();
+        await page.waitForFunction(
+          () => !document.querySelector('audio').paused,
+        );
+      } finally {
+        await context.close();
+      }
+    });
     for (const viewport of [
       { width: 1280, height: 800 },
       { width: 390, height: 844 },
@@ -367,8 +462,10 @@ void test('player controls stop playback and the phone dialog stays inside the b
             await playerDialog
               .getByRole('button', { name: 'Playback speed', exact: true })
               .click();
-            await page.locator('.playback-speed-popup')
-              .getByRole('slider', { name: 'Playback speed' }).press('End');
+            await page
+              .locator('.playback-speed-popup')
+              .getByRole('slider', { name: 'Playback speed' })
+              .press('End');
             await page.waitForFunction(
               () => document.querySelector('audio').playbackRate === 3,
             );

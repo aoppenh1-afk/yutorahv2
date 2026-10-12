@@ -2,6 +2,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { usePlayerDialog } from '@/hooks/use-player-dialog';
 import { ShiurViews } from './shiur-views';
 import { TeacherLink } from './teacher-link';
 import {
@@ -99,6 +100,7 @@ export function MobileDiscover({
   onPreferences,
   onRefresh,
 }: Props) {
+  const { setExpanded } = usePlayerDialog();
   const [query, setQuery] = useState('');
   const [feed, setFeed] = useState('recommended');
   const [shown, setShown] = useState(5);
@@ -231,7 +233,14 @@ export function MobileDiscover({
           <div className="m-hero-actions">
             <button
               className="m-hero-play"
-              onClick={() => open(pick)}
+              onClick={() => {
+                open(pick);
+                if (
+                  mediaKind(pick) === 'audio' &&
+                  !(activeId === pick.id && playing)
+                )
+                  setExpanded(true);
+              }}
               aria-label={
                 (activeId === pick.id && playing ? 'Pause ' : 'Play ') +
                 pick.title

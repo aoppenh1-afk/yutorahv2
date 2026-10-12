@@ -31,6 +31,7 @@ import {
   X,
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { usePlayerDialog } from '@/hooks/use-player-dialog';
 import { ShiurViews } from './shiur-views';
 import { TeacherLink } from './teacher-link';
 import {
@@ -1144,7 +1145,7 @@ function MobileAudioPlayer({
   onQueue: () => void;
   onSave: (s: Shiur) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const { expanded, setExpanded } = usePlayerDialog();
   if (!p.active) return null;
   const s = p.active;
   const close = () => {
