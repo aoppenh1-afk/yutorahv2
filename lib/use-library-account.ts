@@ -113,7 +113,7 @@ export function useLibraryAccount(
       controller.current = sync;
       const unsubscribe = subscribe((next, mode) => {
         try {
-          sync.observe(next);
+          sync.observe(next, mode === 'progress');
         } catch {
           setState((old) => ({
             ...old,
@@ -149,10 +149,18 @@ export function useLibraryAccount(
           void sync.sync();
         }
       };
+      const saveBeforeLeave = () => {
+        try {
+          sync.save();
+        } catch {
+          /* The device library also flushes before leaving. */
+        }
+      };
       window.addEventListener('online', retry);
       window.addEventListener('focus', retry);
       document.addEventListener('visibilitychange', hidden);
       window.addEventListener('storage', changedStorage);
+      window.addEventListener('pagehide', saveBeforeLeave);
       const poll = setInterval(retry, 60000);
       void sync.sync();
       return () => {
@@ -166,6 +174,7 @@ export function useLibraryAccount(
         window.removeEventListener('focus', retry);
         document.removeEventListener('visibilitychange', hidden);
         window.removeEventListener('storage', changedStorage);
+        window.removeEventListener('pagehide', saveBeforeLeave);
       };
     } catch {
       // A storage failure must never import another account's data.

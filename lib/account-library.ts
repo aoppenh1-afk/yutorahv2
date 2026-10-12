@@ -291,10 +291,21 @@ export class AccountLibrary {
   get pendingCount() {
     return Object.keys(this.cache.pending).length;
   }
-  observe(next: LibraryState) {
+  save() {
+    this.persist();
+  }
+  observe(next: LibraryState, progress = false) {
     if (!this.active) return;
-    const previous = libraryValues(this.view);
-    const values = libraryValues(next);
+    const progressOnly = (value: LibraryState) => ({
+      ...restoreLibrary(null),
+      history: value.history,
+      learningDays: value.learningDays,
+      last: value.last,
+    });
+    const previous = libraryValues(
+      progress ? progressOnly(this.view) : this.view,
+    );
+    const values = libraryValues(progress ? progressOnly(next) : next);
     for (const key of new Set([
       ...Object.keys(previous),
       ...Object.keys(values),
@@ -327,7 +338,7 @@ export class AccountLibrary {
       };
     }
     this.view = next;
-    this.persist();
+    if (!progress) this.persist();
     this.status(this.pendingCount, !!this.running, '');
   }
   private accept(rows: LibraryRow[], sent: LibraryChange[]) {
@@ -366,6 +377,7 @@ export class AccountLibrary {
     const work = async () => {
       this.status(this.pendingCount, true, '');
       try {
+        this.persist();
         let more = true;
         let pulling = true;
         while (this.active && (more || this.pendingCount)) {
