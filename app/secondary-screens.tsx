@@ -6,19 +6,12 @@ import {
   ArrowLeft,
   Plus,
   Search,
-  HardDrive,
   Play,
   X,
   Loader2,
   ListMusic,
 } from 'lucide-react';
-import {
-  Avatar,
-  SeriesCover,
-  StatePanel,
-  ShiurRow,
-  tone,
-} from './ui';
+import { Avatar, SeriesCover, StatePanel, ShiurRow, tone } from './ui';
 import { FollowButton } from './follow-button';
 import { PagedItems } from './paged-items';
 import { noFilters, type Filters } from '@/lib/search-filters';
@@ -429,9 +422,6 @@ export function SecondaryScreens({
                     ? playlist.name
                     : 'My playlists'}
             </h1>
-            <p>
-              <HardDrive size={14} /> Saved in this browser, on this device.
-            </p>
           </div>
           {!ready ? (
             <output className="loading-panel">
@@ -613,7 +603,10 @@ export function SecondaryScreens({
                                 onPlay={play}
                                 onDetails={showDetail}
                                 onTeacher={(s) =>
-                                  void runSearch('', { ...noFilters, teacher: String(s.teacherId) })
+                                  void runSearch('', {
+                                    ...noFilters,
+                                    teacher: String(s.teacherId),
+                                  })
                                 }
                                 onSave={save}
                                 onQueue={enqueue}

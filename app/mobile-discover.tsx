@@ -195,24 +195,6 @@ export function MobileDiscover({
             </button>
           </form>
         </search>
-        <div className="m-scope">
-          <span>
-            {home ? (
-              <>
-                <strong>{home.total.toLocaleString()}</strong> shiurim
-              </>
-            ) : (
-              'Audio, video & articles'
-            )}
-          </span>
-          {directory && (
-            <span>
-              <strong>{directory.teachers.length.toLocaleString()}</strong>{' '}
-              teachers
-            </span>
-          )}
-          <span>Free, always</span>
-        </div>
       </section>
 
       {pick && (

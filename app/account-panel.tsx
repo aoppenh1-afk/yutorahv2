@@ -14,10 +14,17 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
 import type { useAccount } from '@/lib/use-account';
 import type { Follow } from '@/lib/learning';
+import { PLAYBACK_SPEEDS } from '@/lib/playback-speed';
 import Link from 'next/link';
 import { Avatar } from './ui';
 
@@ -75,7 +82,6 @@ export function AccountPanel({
       <DialogContent className="account-dialog">
         <DialogHeader className="settings-heading">
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Playback and teacher alerts.</DialogDescription>
         </DialogHeader>
         <div className="settings-body">
           <section
@@ -158,25 +164,34 @@ export function AccountPanel({
             </h3>
             <div className="settings-row">
               <div>
-                <label htmlFor="default-playback-speed">Default speed</label>
-                <p className="account-hint">Start each shiur at your pace.</p>
+                <span id="default-playback-speed-label">Default speed</span>
               </div>
-              <div className="settings-speed-select">
-                <select
-                  id="default-playback-speed"
-                  value={defaultSpeed}
-                  onChange={(event) =>
-                    onSpeedChange(Number(event.target.value))
-                  }
+              <Select
+                value={String(defaultSpeed)}
+                onValueChange={(value) => {
+                  if (value) onSpeedChange(Number(value));
+                }}
+              >
+                <SelectTrigger
+                  className="settings-speed-trigger"
+                  aria-labelledby="default-playback-speed-label"
                 >
-                  {[0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
-                    <option key={speed} value={speed}>
-                      {speed}×{speed === 1 ? ' (Normal)' : ''}
-                    </option>
+                  <SelectValue>{defaultSpeed}×</SelectValue>
+                </SelectTrigger>
+                <SelectContent
+                  className="settings-speed-menu"
+                  align="end"
+                  sideOffset={8}
+                  alignItemWithTrigger={false}
+                >
+                  {PLAYBACK_SPEEDS.map((speed) => (
+                    <SelectItem key={speed} value={String(speed)}>
+                      <span>{speed}×</span>
+                      {speed === 1 && <small>Normal</small>}
+                    </SelectItem>
                   ))}
-                </select>
-                <ChevronDown size={14} aria-hidden="true" />
-              </div>
+                </SelectContent>
+              </Select>
             </div>
           </section>
 
@@ -266,7 +281,7 @@ export function AccountPanel({
           >
             <div className="teacher-settings-heading">
               <h3 id="settings-teachers">
-                <Users size={18} /> Your teachers{' '}
+                <Users size={18} /> Your Rebbeim{' '}
                 <span className="settings-count">{teachers.length}</span>
               </h3>
               <span className="account-hint">
@@ -275,9 +290,6 @@ export function AccountPanel({
             </div>
             {teachers.length ? (
               <>
-                <p className="account-hint teacher-settings-description">
-                  Choose whose new shiurim you hear about.
-                </p>
                 <div className="teacher-notification-list">
                   {teachers.map((teacher) => (
                     <div className="teacher-notification-row" key={teacher.id}>
@@ -307,12 +319,6 @@ export function AccountPanel({
                     </div>
                   ))}
                 </div>
-                {!enabled && (
-                  <p className="account-hint teacher-alerts-hint">
-                    Your choices are saved. Turn on device alerts to receive
-                    them.
-                  </p>
-                )}
               </>
             ) : (
               <div className="teacher-settings-empty">

@@ -109,6 +109,7 @@ import {
 } from '@/components/ui/dialog';
 import { Avatar, FilterSelect, ShiurCard, ShiurRow, StatePanel } from './ui';
 import { useLibrary, timeLabel } from '@/lib/library';
+import { PLAYBACK_SPEEDS } from '@/lib/playback-speed';
 import { useIsMobile } from '@/hooks/use-mobile';
 import type { HomeData, Shiur, Directory, SearchResult } from '@/lib/yutorah';
 import { mediaKind, normalize } from '@/lib/yutorah';
@@ -912,9 +913,15 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       onChange={setQ}
       directory={directory}
       onSearch={(query) =>
-        void runSearch(query, view === 'search'
-          ? { ...filters, resolved: query === submitted ? filters.resolved : '' }
-          : noFilters)
+        void runSearch(
+          query,
+          view === 'search'
+            ? {
+                ...filters,
+                resolved: query === submitted ? filters.resolved : '',
+              }
+            : noFilters,
+        )
       }
       onSelect={(suggestion) =>
         void runSearch('', {
@@ -1566,519 +1573,548 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                   />
                 </ScreenBoundary>
               ) : (
-              <>
-              <SearchOptions
-                collapsed={isMobile}
-                label="Filters & saved searches"
-              >
-                <div className="filter-bar">
-                  <button
-                    className="filter-toggle"
-                    aria-expanded={advancedFilters}
-                    aria-controls="advanced-search-filters"
-                    onPointerEnter={() => {
-                      void import('./advanced-search').catch(() => {});
-                    }}
-                    onFocus={() => {
-                      void import('./advanced-search').catch(() => {});
-                    }}
-                    onClick={() => setAdvancedFilters(!advancedFilters)}
-                  >
-                    <SlidersHorizontal size={16} /> More filters{' '}
-                    <ChevronDown size={14} />
-                  </button>
-                  <FilterSelect
-                    label="Duration"
-                    value={filters.max || 'all'}
-                    onChange={(v) => filterChange('max', v)}
-                    options={[
-                      { value: 'all', label: 'Any length' },
-                      ...Array.from(
-                        new Set([
-                          '10',
-                          '20',
-                          '30',
-                          '60',
-                          ...(filters.max ? [filters.max] : []),
-                        ]),
-                      )
-                        .sort((a, b) => Number(a) - Number(b))
-                        .map((v) => ({
-                          value: v,
-                          label: `Under ${v} min`,
-                        })),
-                    ]}
-                  />
-                  <FilterSelect
-                    label="Language"
-                    value={filters.language || 'all'}
-                    onChange={(v) => filterChange('language', v)}
-                    options={[
-                      { value: 'all', label: 'Any language' },
-                      { value: 'EN', label: 'English' },
-                      { value: 'HE', label: 'Hebrew' },
-                    ]}
-                  />
-                  <FilterSelect
-                    label="Format"
-                    value={filters.format || 'all'}
-                    onChange={(v) => filterChange('format', v)}
-                    options={[
-                      { value: 'all', label: 'All formats' },
-                      { value: 'audio', label: 'Audio' },
-                      { value: 'video', label: 'Video' },
-                      { value: 'text', label: 'Articles' },
-                    ]}
-                  />
-                  {Object.entries(filters).some(
-                    ([key, value]) => key !== 'sort' && key !== 'resolved' && value,
-                  ) && (
-                    <button
-                      className="text-button"
-                      onClick={() => void runSearch(submitted, { ...noFilters, resolved: '1' })}
-                    >
-                      Clear filters <X size={13} />
-                    </button>
-                  )}
-                  <SearchTools
-                    query={q}
-                    filters={filters}
-                    directory={directory}
-                    library={library}
-                    update={update}
-                    onSearch={(query, fs) => void runSearch(query, fs)}
-                    notify={notify}
-                  />
-                </div>
-                {!results && (
-                  <QueryPreview
-                    query={q}
-                    directory={directory}
-                    literal={filters.literal === '1'}
-                    resolved={filters.resolved === '1'}
-                  />
-                )}
-                {advancedFilters && (
-                  <ScreenBoundary>
-                    <AdvancedSearch
-                      key={JSON.stringify(filters)}
-                      filters={filters}
-                      directory={directory}
-                      loading={searchLoading}
-                      onApply={(next) => void runSearch(q, next)}
-                    />
-                  </ScreenBoundary>
-                )}
-              </SearchOptions>
-              {Object.entries(filters).some(
-                ([key, value]) => key !== 'sort' && key !== 'resolved' && value,
-              ) && (
-                <div className="applied-filters" aria-label="Active filters">
-                  {(Object.entries(filters) as [keyof Filters, string][])
-                    .filter(([key, v]) => v && key !== 'sort' && key !== 'resolved')
-                    .map(([key, value]) => {
-                      const extraLabels: Partial<
-                        Record<keyof Filters, string>
-                      > = {
-                        min: `At least ${value} minutes`,
-                        after: `From ${value}`,
-                        before: `Through ${value}`,
-                        phrase: `Exact phrase: ${value}`,
-                        exclude: `Exclude: ${value}`,
-                        scope: 'Title only',
-                        literal: 'Exact wording',
-                      };
-                      const label =
-                        extraLabels[key] ||
-                        (key === 'teacher'
-                          ? directory?.teachers.find(
-                              (t) => String(t.id) === value,
-                            )?.name || 'Selected teacher'
-                          : key === 'series'
-                            ? directory?.series.find(
-                                (t) => String(t.id) === value,
-                              )?.name || 'Selected series'
-                            : key === 'topic'
-                              ? directory?.topics.find(
-                                  (t) => String(t.id) === value,
-                                )?.name || 'Selected topic'
-                              : key === 'max'
-                                ? `Under ${value} minutes`
-                                : key === 'language'
-                                  ? value === 'HE'
-                                    ? 'Hebrew'
-                                    : 'English'
-                                  : value === 'text'
-                                    ? 'Articles'
-                                    : value === 'audio'
-                                      ? 'Audio'
-                                      : 'Video');
-                      return (
-                        <button
-                          key={key}
-                          onClick={() => filterChange(key, 'all')}
-                          aria-label={`Remove filter: ${label}`}
-                        >
-                          {label}
-                          <X size={13} />
-                        </button>
-                      );
-                    })}
-                </div>
-              )}
-              {results && (
-                <SearchQueryNotice
-                  result={results}
-                  onSearch={(query, fs) => void runSearch(query, fs)}
-                />
-              )}
-              {!!results?.plan.labels.filter((l) =>
-                /→|^Topic:|^Keywords:|^Related topics:|^Broadened search:/.test(
-                  l,
-                ),
-              ).length && (
-                <p className="search-interpretation">
-                  <Search size={14} />{' '}
-                  {results.plan.labels
-                    .filter((l) =>
-                      /→|^Topic:|^Keywords:|^Related topics:|^Broadened search:/.test(
-                        l,
-                      ),
-                    )
-                    .join(' · ')}
-                </p>
-              )}
-              {searchError && (
-                <StatePanel
-                  title="Search could not be reached."
-                  description={searchError}
-                >
-                  <button
-                    className="primary-button"
-                    onClick={() => void runSearch(submitted, filters)}
-                  >
-                    Try again
-                  </button>
-                </StatePanel>
-              )}
-              {searchLoading && !results && (
-                <output className="loading-panel">
-                  <Loader2 className="spin" size={25} />
-                  <p>Searching YUTorah…</p>
-                </output>
-              )}
-              {results && (
                 <>
-                  <div className="results-heading" aria-live="polite">
-                    {isMobile ? (
-                      <MobileSearchSummary
-                        result={results}
-                        searching={searchLoading}
-                        onToggle={() => {
-                          if (searchLoading) {
-                            searchAbort.current?.abort();
-                            setSearchLoading(false);
-                          } else void runSearch(submitted, filters);
+                  <SearchOptions
+                    collapsed={isMobile}
+                    label="Filters & saved searches"
+                  >
+                    <div className="filter-bar">
+                      <button
+                        className="filter-toggle"
+                        aria-expanded={advancedFilters}
+                        aria-controls="advanced-search-filters"
+                        onPointerEnter={() => {
+                          void import('./advanced-search').catch(() => {});
                         }}
+                        onFocus={() => {
+                          void import('./advanced-search').catch(() => {});
+                        }}
+                        onClick={() => setAdvancedFilters(!advancedFilters)}
+                      >
+                        <SlidersHorizontal size={16} /> More filters{' '}
+                        <ChevronDown size={14} />
+                      </button>
+                      <FilterSelect
+                        label="Duration"
+                        value={filters.max || 'all'}
+                        onChange={(v) => filterChange('max', v)}
+                        options={[
+                          { value: 'all', label: 'Any length' },
+                          ...Array.from(
+                            new Set([
+                              '10',
+                              '20',
+                              '30',
+                              '60',
+                              ...(filters.max ? [filters.max] : []),
+                            ]),
+                          )
+                            .sort((a, b) => Number(a) - Number(b))
+                            .map((v) => ({
+                              value: v,
+                              label: `Under ${v} min`,
+                            })),
+                        ]}
                       />
-                    ) : (
-                      <div>
-                        <h2>
-                          {results.complete === false
-                            ? `${results.total.toLocaleString()} matches found so far`
-                            : results.filtered
-                              ? `${results.items.length} matching shiurim loaded`
-                              : `${results.total.toLocaleString()} shiurim`}
-                        </h2>
-                        {results.complete !== undefined && (
-                          <p>
-                            {results.complete
-                              ? `All ${results.sourceTotal?.toLocaleString()} library candidates checked. ${results.total.toLocaleString()} matches.`
-                              : `Checking the full result set: ${results.scanned?.toLocaleString()} of ${results.sourceTotal?.toLocaleString()} shiurim. Counts and order are provisional until complete.`}
-                          </p>
+                      <FilterSelect
+                        label="Language"
+                        value={filters.language || 'all'}
+                        onChange={(v) => filterChange('language', v)}
+                        options={[
+                          { value: 'all', label: 'Any language' },
+                          { value: 'EN', label: 'English' },
+                          { value: 'HE', label: 'Hebrew' },
+                        ]}
+                      />
+                      <FilterSelect
+                        label="Format"
+                        value={filters.format || 'all'}
+                        onChange={(v) => filterChange('format', v)}
+                        options={[
+                          { value: 'all', label: 'All formats' },
+                          { value: 'audio', label: 'Audio' },
+                          { value: 'video', label: 'Video' },
+                          { value: 'text', label: 'Articles' },
+                        ]}
+                      />
+                      {Object.entries(filters).some(
+                        ([key, value]) =>
+                          key !== 'sort' && key !== 'resolved' && value,
+                      ) && (
+                        <button
+                          className="text-button"
+                          onClick={() =>
+                            void runSearch(submitted, {
+                              ...noFilters,
+                              resolved: '1',
+                            })
+                          }
+                        >
+                          Clear filters <X size={13} />
+                        </button>
+                      )}
+                      <SearchTools
+                        query={q}
+                        filters={filters}
+                        directory={directory}
+                        library={library}
+                        update={update}
+                        onSearch={(query, fs) => void runSearch(query, fs)}
+                        notify={notify}
+                      />
+                    </div>
+                    {!results && (
+                      <QueryPreview
+                        query={q}
+                        directory={directory}
+                        literal={filters.literal === '1'}
+                        resolved={filters.resolved === '1'}
+                      />
+                    )}
+                    {advancedFilters && (
+                      <ScreenBoundary>
+                        <AdvancedSearch
+                          key={JSON.stringify(filters)}
+                          filters={filters}
+                          directory={directory}
+                          loading={searchLoading}
+                          onApply={(next) => void runSearch(q, next)}
+                        />
+                      </ScreenBoundary>
+                    )}
+                  </SearchOptions>
+                  {Object.entries(filters).some(
+                    ([key, value]) =>
+                      key !== 'sort' && key !== 'resolved' && value,
+                  ) && (
+                    <div
+                      className="applied-filters"
+                      aria-label="Active filters"
+                    >
+                      {(Object.entries(filters) as [keyof Filters, string][])
+                        .filter(
+                          ([key, v]) =>
+                            v && key !== 'sort' && key !== 'resolved',
+                        )
+                        .map(([key, value]) => {
+                          const extraLabels: Partial<
+                            Record<keyof Filters, string>
+                          > = {
+                            min: `At least ${value} minutes`,
+                            after: `From ${value}`,
+                            before: `Through ${value}`,
+                            phrase: `Exact phrase: ${value}`,
+                            exclude: `Exclude: ${value}`,
+                            scope: 'Title only',
+                            literal: 'Exact wording',
+                          };
+                          const label =
+                            extraLabels[key] ||
+                            (key === 'teacher'
+                              ? directory?.teachers.find(
+                                  (t) => String(t.id) === value,
+                                )?.name || 'Selected teacher'
+                              : key === 'series'
+                                ? directory?.series.find(
+                                    (t) => String(t.id) === value,
+                                  )?.name || 'Selected series'
+                                : key === 'topic'
+                                  ? directory?.topics.find(
+                                      (t) => String(t.id) === value,
+                                    )?.name || 'Selected topic'
+                                  : key === 'max'
+                                    ? `Under ${value} minutes`
+                                    : key === 'language'
+                                      ? value === 'HE'
+                                        ? 'Hebrew'
+                                        : 'English'
+                                      : value === 'text'
+                                        ? 'Articles'
+                                        : value === 'audio'
+                                          ? 'Audio'
+                                          : 'Video');
+                          return (
+                            <button
+                              key={key}
+                              onClick={() => filterChange(key, 'all')}
+                              aria-label={`Remove filter: ${label}`}
+                            >
+                              {label}
+                              <X size={13} />
+                            </button>
+                          );
+                        })}
+                    </div>
+                  )}
+                  {results && (
+                    <SearchQueryNotice
+                      result={results}
+                      onSearch={(query, fs) => void runSearch(query, fs)}
+                    />
+                  )}
+                  {!!results?.plan.labels.filter((l) =>
+                    /→|^Topic:|^Keywords:|^Related topics:|^Broadened search:/.test(
+                      l,
+                    ),
+                  ).length && (
+                    <p className="search-interpretation">
+                      <Search size={14} />{' '}
+                      {results.plan.labels
+                        .filter((l) =>
+                          /→|^Topic:|^Keywords:|^Related topics:|^Broadened search:/.test(
+                            l,
+                          ),
+                        )
+                        .join(' · ')}
+                    </p>
+                  )}
+                  {searchError && (
+                    <StatePanel
+                      title="Search could not be reached."
+                      description={searchError}
+                    >
+                      <button
+                        className="primary-button"
+                        onClick={() => void runSearch(submitted, filters)}
+                      >
+                        Try again
+                      </button>
+                    </StatePanel>
+                  )}
+                  {searchLoading && !results && (
+                    <output className="loading-panel">
+                      <Loader2 className="spin" size={25} />
+                      <p>Searching YUTorah…</p>
+                    </output>
+                  )}
+                  {results && (
+                    <>
+                      <div className="results-heading" aria-live="polite">
+                        {isMobile ? (
+                          <MobileSearchSummary
+                            result={results}
+                            searching={searchLoading}
+                            onToggle={() => {
+                              if (searchLoading) {
+                                searchAbort.current?.abort();
+                                setSearchLoading(false);
+                              } else void runSearch(submitted, filters);
+                            }}
+                          />
+                        ) : (
+                          <div>
+                            <h2>
+                              {results.complete === false
+                                ? `${results.total.toLocaleString()} matches found so far`
+                                : results.filtered
+                                  ? `${results.items.length} matching shiurim loaded`
+                                  : `${results.total.toLocaleString()} shiurim`}
+                            </h2>
+                            {results.complete !== undefined && (
+                              <p>
+                                {results.complete
+                                  ? `All ${results.sourceTotal?.toLocaleString()} library candidates checked. ${results.total.toLocaleString()} matches.`
+                                  : `Checking the full result set: ${results.scanned?.toLocaleString()} of ${results.sourceTotal?.toLocaleString()} shiurim. Counts and order are provisional until complete.`}
+                              </p>
+                            )}
+                            {results.complete === false && (
+                              <div className="full-search-progress">
+                                <progress
+                                  aria-label="Search progress"
+                                  value={results.scanned || 0}
+                                  max={results.sourceTotal || 1}
+                                />
+                                <button
+                                  className="text-button"
+                                  onClick={() => {
+                                    if (searchLoading) {
+                                      searchAbort.current?.abort();
+                                      setSearchLoading(false);
+                                    } else void runSearch(submitted, filters);
+                                  }}
+                                >
+                                  {searchLoading
+                                    ? 'Pause search'
+                                    : 'Continue search'}
+                                </button>
+                              </div>
+                            )}
+                            {results.filtered && (
+                              <p>
+                                Filtered from {results.total.toLocaleString()}{' '}
+                                library matches.{' '}
+                                {results.nextPage
+                                  ? 'Load more to continue.'
+                                  : 'All matches checked.'}
+                              </p>
+                            )}
+                          </div>
                         )}
-                        {results.complete === false && (
-                          <div className="full-search-progress">
-                            <progress
-                              aria-label="Search progress"
-                              value={results.scanned || 0}
-                              max={results.sourceTotal || 1}
+                        {!isMobile && resultViewControls}
+                      </div>
+                      <SearchOptions
+                        collapsed={isMobile}
+                        label={
+                          'Sort & refine results' +
+                          (withinResults || learningFilter !== 'all'
+                            ? ` · ${visibleResults.length} shown`
+                            : '')
+                        }
+                      >
+                        {isMobile && resultViewControls}
+                        {results.items.length > 0 && (
+                          <div className="results-workspace-tools">
+                            <label className="within-search">
+                              <Search size={16} />
+                              <input
+                                aria-label="Find within loaded results"
+                                placeholder="Find within these results…"
+                                value={withinResults}
+                                onChange={(e) =>
+                                  setWithinResults(e.target.value)
+                                }
+                              />
+                            </label>
+                            <FilterSelect
+                              label="Learning status"
+                              value={learningFilter}
+                              onChange={setLearningFilter}
+                              options={[
+                                { value: 'all', label: 'All learning' },
+                                {
+                                  value: 'unlearned',
+                                  label: 'Not learned yet',
+                                },
+                                { value: 'saved', label: 'Saved only' },
+                              ]}
                             />
                             <button
                               className="text-button"
                               onClick={() => {
-                                if (searchLoading) {
-                                  searchAbort.current?.abort();
-                                  setSearchLoading(false);
-                                } else void runSearch(submitted, filters);
+                                const audio = visibleResults.filter(
+                                  (s) => mediaKind(s) === 'audio',
+                                );
+                                update((old) => ({
+                                  ...old,
+                                  queue: [
+                                    ...new Map(
+                                      [...old.queue, ...audio].map((s) => [
+                                        s.id,
+                                        s,
+                                      ]),
+                                    ).values(),
+                                  ],
+                                }));
+                                notify(
+                                  `Added ${audio.length} audio shiurim to your queue.`,
+                                );
                               }}
                             >
-                              {searchLoading
-                                ? 'Pause search'
-                                : 'Continue search'}
+                              <ListPlus size={16} />
+                              Queue results
                             </button>
+                            {(withinResults || learningFilter !== 'all') && (
+                              <p>
+                                {visibleResults.length} of{' '}
+                                {results.items.length} loaded shiurim match
+                                these local refinements.{' '}
+                                <button
+                                  onClick={() => {
+                                    setWithinResults('');
+                                    setLearningFilter('all');
+                                  }}
+                                >
+                                  Reset
+                                </button>
+                              </p>
+                            )}
                           </div>
                         )}
-                        {results.filtered && (
-                          <p>
-                            Filtered from {results.total.toLocaleString()}{' '}
-                            library matches.{' '}
-                            {results.nextPage
-                              ? 'Load more to continue.'
-                              : 'All matches checked.'}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {!isMobile && resultViewControls}
-                  </div>
-                  <SearchOptions
-                    collapsed={isMobile}
-                    label={
-                      'Sort & refine results' +
-                      (withinResults || learningFilter !== 'all'
-                        ? ` · ${visibleResults.length} shown`
-                        : '')
-                    }
-                  >
-                    {isMobile && resultViewControls}
-                    {results.items.length > 0 && (
-                      <div className="results-workspace-tools">
-                        <label className="within-search">
-                          <Search size={16} />
-                          <input
-                            aria-label="Find within loaded results"
-                            placeholder="Find within these results…"
-                            value={withinResults}
-                            onChange={(e) => setWithinResults(e.target.value)}
+                      </SearchOptions>
+                      {results.plan.teacherId > 0 && (
+                        <div className="search-follow-banner">
+                          <span>
+                            <Users size={17} />
+                            {results.plan.teacherName ||
+                              directory?.teachers.find(
+                                (t) => t.id === results.plan.teacherId,
+                              )?.name ||
+                              'This teacher'}
+                          </span>
+                          <FollowButton
+                            follow={{
+                              kind: 'teacher',
+                              id: results.plan.teacherId,
+                              name:
+                                results.plan.teacherName ||
+                                directory?.teachers.find(
+                                  (t) => t.id === results.plan.teacherId,
+                                )?.name ||
+                                'Selected teacher',
+                            }}
+                            library={library}
+                            onFollow={follow}
                           />
-                        </label>
-                        <FilterSelect
-                          label="Learning status"
-                          value={learningFilter}
-                          onChange={setLearningFilter}
-                          options={[
-                            { value: 'all', label: 'All learning' },
-                            { value: 'unlearned', label: 'Not learned yet' },
-                            { value: 'saved', label: 'Saved only' },
-                          ]}
-                        />
-                        <button
-                          className="text-button"
-                          onClick={() => {
-                            const audio = visibleResults.filter(
-                              (s) => mediaKind(s) === 'audio',
-                            );
-                            update((old) => ({
-                              ...old,
-                              queue: [
-                                ...new Map(
-                                  [...old.queue, ...audio].map((s) => [
-                                    s.id,
-                                    s,
-                                  ]),
-                                ).values(),
-                              ],
-                            }));
-                            notify(
-                              `Added ${audio.length} audio shiurim to your queue.`,
-                            );
-                          }}
-                        >
-                          <ListPlus size={16} />
-                          Queue results
-                        </button>
-                        {(withinResults || learningFilter !== 'all') && (
-                          <p>
-                            {visibleResults.length} of {results.items.length}{' '}
-                            loaded shiurim match these local refinements.{' '}
+                        </div>
+                      )}
+                      {results.items.length > 0 &&
+                        visibleResults.length === 0 && (
+                          <StatePanel
+                            title="No matches in these loaded results"
+                            description="Clear the local refinement or load more shiurim to keep looking."
+                          >
                             <button
+                              className="outline-button"
                               onClick={() => {
                                 setWithinResults('');
                                 setLearningFilter('all');
                               }}
                             >
-                              Reset
+                              Clear refinement
                             </button>
-                          </p>
+                          </StatePanel>
                         )}
-                      </div>
-                    )}
-                  </SearchOptions>
-                  {results.plan.teacherId > 0 && (
-                    <div className="search-follow-banner">
-                      <span>
-                        <Users size={17} />
-                        {results.plan.teacherName ||
-                          directory?.teachers.find(
-                            (t) => t.id === results.plan.teacherId,
-                          )?.name ||
-                          'This teacher'}
-                      </span>
-                      <FollowButton
-                        follow={{
-                          kind: 'teacher',
-                          id: results.plan.teacherId,
-                          name:
-                            results.plan.teacherName ||
-                            directory?.teachers.find(
-                              (t) => t.id === results.plan.teacherId,
-                            )?.name ||
-                            'Selected teacher',
-                        }}
-                        library={library}
-                        onFollow={follow}
-                      />
-                    </div>
-                  )}
-                  {results.items.length > 0 && visibleResults.length === 0 && (
-                    <StatePanel
-                      title="No matches in these loaded results"
-                      description="Clear the local refinement or load more shiurim to keep looking."
-                    >
-                      <button
-                        className="outline-button"
-                        onClick={() => {
-                          setWithinResults('');
-                          setLearningFilter('all');
-                        }}
-                      >
-                        Clear refinement
-                      </button>
-                    </StatePanel>
-                  )}
-                  {results.items.length ? (
-                    grid ? (
-                      <div className="shiur-grid">{cards(visibleResults)}</div>
-                    ) : (
-                      <div className="results-list">{rows(visibleResults)}</div>
-                    )
-                  ) : (
-                    <StatePanel
-                      title={
-                        results.complete === false
-                          ? 'Still checking for matches…'
-                          : 'No matching shiurim.'
-                      }
-                      description={
-                        results.complete === false
-                          ? 'The search continues automatically. You can narrow the filters while it runs.'
-                          : 'Try a broader topic, a teacher’s full name, or fewer filters.'
-                      }
-                    />
-                  )}{' '}
-                  {results.nextPage && (
-                    <div className="load-more">
-                      <button
-                        className="outline-button"
-                        disabled={searchLoading}
-                        onClick={() =>
-                          void runSearch(
-                            submitted,
-                            filters,
-                            results.nextPage!,
-                            false,
-                          )
-                        }
-                      >
-                        {searchLoading ? (
-                          <>
-                            <Loader2 size={15} className="spin" />
-                            Searching…
-                          </>
+                      {results.items.length ? (
+                        grid ? (
+                          <div className="shiur-grid">
+                            {cards(visibleResults)}
+                          </div>
                         ) : (
-                          'Load more shiurim'
-                        )}
-                        <ArrowRight size={15} />
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
-              {!results &&
-                !searchLoading &&
-                !searchError &&
-                (isMobile ? (
-                  <section
-                    className="mobile-search-browse"
-                    aria-label="Browse the library"
-                  >
-                    <SearchPresets
-                      query={q}
-                      filters={filters}
-                      onSearch={(query, fs) => void runSearch(query, fs)}
-                    />
-                    <h2>Browse the library</h2>
-                    {[
-                      {
-                        view: 'topics' as const,
-                        icon: LayoutGrid,
-                        label: 'Topics',
-                        detail: 'Torah texts and areas of study',
-                      },
-                      {
-                        view: 'teachers' as const,
-                        icon: Users,
-                        label: 'Teachers',
-                        detail: 'Torah educators and their shiurim',
-                      },
-                      {
-                        view: 'series' as const,
-                        icon: BookOpen,
-                        label: 'Series',
-                        detail: 'Courses and ongoing learning',
-                      },
-                    ].map(
-                      ({ view: destination, icon: Icon, label, detail }) => (
-                        <button
-                          key={destination}
-                          onClick={() => navigate(destination)}
-                        >
-                          <Icon size={21} />
-                          <span>
-                            <strong>{label}</strong>
-                            <small>{detail}</small>
-                          </span>
-                          <ChevronRight size={17} />
-                        </button>
-                      ),
-                    )}
-                  </section>
-                ) : (
-                  <div className="search-start">
-                    <div>
-                      <h2>Try a search</h2>
-                      <div className="search-prompts">
-                        {[
-                          'How can I improve my prayer?',
-                          'Rosh Hashana',
-                          'Rabbi Aryeh Lebowitz',
-                          'Chullin 130',
-                        ].map((t) => (
-                          <button key={t} onClick={() => void runSearch(t)}>
-                            {t}
-                            <ArrowUpRight size={15} />
+                          <div className="results-list">
+                            {rows(visibleResults)}
+                          </div>
+                        )
+                      ) : (
+                        <StatePanel
+                          title={
+                            results.complete === false
+                              ? 'Still checking for matches…'
+                              : 'No matching shiurim.'
+                          }
+                          description={
+                            results.complete === false
+                              ? 'The search continues automatically. You can narrow the filters while it runs.'
+                              : 'Try a broader topic, a teacher’s full name, or fewer filters.'
+                          }
+                        />
+                      )}{' '}
+                      {results.nextPage && (
+                        <div className="load-more">
+                          <button
+                            className="outline-button"
+                            disabled={searchLoading}
+                            onClick={() =>
+                              void runSearch(
+                                submitted,
+                                filters,
+                                results.nextPage!,
+                                false,
+                              )
+                            }
+                          >
+                            {searchLoading ? (
+                              <>
+                                <Loader2 size={15} className="spin" />
+                                Searching…
+                              </>
+                            ) : (
+                              'Load more shiurim'
+                            )}
+                            <ArrowRight size={15} />
                           </button>
-                        ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {!results &&
+                    !searchLoading &&
+                    !searchError &&
+                    (isMobile ? (
+                      <section
+                        className="mobile-search-browse"
+                        aria-label="Browse the library"
+                      >
+                        <SearchPresets
+                          query={q}
+                          filters={filters}
+                          onSearch={(query, fs) => void runSearch(query, fs)}
+                        />
+                        <h2>Browse the library</h2>
+                        {[
+                          {
+                            view: 'topics' as const,
+                            icon: LayoutGrid,
+                            label: 'Topics',
+                            detail: 'Torah texts and areas of study',
+                          },
+                          {
+                            view: 'teachers' as const,
+                            icon: Users,
+                            label: 'Teachers',
+                            detail: 'Torah educators and their shiurim',
+                          },
+                          {
+                            view: 'series' as const,
+                            icon: BookOpen,
+                            label: 'Series',
+                            detail: 'Courses and ongoing learning',
+                          },
+                        ].map(
+                          ({
+                            view: destination,
+                            icon: Icon,
+                            label,
+                            detail,
+                          }) => (
+                            <button
+                              key={destination}
+                              onClick={() => navigate(destination)}
+                            >
+                              <Icon size={21} />
+                              <span>
+                                <strong>{label}</strong>
+                                <small>{detail}</small>
+                              </span>
+                              <ChevronRight size={17} />
+                            </button>
+                          ),
+                        )}
+                      </section>
+                    ) : (
+                      <div className="search-start">
+                        <div>
+                          <h2>Try a search</h2>
+                          <div className="search-prompts">
+                            {[
+                              'How can I improve my prayer?',
+                              'Rosh Hashana',
+                              'Rabbi Aryeh Lebowitz',
+                              'Chullin 130',
+                            ].map((t) => (
+                              <button key={t} onClick={() => void runSearch(t)}>
+                                {t}
+                                <ArrowUpRight size={15} />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <h2>Or start with</h2>
+                          <SearchPresets
+                            query={q}
+                            filters={filters}
+                            onSearch={(query, fs) => void runSearch(query, fs)}
+                          />
+                        </div>
+                        <button
+                          className="text-button"
+                          onClick={() => void runSearch('')}
+                        >
+                          Browse all shiurim <ArrowRight size={15} />
+                        </button>
                       </div>
-                    </div>
-                    <div>
-                      <h2>Or start with</h2>
-                      <SearchPresets
-                        query={q}
-                        filters={filters}
-                        onSearch={(query, fs) => void runSearch(query, fs)}
-                      />
-                    </div>
-                    <button
-                      className="text-button"
-                      onClick={() => void runSearch('')}
-                    >
-                      Browse all shiurim <ArrowRight size={15} />
-                    </button>
-                  </div>
-                ))}
-              </>
+                    ))}
+                </>
               )}
             </section>
           )}
@@ -2528,7 +2564,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 onChange={(v) =>
                   update((old) => ({ ...old, speed: Number(v) }))
                 }
-                options={[0.75, 1, 1.25, 1.5, 1.75, 2].map((v) => ({
+                options={PLAYBACK_SPEEDS.map((v) => ({
                   value: String(v),
                   label: `${v}×`,
                 }))}

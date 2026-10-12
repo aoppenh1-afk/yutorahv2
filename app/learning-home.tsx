@@ -15,7 +15,6 @@ import {
   Bookmark,
   BookOpen,
   Check,
-  Eye,
   Flame,
   History,
   Lightbulb,
@@ -584,15 +583,13 @@ export function LearningHome(props: Props) {
                     ? 'Trending in the library.'
                     : 'The Torah library.'}
               </h1>
-              <p>
-                {followingPage
-                  ? 'New learning from the teachers and subjects you follow.'
-                  : trendingPage
-                    ? 'Discover the recordings listeners are exploring.'
-                    : home
-                      ? `${home.total.toLocaleString()} shiurim from Yeshiva University’s roshei yeshiva and Torah educators around the world.`
-                      : 'Shiurim from Yeshiva University’s roshei yeshiva and Torah educators around the world.'}
-              </p>
+              {(followingPage || trendingPage) && (
+                <p>
+                  {followingPage
+                    ? 'New learning from the teachers and subjects you follow.'
+                    : 'Discover the recordings listeners are exploring.'}
+                </p>
+              )}
             </div>
             <div className="discover-heading-tools">
               <button
@@ -655,7 +652,10 @@ export function LearningHome(props: Props) {
                       <TeacherLink
                         shiur={pick}
                         onTeacher={(s) =>
-                          onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+                          onSearch('', {
+                            ...noFilters,
+                            teacher: String(s.teacherId),
+                          })
                         }
                       />
                     </strong>
@@ -817,7 +817,6 @@ export function LearningHome(props: Props) {
                 <h2 lang="he" dir="rtl">
                   {home.hebrewDate}
                 </h2>
-                <p>Daily learning cycles, ready when you are.</p>
               </div>
               <div className="today-band-items">
                 {[
@@ -870,7 +869,10 @@ export function LearningHome(props: Props) {
                       onPlay={(s) => onPlay(s, h.seconds)}
                       onDetails={onDetails}
                       onTeacher={(s) =>
-                        onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+                        onSearch('', {
+                          ...noFilters,
+                          teacher: String(s.teacherId),
+                        })
                       }
                       onSave={onSave}
                       onQueue={onQueue}
@@ -902,9 +904,7 @@ export function LearningHome(props: Props) {
                   ? 'Updating rankings. Showing the last complete chart.'
                   : discovery?.partial
                     ? `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
-                    : discovery
-                      ? `Most viewed among ${discovery.total.toLocaleString()} matching shiurim${trendingPeriod === 'all' ? ' across the library' : ' in this date range'}.`
-                      : 'View counts come directly from YUTorah.',
+                    : undefined,
               )}
               <div className="discovery-toolbar">
                 <fieldset
@@ -965,24 +965,6 @@ export function LearningHome(props: Props) {
                 Dates use YUTorah&apos;s upload date. View counts are lifetime
                 totals. Some source dates have day precision.
               </p>
-              {discovery && (
-                <p className="trending-freshness">
-                  {discovery.stale
-                    ? 'Showing cached results. Last updated '
-                    : 'Updated '}
-                  <time dateTime={discovery.fetchedAt}>
-                    {new Date(discovery.fetchedAt).toLocaleString()}
-                  </time>
-                  {discoveryLoading && ' · Refreshing…'}
-                  <span>
-                    {' '}
-                    · Upload window ends{' '}
-                    <time dateTime={discovery.before}>
-                      {new Date(discovery.before).toLocaleString()}
-                    </time>
-                  </span>
-                </p>
-              )}
               {discoveryLoading && !discovery ? (
                 <div className="discovery-loading">
                   <Loader2 size={18} className="spin" />
@@ -1033,17 +1015,14 @@ export function LearningHome(props: Props) {
             </section>
           ) : (
             <section className="discovery-section recommended-section">
-              {sectionHeading(
-                currentTab === 'following'
-                  ? 'From your follows'
-                  : currentTab === 'featured'
+              {currentTab !== 'following' &&
+                sectionHeading(
+                  currentTab === 'featured'
                     ? 'Featured shiurim'
                     : hasInterests
                       ? 'Recommended for you'
                       : 'Discover something new',
-                currentTab === 'following'
-                  ? 'A selection from your teachers, topics, and series.'
-                  : currentTab === 'featured'
+                  currentTab === 'featured'
                     ? 'Selected by the YUTorah editors.'
                     : hasInterests
                       ? 'Inspired by what you listen to, save, and follow.'
@@ -1185,51 +1164,33 @@ export function LearningHome(props: Props) {
             </section>
           )}
           {isHome && (
-                <section
-                  className="discovery-section trending-section"
-                  ref={trendingSection}
-                >
-                  {sectionHeading(
-                    'Trending this week',
-                    'The most viewed new shiurim in the library.',
-                    () => onNavigate('trending'),
-                    'Full chart',
-                  )}
-                  {(discoveryLoading || !trendingWanted) && !discovery ? (
-                    <div className="trending-skeleton" aria-hidden="true">
-                      {Array.from({ length: 6 }, (_, i) => (
-                        <span key={i} />
-                      ))}
-                    </div>
-                  ) : discoveryError && !discovery ? (
-                    <p className="discovery-muted">
-                      Popularity data couldn&apos;t load.{' '}
-                      <button className="text-button" onClick={refreshAll}>
-                        Try again
-                      </button>
-                    </p>
-                  ) : (
-                    trendingList(6)
-                  )}
-                  {discovery && (
-                    <p className="trending-source">
-                      <Eye size={12} />
-                      {discovery.partial ? (
-                        `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
-                      ) : (
-                        <>
-                          Most viewed among {discovery.total.toLocaleString()}{' '}
-                          matching shiurim
-                          {discovery.period === 'all'
-                            ? ' across the library'
-                            : ' in this date range'}
-                          , using YUTorah&apos;s upload date.
-                        </>
-                      )}
-                      {discovery.stale && ' Showing cached results.'}
-                    </p>
-                  )}
-                </section>
+            <section
+              className="discovery-section trending-section"
+              ref={trendingSection}
+            >
+              {sectionHeading(
+                'Trending this week',
+                'The most viewed new shiurim in the library.',
+                () => onNavigate('trending'),
+                'Full chart',
+              )}
+              {(discoveryLoading || !trendingWanted) && !discovery ? (
+                <div className="trending-skeleton" aria-hidden="true">
+                  {Array.from({ length: 6 }, (_, i) => (
+                    <span key={i} />
+                  ))}
+                </div>
+              ) : discoveryError && !discovery ? (
+                <p className="discovery-muted">
+                  Popularity data couldn&apos;t load.{' '}
+                  <button className="text-button" onClick={refreshAll}>
+                    Try again
+                  </button>
+                </p>
+              ) : (
+                trendingList(6)
+              )}
+            </section>
           )}
           {isHome && (
             <>
@@ -1241,35 +1202,37 @@ export function LearningHome(props: Props) {
                   'All topics',
                 )}
                 <div className="collection-grid">
-                  {subjects.map(({ key, label, title, hebrew, note, icon: Icon, go }) => (
-                    <button
-                      key={key}
-                      className={'collection-tile collection-' + key}
-                      onClick={go}
-                    >
-                      <span className="collection-top">
-                        <Icon size={16} />
-                        {label}
-                      </span>
-                      <span
-                        className="collection-letter"
-                        data-he={hebrew}
-                        aria-hidden="true"
-                      />
-                      <h3>{title}</h3>
-                      <span className="collection-bottom">
-                        {note}
-                        <ArrowRight size={16} />
-                      </span>
-                    </button>
-                  ))}
+                  {subjects.map(
+                    ({ key, label, title, hebrew, note, icon: Icon, go }) => (
+                      <button
+                        key={key}
+                        className={'collection-tile collection-' + key}
+                        onClick={go}
+                      >
+                        <span className="collection-top">
+                          <Icon size={16} />
+                          {label}
+                        </span>
+                        <span
+                          className="collection-letter"
+                          data-he={hebrew}
+                          aria-hidden="true"
+                        />
+                        <h3>{title}</h3>
+                        <span className="collection-bottom">
+                          {note}
+                          <ArrowRight size={16} />
+                        </span>
+                      </button>
+                    ),
+                  )}
                 </div>
               </section>
               {teachers.length > 0 && (
                 <section className="discovery-section teacher-shelf-section">
                   {sectionHeading(
                     'Teachers to know',
-                    'The roshei yeshiva and educators of the YUTorah community.',
+                    undefined,
                     () => onNavigate('teachers'),
                     'All teachers',
                   )}
@@ -1311,7 +1274,7 @@ export function LearningHome(props: Props) {
                 <section className="discovery-section series-shelf-section">
                   {sectionHeading(
                     'Go deeper with a series',
-                    'Courses and cycles to make part of your routine.',
+                    undefined,
                     () => onNavigate('series'),
                     'All series',
                   )}

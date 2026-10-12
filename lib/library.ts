@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Shiur } from './yutorah';
 import { performanceCount } from './client-performance';
+import { PLAYBACK_SPEEDS } from './playback-speed';
 import {
   defaultLearning,
   restoreLearning,
@@ -129,12 +130,8 @@ export function restoreLibrary(input: unknown): LibraryState {
         : [],
       queue: Array.isArray(value.queue) ? value.queue.filter(valid) : [],
       last: valid(value.last) ? value.last : null,
-      speed: [0.75, 1, 1.25, 1.5, 1.75, 2].includes(value.speed)
-        ? value.speed
-        : 1,
-      defaultSpeed: [0.75, 1, 1.25, 1.5, 1.75, 2].includes(
-        value.defaultSpeed ?? value.speed,
-      )
+      speed: PLAYBACK_SPEEDS.includes(value.speed) ? value.speed : 1,
+      defaultSpeed: PLAYBACK_SPEEDS.includes(value.defaultSpeed ?? value.speed)
         ? (value.defaultSpeed ?? value.speed)
         : 1,
       volume:

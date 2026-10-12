@@ -82,3 +82,17 @@ void test('default playback speed migrates from legacy speed and persists indepe
   stored = JSON.stringify({ speed: 1.5, defaultSpeed: 99 });
   assert.equal(readLibrary().defaultSpeed, 1);
 });
+void test('speeds through 3× survive persistence and invalid speeds restore to normal', (t) => {
+  let stored = '';
+  storage(t, () => stored);
+  for (const speed of [2.25, 2.5, 2.75, 3]) {
+    stored = serializeLibrary({ ...readLibrary(), speed, defaultSpeed: speed });
+    assert.equal(readLibrary().speed, speed);
+    assert.equal(readLibrary().defaultSpeed, speed);
+  }
+  for (const speed of [0, 0.5, 2.6, 3.25]) {
+    stored = JSON.stringify({ speed, defaultSpeed: speed });
+    assert.equal(readLibrary().speed, 1);
+    assert.equal(readLibrary().defaultSpeed, 1);
+  }
+});

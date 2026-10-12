@@ -329,7 +329,11 @@ void test('player controls stop playback and the phone dialog stays inside the b
             await assertInViewport(dialog, viewport);
             await dialog
               .getByRole('combobox', { name: 'Default speed', exact: true })
-              .selectOption('1.5');
+              .click();
+            await page
+              .locator('.settings-speed-menu')
+              .getByRole('option', { name: '1.5×', exact: true })
+              .click();
             await page.waitForFunction(
               () => document.querySelector('audio').playbackRate === 1.5,
             );
@@ -358,14 +362,16 @@ void test('player controls stop playback and the phone dialog stays inside the b
                 exact: true,
               })
               .click();
-            const playerDialog = page.getByRole('dialog');
+            const playerDialog = page.locator('.mobile-now-playing');
             await playerDialog
-              .getByRole('combobox', { name: 'Playback speed', exact: true })
+              .getByRole('button', { name: 'Playback speed', exact: true })
               .click();
-            await page.getByRole('option', { name: '2×', exact: true }).click();
+            await page.locator('.playback-speed-popup')
+              .getByRole('slider', { name: 'Playback speed' }).press('End');
             await page.waitForFunction(
-              () => document.querySelector('audio').playbackRate === 2,
+              () => document.querySelector('audio').playbackRate === 3,
             );
+            await page.keyboard.press('Escape');
             await playerDialog
               .getByRole('button', { name: 'Play next in queue', exact: true })
               .click();
@@ -1274,7 +1280,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
               exact: true,
             });
             await open.click();
-            const dialog = page.getByRole('dialog');
+            const dialog = page.locator('.mobile-now-playing');
             await assertInViewport(dialog, viewport);
             const controls = dialog.locator('.now-playing-actions');
             await controls.scrollIntoViewIfNeeded();
@@ -1297,41 +1303,65 @@ void test('player controls stop playback and the phone dialog stays inside the b
             assert.ok(alignment.heights.every((height) => height >= 44));
             assert.match(alignment.text, /Details/);
             assert.doesNotMatch(alignment.text, /Notes/);
-            await dialog
-              .getByRole('combobox', { name: 'Playback speed' })
-              .click();
-            const menu = page.locator('.playback-speed-menu');
-            await assertInViewport(menu, viewport);
+            const speedButton = dialog.getByRole('button', {
+              name: 'Playback speed',
+              exact: true,
+            });
+            await speedButton.click();
+            const popup = page.locator('.playback-speed-popup');
+            await assertInViewport(popup, viewport);
+            const popupBox = await popup.boundingBox();
+            const playerBox = await dialog.boundingBox();
+            assert.ok(
+              Math.abs(
+                popupBox.x + popupBox.width / 2 -
+                  (playerBox.x + playerBox.width / 2),
+              ) < 1,
+              'speed popup is centered across the player',
+            );
             assert.equal(
-              await menu.evaluate((el) => getComputedStyle(el).backgroundColor),
-              'rgb(24, 24, 27)',
+              await popup.evaluate((el) => getComputedStyle(el).backgroundColor),
+              'rgb(32, 32, 35)',
             );
-            await page
-              .getByRole('option', { name: '1.5×', exact: true })
-              .click();
+            const speedSlider = popup.getByRole('slider', {
+              name: 'Playback speed',
+            });
+            await speedSlider.press('End');
             await page.waitForFunction(
-              () => document.querySelector('audio').playbackRate === 1.5,
+              () => document.querySelector('audio').playbackRate === 3,
+            );
+            await speedSlider.press('ArrowLeft');
+            await speedSlider.press('ArrowLeft');
+            await page.waitForFunction(
+              () => document.querySelector('audio').playbackRate === 2.5,
+            );
+            assert.match(await speedButton.textContent(), /2\.5× speed/);
+            await page.keyboard.press('Escape');
+            await popup.waitFor({ state: 'hidden' });
+            assert.equal(await dialog.isVisible(), true);
+            assert.equal(
+              await speedButton.evaluate((button) => button === document.activeElement),
+              true,
+            );
+            await speedButton.click();
+            await popup.getByRole('button', { name: 'Reset to 1×' }).click();
+            await page.waitForFunction(
+              () => document.querySelector('audio').playbackRate === 1,
+            );
+            await speedSlider.press('Home');
+            await page.waitForFunction(
+              () => document.querySelector('audio').playbackRate === 0.75,
+            );
+            await speedSlider.press('End');
+            await page.waitForFunction(
+              () => document.querySelector('audio').playbackRate === 3,
             );
             assert.equal(
-              await dialog
-                .getByRole('combobox', { name: 'Playback speed' })
-                .locator('[data-slot=select-value]')
-                .textContent(),
-              '1.5× speed',
+              await page.evaluate(() => JSON.parse(localStorage.getItem('yutorah-learning-v1')).speed),
+              3,
             );
-            await dialog
-              .getByRole('combobox', { name: 'Playback speed' })
-              .click();
-            await page.waitForFunction(
-              () =>
-                document.activeElement?.getAttribute('role') === 'option' &&
-                document.activeElement.textContent === '1.5×',
-            );
-            await page.keyboard.press('ArrowDown');
-            await page.keyboard.press('Enter');
-            await page.waitForFunction(
-              () => document.querySelector('audio').playbackRate === 1.75,
-            );
+            await page.keyboard.press('Escape');
+            await popup.waitFor({ state: 'hidden' });
             await page.keyboard.press('Escape');
             await dialog.waitFor({ state: 'hidden' });
             assert.equal(

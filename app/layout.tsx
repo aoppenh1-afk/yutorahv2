@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   icons: {
     icon: '/images/yutorah-shield.png',
     apple: {
-      url: '/apple-touch-icon.png',
+      url: '/apple-touch-icon.png?v=2',
       sizes: '180x180',
       type: 'image/png',
     },

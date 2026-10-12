@@ -342,7 +342,6 @@ export function TranscriptReader({
         className="detail-section generated-study"
         aria-label={'Transcript, notes, and sources'}
       >
-        <h3>Transcript & study tools</h3>
         <div className="study-tabs">
           {content && (
             <a

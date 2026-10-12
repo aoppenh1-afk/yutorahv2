@@ -15,7 +15,7 @@ This notification service uses no Cloudflare Worker, paid plan, or billing accou
 
 Open Settings from the bottom of the desktop sidebar or the profile button on
 mobile. Continue with Google and turn on New shiur alerts. Each device has its
-own switch and test button. Under Your teachers, choose which followed teachers
+own switch and test button. Under Your Rebbeim, choose which followed teachers
 can send alerts. Turning off a teacher's alerts keeps the follow and clears
 pending notifications. Turning them back on does not replay muted uploads.
 Signing out unsubscribes that device.

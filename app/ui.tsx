@@ -2,6 +2,7 @@
 /* oxlint-disable jsx-a11y/media-has-caption -- No caption tracks are supplied by the upstream audio library. */
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { Popover } from '@base-ui/react/popover';
 import {
   Bookmark,
   ExternalLink,
@@ -48,8 +49,6 @@ import {
 import {
   Select,
   SelectContent,
-  SelectGroup,
-  SelectLabel,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -65,6 +64,11 @@ import type { Shiur } from '@/lib/yutorah';
 import { mediaKind } from '@/lib/yutorah';
 import { matchExcerpt } from '@/lib/search-discovery';
 import { timeLabel, useAudio, LibraryState } from '@/lib/library';
+import {
+  MIN_PLAYBACK_SPEED,
+  MAX_PLAYBACK_SPEED,
+  PLAYBACK_SPEED_STEP,
+} from '@/lib/playback-speed';
 export function Avatar({
   src,
   name,
@@ -183,39 +187,78 @@ function PlaybackSpeed({
   update: (fn: (old: LibraryState) => LibraryState) => void;
   full?: boolean;
 }) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const slider = useRef<HTMLDivElement>(null);
+  const setSpeed = (speed: number) => update((old) => ({ ...old, speed }));
   return (
-    <Select
-      value={String(library.speed)}
-      onValueChange={(v) => {
-        if (v) update((old) => ({ ...old, speed: Number(v) }));
-      }}
-    >
-      <SelectTrigger
+    <Popover.Root>
+      <Popover.Trigger
+        ref={trigger}
         className="playback-speed-trigger"
         aria-label="Playback speed"
       >
-        <SelectValue>
+        <span className="playback-speed-value">
           {library.speed}×{full ? ' speed' : ''}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent
-        className="playback-speed-menu"
-        side="top"
-        align="start"
-        sideOffset={10}
-        alignItemWithTrigger={false}
-      >
-        <SelectGroup>
-          <SelectLabel>Playback speed</SelectLabel>
-          {[0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
-            <SelectItem key={speed} value={String(speed)}>
-              <span>{speed}×</span>
-              {speed === 1 && <small>Normal</small>}
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
+        </span>
+        <ChevronDown size={14} />
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner
+          className="playback-speed-positioner"
+          positionMethod="fixed"
+          side="top"
+          align="center"
+          sideOffset={10}
+          collisionPadding={16}
+          anchor={() => ({
+            contextElement: trigger.current ?? undefined,
+            getBoundingClientRect() {
+              const button = trigger.current;
+              if (!button) return new DOMRect();
+              const control = button.getBoundingClientRect();
+              const player = button.closest('.mobile-now-playing, .player');
+              const bounds = player?.getBoundingClientRect() ?? control;
+              // Center across the player, at the speed button's vertical position.
+              return new DOMRect(
+                bounds.x,
+                control.y,
+                bounds.width,
+                control.height,
+              );
+            },
+          })}
+        >
+          <Popover.Popup
+            className="playback-speed-popup"
+            initialFocus={() => slider.current?.querySelector('input') ?? true}
+          >
+            <div className="playback-speed-heading">
+              <Popover.Title>Playback speed</Popover.Title>
+              <output aria-live="polite">{library.speed}×</output>
+            </div>
+            <Slider
+              ref={slider}
+              className="playback-speed-slider"
+              aria-label="Playback speed"
+              min={MIN_PLAYBACK_SPEED}
+              max={MAX_PLAYBACK_SPEED}
+              step={PLAYBACK_SPEED_STEP}
+              value={[library.speed]}
+              onValueChange={(value) =>
+                setSpeed(Array.isArray(value) ? value[0] : value)
+              }
+            />
+            <div className="playback-speed-footer">
+              <span>{MIN_PLAYBACK_SPEED}×</span>
+              <button type="button" onClick={() => setSpeed(1)}>
+                Reset to 1×
+              </button>
+              <span>{MAX_PLAYBACK_SPEED}×</span>
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 export const tone = (id: number) => 'tone-' + (Math.abs(id || 0) % 6);

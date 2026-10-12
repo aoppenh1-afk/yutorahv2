@@ -157,27 +157,42 @@
 .settings-row .account-hint {
   margin: 4px 0 0;
 }
-.settings-speed-select {
-  position: relative;
-  flex-shrink: 0;
+.settings-row #default-playback-speed-label {
+  font-size: 14px;
+  font-weight: 550;
 }
-.settings-speed-select select {
-  appearance: none;
+.settings-speed-trigger {
+  min-width: 88px;
   min-height: 40px;
-  border: 1px solid var(--line-strong);
+  padding: 8px 12px;
   border-radius: 10px;
   background: var(--surface);
-  padding: 8px 32px 8px 13px;
+  color: var(--ink);
+  border-color: var(--line-strong);
   font-size: 13px;
   font-weight: 550;
-  cursor: pointer;
 }
-.settings-speed-select svg {
-  position: absolute;
-  right: 10px;
-  top: 13px;
-  pointer-events: none;
+.settings-speed-trigger:hover {
+  background: var(--panel);
+}
+.settings-speed-menu {
+  min-width: 148px;
+  padding: 5px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.settings-speed-menu [data-slot='select-item'] {
+  min-height: 36px;
+  padding: 8px 30px 8px 10px;
+}
+.settings-speed-menu [data-slot='select-item'][data-highlighted] {
+  background: var(--panel);
+  color: var(--ink);
+}
+.settings-speed-menu small {
+  margin-left: 8px;
   color: var(--ink-3);
+  font-size: 11px;
 }
 .notification-switch {
   position: relative;
@@ -277,8 +292,8 @@
   font-size: 11px;
   margin-left: 1px;
 }
-.teacher-settings-description {
-  margin: 8px 0 13px;
+.teacher-notification-list {
+  margin-top: 12px;
 }
 .teacher-notification-row {
   display: flex;
@@ -320,9 +335,6 @@
   color: var(--ink-3);
   font-size: 11px;
   margin-top: 2px;
-}
-.teacher-alerts-hint {
-  margin: 12px 0 0;
 }
 .teacher-settings-empty {
   display: flex;
