@@ -1,6 +1,6 @@
 # YUTorah Study
 
-A responsive reading and listening interface connected to YUTorah's public library. All featured shiurim, teacher profiles, series, topic counts, daily learning, audio, and source materials come from live YUTorah endpoints. Google sign-in syncs teacher follows and enables new-shiur notifications. Saved shiurim and listening progress stay in the browser.
+A responsive reading and listening interface connected to YUTorah's public library. All featured shiurim, teacher profiles, series, topic counts, daily learning, audio, and source materials come from live YUTorah endpoints. Google sign-in syncs your private study library across devices and enables new-shiur notifications. Saved shiurim, playlists, listening history and progress, notes, the queue, follows, searches, learning activity, and playback preferences use account storage with an offline device copy.
 
 Teacher notifications use a dedicated Supabase Free project and an hourly schedule. See [setup, operation, and iPhone installation](docs/teacher-notifications.md). This service adds no Cloudflare usage.
 
@@ -77,7 +77,7 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
 - Explore trending shiurim for 24 hours, week, month, year or all time, ranked by public lifetime views within each upload cohort. Resumable indexing reports incomplete coverage and caches completed charts. See [trending behavior and warm-up](docs/trending.md).
 - Follow teachers, topics, and series; filter recommendations to a time budget. Related learning fetches additional recordings from the current shiur's series, topics, and teacher, with a reason for each recommendation.
 - Play recordings while navigating; seek, change speed and volume, manage the queue, set a sleep timer, and resume listening.
-- Save shiurim and create and edit playlists on this device. Removal actions support undo.
+- Save shiurim and create and edit playlists, with account sync when signed in and device storage when signed out. Removal actions support undo.
 - Open available videos and original source materials. Copy links to a shiur or a playback timestamp.
 - Keyboard controls: Command/Ctrl+K for search, slash to search, and space for playback outside editable controls.
 
@@ -99,7 +99,7 @@ details are in [the search architecture guide](docs/search-architecture.md).
 
 Local setup runs `npm run db:migrate:local` before starting the app. D1 schema lives in `db/schema.ts`; reviewed, append-only migrations live in `drizzle/`. Sites applies those migrations to its hosted DB binding when publishing. The operator title-transfer endpoint requires both explicit enablement and a secret; it is disabled by default and switched off after migration. Credentials stay on the server.
 
-Search does not invent transcripts or answers to religious questions. Metadata search uses the available upstream index; the transcript panel searches only completed, timestamped transcripts from the PostgreSQL worker. Videos and materials appear only where supplied by YUTorah. The app does not synchronize with YUTorah user accounts; saved items, playlists, and progress use localStorage. Clearing browser storage removes that personal data.
+Search does not invent transcripts or answers to religious questions. Metadata search uses the available upstream index; the transcript panel searches only completed, timestamped transcripts from the PostgreSQL worker. Videos and materials appear only where supplied by YUTorah. The app uses its own Google/Supabase accounts rather than YUTorah user accounts. Signed-in libraries sync privately across devices; localStorage keeps the device copy and pending offline edits. Clearing site storage removes unsynced edits but does not delete the cloud library. See [account library sync](docs/account-library-sync.md) for storage limits, conflict handling, privacy, and validation.
 
 This is an independent interface. It does not replace the existing yutorah.org domain or imply a new official Yeshiva University service.
 

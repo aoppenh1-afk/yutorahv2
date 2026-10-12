@@ -330,7 +330,7 @@ export function AccountPanel({
           </section>
         </div>
         <footer className="settings-footer">
-          <span>Playback is saved on this device.</span>
+          <span>{account.user ? 'Your library syncs across devices.' : 'Sign in to sync your library across devices.'}</span>
           <Link href="/privacy">Privacy</Link>
         </footer>
       </DialogContent>

@@ -1386,7 +1386,7 @@ export function LearningHome(props: Props) {
                 </button>
               </section>
               <p className="learning-local-note">
-                Your saved shiurim and listening progress stay on this device.
+                Your library stays on this device and syncs across devices when you sign in.
               </p>
             </>
           )}
