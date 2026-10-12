@@ -195,7 +195,7 @@ export function useAccount(
           setError(
             e instanceof Error
               ? e.message
-              : 'Your teacher follows could not sync. Retry when you are online.',
+              : 'Your teacher follows could not sync. Please retry.',
           );
       } finally {
         if (isCurrent()) setSyncing(false);

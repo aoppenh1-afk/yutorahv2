@@ -122,7 +122,9 @@ export function AccountPanel({
             )}
             {account.user && (
               <output className="account-sync-status">
-                {account.syncing ? (
+                {account.error ? (
+                  'Teacher follows could not sync'
+                ) : account.syncing ? (
                   <>
                     <Loader2 size={13} className="animate-spin" /> Syncing…
                   </>

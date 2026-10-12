@@ -45,6 +45,18 @@ try {
   const a = await fixtureUser();
   const b = await fixtureUser();
   await follow(a.client);
+  const synced = await check(
+    a.client
+      .from('teacher_follows')
+      .select('teacher_id,teacher_name,image,following,notifications_enabled')
+      .eq('user_id', a.id),
+  );
+  assert.equal(
+    synced.length,
+    1,
+    'The website can read its complete follow schema',
+  );
+  assert.equal(synced[0].notifications_enabled, true);
   assert.equal(
     (await check(b.client.from('teacher_follows').select('*'))).length,
     0,
@@ -269,6 +281,69 @@ try {
     'Other account label posted a shiur',
     'One account cannot change another account’s notification label',
   );
+  await check(
+    a.client.rpc('set_teacher_follow', {
+      p_teacher_id: teacherId,
+      p_teacher_name: 'Disposable notification fixture',
+      p_image: null,
+      p_following: true,
+      p_notifications_enabled: false,
+    }),
+  );
+  await follow(a.client);
+  const muted = await check(
+    a.client
+      .from('teacher_follows')
+      .select('following,notifications_enabled')
+      .eq('teacher_id', teacherId)
+      .single(),
+  );
+  assert.equal(muted.following, true, 'Muting preserves the follow');
+  assert.equal(
+    muted.notifications_enabled,
+    false,
+    'Legacy clients preserve the mute',
+  );
+  assert.equal(
+    (
+      await check(
+        admin
+          .from('notification_deliveries')
+          .select('id')
+          .eq('subscription_id', devices[0]),
+      )
+    ).length,
+    0,
+    'Muting removes queued alerts for that account',
+  );
+  const pollPreferences = (id) =>
+    check(
+      admin.rpc('record_teacher_shiurim', {
+        p_teacher_id: teacherId,
+        p_items: [{ id, title: 'Preference fixture' }],
+        p_baseline: false,
+      }),
+    );
+  assert.equal(
+    await pollPreferences(47),
+    1,
+    'Muted accounts receive no new alerts',
+  );
+  await check(
+    a.client.rpc('set_teacher_follow', {
+      p_teacher_id: teacherId,
+      p_teacher_name: 'Disposable notification fixture',
+      p_image: null,
+      p_following: true,
+      p_notifications_enabled: true,
+    }),
+  );
+  assert.equal(
+    await pollPreferences(47),
+    0,
+    'Muted uploads are never replayed',
+  );
+  assert.equal(await pollPreferences(48), 2, 'Alerts resume for new uploads');
   const noAuth = await fetch(c.projectUrl + '/functions/v1/notify-shiurim', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -280,7 +355,7 @@ try {
     'The worker rejects unauthenticated invocation',
   );
   console.log(
-    'Live checks passed: account isolation, private devices, endpoint validation, silent baseline, upload deduplication, unfollow, device cleanup, worker authentication.',
+    'Live checks passed: complete follow schema, account isolation, teacher notification preferences, private devices, endpoint validation, silent baseline, upload deduplication, unfollow, device cleanup, worker authentication.',
   );
 } finally {
   for (const id of users) await check(admin.auth.admin.deleteUser(id));
