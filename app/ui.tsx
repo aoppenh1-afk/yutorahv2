@@ -189,6 +189,7 @@ function PlaybackSpeed({
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const slider = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
   const setSpeed = (speed: number) => update((old) => ({ ...old, speed }));
   return (
     <Popover.Root>
@@ -207,7 +208,7 @@ function PlaybackSpeed({
           className="playback-speed-positioner"
           positionMethod="fixed"
           side="top"
-          align="center"
+          align={!isMobile && full ? 'start' : 'center'}
           sideOffset={10}
           collisionPadding={16}
           anchor={() => ({
@@ -218,7 +219,19 @@ function PlaybackSpeed({
               const control = button.getBoundingClientRect();
               const player = button.closest('.mobile-now-playing, .player');
               const bounds = player?.getBoundingClientRect() ?? control;
-              // Center across the player, at the speed button's vertical position.
+              if (!isMobile) {
+                const actions = button.closest('.now-playing-actions');
+                // Keep the desktop popup beside its control and above the compact bar.
+                return new DOMRect(
+                  control.x,
+                  full ? control.y : bounds.y,
+                  full
+                    ? (actions?.getBoundingClientRect().width ?? control.width)
+                    : control.width,
+                  control.height,
+                );
+              }
+              // Preserve the mobile popup centered across the player.
               return new DOMRect(
                 bounds.x,
                 control.y,
@@ -229,7 +242,10 @@ function PlaybackSpeed({
           })}
         >
           <Popover.Popup
-            className="playback-speed-popup"
+            className={
+              'playback-speed-popup' +
+              (full ? ' playback-speed-popup-full' : '')
+            }
             initialFocus={() => slider.current?.querySelector('input') ?? true}
           >
             <div className="playback-speed-heading">

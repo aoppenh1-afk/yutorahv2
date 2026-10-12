@@ -1648,7 +1648,7 @@
   z-index: 45;
   isolation: isolate;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(360px, 1.3fr) minmax(220px, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 1.3fr) auto;
   align-items: center;
   gap: 24px;
   max-width: 1280px;
@@ -1658,7 +1658,7 @@
   border-radius: var(--r-lg);
   overflow: hidden;
   color: var(--on-night);
-  background: rgba(24, 24, 27, 0.92);
+  background: #18181b;
   backdrop-filter: saturate(1.8) blur(26px);
   -webkit-backdrop-filter: saturate(1.8) blur(26px);
   box-shadow:
@@ -2289,6 +2289,9 @@
 }
 
 @media (min-width: 768px) {
+  .playback-speed-popup-full {
+    width: min(310px, var(--anchor-width));
+  }
   .desktop-now-playing {
     display: grid !important;
     grid-template-columns: minmax(220px, 380px) minmax(0, 480px);

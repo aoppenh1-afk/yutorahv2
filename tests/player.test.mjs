@@ -98,6 +98,7 @@ async function openPlayer(viewport, stalled = false, options = {}) {
   });
   const recording = {
     ...shiur,
+    title: options.title || shiur.title,
     image: options.image || '',
     teacherId: options.teacherId || shiur.teacherId,
     teacher: options.teacher || shiur.teacher,
@@ -1261,6 +1262,77 @@ void test('player controls stop playback and the phone dialog stays inside the b
         }
       });
     }
+    for (const width of [1024, 1280, 1440, 1920]) {
+      await t.test(
+        `desktop player spacing and speed popup at ${width}px`,
+        async () => {
+          const viewport = { width, height: 900 };
+          const { context, page } = await openPlayer(viewport, false, {
+            title:
+              'Shiur #13 - עוד בענין קטמה והבערה with a long recording title',
+          });
+          try {
+            const player = page.getByRole('region', {
+              name: 'Audio player',
+              exact: true,
+            });
+            const layout = await player.evaluate((el) => {
+              const bounds = (selector) =>
+                el.querySelector(selector).getBoundingClientRect().toJSON();
+              return {
+                track: bounds('.player-track'),
+                main: bounds('.player-main'),
+                options: bounds('.player-options'),
+                close: bounds('.player-close'),
+                player: el.getBoundingClientRect().toJSON(),
+                background: getComputedStyle(el).backgroundColor,
+              };
+            });
+            assert.ok(
+              layout.track.right <= layout.main.x,
+              'title and transport have separate columns',
+            );
+            assert.ok(
+              layout.main.right <= layout.options.x,
+              'options do not overlap the transport',
+            );
+            assert.ok(
+              layout.close.right <= layout.player.right,
+              'close button fits inside the bar',
+            );
+            assert.equal(
+              layout.background,
+              'rgb(24, 24, 27)',
+              'page text cannot show through the player',
+            );
+            const trigger = player.getByRole('button', {
+              name: 'Playback speed',
+              exact: true,
+            });
+            await trigger.click();
+            const popup = page.locator('.playback-speed-popup');
+            await assertInViewport(popup, viewport);
+            const popupBox = await popup.boundingBox();
+            const triggerBox = await trigger.boundingBox();
+            assert.ok(
+              popupBox.y + popupBox.height <= layout.player.y - 9,
+              'popup clears every compact player control',
+            );
+            assert.ok(
+              Math.abs(
+                popupBox.x +
+                  popupBox.width / 2 -
+                  triggerBox.x -
+                  triggerBox.width / 2,
+              ) < 1,
+              'popup is anchored to the desktop speed button',
+            );
+          } finally {
+            await context.close();
+          }
+        },
+      );
+    }
     for (const viewport of [
       { width: 320, height: 568 },
       { width: 390, height: 844 },
@@ -1312,15 +1384,32 @@ void test('player controls stop playback and the phone dialog stays inside the b
             await assertInViewport(popup, viewport);
             const popupBox = await popup.boundingBox();
             const playerBox = await dialog.boundingBox();
+            const speedBox = await speedButton.boundingBox();
+            if (desktop) {
+              const portraitBox = await dialog
+                .locator('.now-playing-portrait')
+                .boundingBox();
+              assert.ok(
+                popupBox.x >= portraitBox.x + portraitBox.width,
+                'desktop speed popup clears the portrait',
+              );
+            }
             assert.ok(
-              Math.abs(
-                popupBox.x + popupBox.width / 2 -
-                  (playerBox.x + playerBox.width / 2),
-              ) < 1,
-              'speed popup is centered across the player',
+              desktop
+                ? Math.abs(popupBox.x - speedBox.x) < 1
+                : Math.abs(
+                    popupBox.x +
+                      popupBox.width / 2 -
+                      (playerBox.x + playerBox.width / 2),
+                  ) < 1,
+              desktop
+                ? 'desktop speed popup is aligned with its trigger'
+                : 'mobile speed popup stays centered across the player',
             );
             assert.equal(
-              await popup.evaluate((el) => getComputedStyle(el).backgroundColor),
+              await popup.evaluate(
+                (el) => getComputedStyle(el).backgroundColor,
+              ),
               'rgb(32, 32, 35)',
             );
             const speedSlider = popup.getByRole('slider', {
@@ -1340,7 +1429,9 @@ void test('player controls stop playback and the phone dialog stays inside the b
             await popup.waitFor({ state: 'hidden' });
             assert.equal(await dialog.isVisible(), true);
             assert.equal(
-              await speedButton.evaluate((button) => button === document.activeElement),
+              await speedButton.evaluate(
+                (button) => button === document.activeElement,
+              ),
               true,
             );
             await speedButton.click();
@@ -1357,7 +1448,10 @@ void test('player controls stop playback and the phone dialog stays inside the b
               () => document.querySelector('audio').playbackRate === 3,
             );
             assert.equal(
-              await page.evaluate(() => JSON.parse(localStorage.getItem('yutorah-learning-v1')).speed),
+              await page.evaluate(
+                () =>
+                  JSON.parse(localStorage.getItem('yutorah-learning-v1')).speed,
+              ),
               3,
             );
             await page.keyboard.press('Escape');
