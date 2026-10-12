@@ -34,6 +34,8 @@ function readPending(id: string): FollowIntents {
           Number.isSafeInteger(intent.follow.id) &&
           intent.follow.id > 0 &&
           typeof intent.follow.name === 'string' &&
+          (intent.follow.notificationsEnabled === undefined ||
+            typeof intent.follow.notificationsEnabled === 'boolean') &&
           typeof intent.following === 'boolean' &&
           typeof intent.operation === 'string'
         );
@@ -112,7 +114,9 @@ export function useAccount(
         const load = async () => {
           const { data, error } = await db
             .from('teacher_follows')
-            .select('teacher_id,teacher_name,image,following')
+            .select(
+              'teacher_id,teacher_name,image,following,notifications_enabled',
+            )
             .eq('user_id', active.id);
           if (error) throw error;
           return data as RemoteFollow[];
@@ -153,6 +157,7 @@ export function useAccount(
             p_teacher_name: intent.follow.name.slice(0, 200),
             p_image: intent.follow.image ?? null,
             p_following: intent.following,
+            p_notifications_enabled: intent.follow.notificationsEnabled ?? null,
           });
           if (error) throw error;
           if (!isCurrent()) return;

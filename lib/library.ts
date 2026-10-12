@@ -30,6 +30,7 @@ export type LibraryState = LearningPreferences & {
   notes: Note[];
   queue: Shiur[];
   speed: number;
+  defaultSpeed: number;
   volume: number;
   last: Shiur | null;
 };
@@ -41,6 +42,7 @@ const initial: LibraryState = {
   notes: [],
   queue: [],
   speed: 1,
+  defaultSpeed: 1,
   volume: 1,
   last: null,
 };
@@ -122,6 +124,11 @@ export function readLibrary(): LibraryState {
       last: valid(value.last) ? value.last : null,
       speed: [0.75, 1, 1.25, 1.5, 1.75, 2].includes(value.speed)
         ? value.speed
+        : 1,
+      defaultSpeed: [0.75, 1, 1.25, 1.5, 1.75, 2].includes(
+        value.defaultSpeed ?? value.speed,
+      )
+        ? (value.defaultSpeed ?? value.speed)
         : 1,
       volume:
         typeof value.volume === 'number' &&
@@ -447,6 +454,7 @@ export function useAudio(
       update((old) => ({
         ...old,
         last: s,
+        speed: old.defaultSpeed,
         history: [
           {
             shiur: s,

@@ -13,14 +13,20 @@ This notification service uses no Cloudflare Worker, paid plan, or billing accou
 
 ## Turn on notifications
 
-Open Account and notifications, continue with Google, and enable notifications.
-Follow a teacher anywhere in the app. Each device has its own enable/disable
-setting and a test button. Unfollowing stops future notifications for that
-teacher. Signing out unsubscribes that device.
+Open Settings from the bottom of the desktop sidebar or the profile button on
+mobile. Continue with Google and turn on New shiur alerts. Each device has its
+own switch and test button. Under Your teachers, choose which followed teachers
+can send alerts. Turning off a teacher's alerts keeps the follow and clears
+pending notifications. Turning them back on does not replay muted uploads.
+Signing out unsubscribes that device.
+
+Default speed in Settings starts each new shiur at the selected pace. It stays
+on this device. Changing speed in the player applies to that recording without
+replacing the default.
 
 On iPhone or iPad, use iOS/iPadOS 16.4 or later. Open the website in Safari,
 choose Share, then Add to Home Screen. Open that installed app, sign in, and
-tap Enable notifications. Accept the system permission prompt. The website
+turn on New shiur alerts. Accept the system permission prompt. The website
 does not need to stay open for push notifications to arrive. Notifications
 still depend on the device's connection, permission, and Focus settings.
 
@@ -44,7 +50,8 @@ complete before expecting new-upload alerts. Large catalogs resume from a saved
 page through bounded continuation requests.
 
 Deliveries are stored once per device, teacher, and shiur. The worker checks that
-the account still follows the teacher before sending. Expired push endpoints
+the account still follows the teacher and has enabled their alerts before
+sending. Expired push endpoints
 are removed. Temporary failures retry, with at most five attempts; the next
 hourly run picks up retries that are due. Notification tags collapse repeated
 delivery of the same shiur on a device. Pending deliveries expire after 30 days.
@@ -73,6 +80,10 @@ Supabase redirects back to `https://yutorah.vercel.app/auth/callback`.
 The login requests only `openid email profile`. Auth uses PKCE and the official
 Supabase Auth SDK. The callback handles the SDK's `sb_flow_id` parameter.
 
+Deploy migration `202610110007_teacher_notification_preferences.sql` and the
+updated Edge Function before releasing the new settings UI. The migration keeps
+existing teacher alerts enabled and supports older clients' follow RPC calls.
+
 The deployment script applies each SQL migration once and rejects edited
 migrations. It deploys the tracked Edge Function, installs push secrets, sets
 the Vault scheduler credentials, and verifies the hourly cron job.
@@ -94,7 +105,11 @@ the existing Google client ID and private secret unchanged.
 
 `npm run test:notifications` checks follow merging, account switching, API and
 RSS parsing, delivery retry rules, endpoint validation, and service-worker
-behavior. `notifications:verify` uses disposable users to verify live database
+behavior. Set `NOTIFICATION_TEST_DATABASE_URL` to an empty, disposable PostgreSQL
+database to also run the alert preference integration test. That test rolls
+back its schema, roles, and fixtures when finished.
+
+`notifications:verify` uses disposable users to verify live database
 permissions, silent baselines, deduplication, unfollowing, and device cleanup.
 It deletes its fixtures when finished. Deno checks the Edge Function separately:
 

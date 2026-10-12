@@ -6,6 +6,7 @@ export type Follow = {
   id: number;
   name: string;
   image?: string;
+  notificationsEnabled?: boolean;
 };
 export type SavedSearch = {
   id: string;
@@ -58,6 +59,16 @@ export function restoreLearning(
               return counts[group] <= 100;
             })({}),
           )
+          .map((f) => {
+            const { notificationsEnabled, ...follow } = f;
+            return {
+              ...follow,
+              ...(f.kind === 'teacher' &&
+              typeof notificationsEnabled === 'boolean'
+                ? { notificationsEnabled }
+                : {}),
+            };
+          })
       : [],
     hidden: ids(value.hidden),
     completed: ids(value.completed),

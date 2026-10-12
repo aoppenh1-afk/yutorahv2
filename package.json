@@ -46,7 +46,7 @@
     "notes:package": "node scripts/package-notes-pipeline.mjs",
     "test:notes-only": "tsx --test tests/notes-only.test.ts tests/tidb-notes.test.ts",
     "test:notes-export": "tsx --test tests/notes-export.test.ts",
-    "test:notifications": "tsx --test tests/account-notifications.test.ts",
+    "test:notifications": "tsx --test tests/account-notifications.test.ts tests/teacher-notification-preferences.test.ts",
     "notifications:deploy": "node scripts/deploy-notifications.mjs",
     "notifications:verify": "node scripts/verify-notifications.mjs"
   },

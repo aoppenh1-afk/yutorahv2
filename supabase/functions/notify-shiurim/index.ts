@@ -63,12 +63,12 @@ async function deliver(deadline: number, limit = 100, subscriptionId?: string) {
     if (row.teacher_id !== 0) {
       const { data: follow, error: followError } = await db
         .from('teacher_follows')
-        .select('following')
+        .select('following,notifications_enabled')
         .eq('user_id', s.user_id)
         .eq('teacher_id', row.teacher_id)
         .maybeSingle();
       if (followError) throw new Error(followError.message);
-      if (!follow?.following) {
+      if (!follow?.following || follow.notifications_enabled === false) {
         await db.from('notification_deliveries').delete().eq('id', row.id);
         continue;
       }

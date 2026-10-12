@@ -218,3 +218,26 @@ void test('service worker always displays a notification and confines click targ
   await done;
   assert.equal(notifications.length, 2);
 });
+void test('muting teacher alerts preserves the follow and survives cloud reconciliation', () => {
+  const muted = { ...teacher, notificationsEnabled: false };
+  assert.deepEqual(
+    mergeTeacherFollows(
+      [topic],
+      [{ ...remote, notifications_enabled: false }],
+      {},
+    ),
+    [{ ...muted, image: undefined }, topic],
+  );
+  assert.deepEqual(
+    mergeTeacherFollows(
+      [teacher],
+      [{ ...remote, notifications_enabled: true }],
+      {
+        '81959': { follow: muted, following: true, operation: 'mute' },
+      },
+    ),
+    [muted],
+  );
+  assert.deepEqual(followsToImport([muted], [], null, 'user-a'), [muted]);
+  assert.deepEqual(restoreLearning({ following: [muted] }).following, [muted]);
+});

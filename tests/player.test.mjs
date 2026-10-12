@@ -296,6 +296,103 @@ async function closeAndVerify(page, minSeconds = 42) {
 
 void test('player controls stop playback and the phone dialog stays inside the built viewport', async (t) => {
   try {
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      await t.test(
+        `profile settings persist teacher alerts and default speed at ${viewport.width}px`,
+        async () => {
+          const { context, page } = await openPlayer(viewport, false, {
+            initialLibrary: {
+              following: [{ kind: 'teacher', id: 1, name: 'Test teacher' }],
+              defaultSpeed: 1.25,
+              speed: 1,
+            },
+          });
+          try {
+            if (viewport.width >= 768) {
+              assert.equal(
+                await page.locator('.header-account-button').isVisible(),
+                false,
+              );
+              await assertInViewport(page.locator('.sidebar-signin'), viewport);
+              await page.locator('.sidebar-settings-link').click();
+            } else
+              await page
+                .getByRole('button', { name: 'Profile settings', exact: true })
+                .click();
+            const dialog = page.getByRole('dialog', {
+              name: 'Settings',
+              exact: true,
+            });
+            await assertInViewport(dialog, viewport);
+            await dialog
+              .getByRole('combobox', { name: 'Default speed', exact: true })
+              .selectOption('1.5');
+            await page.waitForFunction(
+              () => document.querySelector('audio').playbackRate === 1.5,
+            );
+            await dialog
+              .getByRole('switch', {
+                name: 'New shiur alerts from Test teacher',
+                exact: true,
+              })
+              .click();
+            const stored = await page.evaluate(() =>
+              JSON.parse(localStorage.getItem('yutorah-learning-v1')),
+            );
+            assert.equal(stored.defaultSpeed, 1.5);
+            assert.equal(stored.following.length, 1);
+            assert.equal(stored.following[0].notificationsEnabled, false);
+            await dialog
+              .getByRole('button', { name: 'Close', exact: true })
+              .click();
+            // A temporary player override must not replace the saved default.
+            await page
+              .getByRole('button', {
+                name:
+                  viewport.width >= 768
+                    ? 'Open fullscreen player'
+                    : 'Expand player controls',
+                exact: true,
+              })
+              .click();
+            const playerDialog = page.getByRole('dialog');
+            await playerDialog
+              .getByRole('combobox', { name: 'Playback speed', exact: true })
+              .click();
+            await page.getByRole('option', { name: '2×', exact: true }).click();
+            await page.waitForFunction(
+              () => document.querySelector('audio').playbackRate === 2,
+            );
+            await playerDialog
+              .getByRole('button', { name: 'Play next in queue', exact: true })
+              .click();
+            await page.waitForFunction(
+              () => document.querySelector('audio').playbackRate === 1.5,
+            );
+            await page.keyboard.press('Escape');
+            await page.reload({ waitUntil: 'domcontentloaded' });
+            await page.waitForFunction(
+              () =>
+                JSON.parse(localStorage.getItem('yutorah-learning-v1'))
+                  .following[0].notificationsEnabled === false,
+            );
+            assert.equal(
+              await page.evaluate(
+                () =>
+                  JSON.parse(localStorage.getItem('yutorah-learning-v1'))
+                    .defaultSpeed,
+              ),
+              1.5,
+            );
+          } finally {
+            await context.close();
+          }
+        },
+      );
+    }
     await t.test(
       'a direct Trending visit displays saved recordings before a blocked refresh completes',
       async () => {

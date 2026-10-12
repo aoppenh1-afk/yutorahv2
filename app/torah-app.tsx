@@ -78,12 +78,14 @@ import {
   Info,
   UserRound,
   Bell,
+  Settings2,
 } from 'lucide-react';
 import {
   Sidebar,
   SidebarProvider,
   SidebarContent,
   SidebarHeader,
+  SidebarFooter,
   SidebarGroup,
   SidebarMenu,
   SidebarMenuItem,
@@ -1157,9 +1159,25 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         account={account}
         open={accountOpen}
         onOpenChange={setAccountOpen}
-        teacherCount={
-          library.following.filter((f) => f.kind === 'teacher').length
+        teachers={library.following.filter((f) => f.kind === 'teacher')}
+        defaultSpeed={library.defaultSpeed}
+        onSpeedChange={(speed) =>
+          update((old) => ({ ...old, defaultSpeed: speed, speed }))
         }
+        onTeacherNotificationsChange={(teacher, enabled) => {
+          const follow = { ...teacher, notificationsEnabled: enabled };
+          update((old) => ({
+            ...old,
+            following: old.following.map((f) =>
+              f.kind === 'teacher' && f.id === teacher.id ? follow : f,
+            ),
+          }));
+          account.changedFollow(follow, true);
+        }}
+        onBrowseTeachers={() => {
+          setAccountOpen(false);
+          navigate('teachers');
+        }}
       />
       <Sidebar className="torah-sidebar">
         <nav aria-label="Primary" className="flex min-h-0 flex-1 flex-col">
@@ -1249,6 +1267,54 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               </button>
             </SidebarGroup>
           </SidebarContent>
+          <SidebarFooter className="profile-sidebar-footer">
+            {account.user ? (
+              <button
+                className="sidebar-profile"
+                aria-label="Profile settings"
+                onClick={() => setAccountOpen(true)}
+              >
+                <span className="profile-avatar">
+                  <UserRound size={21} />
+                </span>
+                <span className="profile-summary">
+                  <strong>
+                    {account.user.user_metadata?.full_name || 'Your account'}
+                  </strong>
+                  <span>Settings & notifications</span>
+                </span>
+                <Settings2 size={17} />
+              </button>
+            ) : (
+              <div className="sidebar-signin">
+                <div className="sidebar-signin-heading">
+                  <span className="profile-avatar">
+                    <UserRound size={22} />
+                  </span>
+                  <div>
+                    <strong>Your Torah library</strong>
+                    <p>Follow teachers. Keep learning.</p>
+                  </div>
+                </div>
+                <button
+                  className="account-primary"
+                  disabled={account.loading}
+                  onClick={() => void account.signIn()}
+                >
+                  {account.loading && (
+                    <Loader2 size={16} className="animate-spin" />
+                  )}{' '}
+                  Sign in
+                </button>
+                <button
+                  className="sidebar-settings-link"
+                  onClick={() => setAccountOpen(true)}
+                >
+                  <Settings2 size={14} /> Settings
+                </button>
+              </div>
+            )}
+          </SidebarFooter>
         </nav>
       </Sidebar>
       <nav className="mobile-nav" aria-label="Main navigation">
@@ -1328,7 +1394,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           <div className="header-right">
             <button
               className="header-account-button"
-              aria-label="Account and notifications"
+              aria-label="Profile settings"
               onClick={() => setAccountOpen(true)}
             >
               <UserRound size={19} />

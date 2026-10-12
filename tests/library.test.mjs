@@ -72,3 +72,13 @@ void test('disabled storage still restores a usable in-memory library', (t) => {
   assert.deepEqual(readLibrary().saved, []);
   assert.equal(readLibrary().speed, 1);
 });
+void test('default playback speed migrates from legacy speed and persists independently', (t) => {
+  let stored = JSON.stringify({ speed: 1.5 });
+  storage(t, () => stored);
+  assert.equal(readLibrary().defaultSpeed, 1.5);
+  stored = serializeLibrary({ ...readLibrary(), speed: 2, defaultSpeed: 1.25 });
+  assert.equal(readLibrary().speed, 2);
+  assert.equal(readLibrary().defaultSpeed, 1.25);
+  stored = JSON.stringify({ speed: 1.5, defaultSpeed: 99 });
+  assert.equal(readLibrary().defaultSpeed, 1);
+});

@@ -5,6 +5,7 @@ export type RemoteFollow = {
   teacher_name: string;
   image: string | null;
   following: boolean;
+  notifications_enabled?: boolean;
 };
 export type FollowIntent = {
   follow: Follow;
@@ -26,6 +27,9 @@ export function mergeTeacherFollows(
         id: f.teacher_id,
         name: f.teacher_name,
         image: f.image ?? undefined,
+        ...(typeof f.notifications_enabled === 'boolean'
+          ? { notificationsEnabled: f.notifications_enabled }
+          : {}),
       });
   for (const intent of Object.values(pending)) {
     if (intent.following) teachers.set(intent.follow.id, intent.follow);
