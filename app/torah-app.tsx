@@ -1275,15 +1275,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 onClick={() => setAccountOpen(true)}
               >
                 <span className="profile-avatar">
-                  <UserRound size={21} />
+                  <UserRound size={18} />
                 </span>
                 <span className="profile-summary">
                   <strong>
                     {account.user.user_metadata?.full_name || 'Your account'}
                   </strong>
-                  <span>Settings & notifications</span>
                 </span>
-                <Settings2 size={17} />
+                <Settings2 size={16} />
               </button>
             ) : (
               <div className="sidebar-signin">
