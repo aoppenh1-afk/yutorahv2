@@ -398,3 +398,43 @@ void test('signing back in after an empty guest session preserves the account li
   assert.equal(returned.view.notes.length, 1);
   assert.equal(returned.view.volume, 0.4);
 });
+
+void test('continuous progress batches storage writes without dropping other collections', async () => {
+  const cloud = server();
+  const cache = storage();
+  let writes = 0;
+  const tracked = {
+    getItem: cache.getItem,
+    setItem: (key: string, value: string) => {
+      writes++;
+      cache.setItem(key, value);
+    },
+  };
+  const a = device(
+    cloud.transport,
+    restoreLibrary({
+      saved: [shiur(1)],
+      playlists: [{ id: 'one', name: 'First', items: [shiur(1)] }],
+    }),
+    tracked,
+  );
+  await a.controller.sync();
+  writes = 0;
+  for (let seconds = 5; seconds <= 30; seconds += 5)
+    a.controller.observe(
+      { ...a.view, learningDays: { '2026-10-11': seconds } },
+      true,
+    );
+  assert.equal(
+    writes,
+    0,
+    'Five-second playback ticks do not rewrite the entire durable cache',
+  );
+  a.controller.save();
+  assert.equal(writes, 1);
+  const recovered = device(cloud.transport, a.view, tracked);
+  await recovered.controller.sync();
+  assert.equal(recovered.view.saved.length, 1);
+  assert.equal(recovered.view.playlists[0].items.length, 1);
+  assert.equal(recovered.view.learningDays['2026-10-11'], 30);
+});
