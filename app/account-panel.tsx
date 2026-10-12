@@ -93,7 +93,7 @@ export function AccountPanel({
                 </strong>
                 <p>
                   {account.user?.email ||
-                    'Sign in to sync your teacher follows.'}
+                    'Sign in to sync your library across devices.'}
                 </p>
               </div>
               {account.user ? (
@@ -123,7 +123,7 @@ export function AccountPanel({
             {account.user && (
               <output className="account-sync-status">
                 {account.error ? (
-                  'Teacher follows could not sync'
+                  'Library could not sync'
                 ) : account.syncing ? (
                   <>
                     <Loader2 size={13} className="animate-spin" /> Syncing…
@@ -132,7 +132,7 @@ export function AccountPanel({
                   `${account.pendingCount} changes waiting to sync`
                 ) : (
                   <>
-                    <Check size={13} /> Teacher follows synced
+                    <Check size={13} /> Library synced
                   </>
                 )}
               </output>

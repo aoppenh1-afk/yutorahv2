@@ -13,13 +13,16 @@ export default function PrivacyPage() {
         YUTorah Library is an independent interface to YUTorah&apos;s public
         library. You can browse without creating an account.
       </p>
-      <h2>Google sign-in and teacher follows</h2>
+      <h2>Google sign-in and your library</h2>
       <p>
         Signing in shares your Google account ID, name, email address, and
         profile picture with our authentication provider, Supabase. We request
         only your basic identity information. We do not request access to Gmail,
         Google Drive, or your Google password. Supabase stores your account and
-        the teachers you follow so those follows work across devices.
+        your private library so it works across devices. This includes saved
+        shiurim, playlists, listening history and progress, personal notes, the
+        queue, followed teachers, topics and series, saved searches, learning
+        goals and activity, and playback preferences.
       </p>
       <h2>Notifications</h2>
       <p>
@@ -32,11 +35,15 @@ export default function PrivacyPage() {
       </p>
       <h2>Data on your device</h2>
       <p>
-        Saved shiurim, playlists, listening progress, topics, series, searches,
-        and learning goals stay in this browser&apos;s local storage. Pending
-        changes to teacher follows and your sign-in session also use local
-        storage. Clearing site data removes those local records. It does not
-        delete an existing cloud account or its teacher follows.
+        Without signing in, your library stays in this browser&apos;s local
+        storage. Signing in imports the existing device library into your
+        account. A local copy and pending edits support offline use and retry
+        when you reconnect. Your sign-in session also uses local storage.
+        Clearing site data removes local records and edits that have not synced;
+        it does not delete your cloud library. Switching accounts loads the
+        other account&apos;s library without importing the previous
+        account&apos;s data. Audio and video recordings remain hosted by
+        YUTorah.
       </p>
       <h2>Hosting and library requests</h2>
       <p>
@@ -44,13 +51,13 @@ export default function PrivacyPage() {
         YUTorah and its media providers. These services process network requests
         needed to load pages, search, and play recordings. The website also
         records aggregate performance measurements. Your Google identity and
-        teacher follows are used for account sync and notifications, and are not
+        private library are used for account sync and notifications, and are not
         sold or used for advertising.
       </p>
       <h2>Remove your account</h2>
       <p>
-        To request deletion of your account, cloud teacher follows, and
-        notification device records, contact{' '}
+        To request deletion of your account, cloud library, and notification
+        device records, contact{' '}
         <a href="mailto:yutorahv2@gmail.com">yutorahv2@gmail.com</a> from the
         email address associated with your account. Use the same address for
         privacy questions. You can revoke Google access in your Google account

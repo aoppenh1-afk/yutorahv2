@@ -313,8 +313,8 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     },
     [isMobile],
   );
-  const { library, update, ready } = useLibrary(notify);
-  const account = useAccount(library, update, ready);
+  const { library, update, ready, subscribe } = useLibrary(notify);
+  const account = useAccount(library, update, ready, subscribe);
   const player = usePlaybackState();
   const {
     active: activeShiur,
@@ -673,7 +673,13 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         ? old.saved.filter((v) => v.id !== s.id)
         : [s, ...old.saved],
     }));
-    notify(exists ? 'Removed from saved shiurim.' : 'Saved on this device.');
+    notify(
+      exists
+        ? 'Removed from saved shiurim.'
+        : account.user
+          ? 'Saved to your library.'
+          : 'Saved on this device.',
+    );
   };
   const follow = (item: Follow) => {
     const exists = library.following.some(
@@ -749,7 +755,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     }));
     setPlaylistDialog(false);
     setPlaylistName('');
-    notify(`Created “${name}” on this device.`);
+    notify(
+      account.user
+        ? `Created “${name}” in your library.`
+        : `Created “${name}” on this device.`,
+    );
   };
   const share = async (s: Shiur, seconds = 0) => {
     const url = new URL(window.location.origin);

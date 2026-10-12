@@ -48,7 +48,9 @@
     "test:notes-export": "tsx --test tests/notes-export.test.ts",
     "test:notifications": "tsx --test tests/account-notifications.test.ts tests/teacher-notification-preferences.test.ts",
     "notifications:deploy": "node scripts/deploy-notifications.mjs",
-    "notifications:verify": "node scripts/verify-notifications.mjs"
+    "notifications:verify": "node scripts/verify-notifications.mjs",
+    "test:account-library": "tsx --test tests/account-library.test.ts tests/account-library-db.test.ts",
+    "account-library:verify": "tsx scripts/verify-account-library.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

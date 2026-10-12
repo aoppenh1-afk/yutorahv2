@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import type { Follow } from './learning';
-import type { LibraryState, LibraryUpdate } from './library';
+import type { LibraryState, LibraryUpdate, LibrarySubscribe } from './library';
+import { useLibraryAccount } from './use-library-account';
+import { libraryOwnerKey } from './account-library';
 import { getAccountClient } from './account-client';
 import {
   followsToImport,
@@ -78,6 +80,7 @@ export function useAccount(
   library: LibraryState,
   update: LibraryUpdate,
   ready: boolean,
+  subscribe: LibrarySubscribe,
 ) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -88,6 +91,13 @@ export function useAccount(
   const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
   const [notificationBusy, setNotificationBusy] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const cloudLibrary = useLibraryAccount(
+    user?.id,
+    library,
+    update,
+    ready,
+    subscribe,
+  );
   const current = useRef({ library, update });
   current.current = { library, update };
   const userRef = useRef<User | null>(null);
@@ -110,7 +120,7 @@ export function useAccount(
     const work = (async () => {
       setSyncing(true);
       try {
-        const db = await getAccountClient();
+        const db = (await getAccountClient()).forUser(active.id);
         const load = async () => {
           const { data, error } = await db
             .from('teacher_follows')
@@ -142,14 +152,17 @@ export function useAccount(
           write(migrationKey, 'true');
         }
         write('yutorah-account-owner', active.id);
-        current.current.update((old) => ({
-          ...old,
-          following: mergeTeacherFollows(
-            old.following,
-            remote,
-            intents.current,
-          ),
-        }));
+        current.current.update(
+          (old) => ({
+            ...old,
+            following: mergeTeacherFollows(
+              old.following,
+              remote,
+              intents.current,
+            ),
+          }),
+          'remote',
+        );
         while (isCurrent() && Object.keys(intents.current).length) {
           const [id, intent] = Object.entries(intents.current)[0];
           const { error } = await db.rpc('set_teacher_follow', {
@@ -167,14 +180,17 @@ export function useAccount(
         }
         remote = await load();
         if (!isCurrent()) return;
-        current.current.update((old) => ({
-          ...old,
-          following: mergeTeacherFollows(
-            old.following,
-            remote,
-            intents.current,
-          ),
-        }));
+        current.current.update(
+          (old) => ({
+            ...old,
+            following: mergeTeacherFollows(
+              old.following,
+              remote,
+              intents.current,
+            ),
+          }),
+          'remote',
+        );
         setError('');
         if (notificationSupport() === 'supported') {
           const reg = await registration();
@@ -221,6 +237,13 @@ export function useAccount(
     const applyUser = (next: User | null) => {
       if (!mounted) return;
       if (userRef.current?.id === next?.id) return;
+      // Preserve legacy ownership before the teacher sync changes its marker.
+      if (!read(libraryOwnerKey) && read('yutorah-account-owner'))
+        try {
+          write(libraryOwnerKey, read('yutorah-account-owner')!);
+        } catch {
+          /* Library sync reports storage failures. */
+        }
       generation.current++;
       running.current = null;
       refreshAgain.current = false;
@@ -236,10 +259,13 @@ export function useAccount(
         read('yutorah-account-owner') &&
         read('yutorah-account-owner') !== next.id
       )
-        current.current.update((old) => ({
-          ...old,
-          following: old.following.filter((f) => f.kind !== 'teacher'),
-        }));
+        current.current.update(
+          (old) => ({
+            ...old,
+            following: old.following.filter((f) => f.kind !== 'teacher'),
+          }),
+          'remote',
+        );
       if (next) void refresh();
     };
     let started = false;
@@ -473,10 +499,12 @@ export function useAccount(
   return {
     user,
     loading,
-    syncing,
-    error,
-    pendingCount,
-    refresh,
+    syncing: syncing || cloudLibrary.syncing,
+    error: error || cloudLibrary.error,
+    pendingCount: pendingCount + cloudLibrary.pending,
+    refresh: async () => {
+      await Promise.all([refresh(), cloudLibrary.refresh()]);
+    },
     changedFollow,
     signIn,
     signOut,

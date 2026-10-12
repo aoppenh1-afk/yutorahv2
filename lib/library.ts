@@ -49,7 +49,14 @@ const initial: LibraryState = {
 const key = 'yutorah-learning-v1';
 export function readLibrary(): LibraryState {
   try {
-    let value = JSON.parse(localStorage.getItem(key) || 'null');
+    return restoreLibrary(JSON.parse(localStorage.getItem(key) || 'null'));
+  } catch {
+    return initial;
+  }
+}
+export function restoreLibrary(input: unknown): LibraryState {
+  try {
+    let value: ReturnType<typeof JSON.parse> = input;
     if (value?.version === 2 && value.recordings) {
       const recordings = value.recordings;
       value = {
@@ -171,8 +178,13 @@ export function serializeLibrary(library: LibraryState) {
 }
 export type LibraryUpdate = (
   fn: (old: LibraryState) => LibraryState,
-  mode?: 'progress' | 'immediate',
+  mode?: 'progress' | 'immediate' | 'remote' | 'remote-memory',
 ) => void;
+export type LibraryListener = (
+  library: LibraryState,
+  mode: 'progress' | 'immediate',
+) => void;
+export type LibrarySubscribe = (listener: LibraryListener) => () => void;
 function mergeProgress(
   remote: LibraryState,
   local: LibraryState,
@@ -204,12 +216,21 @@ export function useLibrary(notify: (text: string) => void) {
   notifyRef.current = notify;
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const dirty = useRef(false);
+  const persistenceBlocked = useRef(false);
   const lastWritten = useRef<string | null>(null);
+  const listeners = useRef(new Set<LibraryListener>());
+  const subscribe: LibrarySubscribe = useCallback((listener) => {
+    listeners.current.add(listener);
+    return () => {
+      listeners.current.delete(listener);
+    };
+  }, []);
   const flush = useCallback(() => {
     clearTimeout(timer.current);
     timer.current = undefined;
     if (!dirty.current) return;
     setLibrary(libRef.current);
+    if (persistenceBlocked.current) return;
     try {
       const stored = localStorage.getItem(key);
       if (stored !== lastWritten.current)
@@ -286,17 +307,19 @@ export function useLibrary(notify: (text: string) => void) {
       const growsOver = (count: number, previous: number, limit: number) =>
         count > limit && count > previous;
       if (
-        growsOver(next.saved.length, old.saved.length, 5000) ||
-        growsOver(next.queue.length, old.queue.length, 1000) ||
-        growsOver(next.playlists.length, old.playlists.length, 100) ||
-        next.playlists.some((p) =>
-          growsOver(
-            p.items.length,
-            old.playlists.find((previous) => previous.id === p.id)?.items
-              .length ?? 0,
-            5000,
-          ),
-        )
+        mode !== 'remote' &&
+        mode !== 'remote-memory' &&
+        (growsOver(next.saved.length, old.saved.length, 5000) ||
+          growsOver(next.queue.length, old.queue.length, 1000) ||
+          growsOver(next.playlists.length, old.playlists.length, 100) ||
+          next.playlists.some((p) =>
+            growsOver(
+              p.items.length,
+              old.playlists.find((previous) => previous.id === p.id)?.items
+                .length ?? 0,
+              5000,
+            ),
+          ))
       ) {
         notifyRef.current(
           'Library limit reached: 5,000 saved items, 1,000 queued items, and 100 playlists with 5,000 items each.',
@@ -305,6 +328,17 @@ export function useLibrary(notify: (text: string) => void) {
       }
       libRef.current = next;
       dirty.current = true;
+      if (mode === 'remote' || mode === 'remote-memory') {
+        if (mode === 'remote-memory') persistenceBlocked.current = true;
+        // Account replacement must not merge the previous account's progress.
+        try {
+          lastWritten.current = localStorage.getItem(key);
+        } catch {
+          /* In memory remains usable. */
+        }
+      } else {
+        for (const listener of listeners.current) listener(next, mode);
+      }
       if (mode === 'progress') timer.current ??= setTimeout(flush, 25000);
       else {
         // An interactive retry must report its own failure even after an earlier
@@ -315,7 +349,7 @@ export function useLibrary(notify: (text: string) => void) {
     },
     [flush],
   );
-  return { library, update, ready, libRef, flush };
+  return { library, update, ready, libRef, flush, subscribe };
 }
 export function useAudio(
   library: LibraryState,

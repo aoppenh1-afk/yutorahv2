@@ -17,17 +17,23 @@ async function createAccountClient() {
     persistSession: true,
     autoRefreshToken: true,
   });
-  const authorizedFetch: typeof fetch = async (input, init) => {
-    const { data, error } = await auth.getSession();
-    if (error) throw error;
-    const headers = new Headers(init?.headers);
-    headers.set('apikey', accountConfig.publishableKey);
-    headers.set(
-      'Authorization',
-      'Bearer ' + (data.session?.access_token ?? accountConfig.publishableKey),
-    );
-    return fetch(input, { ...init, headers });
-  };
+  const fetchForUser =
+    (userId?: string): typeof fetch =>
+    async (input, init) => {
+      const { data, error } = await auth.getSession();
+      if (error) throw error;
+      if (userId && data.session?.user.id !== userId)
+        throw new Error('Your account changed. Please retry sync.');
+      const headers = new Headers(init?.headers);
+      headers.set('apikey', accountConfig.publishableKey);
+      headers.set(
+        'Authorization',
+        'Bearer ' +
+          (data.session?.access_token ?? accountConfig.publishableKey),
+      );
+      return fetch(input, { ...init, headers });
+    };
+  const authorizedFetch = fetchForUser();
   const rest = new PostgrestClient(accountConfig.url + '/rest/v1', {
     fetch: authorizedFetch,
   });
@@ -35,6 +41,10 @@ async function createAccountClient() {
     auth,
     from: rest.from.bind(rest),
     rpc: rest.rpc.bind(rest),
+    forUser: (userId: string) =>
+      new PostgrestClient(accountConfig.url + '/rest/v1', {
+        fetch: fetchForUser(userId),
+      }),
     functions: {
       invoke: async (
         name: string,
