@@ -494,6 +494,11 @@
 @media (max-width: 767px) {
   .header-account-button {
     display: inline-flex;
+    width: 40px;
+    height: 40px;
+    color: var(--ink-2);
+    background: var(--surface);
+    box-shadow: var(--shadow-1), inset 0 0 0 1px var(--line);
   }
   .settings-heading {
     padding: 23px 20px 18px;

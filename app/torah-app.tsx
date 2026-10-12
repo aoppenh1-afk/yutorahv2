@@ -1409,14 +1409,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           )}
           <div className="header-right">
             <button
-              className="header-account-button"
-              aria-label="Profile settings"
-              onClick={() => setAccountOpen(true)}
-            >
-              <UserRound size={19} />
-              {account.user && <span className="account-status-dot" />}
-            </button>
-            <button
               className="mobile-header-search"
               aria-label="Search the library"
               onClick={() => navigate('search')}
@@ -1439,6 +1431,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               onClick={() => setHelp(true)}
             >
               <Info size={19} />
+            </button>
+            <button
+              className="header-account-button"
+              aria-label="Profile settings"
+              onClick={() => setAccountOpen(true)}
+            >
+              <UserRound size={19} />
+              {account.user && <span className="account-status-dot" />}
             </button>
           </div>
         </header>

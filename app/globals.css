@@ -1020,7 +1020,8 @@ input[type='search']::-webkit-search-cancel-button {
   .desktop-home-label,
   .header-search,
   .header-right .hebrew,
-  .header-library-button {
+  .header-library-button,
+  .header-about-button {
     display: none !important;
   }
   .mobile-home-label {
