@@ -77,11 +77,16 @@ export async function readTrendingResponse(
   }
 }
 
-export async function readTrendingPage(page: number): Promise<SearchResponse> {
+export async function readTrendingPage(
+  page: number,
+  signal?: AbortSignal,
+): Promise<SearchResponse> {
   const query = new URLSearchParams({ start: String(page), searchTerm: '' });
   const response = await fetch(`https://api.yutorah.org/search/get?${query}`, {
     headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(8000),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+      : AbortSignal.timeout(8000),
   });
   return readTrendingResponse(response);
 }

@@ -1,0 +1,49 @@
+{
+  "model": "opencode/muse-spark-1.3-contributor-free",
+  "effort": "high",
+  "opencodeVersion": "1.18.33",
+  "profileId": "018942870aec6066e4e66c8ddf65d491f423b2f03a78fa096a63cfefc8506dc6",
+  "method": "One process and stable owned workspace; two different complete transcripts each receive a fresh session. Model, plan mode, and high confirmed before every request. Full contract and validation, no published notes. One short sequential pilot, different time from cold baseline, not a sustained-throughput or caching measurement.",
+  "initializedMs": 1284.4364999999998,
+  "sharedCleanupMs": 3884.472167,
+  "totalMs": 90707.934542,
+  "failureCode": null,
+  "results": [
+    {
+      "id": "1117682",
+      "status": "completed",
+      "effort": "high",
+      "elapsedBeforeSharedCleanupMs": 19252.382125,
+      "words": 979,
+      "sourceHash": "903d2549844f7ce1f68e7959159b74bc166bf02e6de00bcefd17df30a773aaa2",
+      "notesFile": "1117682-warm-high-notes.md",
+      "requests": [
+        {
+          "repair": false,
+          "sessionMs": 643.6828750000002,
+          "promptMs": 18554.491208,
+          "inputBytes": 34219,
+          "outputBytes": 6158
+        }
+      ]
+    },
+    {
+      "id": "1181042",
+      "status": "completed",
+      "effort": "high",
+      "elapsedBeforeSharedCleanupMs": 66246.502167,
+      "words": 2414,
+      "sourceHash": "dfad1ce94c3304253a1a512d12f3f7d6bc5570f4ba2b11ac8d0d431e27601b83",
+      "notesFile": "1181042-warm-high-notes.md",
+      "requests": [
+        {
+          "repair": false,
+          "sessionMs": 52.824000000000524,
+          "promptMs": 66169.905708,
+          "inputBytes": 55434,
+          "outputBytes": 17224
+        }
+      ]
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import { searchDatabase } from '@/lib/search-db';
 const refresh = createTrendingService({
   database: searchDatabase,
   requireStorage: true,
+  reportProgress: true,
 });
 const headers = { 'Cache-Control': 'no-store' };
 
@@ -18,8 +19,6 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Not found.' }, { status: 404, headers });
   try {
     const options = parseTrendingOptions(new URL(request.url).searchParams);
-    // A background build must have persistent storage shared with chart reads.
-    await searchDatabase().prepare('SELECT 1').first();
     const data = await refresh(options);
     const {
       seen: _seen,
@@ -28,7 +27,19 @@ export async function POST(request: Request) {
       nextPage: _page,
       ...chart
     } = data;
-    return Response.json(chart, { headers });
+    const retryAt = data.coverage?.retryAt;
+    return Response.json(chart, {
+      headers: {
+        ...headers,
+        ...(retryAt
+          ? {
+              'Retry-After': String(
+                Math.max(1, Math.ceil((retryAt - Date.now()) / 1000)),
+              ),
+            }
+          : {}),
+      },
+    });
   } catch (error) {
     if (error instanceof RangeError)
       return Response.json({ error: error.message }, { status: 400, headers });
@@ -43,6 +54,10 @@ export async function POST(request: Request) {
           headers: { ...headers, 'Retry-After': '30' },
         },
       );
+    console.warn(
+      'Trending refresh failed:',
+      error instanceof Error ? error.message : 'Unknown failure',
+    );
     return Response.json(
       { error: 'Trending refresh failed; retry to resume saved progress.' },
       {

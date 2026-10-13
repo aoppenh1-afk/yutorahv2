@@ -1,0 +1,132 @@
+# שהחיינו על ישוב ארץ ישראל
+
+## הקדמה
+
+- **Case:** friend from Boca Raton making עליה with children coming to ארץ ישראל first time wanted to know what ברכה to say
+    - Feels very exciting and spiritually uplifting to move to ארץ ישראל, so at least שהחיינו, and whether any other ברכה or תפלה should be recited
+- **Q:** why no ברכת המצוה on מצוה of ישוב ארץ ישראל when there is ברכת המצוה on ישיבה בסוכה
+    - **הרב קוק** suggests two reasons why there is no ברכת המצוה
+        - Based on **תשובת הרשב״א חלק א׳ סימן י״ח** that no ברכה on מצוה whose whole basis is rectifying a בדיעבד unfortunate situation you preferred not to be in to begin with
+            - Having a Jew in חוץ לארץ is unfortunate, and rectifying it does not warrant a ברכה
+        - Quotes **רבינו בחיי** that no ברכה on מצוה שכלית, a logical מצוה that makes sense
+            - Makes sense every nation has a homeland and its people want to feel natives there, not something we do only because of ציווי ה׳
+    - Be that as it may, there is no known ברכת המצוה on living in ארץ ישראל
+
+## שיטת האוסרים שהחיינו
+
+- **תשובות לב חיים סימן ל״ג**
+    - **Q:** was asked about שהחיינו on ישוב ארץ ישראל
+    - **A:** based on **מגן אברהם סימן רכ״ג**, where דיני שהחיינו are found for new house, baby, הטוב והמטיב, new כלים
+        - **מגן אברהם:** דוקא כלי תשמיש, אבל על ספרים חדשים אינו מברך
+            - Because מצוות לאו ליהנות ניתנו, the pleasure from doing a מצוה is not הלכתית defined as הנאה
+            - שאין מברכין רק על מצוות הבאות מזמן לזמן, only on מצוות that come on annual cycle or schedule like נטילת לולב
+        - **Q:** why must he add second reason if he already said מצוות לאו ליהנות ניתנו
+        - **A:** even acc to opinion that מצוות ליהנות ניתנו, still would not say ברכה on מצוות that are not מזמן לזמן
+    - Therefore no שהחיינו on ישוב ארץ ישראל for two reasons
+        - Even though it is a מצות עשה it does not qualify as הנאה, and the excitement is מצוה excitement which does not warrant a ברכה
+        - Even absent excitement, שהחיינו on מצוה is only for מצוה הבאה מזמן לזמן, and ישוב ארץ ישראל is not הבאה מזמן לזמן
+- **תשובות שואל ונשאל חלק ג׳ יורה דעה סימן ת״ד**
+    - **רב משה הכהן כלפון:** we do not say שהחיינו because the פוסקים never say to say it
+        - Therefore volunteering שהחיינו would be a ברכה לבטלה
+- **Editor’s note on לב חיים**
+    - Not written by **רב חיים פאלאג׳י** himself but by anonymous editor of his תשובות, though many quote it as if he wrote it
+    - Another reason not to say שהחיינו is something severely lacking from the שמחה in going to ארץ ישראל because we lack a בית המקדש
+        - To say שהחיינו or הטוב והמטיב a person needs true joy in the heart
+        - **שולחן ערוך:** rich man buying an item does not say שהחיינו but poor man buying same item does, because for rich man it is no big deal while for poor man it is exciting
+            - So it must make you feel joy, and distress in seeing the חורבן every day outweighs and dulls joy of living in ארץ ישראל
+- **אדר״ת diary**
+    - Came to be next chief rabbi of ירושלים as **רב שמואל סלנט** was aging, but **אדר״ת** died young before him as הקדוש ברוך הוא runs the world
+    - Got apartment on הר הזיתים overlooking הר הבית, and said they think they did him a favor but they are killing him
+        - Feared he would die young from pain and suffering of seeing חורבן each day
+- **Editor’s proof from חגים ומועדים**
+    - If living in ארץ ישראל when חגים ומועדים arrive, when all ישראל would go up to ירושלים בשמחה ובשירים to fulfill עליית הרגל and do פסח בזמנו, we would be so excited to be עולה לרגל
+    - And when recalling מעלת גדולת קדושת כהן גדול ביום הכיפורים, envisioning מראה כהן and עבודת הקודש
+    - But now because of עונות the בית המקדש is חרב and עבודה is בטלה, so instead of joy there is בכי, יגון, and אנחה בעידן חדוה
+    - Heard from a group of אשכנזים in ירושלים that on שלש רגלים they go to כותל המערבי to daven מוסף in order to say מפני חטאינו גלינו מארצנו, and they increase בכיה and great דאגה
+    - **Q:** איך שייך לברך זמן שאין לבו שמח, how say שהחיינו when experiencing that negative emotion
+        - **A:** אדרבה, it awakens more דאגה every day than if he lived in חוץ לארץ, where out of sight out of mind, but in ארץ ישראל it slaps you in the face daily
+- **תשובות משנה הלכות חלק א׳ סימן ת״ע**
+    - **רב מנשה קליין:** also says not to say שהחיינו for similar reason, because you tear קריעה on seeing ערי יהודה בחורבנן, so how express joy
+        - Since one coming to ארץ ישראל sees ערי יהודה destroyed, says ערי קדשך היו מדבר and tears קריעה
+        - One seeing ירושלים בחורבנה says ציון היתה שממה and tears, and seeing בית המקדש says בית קדשנו ותפארתנו
+            - All מפורש in **שולחן ערוך**
+        - **פוסקים** write that when tearing one blesses דיין האמת
+            - So do not ask why not bless שהחיינו, אדרבה he blesses דיין האמת
+        - When we merit בית מקדשנו and go up ברינה with משיח צדקנו, then we will sing שיר חדש and bless שהחיינו בפה מלא
+- **Q:** is that a פלא, that you cannot say שהחיינו because you say דיין האמת
+    - **A:** **גמ׳ ברכות דף נ״ט** paskened in **שולחן ערוך סימן רכ״ג** says if father dies and leaves big ירושה, say דיין האמת and שהחיינו
+        - דיין האמת for death and שהחיינו for ירושה, so a person can hold two opposite emotions at once
+        - Can be very distressed about חורבן הבית and overjoyed about מצוה of ישוב ארץ ישראל and living there
+- **Q:** does קריעה and דיין האמת even apply everywhere
+    - **A:** קריעה and דיין האמת apply only to ערי יהודה, not ערי ישראל
+        - One arriving in חיפה or עכו, which are ערי ישראל in נחלת אשר or maybe נחלת מנשה, does not tear קריעה, so no conflict there
+        - Even coming through בן גוריון, as most do nowadays, there is no tearing קריעה because it is not בחורבנו with hundreds of thousands of Jews living there
+        - Standard פסק is we do not tear קריעה on ערי יהודה in general, only on מקום המקדש or maybe ירושלים, because other places are no longer בחורבנה
+- **תשובות בית מרדכי סימן כ״ח**
+    - In times of **רב חיים פאלאג׳י** ערי יהודה were actually בחורבנן, so such a תשובה made sense then
+        - But nowadays they are בבנינם, not בחורבנם anymore
+- **Summary:** side not to say שהחיינו because not מצוה הבאה מזמן לזמן, and level of שמחה either does not qualify as הנאה since מצוות לאו ליהנות ניתנו, or is not real שמחה because muted in some way
+
+## שיטת המתירים שהחיינו
+
+- **רבי יהודה בן יקר in דיני ברכת שהחיינו**
+    - Rebbe of **רמב״ן**, writes הבונה בית חדש וקנה כלים חדשים אומר שהחיינו, even if he already has similar כלים
+        - Blesses שנתן לנו חיים וקיימנו לזכות בדבר זה, grateful הקדוש ברוך הוא gave life to be זוכה in these things
+        - והיינו נמי שהגיענו לזמן הזה שאני זוכה לענין הזה, gratitude for reaching this time to merit this matter
+        - Quotes פסוקים from מקרא ביכורים, והגדתי היום לה׳ אלקיך כי באתי אל הארץ אשר נשבע ה׳ לאבותינו, that we praise הקדוש ברוך הוא שהגיעו לזמן הזה שזכה בארץ
+            - **Q:** what is connection to שהחיינו on בית חדש and כלים חדשים
+            - **A:** seems שהחיינו on בית חדש and כלים חדשים is derived from being in ארץ ישראל, which תורה says requires deep gratitude, and since new and exciting, והוא הדין לכל דבר שהוא לו עכשיו חדש ושמח בו
+    - Does not say to actually say שהחיינו on going to ארץ ישראל, says it is covered by מקרא ביכורים in context of bringing ביכורים, but stated in context of שהחיינו said on other things
+- **תשובות הלכות קטנות חלק א׳ סימן קכ״ב**
+    - Asked about שהחיינו on coming to ארץ ישראל, said not necessary because covered by ברכת הגומל
+        - Sometimes a ברכה is broad enough to cover ענין of another ברכה, so saying ברכת הגומל already expresses gratitude for having arrived
+- **שאלות ותשובות יין הטוב חלק א׳ סימן מ״ז**
+    - **רבי יצחק נסים,** former Sephardic Chief Rabbi after **רב בן ציון עוזיאל**, says implication of **הלכות קטנות** is if not saying ברכת הגומל then would say שהחיינו
+        - Many big פוסקים hold nowadays do not say ברכת הגומל on airplane because travel is so safe and not like traveling by sea facing waves, where little turbulence is not same
+        - Opposite extreme is **רב משה פיינשטיין** who holds say ברכת הגומל on any airplane trip, even quick local flight or flying lessons
+        - If holding like those who do not say ברכת הגומל to ארץ ישראל, only reason not to say שהחיינו falls away
+    - Says it is not שהחיינו on שמחה but on תועלת, benefit of being there
+        - **תרומת הדשן פסקים וכתבים סימן פ״ח:** דע לך כי בוודאי שבח גדול ומעלה יש לאדם הדר בארץ ישראל, וכל שכן בעיר הקודש, לתועלת לעולם הבא וגם לעולם הזה, helps in עולם הבא and עולם הזה
+        - Same as שהחיינו on ירושה, where one losing a father feels sadness not שמחה, but says שהחיינו for great תועלת that will pay bills, mortgage, support kids in כולל, buy car, whatever benefit comes
+    - Goes further that had **רב חיים פאלאג׳י** seen **הלכות קטנות** he would have said to say שהחיינו
+        - Speaker rejects playing that game since we know only what he said, not what he would have said
+- **אדר״ת letter to רב מרדכי גימפל יפה**
+    - Told him to say שהחיינו when coming to ארץ ישראל
+    - Responded גם אני תהלה לאל קיימתי מסברא, already fulfilled on own reasoning, but since arrived ערב ראש השנה waited and fixed it בזמן דרגל ביום הזיכרון
+        - Blessed בשמחה and included also ביאת הארץ in שהחיינו on יום of ראש השנה, where first day of course requires שהחיינו unlike second day which is ספק requiring בגד חדש or new פירות
+    - **רבי יצחק נסים** sees proof it warrants שהחיינו
+        - Speaker questions because he linked it to שהחיינו said anyway, which can cover anything since he had to say it
+- **רבי אליעזר ברגמן**
+    - German גדול, contemporary and correspondent of **כתב סופר** and **ערוך לנר**, writes זכינו בח״י לחודש לכניסתי לעיר הקודש תבנה ותכונן במהרה בימינו אמן
+        - On 18th of month came to ירושלים, והיה לבבי כאש בוערת, heart on fire
+        - Blessed דיין האמת על רוב החורבן שלפנינו ממש בכל צד for destruction seen everywhere
+        - And שהחיינו על התלהבות השמחה שזכינו להגיע לעיר הקודש זו for great שמחה in arriving
+- **רבי יצחק נסים on rare מצוה**
+    - We say שהחיינו on ישוב ארץ ישראל because not common מצוה, since שהחיינו is not on every מצוה but on מצוה הבאה מזמן לזמן or likewise very rare מצוה not on schedule
+    - **Ex:** **רמב״ם** and **שולחן ערוך הלכות מילה סימן ר״ס סעיף ז׳** say to say שהחיינו on ברית מילה, which is not הבאה מזמן לזמן on any schedule
+        - Works for ספרדים who say שהחיינו at ברית, not for אשכנזים who do not
+- **רב טייכטאל in אם הבנים שמחה פרק ג׳ סימן ע״א**
+    - Says אילו לא הייתי חושש מחביריי וביותר מאיזה מרבותיי שיחייכו עלי הייתי אומר דבר חדש, would suggest brand new idea if not afraid of attack or רביים laughing
+    - Just like **חז״ל בסוכה דף מ״ו. ובמנחות דף מ״ב.** say העושה לולב לעצמו או סוכה לעצמו מברך שהחיינו when building סוכה or making לולב
+        - So מי שהתחיל בארץ ישראל בעבודת האדמה לעצמו או בבנין בית לעצמו יברך שהחיינו פעם ראשונה שהתחיל לבנות, planting vineyard or building house in ארץ ישראל first time
+    - **Q:** what if not for himself
+        - **A:** ואולי גם כשאינו לעצמו, even further, because must distinguish סוכה and לולב from ישוב הארץ, since מצוה is לעשות את הארץ ראויה לישוב, not only about him
+            - So need not be דוקא לעצמו, even for others suffices since also fit for him
+    - Quotes **תוס׳ סוכה דף מ״ו.** that were מסתפק באיזה מצוות תיקנו שהחיינו ובאיזה לא, with מסקנה שבמצוה שיש בה שמחה מברכים והיכא דליכא שמחה אין מברכים
+        - In our case there is certainly שמחה, so certainly proper to bless שהחיינו on one first beginning עבודת הארץ and בנין הארץ
+    - Notably says not when moving to ארץ ישראל but when starting to build and enhance ישוב there
+    - Says לא באתי אלא להעיר ולא להלכה וכל שכן למעשה עד שיסכימו איתי גדולי הדור, only suggestion בדרך אפשר until גדולי הדור agree, unclear if they did
+- **רב נריה on גערער רבי**
+    - When **אמרי אמת** visited Israel in 1926 bought wheat for מצת מצוה and was excited to be מפריש תרומות ומעשרות first time
+    - **הרב קוק** encouraged him to say שהחיינו on ability to do מצוה and on being in ארץ ישראל, discussed a while
+    - **גערער רבי** said אם מרא דאתרא, רבה של ירושלים, פוסק שצריך לברך שהחיינו מקבל אני את דעתו, and joyously said שהחיינו בשם ומלכות
+        - But that was also first time doing הפרשת תרומות ומעשרות, which לכאורה should not get שהחיינו since we do not say שהחיינו סתם first time doing a מצוה
+            - **Ex:** young כלות asking about שהחיינו first time lighting שבת candles, where פשטות is no because not מצוה הבאה מזמן לזמן nor super uncommon
+    - **רב צבי יהודה קוק** in הערות on **שאלות ותשובות אורח משפט** has whole explanation of father’s שיטה why first הפרשת תרומות ומעשרות gets שהחיינו, but it is a חידוש
+
+## Summary
+
+- When coming to ארץ ישראל with heart filled with joy and wanting to say a ברכה, practical answer is buy a new fruit or new טלית and have in mind ישוב ארץ ישראל as well
+    - Like Sephardic trick at wedding where no שהחיינו on marriage but שהחיינו on new טלית worn under חופה covers both טלית and wife
+- Also many פסוקים in תנ״ך and תהלים to say, such as כי רצו עבדיך את אבניה ואת עפרה יחוננו
+- Speaker concludes it does not warrant its own separate שהחיינו

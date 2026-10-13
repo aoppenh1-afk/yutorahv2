@@ -1,0 +1,81 @@
+{
+  "method": "Actual runNotesPool with virtual time, no network, models, database, retries, or memory admission. Synthetic note duration 60 seconds; missing source lookup 250 ms. Does not establish the live bottleneck or predict sustained free-provider capacity.",
+  "results": [
+    {
+      "name": "Current discovery-sized queue, 25% transcripts",
+      "assumptions": {
+        "candidates": 600,
+        "yieldEvery": 4,
+        "noteMs": 60000,
+        "concurrency": 10,
+        "paceMs": 2000
+      },
+      "simulatedSeconds": 1800,
+      "notes": 150,
+      "missing": 450,
+      "lastCandidateSettledSeconds": 1258,
+      "notesPerHour": 300,
+      "result": {
+        "processed": 600,
+        "failed": false
+      }
+    },
+    {
+      "name": "Larger ready inventory, same candidate pacing",
+      "assumptions": {
+        "candidates": 3000,
+        "yieldEvery": 4,
+        "noteMs": 60000,
+        "concurrency": 10,
+        "paceMs": 2000
+      },
+      "simulatedSeconds": 1858,
+      "notes": 225,
+      "missing": 675,
+      "lastCandidateSettledSeconds": 1858,
+      "notesPerHour": 436,
+      "result": {
+        "processed": 900,
+        "failed": false
+      }
+    },
+    {
+      "name": "Prefetched transcript-ready jobs, same pacing",
+      "assumptions": {
+        "candidates": 3000,
+        "yieldEvery": 1,
+        "noteMs": 60000,
+        "concurrency": 10,
+        "paceMs": 2000
+      },
+      "simulatedSeconds": 1818,
+      "notes": 300,
+      "missing": 0,
+      "lastCandidateSettledSeconds": 1818,
+      "notesPerHour": 594,
+      "result": {
+        "processed": 300,
+        "failed": false
+      }
+    },
+    {
+      "name": "Two usable lanes with ready transcripts",
+      "assumptions": {
+        "candidates": 3000,
+        "yieldEvery": 1,
+        "noteMs": 60000,
+        "concurrency": 2,
+        "paceMs": 2000
+      },
+      "simulatedSeconds": 1802,
+      "notes": 60,
+      "missing": 0,
+      "lastCandidateSettledSeconds": 1802,
+      "notesPerHour": 120,
+      "result": {
+        "processed": 60,
+        "failed": false
+      }
+    }
+  ]
+}

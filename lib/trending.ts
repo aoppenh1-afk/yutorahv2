@@ -101,6 +101,33 @@ export type DiscoveryData = {
     items: Shiur[];
     charts: Record<string, { ids: number[]; total: number }>;
     retryPages: number[];
+    /** Independent census prevents a historical union from certifying coverage. */
+    audit?: {
+      seen: string;
+      sampled: number;
+      total: number;
+      stable: boolean;
+      items: Shiur[];
+      charts: Record<string, { ids: number[]; total: number }>;
+    };
+    retries?: Record<string, { attempts: number; after: number }>;
+    round?: number;
+    headPage?: number;
+    roundStartedSampled?: number;
+  };
+  coverage?: {
+    status: 'scanning' | 'reconciling' | 'paused' | 'reconciled';
+    /** The offset API has no snapshot or change feed. */
+    guaranteed: false;
+    observedTotal: number;
+    sweepSampled: number;
+    cursor: number;
+    round: number;
+    pendingPages: number;
+    requests: number;
+    added: number;
+    retryAt?: number;
+    reason?: string;
   };
   total: number;
   partial: boolean;

@@ -1,0 +1,81 @@
+{
+  "model": "opencode/muse-spark-1.3-contributor-free",
+  "opencodeVersion": "1.18.33",
+  "profileId": "4973ef8857571aa04e24750f98d8fd78d74c8d2ab58ebfd3ae4e97212887ad19",
+  "skillHash": "a5f013723b60c47780605117ccff454586920bbcb8bb5e856038114207d545df",
+  "method": "One measured run per effort per source, sequential; short source medium/high then longer source high/medium. Full current contract, exact saved sources, one structural repair permitted, denied tools, isolated owned sessions. No sustained-throughput or quality claim.",
+  "results": [
+    {
+      "id": "1117682",
+      "effort": "medium",
+      "status": "completed",
+      "elapsedMs": 31643.030833,
+      "words": 1016,
+      "sourceHash": "903d2549844f7ce1f68e7959159b74bc166bf02e6de00bcefd17df30a773aaa2",
+      "notesFile": "1117682-medium-notes.md",
+      "requests": [
+        {
+          "repair": false,
+          "elapsedMs": 31633.613417,
+          "promptMs": 27294.788625,
+          "inputBytes": 34219,
+          "outputBytes": 6382
+        }
+      ]
+    },
+    {
+      "id": "1117682",
+      "effort": "high",
+      "status": "completed",
+      "elapsedMs": 31623.581082999997,
+      "words": 887,
+      "sourceHash": "903d2549844f7ce1f68e7959159b74bc166bf02e6de00bcefd17df30a773aaa2",
+      "notesFile": "1117682-high-notes.md",
+      "requests": [
+        {
+          "repair": false,
+          "elapsedMs": 31614.138499999997,
+          "promptMs": 26706.784207999997,
+          "inputBytes": 34219,
+          "outputBytes": 5899
+        }
+      ]
+    },
+    {
+      "id": "1181042",
+      "effort": "high",
+      "status": "completed",
+      "elapsedMs": 50606.69975,
+      "words": 2515,
+      "sourceHash": "dfad1ce94c3304253a1a512d12f3f7d6bc5570f4ba2b11ac8d0d431e27601b83",
+      "notesFile": "1181042-high-notes.md",
+      "requests": [
+        {
+          "repair": false,
+          "elapsedMs": 50602.730875,
+          "promptMs": 45443.583333,
+          "inputBytes": 55434,
+          "outputBytes": 18757
+        }
+      ]
+    },
+    {
+      "id": "1181042",
+      "effort": "medium",
+      "status": "completed",
+      "elapsedMs": 31662.76000000001,
+      "words": 2182,
+      "sourceHash": "dfad1ce94c3304253a1a512d12f3f7d6bc5570f4ba2b11ac8d0d431e27601b83",
+      "notesFile": "1181042-medium-notes.md",
+      "requests": [
+        {
+          "repair": false,
+          "elapsedMs": 31662.010833000008,
+          "promptMs": 26329.528499999986,
+          "inputBytes": 55434,
+          "outputBytes": 16786
+        }
+      ]
+    }
+  ]
+}
