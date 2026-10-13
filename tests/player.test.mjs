@@ -666,9 +666,13 @@ void test('player controls stop playback and the phone dialog stays inside the b
         }
       },
     );
-    for (const height of [800, 2000]) {
+    for (const { height, sectionGap = 0 } of [
+      { height: 800 },
+      { height: 2000 },
+      { height: 2000, sectionGap: 2600 },
+    ]) {
       await t.test(
-        `Home shows saved Trending and defers scans until scrolling near its section at ${height}px height`,
+        `Home shows saved Trending and defers scans until scrolling near its section at ${height}px height${sectionGap ? ' with extra content above Trending' : ''}`,
         async () => {
           let discoveryRequests = 0;
           let savedRequests = 0;
@@ -706,20 +710,26 @@ void test('player controls stop playback and the phone dialog stays inside the b
           );
           try {
             const section = page.locator('.trending-section');
+            if (sectionGap) {
+              // Keep Trending below even a tall viewport to cover layout variation.
+              await page.addStyleTag({
+                content: `.trending-section { margin-top: ${sectionGap}px; }`,
+              });
+            }
             await section.getByText(savedTitle, { exact: true }).waitFor();
             await page.waitForTimeout(100);
             assert.equal(savedRequests, 1, 'Home reads the saved chart once');
             assert.equal(discoveryRequests, 0, 'initial Home defers scanning');
             await page.evaluate(() => window.scrollTo(0, 1));
-            if (height === 800) {
+            if (height === 800 || sectionGap) {
               await page.waitForTimeout(100);
               assert.equal(
                 discoveryRequests,
                 0,
                 'scrolling far from Trending still defers scanning',
               );
-              await section.scrollIntoViewIfNeeded();
             }
+            await section.scrollIntoViewIfNeeded();
             await section.getByText(shiur.title, { exact: true }).waitFor();
             assert.equal(discoveryRequests, 1);
             await page.evaluate(() => window.scrollBy(0, 10));
