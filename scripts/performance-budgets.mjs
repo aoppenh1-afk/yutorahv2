@@ -91,8 +91,9 @@ const measurements = {
 };
 const budgets = {
   initialHomeJs: 300_000,
-  // Includes the deferred Supabase Auth and PostgREST SDKs for Google login.
-  totalJs: 405_000,
+  // Includes account SDKs plus the offline downloader and Downloads screen.
+  // The initial-page and individual-chunk budgets remain unchanged.
+  totalJs: 420_000,
   notesExportJs: 600_000,
   totalCss: 50_000,
   largestJsChunk: 80_000,

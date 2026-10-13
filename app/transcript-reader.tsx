@@ -17,6 +17,8 @@ import {
 } from '@/components/ui/dialog';
 import { NotesDownload, type NotesFormat } from './notes-download';
 import { BoundedCache } from '@/lib/bounded-cache';
+import { fetchStudy } from '@/lib/offline-content';
+import { useOnline } from '@/lib/connectivity';
 import { timeLabel } from '@/lib/library';
 import type { ContentStatus } from '../packages/transcription/src/public-content';
 import { indexSourceHighlights } from '@/lib/source-highlights';
@@ -59,6 +61,7 @@ export function TranscriptReader({
   shiurId: number;
   onSeek: (seconds: number) => void;
 }) {
+  const online = useOnline();
   const [content, setContent] = useState<Content | null>(null);
   const [tab, setTab] = useState<
     'transcript' | 'notes' | 'sources' | 'summary'
@@ -70,7 +73,7 @@ export function TranscriptReader({
     const abort = new AbortController();
     setOfficial((old) => (old?.id === shiurId ? old : null));
     setOfficialError('');
-    fetch(
+    fetchStudy(
       '/api/official-study?id=' + shiurId + (officialRetry ? '&fresh=1' : ''),
       { signal: abort.signal },
     )
@@ -86,7 +89,7 @@ export function TranscriptReader({
         if (!abort.signal.aborted) setOfficialError(e.message);
       });
     return () => abort.abort();
-  }, [shiurId, officialRetry]);
+  }, [shiurId, officialRetry, online]);
   const [sourcesEnabled, setSourcesEnabled] = useState(false);
   const [state, setState] = useState('Loading transcript…');
   const [retry, setRetry] = useState(0);
@@ -108,14 +111,14 @@ export function TranscriptReader({
     lastNotesRetry.current = retry;
     const cacheKey = String(shiurId);
     if (fresh) hostedNotesCache.delete(cacheKey);
-    const cached = hostedNotesCache.get(cacheKey);
+    const cached = online ? hostedNotesCache.get(cacheKey) : undefined;
     if (cached) {
       setHosted(cached);
       return;
     }
     const abort = new AbortController();
     setHosted({ id: shiurId, status: 'loading', markdown: null });
-    void fetch(`/api/study-notes?id=${shiurId}`, {
+    void fetchStudy(`/api/study-notes?id=${shiurId}`, {
       signal: abort.signal,
       cache: fresh ? 'no-store' : 'default',
     })
@@ -139,17 +142,17 @@ export function TranscriptReader({
           setHosted({ id: shiurId, status: 'unavailable', markdown: null });
       });
     return () => abort.abort();
-  }, [shiurId, retry, tab]);
+  }, [shiurId, retry, tab, online]);
   const hostedNote = hosted?.id === shiurId ? hosted : null;
   const displayedNotes =
-    content?.source === 'official-yutorah' || !content
+    content?.source === 'official-yutorah' || !content?.notes?.markdown
       ? hostedNote
       : content.notes;
   const last = useRef<{ id: number; content: Content } | null>(null);
   const sources = useTranscriptSources(
     shiurId,
     content?.transcriptId,
-    sourcesEnabled && content?.source !== 'official-yutorah',
+    online && sourcesEnabled && content?.source !== 'official-yutorah',
     content?.version,
   );
   useEffect(() => {
@@ -177,6 +180,7 @@ export function TranscriptReader({
         if (
           (statusOnly || current) &&
           current &&
+          online &&
           current.source !== 'official-yutorah'
         ) {
           const statusResponse = await fetch(
@@ -222,7 +226,7 @@ export function TranscriptReader({
           : undefined;
         const response = cached
           ? Response.json(cached)
-          : await fetch(`/api/transcript?${query}`, {
+          : await fetchStudy(`/api/transcript?${query}`, {
               signal: abort.signal,
               cache:
                 (retry > 0 || statusOnly) && !version ? 'no-store' : 'default',
@@ -230,9 +234,11 @@ export function TranscriptReader({
         const data = (await response.json()) as Content & { error?: string };
         if (!response.ok)
           throw new Error(
-            response.status === 404
-              ? 'A transcript has not been completed for this shiur yet.'
-              : data.error || 'Transcript is unavailable.',
+            !online
+              ? 'This transcript was not saved for offline use. Connect to the internet to load it.'
+              : response.status === 404
+                ? 'A transcript has not been completed for this shiur yet.'
+                : data.error || 'Transcript is unavailable.',
           );
         if (abort.signal.aborted) return;
         current = data;
@@ -247,6 +253,7 @@ export function TranscriptReader({
         setRefreshError('');
         pendingNotes =
           data.source !== 'official-yutorah' &&
+          online &&
           ((!data.notes && awaitingNotes < 3) ||
             Boolean(
               data.notes &&
@@ -285,7 +292,7 @@ export function TranscriptReader({
       clearTimeout(timer);
       document.removeEventListener('visibilitychange', visibilityChanged);
     };
-  }, [shiurId, retry]);
+  }, [shiurId, retry, online]);
   const notesContent = displayedNotes?.markdown ? (
     <div className="study-markdown" dir="ltr">
       <p className="study-note-label">
@@ -368,7 +375,7 @@ export function TranscriptReader({
         aria-label={'Transcript, notes, and sources'}
       >
         <div className="study-tabs">
-          {content && (
+          {content && online && (
             <a
               className="text-button"
               href={`/api/transcript-text?id=${shiurId}${content.version ? '&version=' + content.version : ''}${content.source === 'official-yutorah' ? '&source=official-yutorah' : ''}`}
@@ -401,7 +408,7 @@ export function TranscriptReader({
               Summaries
             </button>
           )}
-          {content && content.source !== 'official-yutorah' && (
+          {online && content && content.source !== 'official-yutorah' && (
             <>
               <button
                 type="button"
@@ -417,6 +424,7 @@ export function TranscriptReader({
           )}
           <button
             type="button"
+            disabled={!online}
             onClick={() => {
               setRetry((n) => n + 1);
               setOfficialRetry((n) => n + 1);
@@ -431,10 +439,12 @@ export function TranscriptReader({
           )}
           {tab === 'notes' && displayedNotes?.markdown && (
             <div className="study-notes-actions">
-              <NotesDownload
-                busy={exporting}
-                onDownload={(format) => void downloadNotes(format)}
-              />
+              {online && (
+                <NotesDownload
+                  busy={exporting}
+                  onDownload={(format) => void downloadNotes(format)}
+                />
+              )}
               <button
                 className="study-expand"
                 type="button"
@@ -447,6 +457,12 @@ export function TranscriptReader({
             </div>
           )}
         </div>
+        {!online && (
+          <p className="study-note-label">
+            Reading saved content offline. Reconnect and refresh to check for
+            updates.
+          </p>
+        )}
         {official?.chapters.length && tab === 'transcript' ? (
           <details className="study-chapters">
             <summary>
@@ -516,15 +532,17 @@ export function TranscriptReader({
         ) : tab !== 'notes' && state ? (
           <output className="study-state">
             {state}{' '}
-            <button
-              type="button"
-              onClick={() => {
-                setRetry((n) => n + 1);
-                setOfficialRetry((n) => n + 1);
-              }}
-            >
-              Refresh
-            </button>
+            {online && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRetry((n) => n + 1);
+                  setOfficialRetry((n) => n + 1);
+                }}
+              >
+                Refresh
+              </button>
+            )}
           </output>
         ) : content && tab === 'transcript' ? (
           <TranscriptSegments
@@ -552,18 +570,20 @@ export function TranscriptReader({
           notesContent
         ) : (
           <output className="study-state">
-            {displayedNotes?.status === 'loading'
-              ? 'Loading notes…'
-              : displayedNotes?.status === 'unavailable'
-                ? 'Notes are temporarily unavailable. Try Refresh.'
-                : displayedNotes &&
-                    ['queued', 'cleaning', 'generating'].includes(
-                      displayedNotes.status,
-                    )
-                  ? 'Notes are being generated.'
-                  : displayedNotes?.status === 'failed'
-                    ? 'Notes could not be generated yet. The transcript is available.'
-                    : 'Notes have not been generated for this shiur yet.'}
+            {!online && displayedNotes?.status !== 'loading'
+              ? 'These notes were not saved for offline use. Connect to the internet to load them.'
+              : displayedNotes?.status === 'loading'
+                ? 'Loading notes…'
+                : displayedNotes?.status === 'unavailable'
+                  ? 'Notes are temporarily unavailable. Try Refresh.'
+                  : displayedNotes &&
+                      ['queued', 'cleaning', 'generating'].includes(
+                        displayedNotes.status,
+                      )
+                    ? 'Notes are being generated.'
+                    : displayedNotes?.status === 'failed'
+                      ? 'Notes could not be generated yet. The transcript is available.'
+                      : 'Notes have not been generated for this shiur yet.'}
           </output>
         )}
       </section>

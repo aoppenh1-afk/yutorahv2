@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "vinext dev",
-    "build": "vinext build",
+    "build": "vinext build && node scripts/build-offline.mjs dist/client",
     "start": "wrangler dev --config dist/server/wrangler.json --persist-to .wrangler/state",
     "lint": "oxlint",
     "performance:budgets": "node scripts/performance-budgets.mjs",
@@ -35,7 +35,7 @@
     "transcription": "node scripts/transcription-control.mjs",
     "test:transcription-control": "node --test scripts/transcription-control.test.mjs",
     "test:notes-vm": "node --test tests/notes-backup.test.mjs tests/notes-catalog-fetch.test.mjs tests/notes-catalog-vm.test.mjs tests/notes-pool.test.mjs tests/notes-package.test.mjs tests/notes-transcript.test.mjs",
-    "build:vercel": "DEPLOY_TARGET=vercel NITRO_PRESET=vercel vinext build",
+    "build:vercel": "DEPLOY_TARGET=vercel NITRO_PRESET=vercel vinext build && node scripts/build-offline.mjs .vercel/output/static",
     "data:maintain": "tsx scripts/maintain-data.ts",
     "test:maintenance": "tsx --test tests/data-maintenance.test.ts",
     "search:schema:migrate": "tsx scripts/migrate-search-schema.ts",
@@ -52,7 +52,8 @@
     "test:account-library": "tsx --test tests/account-library.test.ts tests/account-library-db.test.ts",
     "account-library:verify": "tsx scripts/verify-account-library.ts",
     "account-library:deploy": "node scripts/deploy-account-library.mjs",
-    "test:parity": "tsx --test tests/feature-parity.test.ts tests/catalog-artwork.test.ts tests/catalog-loading.test.ts tests/catalog-loading-view.test.tsx tests/topic-groups.test.ts"
+    "test:parity": "tsx --test tests/feature-parity.test.ts tests/catalog-artwork.test.ts tests/catalog-loading.test.ts tests/catalog-loading-view.test.tsx tests/topic-groups.test.ts",
+    "test:downloads": "tsx --test tests/audio-download.test.ts tests/offline-client.test.ts tests/offline-content.test.ts && node --test tests/offline-worker.test.mjs && node --test tests/downloads-browser.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

@@ -2,6 +2,9 @@
 /* oxlint-disable jsx-a11y/media-has-caption -- No caption tracks are supplied by the upstream audio library. */
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { portraitSources } from '@/lib/portrait';
+import { cachedPortrait } from '@/lib/offline-content';
+import { useOnline } from '@/lib/connectivity';
 import { Popover } from '@base-ui/react/popover';
 import {
   Bookmark,
@@ -91,8 +94,6 @@ export function Avatar({
     />
   );
 }
-const cdnPortrait =
-  /^(https:\/\/cdnyutorah\.cachefly\.net\/_images\/roshei_yeshiva\/[^?#]+?)(?:_o|_lp)?(\.(?:jpe?g|png))$/i;
 function Portrait({
   src,
   name,
@@ -105,23 +106,45 @@ function Portrait({
   fallback?: React.ReactNode;
 }) {
   const [failures, setFailures] = useState(0);
+  const [localImage, setLocalImage] = useState<{
+    src: string;
+    url: string;
+  } | null>(null);
   const image = useRef<HTMLImageElement>(null);
   // YUTorah publishes the original 240×280 portraits with its `_lp` suffix.
   // API responses often point at the 50px plain or 90px `_o` thumbnails instead.
   // Fall back to the given image if the original is absent.
-  const match = /_default\.|missingpicture/i.test(src)
-    ? null
-    : cdnPortrait.exec(src);
-  const original = match ? `${match[1]}_lp${match[2]}` : src;
-  const attempts = original === src ? [src] : [original, src];
-  const imageSource = attempts[failures] ?? src;
-  const available = failures < attempts.length;
+  const attempts = portraitSources(src);
+  const local = localImage?.src === src ? localImage.url : '';
+  const imageSource = local || attempts[failures] || src;
+  const online = useOnline();
+  const available = Boolean(local) || (online && failures < attempts.length);
+  useEffect(() => {
+    let disposed = false;
+    let url = '';
+    void cachedPortrait(src)
+      .then(async (response) => {
+        if (!response) return;
+        const blob = await response.blob();
+        if (disposed) return;
+        url = URL.createObjectURL(blob);
+        setLocalImage({ src, url });
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [src]);
   useEffect(() => {
     // A server-rendered image can fail before React attaches its error handler.
     if (image.current?.complete) {
-      if (image.current.naturalWidth === 0) setFailures(failures + 1);
+      if (image.current.naturalWidth === 0) {
+        if (local) setLocalImage(null);
+        else setFailures(failures + 1);
+      }
     }
-  }, [imageSource, failures]);
+  }, [imageSource, failures, local]);
   return src && available && !/_default\.|missingpicture/i.test(src) ? (
     <img
       ref={image}
@@ -130,7 +153,7 @@ function Portrait({
       alt=""
       loading="lazy"
       decoding="async"
-      onError={() => setFailures(failures + 1)}
+      onError={() => (local ? setLocalImage(null) : setFailures(failures + 1))}
     />
   ) : (
     <span className={'avatar initials ' + className} aria-hidden="true">
@@ -778,7 +801,10 @@ export function Player({
     <>
       <audio
         ref={p.audio}
-        src={p.active?.audio || undefined}
+        crossOrigin={
+          p.source?.startsWith('/offline-audio/') ? 'anonymous' : undefined
+        }
+        src={p.source}
         preload="metadata"
         {...p.handlers}
       />

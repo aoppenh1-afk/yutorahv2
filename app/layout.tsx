@@ -7,6 +7,8 @@ import './screens.css';
 import './study.css';
 import './account.css';
 import { PerformanceMonitor } from './performance-monitor';
+import { OfflineSupport } from './offline-support';
+import './downloads.css';
 const sans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 const mono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
 const hebrew = Frank_Ruhl_Libre({
@@ -49,6 +51,7 @@ export default function RootLayout({
       <body>
         {children}
         <PerformanceMonitor />
+        <OfflineSupport />
         <Analytics />
       </body>
     </html>

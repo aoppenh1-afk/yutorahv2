@@ -30,6 +30,10 @@ import {
   usePlaybackState,
 } from './playback';
 import { PagedItems } from './paged-items';
+import { DownloadsPage } from './downloads-page';
+import { DownloadButton } from './download-button';
+import { useDownloadCount } from '@/lib/downloads';
+import { useOnline } from '@/lib/connectivity';
 import { useViewPerformance } from './performance-monitor';
 import { FollowButton } from './follow-button';
 import { useAccount } from '@/lib/use-account';
@@ -170,6 +174,7 @@ type View =
   | 'teachers'
   | 'series'
   | 'topics'
+  | 'downloads'
   | 'saved'
   | 'history'
   | 'playlists';
@@ -185,6 +190,7 @@ const labels: Record<View, string> = {
   teachers: 'Teachers',
   series: 'Series',
   topics: 'Topics',
+  downloads: 'Downloads',
   saved: 'Saved shiurim',
   history: 'Learning history',
   playlists: 'My playlists',
@@ -299,7 +305,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   const homeDaf = useRef(home?.daf || '');
   homeDaf.current = home?.daf || '';
   const [homeLoading, setHomeLoading] = useState(false);
-  const [view, setView] = useState<View>('discover');
+  const [selectedView, setView] = useState<View>('discover');
+  const online = useOnline();
+  const downloadCount = useDownloadCount();
+  const view = !online && isMobile ? 'downloads' : selectedView;
   useEffect(() => {
     if (
       view === 'daf' &&
@@ -394,7 +403,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   useEffect(() => {
     setRelatedCandidates([]);
     setRelatedError(false);
-    if (!detailId) return;
+    if (!detailId || !online) return;
     const controller = new AbortController();
     setRelatedLoading(true);
     requestJson<{ items: Shiur[]; partial: boolean }>(
@@ -414,7 +423,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         if (!controller.signal.aborted) setRelatedLoading(false);
       });
     return () => controller.abort();
-  }, [detailId, relatedRetry]);
+  }, [detailId, relatedRetry, online]);
   const savedIds = useMemo(
     () => new Set(library.saved.map((s) => s.id)),
     [library.saved],
@@ -426,8 +435,8 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       .catch((e) => setDirectoryError(e.message));
   }, []);
   useEffect(() => {
-    loadDirectory();
-  }, [loadDirectory]);
+    if (online) loadDirectory();
+  }, [loadDirectory, online]);
   const refreshHome = () => {
     setHomeLoading(true);
     requestJson<HomeData>('/api/home')
@@ -439,7 +448,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   const homeNotify = useRef(notify);
   homeNotify.current = notify;
   useEffect(() => {
-    if (hasHome || !['discover', 'following', 'trending', 'daf'].includes(view))
+    if (
+      !online ||
+      hasHome ||
+      !['discover', 'following', 'trending', 'daf'].includes(view)
+    )
       return;
     const controller = new AbortController();
     setHomeLoading(true);
@@ -455,7 +468,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         if (!controller.signal.aborted) setHomeLoading(false);
       });
     return () => controller.abort();
-  }, [hasHome, view]);
+  }, [hasHome, view, online]);
   const changeURL = useCallback(
     (nextView: View, query = '', nextFilters: Filters = noFilters) => {
       const url = new URL(window.location.href);
@@ -611,8 +624,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       detailAbort.current = controller;
       setDetail(s);
       setDetailError('');
-      setDetailLoading(!loaded);
-      if (loaded) return;
+      const offline = !navigator.onLine || window.__YUTORAH_OFFLINE__;
+      setDetailLoading(!loaded && !offline);
+      if (loaded || offline) return;
       try {
         const fresh = await requestJson<
           Shiur & { text?: string; video?: string }
@@ -672,6 +686,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   useEffect(() => {
     const restore = () => {
       const params = new URLSearchParams(window.location.search);
+      if (!navigator.onLine || window.__YUTORAH_OFFLINE__) {
+        setView('downloads');
+        return;
+      }
       const v = params.get('view') as View;
       const query = params.get('q') || '';
       const fs = { ...noFilters };
@@ -1467,6 +1485,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                     { icon: Bookmark, view: 'saved' },
                     { icon: History, view: 'history' },
                     { icon: Library, view: 'playlists' },
+                    { icon: Download, view: 'downloads' },
                   ] as const
                 ).map((item) => (
                   <NavItem
@@ -1475,7 +1494,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                     label={labels[item.view]}
                     active={view === item.view}
                     count={
-                      item.view === 'saved' ? library.saved.length : undefined
+                      item.view === 'saved'
+                        ? library.saved.length
+                        : item.view === 'downloads'
+                          ? downloadCount
+                          : undefined
                     }
                     onClick={() => navigate(item.view)}
                   />
@@ -1590,7 +1613,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               icon: Library,
               view: 'saved',
               label: 'Library',
-              active: ['saved', 'history', 'playlists'].includes(view),
+              active: ['saved', 'history', 'playlists', 'downloads'].includes(
+                view,
+              ),
             },
           ] as const
         ).map((item) => (
@@ -1705,9 +1730,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               </p>
             </div>
           )}
-          {['saved', 'history', 'playlists'].includes(view) && (
-            <nav className="mobile-view-tabs" aria-label="Your library">
-              {(['saved', 'history', 'playlists'] as const).map(
+          {['saved', 'history', 'playlists', 'downloads'].includes(view) && (
+            <nav
+              className={
+                'mobile-view-tabs' + (!online ? ' offline-library-tabs' : '')
+              }
+              aria-label="Your library"
+            >
+              {(['saved', 'history', 'playlists', 'downloads'] as const).map(
                 (destination) => (
                   <button
                     key={destination}
@@ -1718,7 +1748,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                       ? 'Saved'
                       : destination === 'history'
                         ? 'History'
-                        : 'Playlists'}
+                        : destination === 'downloads'
+                          ? 'Downloads'
+                          : 'Playlists'}
                   </button>
                 ),
               )}
@@ -2422,6 +2454,16 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               )}
             </section>
           )}
+          {view === 'downloads' && (
+            <DownloadsPage
+              library={library}
+              player={player}
+              onPlay={play}
+              onDetails={showDetail}
+              onBrowse={() => navigate('search')}
+              notify={notify}
+            />
+          )}
           {['saved', 'history', 'playlists'].includes(view) && (
             <ScreenBoundary>
               <SecondaryScreens
@@ -2533,22 +2575,25 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               />
             </ScreenBoundary>
           )}
-          <footer className="page-footer">
-            <span>
-              {home ? `${home.total.toLocaleString()} shiurim. ` : ''}One shared
-              tradition.
-            </span>
-            <p className="brand-description">
-              YUTorah Library is an independent interface for browsing shiurim,
-              following teachers, and receiving new-shiur notifications.
-            </p>
-            <div>
-              <button onClick={() => setHelp(true)}>About the library</button>
-              <button onClick={() => setFeedback({})}>Feedback</button>
-              <Link href="/privacy">Privacy policy</Link>
-              <span>Audio and teaching © YUTorah</span>
-            </div>
-          </footer>
+          {online && (
+            <footer className="page-footer">
+              <span>
+                {home ? `${home.total.toLocaleString()} shiurim. ` : ''}One
+                shared tradition.
+              </span>
+              <p className="brand-description">
+                YUTorah Library is an independent interface for browsing
+                shiurim, following teachers, and receiving new-shiur
+                notifications.
+              </p>
+              <div>
+                <button onClick={() => setHelp(true)}>About the library</button>
+                <button onClick={() => setFeedback({})}>Feedback</button>
+                <Link href="/privacy">Privacy policy</Link>
+                <span>Audio and teaching © YUTorah</span>
+              </div>
+            </footer>
+          )}
         </main>
         <PersistentPlayer
           ready={ready}
@@ -2742,6 +2787,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                   {savedIds.has(detail.id) ? 'Saved' : 'Save'}
                 </button>
               </div>
+              {detail.audio && mediaKind(detail) === 'audio' && (
+                <div className="detail-downloads">
+                  <DownloadButton shiur={detail} notify={notify} />
+                </div>
+              )}
               <div className="detail-tools">
                 {mediaKind(detail) === 'audio' && (
                   <button onClick={() => enqueue(detail)}>
@@ -2759,13 +2809,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 </button>
                 {detail.audio && (
                   <a
+                    className="download-file"
                     href={detail.audio}
                     target="_blank"
                     rel="noreferrer"
                     download
                   >
                     <Download size={17} />
-                    Download
+                    Download file
                   </a>
                 )}
               </div>
@@ -2808,7 +2859,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                     </ScreenBoundary>
                   </div>
                 )}
-              {detail.collections?.length ? (
+              {online && detail.collections?.length ? (
                 <ScreenBoundary>
                   <CollectionContext
                     key={detail.id}

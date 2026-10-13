@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Shiur } from './yutorah';
 import { performanceCount } from './client-performance';
 import { PLAYBACK_SPEEDS } from './playback-speed';
+import { useRecordingSource } from './use-recording-source';
 import {
   defaultLearning,
   restoreLearning,
@@ -355,6 +356,7 @@ export function useAudio(
 ) {
   const audio = useRef<HTMLAudioElement>(null);
   const [active, setActive] = useState<Shiur | null>(null);
+  const source = useRecordingSource(active);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [time, setTime] = useState(0);
@@ -673,6 +675,7 @@ export function useAudio(
   };
   return {
     audio,
+    source,
     active,
     playing,
     loading,
