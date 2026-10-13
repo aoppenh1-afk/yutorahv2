@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono, Frank_Ruhl_Libre } from 'next/font/google';
+import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 import './home.css';
 import './screens.css';
@@ -48,6 +49,7 @@ export default function RootLayout({
       <body>
         {children}
         <PerformanceMonitor />
+        <Analytics />
       </body>
     </html>
   );

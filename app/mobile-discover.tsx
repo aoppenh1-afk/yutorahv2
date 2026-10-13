@@ -367,17 +367,17 @@ export function MobileDiscover({
         ) : (
           <StatePanel
             title={
-              loading
-                ? 'Loading shiurim…'
-                : feed === 'trending'
-                  ? trendingError
-                    ? 'Trending couldn’t load'
-                    : 'No trending shiurim yet'
+              feed === 'trending'
+                ? trendingError
+                  ? 'Saved rankings are unavailable'
+                  : 'No saved trending chart yet'
+                : loading
+                  ? 'Loading shiurim…'
                   : 'Explore the library'
             }
             description={
               feed === 'trending'
-                ? 'Reload the trending selections or explore the full chart.'
+                ? 'Rankings appear here as charts update in the background.'
                 : 'Reload the selections or search the full library.'
             }
           >
@@ -386,7 +386,11 @@ export function MobileDiscover({
               disabled={loading}
               onClick={onRefresh}
             >
-              {loading ? 'Loading…' : 'Reload selections'}
+              {feed === 'trending'
+                ? 'Refresh chart'
+                : loading
+                  ? 'Loading…'
+                  : 'Reload selections'}
             </button>
           </StatePanel>
         )}

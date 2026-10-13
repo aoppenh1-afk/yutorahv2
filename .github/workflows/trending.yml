@@ -11,7 +11,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 25
     env:
       TRENDING_SITE_URL: ${{ vars.TRENDING_SITE_URL }}
       TRENDING_REFRESH_TOKEN: ${{ secrets.TRENDING_REFRESH_TOKEN }}
@@ -25,6 +25,5 @@ jobs:
         run: |
           test -n "$TRENDING_SITE_URL" || { echo 'Set the TRENDING_SITE_URL repository variable.'; exit 1; }
           test -n "$TRENDING_REFRESH_TOKEN" || { echo 'Set the TRENDING_REFRESH_TOKEN repository secret and server environment variable.'; exit 1; }
-      - run: npm ci
-      - name: Resume the shared index until completed
-        run: npm run trending:warm -- --url "$TRENDING_SITE_URL" --period all --refresh --max-passes 2000
+      - name: Advance the shared census within a resumable work budget
+        run: npm exec --yes --package=tsx@4.23.15 -- tsx scripts/warm-trending.ts --url "$TRENDING_SITE_URL" --period all --refresh --max-passes 1000 --max-minutes 20

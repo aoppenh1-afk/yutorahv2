@@ -15,7 +15,15 @@ export type Filters = Record<
   | 'sort'
   | 'scope'
   | 'literal'
-  | 'resolved',
+  | 'resolved'
+  | 'venue'
+  | 'collection'
+  | 'publication'
+  | 'volume'
+  | 'group'
+  | 'uploadedAfter'
+  | 'uploadedBefore'
+  | 'dateBasis',
   string
 >;
 export const noFilters: Filters = {
@@ -34,13 +42,23 @@ export const noFilters: Filters = {
   sort: '',
   literal: '',
   resolved: '',
+  venue: '',
+  collection: '',
+  publication: '',
+  volume: '',
+  group: '',
+  dateBasis: '',
+  uploadedAfter: '',
+  uploadedBefore: '',
 };
 
 export function resolvedSearchFilters(plan: SearchPlan): Filters {
+  const entity = (key: string, id: number | undefined) =>
+    plan.entityIds?.[key]?.join(',') || (id ? String(id) : '');
   return {
-    teacher: plan.teacherId ? String(plan.teacherId) : '',
-    series: plan.seriesId ? String(plan.seriesId) : '',
-    topic: plan.topicId ? String(plan.topicId) : '',
+    teacher: entity('teacher', plan.teacherId),
+    series: entity('series', plan.seriesId),
+    topic: entity('topic', plan.topicId),
     max: plan.max ? String(plan.max) : '',
     min: plan.min ? String(plan.min) : '',
     language: plan.language,
@@ -53,5 +71,13 @@ export function resolvedSearchFilters(plan: SearchPlan): Filters {
     sort: plan.sort || '',
     literal: plan.literal ? '1' : '',
     resolved: '1',
+    venue: entity('venue', plan.venueId),
+    collection: entity('collection', plan.collectionId),
+    publication: entity('publication', plan.publicationId),
+    volume: entity('volume', plan.volumeId),
+    group: plan.group || '',
+    dateBasis: plan.dateBasis === 'uploaded' ? 'uploaded' : '',
+    uploadedAfter: plan.uploadedAfter || '',
+    uploadedBefore: plan.uploadedBefore || '',
   };
 }

@@ -1,6 +1,8 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowRight, SlidersHorizontal } from 'lucide-react';
+import type { CatalogFacets } from '@/lib/catalog';
+import type { SearchResult } from '@/lib/yutorah';
 import type { Directory } from '@/lib/yutorah';
 import { searchText } from '@/lib/search-discovery';
 
@@ -26,7 +28,16 @@ function EntityField({
       words.every((word) => searchText(e.name).includes(word)),
   );
   return (
-    <div className="advanced-entity">
+    <details className="advanced-entity compact-entity">
+      <summary>
+        <span>{label}</span>
+        <strong>
+          {entries.find((e) => String(e.id) === value)?.name ||
+            (value
+              ? `Selected ${label.toLowerCase()}`
+              : `Any ${label.toLowerCase()}`)}
+        </strong>
+      </summary>
       <label>
         <span>{label}</span>
         <input
@@ -68,7 +79,7 @@ function EntityField({
             : 'No directory matches. Try another spelling.'}
         </small>
       )}
-    </div>
+    </details>
   );
 }
 
@@ -76,15 +87,67 @@ export function AdvancedSearch({
   filters,
   directory,
   loading,
+  results,
   onApply,
 }: {
   filters: Filters;
   directory: Directory | null;
   loading: boolean;
+  results?: SearchResult | null;
   onApply: (filters: Filters) => void;
 }) {
   const [draft, setDraft] = useState(filters);
   const [error, setError] = useState('');
+  const [catalog, setCatalog] = useState<CatalogFacets | null>(null),
+    [catalogError, setCatalogError] = useState(''),
+    [catalogRetry, setCatalogRetry] = useState(0);
+  useEffect(() => {
+    const abort = new AbortController();
+    setCatalogError('');
+    fetch('/api/catalog?action=facets', { signal: abort.signal })
+      .then(async (r) => {
+        if (!r.ok) throw new Error('Additional directories could not load.');
+        return r.json();
+      })
+      .then((d) => {
+        if (!abort.signal.aborted) setCatalog(d);
+      })
+      .catch((e) => {
+        if (!abort.signal.aborted) setCatalogError(e.message);
+      });
+    return () => abort.abort();
+  }, [catalogRetry]);
+  const active = results?.complete === true;
+  const entries = (key: keyof CatalogFacets) =>
+    (active
+      ? results?.facets[key] || []
+      : catalog?.[key] ||
+        (key === 'teachers'
+          ? directory?.teachers
+          : key === 'series'
+            ? directory?.series
+            : key === 'topics'
+              ? directory?.topics
+              : []) ||
+        []
+    ).map((e) => {
+      const canonical =
+        key === 'teachers'
+          ? directory?.teachers.find((t) => t.id === e.id)
+          : key === 'series'
+            ? directory?.series.find((t) => t.id === e.id)
+            : key === 'topics'
+              ? directory?.topics.find((t) => t.id === e.id)
+              : null;
+      return {
+        ...e,
+        name:
+          canonical && 'path' in canonical
+            ? canonical.path?.join(' / ') || canonical.name
+            : canonical?.name || e.name,
+      };
+    });
+
   const change = (key: keyof Filters, value: string) => {
     setDraft((old) => ({ ...old, [key]: value }));
     setError('');
@@ -97,7 +160,10 @@ export function AdvancedSearch({
         e.preventDefault();
         if (
           (draft.min && draft.max && Number(draft.min) > Number(draft.max)) ||
-          (draft.after && draft.before && draft.after > draft.before)
+          (draft.after && draft.before && draft.after > draft.before) ||
+          (draft.uploadedAfter &&
+            draft.uploadedBefore &&
+            draft.uploadedAfter > draft.uploadedBefore)
         ) {
           setError('The start of a range must come before its end.');
           return;
@@ -112,65 +178,96 @@ export function AdvancedSearch({
         </div>
         <span>Combine any of these filters</span>
       </div>
-      <div className="builder-grid">
+      <p className="facet-provenance">
+        {active
+          ? 'Counts reflect the current result set.'
+          : results?.complete === false
+            ? 'Directory counts are shown while the search finishes.'
+            : 'Counts reflect the full library.'}
+      </p>
+      <div className="builder-grid compact-builder">
         <fieldset className="builder-section">
-          <legend>Words & sources</legend>
-          <label>
-            <span>Exact phrase</span>
-            <input
-              value={draft.phrase}
-              onChange={(e) => change('phrase', e.target.value)}
-              placeholder="e.g. hilchos teshuva"
-              maxLength={300}
+          <legend>Teacher, subject & collection</legend>
+          {(
+            [
+              ['teacher', 'Teacher', 'teachers'],
+              ['topic', 'Topic', 'topics'],
+              ['series', 'Series', 'series'],
+              ['collection', 'Collection', 'collections'],
+              ['venue', 'Venue', 'venues'],
+            ] as const
+          ).map(([key, label, field]) => (
+            <EntityField
+              key={key}
+              label={label}
+              value={draft[key]}
+              entries={entries(field)}
+              onChange={(v) => change(key, v)}
             />
-          </label>
-          <label>
-            <span>Exclude words</span>
-            <input
-              value={draft.exclude}
-              onChange={(e) => change('exclude', e.target.value)}
-              placeholder="e.g. parsha introduction"
-              maxLength={300}
-            />
-            <small>Separate words with spaces.</small>
-          </label>
-          <label>
-            <span>Search within</span>
-            <select
-              value={draft.scope}
-              onChange={(e) => change('scope', e.target.value)}
-            >
-              <option value="">All available details</option>
-              <option value="title">Title only</option>
-            </select>
-          </label>
-        </fieldset>
-        <fieldset className="builder-section">
-          <legend>Teacher & collection</legend>
-          <EntityField
-            label="Teacher"
-            value={draft.teacher}
-            entries={directory?.teachers || []}
-            onChange={(v) => change('teacher', v)}
-          />
-          <EntityField
-            label="Topic"
-            value={draft.topic}
-            entries={directory?.topics || []}
-            onChange={(v) => change('topic', v)}
-          />
-          <EntityField
-            label="Series"
-            value={draft.series}
-            entries={directory?.series || []}
-            onChange={(v) => change('series', v)}
-          />
-          {!directory && (
-            <small>
-              The directory is not available yet. You can still search by
-              keywords.
-            </small>
+          ))}
+          {catalogError && (
+            <output>
+              {catalogError}{' '}
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => setCatalogRetry((n) => n + 1)}
+              >
+                Retry
+              </button>
+            </output>
           )}
+          <details className="builder-disclosure">
+            <summary>Subject group</summary>
+            <label>
+              <span>Subject group</span>
+              <select
+                value={draft.group}
+                onChange={(e) => change('group', e.target.value)}
+              >
+                <option value="">Any subject group</option>
+                {[...new Set(directory?.topics.map((t) => t.group) || [])]
+                  .sort()
+                  .map((g) => (
+                    <option key={g}>{g}</option>
+                  ))}
+              </select>
+            </label>
+          </details>
+          <details
+            className="builder-disclosure"
+            open={!!(draft.phrase || draft.exclude || draft.scope)}
+          >
+            <summary>Words & sources</summary>
+            <label>
+              <span>Exact phrase</span>
+              <input
+                value={draft.phrase}
+                onChange={(e) => change('phrase', e.target.value)}
+                maxLength={300}
+                placeholder="e.g. hilchos teshuva"
+              />
+            </label>
+            <label>
+              <span>Exclude words</span>
+              <input
+                value={draft.exclude}
+                onChange={(e) => change('exclude', e.target.value)}
+                maxLength={300}
+                placeholder="Separate words with spaces"
+              />
+            </label>
+            <label>
+              <span>Search within</span>
+              <select
+                value={draft.scope}
+                onChange={(e) => change('scope', e.target.value)}
+              >
+                <option value="">All available details</option>
+                <option value="title">Title only</option>
+              </select>
+            </label>
+          </details>
         </fieldset>
         <fieldset className="builder-section">
           <legend>Time & format</legend>
@@ -190,9 +287,6 @@ export function AdvancedSearch({
               <option value="long">Longest first</option>
               <option value="title">Title A–Z</option>
             </select>
-            <small>
-              Most popular ranks matching shiurim by total YUTorah views.
-            </small>
           </label>
           <div className="builder-range">
             <label>
@@ -201,7 +295,6 @@ export function AdvancedSearch({
                 type="number"
                 min="0"
                 max="240"
-                step="1"
                 value={draft.min}
                 onChange={(e) => change('min', e.target.value)}
                 placeholder="Any"
@@ -213,13 +306,27 @@ export function AdvancedSearch({
                 type="number"
                 min="0"
                 max="240"
-                step="1"
                 value={draft.max}
                 onChange={(e) => change('max', e.target.value)}
                 placeholder="Any"
               />
             </label>
           </div>
+          <label>
+            <span>Date to use</span>
+            <select
+              value={draft.dateBasis}
+              onChange={(e) => change('dateBasis', e.target.value)}
+            >
+              <option value="">Lecture date</option>
+              <option value="uploaded">Upload date</option>
+            </select>
+            <small>
+              {draft.dateBasis === 'uploaded'
+                ? 'Includes older shiurim newly added to the library. Upload dates use New York time.'
+                : 'When the shiur was given.'}
+            </small>
+          </label>
           <div className="builder-range">
             <label>
               <span>From date</span>
@@ -240,29 +347,61 @@ export function AdvancedSearch({
               />
             </label>
           </div>
-          <label>
-            <span>Language</span>
-            <select
-              value={draft.language}
-              onChange={(e) => change('language', e.target.value)}
+          {(draft.dateBasis !== 'uploaded' ||
+            draft.uploadedAfter ||
+            draft.uploadedBefore) && (
+            <details
+              className="builder-disclosure"
+              open={!!(draft.uploadedAfter || draft.uploadedBefore)}
             >
-              <option value="">Any language</option>
-              <option value="EN">English</option>
-              <option value="HE">Hebrew</option>
-            </select>
-          </label>
-          <label>
-            <span>Format</span>
-            <select
-              value={draft.format}
-              onChange={(e) => change('format', e.target.value)}
-            >
-              <option value="">All formats</option>
-              <option value="audio">Audio</option>
-              <option value="video">Video</option>
-              <option value="text">Articles</option>
-            </select>
-          </label>
+              <summary>Also limit upload dates</summary>
+              <div className="builder-range">
+                <label>
+                  <span>Uploaded from</span>
+                  <input
+                    type="date"
+                    value={draft.uploadedAfter}
+                    max={draft.uploadedBefore || undefined}
+                    onChange={(e) => change('uploadedAfter', e.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>Uploaded through</span>
+                  <input
+                    type="date"
+                    value={draft.uploadedBefore}
+                    min={draft.uploadedAfter || undefined}
+                    onChange={(e) => change('uploadedBefore', e.target.value)}
+                  />
+                </label>
+              </div>
+            </details>
+          )}
+          <div className="builder-range">
+            <label>
+              <span>Language</span>
+              <select
+                value={draft.language}
+                onChange={(e) => change('language', e.target.value)}
+              >
+                <option value="">Any language</option>
+                <option value="EN">English</option>
+                <option value="HE">Hebrew</option>
+              </select>
+            </label>
+            <label>
+              <span>Format</span>
+              <select
+                value={draft.format}
+                onChange={(e) => change('format', e.target.value)}
+              >
+                <option value="">All formats</option>
+                <option value="audio">Audio</option>
+                <option value="video">Video</option>
+                <option value="text">Articles</option>
+              </select>
+            </label>
+          </div>
         </fieldset>
       </div>
       {error && (
@@ -285,8 +424,8 @@ export function AdvancedSearch({
           >
             Reset fields
           </button>
-          <button type="submit" className="primary-button" disabled={loading}>
-            {loading ? 'Searching…' : 'Apply & search'}
+          <button type="submit" className="primary-button">
+            {loading ? 'Apply new filters' : 'Apply & search'}
             <ArrowRight size={16} />
           </button>
         </div>

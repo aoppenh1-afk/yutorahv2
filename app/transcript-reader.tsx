@@ -6,6 +6,7 @@ const Markdown = lazy(() => import('react-markdown'));
 const SourcesPanel = lazy(() =>
   import('./sources-panel').then((m) => ({ default: m.SourcesPanel })),
 );
+import type { OfficialStudy } from '@/lib/official-study';
 import { Download, Loader2, Maximize2, Minimize2 } from 'lucide-react';
 import {
   Dialog,
@@ -59,9 +60,33 @@ export function TranscriptReader({
   onSeek: (seconds: number) => void;
 }) {
   const [content, setContent] = useState<Content | null>(null);
-  const [tab, setTab] = useState<'transcript' | 'notes' | 'sources'>(
-    'transcript',
-  );
+  const [tab, setTab] = useState<
+    'transcript' | 'notes' | 'sources' | 'summary'
+  >('transcript');
+  const [official, setOfficial] = useState<OfficialStudy | null>(null),
+    [officialError, setOfficialError] = useState(''),
+    [officialRetry, setOfficialRetry] = useState(0);
+  useEffect(() => {
+    const abort = new AbortController();
+    setOfficial((old) => (old?.id === shiurId ? old : null));
+    setOfficialError('');
+    fetch(
+      '/api/official-study?id=' + shiurId + (officialRetry ? '&fresh=1' : ''),
+      { signal: abort.signal },
+    )
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error);
+        return d as OfficialStudy;
+      })
+      .then((d) => {
+        if (!abort.signal.aborted) setOfficial(d);
+      })
+      .catch((e) => {
+        if (!abort.signal.aborted) setOfficialError(e.message);
+      });
+    return () => abort.abort();
+  }, [shiurId, officialRetry]);
   const [sourcesEnabled, setSourcesEnabled] = useState(false);
   const [state, setState] = useState('Loading transcript…');
   const [retry, setRetry] = useState(0);
@@ -367,6 +392,15 @@ export function TranscriptReader({
           >
             Notes
           </button>
+          {official?.available && (
+            <button
+              type="button"
+              aria-pressed={tab === 'summary'}
+              onClick={() => setTab('summary')}
+            >
+              Summaries
+            </button>
+          )}
           {content && content.source !== 'official-yutorah' && (
             <>
               <button
@@ -381,7 +415,13 @@ export function TranscriptReader({
               </button>
             </>
           )}
-          <button type="button" onClick={() => setRetry((n) => n + 1)}>
+          <button
+            type="button"
+            onClick={() => {
+              setRetry((n) => n + 1);
+              setOfficialRetry((n) => n + 1);
+            }}
+          >
             Refresh
           </button>
           {content && tab === 'transcript' && (
@@ -407,6 +447,34 @@ export function TranscriptReader({
             </div>
           )}
         </div>
+        {official?.chapters.length && tab === 'transcript' ? (
+          <details className="study-chapters">
+            <summary>
+              Chapters <span>{official.chapters.length}</span>
+            </summary>
+            <ol>
+              {official.chapters.map((c, i) => (
+                <li key={i}>
+                  <button onClick={() => onSeek(c.start)}>
+                    <span>{timeLabel(c.start)}</span>
+                    <strong dir="auto">{c.title}</strong>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </details>
+        ) : null}
+        {officialError && (
+          <details className="study-chapters">
+            <summary>Chapters & summaries unavailable</summary>
+            <p>
+              {officialError}{' '}
+              <button onClick={() => setOfficialRetry((n) => n + 1)}>
+                Retry
+              </button>
+            </p>
+          </details>
+        )}
         {exportError && tab === 'notes' && (
           <p role="alert" className="study-state">
             {exportError}
@@ -422,14 +490,39 @@ export function TranscriptReader({
             {refreshError} Your loaded transcript is still available.
           </output>
         )}
-        {tab !== 'notes' && loading ? (
+        {tab === 'summary' && official ? (
+          <section className="official-summaries">
+            <p className="study-note-label">
+              Summaries from YUTorah. Automatically generated; accuracy may
+              vary.
+            </p>
+            {official.summary && <p dir="auto">{official.summary}</p>}
+            {official.chapters.map((c, i) => (
+              <section key={i}>
+                <h3>
+                  <button onClick={() => onSeek(c.start)}>
+                    <span>{timeLabel(c.start)}</span>
+                    <strong dir="auto">{c.title}</strong>
+                  </button>
+                </h3>
+                {c.summary && <p dir="auto">{c.summary}</p>}
+              </section>
+            ))}
+          </section>
+        ) : tab !== 'notes' && loading ? (
           <p className="feed-loading">
             <Loader2 size={14} className="spin" /> Loading transcript…
           </p>
         ) : tab !== 'notes' && state ? (
           <output className="study-state">
             {state}{' '}
-            <button type="button" onClick={() => setRetry((n) => n + 1)}>
+            <button
+              type="button"
+              onClick={() => {
+                setRetry((n) => n + 1);
+                setOfficialRetry((n) => n + 1);
+              }}
+            >
               Refresh
             </button>
           </output>

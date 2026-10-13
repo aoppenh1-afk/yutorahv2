@@ -1,10 +1,12 @@
 import {
   getDirectory,
+  dateBoundary,
   parseSearch,
   matchesPlan,
   upstream,
   SearchReadError,
   normalize,
+  enrichShiur,
   mediaKind,
   type SearchPlan,
   type SearchResult,
@@ -27,6 +29,12 @@ import {
 
 import { BoundedCache } from './bounded-cache';
 import { performanceSample } from './performance-metrics';
+import {
+  readArchiveSearch,
+  emptyFacets,
+  catalogVenues,
+  type CatalogFacets,
+} from './catalog';
 
 type Run = {
   id: string;
@@ -54,14 +62,37 @@ export class SearchBusyError extends Error {}
 
 function sourceParams(plan: SearchPlan, query: string, page: number) {
   const p = new URLSearchParams({
-    searchTerm: query,
+    searchTerm:
+      query ||
+      (plan.teacherId ||
+      plan.seriesId ||
+      plan.topicId ||
+      plan.venueId ||
+      plan.collectionId
+        ? '*'
+        : ''),
     getFacets: 'false',
     start: String(page),
   });
   if (plan.teacherId) p.set('teacherID', String(plan.teacherId));
   if (plan.seriesId) p.set('seriesID', String(plan.seriesId));
   if (plan.topicId) p.set('subcategoryID', String(plan.topicId));
+  if (plan.venueId) p.set('locationID', String(plan.venueId));
+  if (plan.collectionId) p.set('collectionID', String(plan.collectionId));
   return 'search/get?' + p;
+}
+
+async function sourcePage(
+  plan: SearchPlan,
+  query: string,
+  page: number,
+  ttl = 0,
+): Promise<SearchResponse> {
+  return plan.publicationId ||
+    plan.volumeId ||
+    Object.values(plan.entityIds || {}).some((ids) => ids.length > 1)
+    ? readArchiveSearch(plan, query, page)
+    : upstream<SearchResponse>(sourceParams(plan, query, page), ttl);
 }
 
 /** Bounded, resumable passes. A database transaction commits each pass with its cursor. */
@@ -73,17 +104,27 @@ async function searchPass(
   runId = '',
 ): Promise<SearchResult> {
   const directory = await getDirectory();
+  const venues = await catalogVenues().catch(() => []);
+  const venueNames = new Map(venues.map((v) => [v.id, v.name]));
+  const venueIds = new Map(venues.map((v) => [searchText(v.name), v.id]));
   let plan = parseSearch(query, options, directory);
   // The expansion is snapshotted on the run. Learning more titles must not
   // change a pending scan's source query, title matching, or candidate counts.
   const criteria = {
-    version: 10,
+    version: 14,
     query,
     literal: !!plan.literal,
     quoted: /"[^"]+"/.test(query),
     teacher: plan.teacherId,
     topic: plan.topicId,
     series: plan.seriesId,
+    venue: plan.venueId || 0,
+    collection: plan.collectionId || 0,
+    publication: plan.publicationId || 0,
+    volume: plan.volumeId || 0,
+    entityIds: Object.entries(plan.entityIds || {})
+      .filter(([, ids]) => ids.length > 1)
+      .sort(([a], [b]) => a.localeCompare(b)),
   };
   const digest = await crypto.subtle.digest(
     'SHA-256',
@@ -199,10 +240,7 @@ async function searchPass(
     if (!run) {
       let sourceQuery = retrieval.strictQuery;
       const fetchFirst = async () => {
-        const first = await upstream<SearchResponse>(
-          sourceParams(plan, sourceQuery, 1),
-          0,
-        );
+        const first = await sourcePage(plan, sourceQuery, 1);
         if (
           !Array.isArray(first.response?.docs) ||
           !Number.isSafeInteger(first.response.numFound) ||
@@ -219,10 +257,7 @@ async function searchPass(
         retrieval.spellingTerm
       ) {
         try {
-          const suggestion = await upstream<SearchResponse>(
-            sourceParams(plan, retrieval.spellingQuery, 1),
-            0,
-          );
+          const suggestion = await sourcePage(plan, retrieval.spellingQuery, 1);
           if (
             Array.isArray(suggestion.response?.docs) &&
             Number.isSafeInteger(suggestion.response.numFound) &&
@@ -333,10 +368,7 @@ async function searchPass(
           Array.from({ length: end - run.next }, (_, i) =>
             firstPage && run!.next + i === 1
               ? Promise.resolve(firstPage)
-              : upstream<SearchResponse>(
-                  sourceParams(plan, sourceQuery, run!.next + i),
-                  0,
-                ),
+              : sourcePage(plan, sourceQuery, run!.next + i),
           ),
         );
         const readMs = performance.now() - started;
@@ -384,7 +416,69 @@ async function searchPass(
         );
         const rawRows = batches.flatMap((b, i) => {
           return b.response.docs.map((raw, j) => {
-            const s = normalize(raw);
+            const s = enrichShiur(normalize(raw), directory);
+            if (!s.venueId && s.venue)
+              s.venueId = venueIds.get(searchText(s.venue));
+            if (!s.venueId && plan.venueId) s.venueId = plan.venueId;
+            if (s.venueId && !s.venue)
+              s.venue = venueNames.get(s.venueId) || '';
+            if (!s.publicationId && plan.publicationId)
+              s.publicationId = plan.publicationId;
+            if (!s.volumeId && plan.volumeId) s.volumeId = plan.volumeId;
+            if (!s.collections?.length && plan.collectionId)
+              s.collections = [{ id: plan.collectionId, name: '' }];
+            s.series ||=
+              directory.series.find((x) => x.id === s.seriesId)?.name || '';
+            s.topicPaths = (s.topicIds || []).map((id) => {
+              const topic = directory.topics.find((x) => x.id === id);
+              return topic
+                ? {
+                    id,
+                    name: topic.name,
+                    group: topic.group,
+                    branch: topic.branch,
+                  }
+                : s.topicPaths?.find((x) => x.id === id) || {
+                    id,
+                    name: '',
+                    group: '',
+                  };
+            });
+            s.facets = [
+              ...(s.speakers || []).map((x) => ({
+                kind: 'teachers',
+                id: x.id,
+                name: x.name,
+              })),
+              ...(s.topicPaths || []).map((x) => ({
+                kind: 'topics',
+                id: x.id,
+                name: [x.group, x.branch, x.name].filter(Boolean).join(' / '),
+              })),
+              ...(s.seriesId
+                ? [{ kind: 'series', id: s.seriesId, name: s.series }]
+                : []),
+              ...(s.venueId
+                ? [{ kind: 'venues', id: s.venueId, name: s.venue || '' }]
+                : []),
+              ...(s.publicationId
+                ? [
+                    {
+                      kind: 'publications',
+                      id: s.publicationId,
+                      name: s.publication || '',
+                    },
+                  ]
+                : []),
+              ...(s.volumeId
+                ? [{ kind: 'volumes', id: s.volumeId, name: s.volume || '' }]
+                : []),
+              ...(s.collections || []).map((x) => ({
+                kind: 'collections',
+                id: x.id,
+                name: x.name,
+              })),
+            ].filter((x) => x.id > 0);
             learnedTitles.push({ id: s.id, title: s.title });
             return [
               run!.id,
@@ -582,10 +676,45 @@ async function searchPass(
     predicates.push('duration > 0');
     add('duration <= ?', plan.max * 60);
   }
-  if (plan.after) add('date >= ?', Date.parse(plan.after + 'T00:00:00Z'));
+  const payload =
+    "COALESCE((SELECT d.payload FROM search_documents d WHERE d.key=search_hits.document_key),NULLIF(payload,''),'{}')";
+  const dateField =
+    plan.dateBasis === 'uploaded'
+      ? `json_extract(${payload},'$.uploadedAt')`
+      : 'date';
+  if (plan.uploadedAfter)
+    add(
+      `json_extract(${payload},'$.uploadedAt') >= ?`,
+      dateBoundary(plan.uploadedAfter, true),
+    );
+  if (plan.uploadedBefore)
+    add(
+      `json_extract(${payload},'$.uploadedAt') < ?`,
+      dateBoundary(plan.uploadedBefore, true, true),
+    );
+  if (plan.group)
+    add(
+      `EXISTS (SELECT 1 FROM json_each(json_extract(${payload},'$.topicPaths')) AS t WHERE json_extract(t.value,'$.group') = ?)`,
+      plan.group,
+    );
+  if (plan.after)
+    add(
+      `${dateField} >= ?`,
+      plan.dateBasis === 'uploaded'
+        ? dateBoundary(plan.after, true)
+        : Date.parse(plan.after + 'T00:00:00Z'),
+    );
   if (plan.before) {
-    predicates.push('date > 0');
-    add('date < ?', Date.parse(plan.before + 'T00:00:00Z') + 86400000);
+    const end = Date.parse(plan.before + 'T00:00:00Z') + 86400000;
+    predicates.push(
+      plan.dateBasis === 'uploaded' ? `${dateField} IS NOT NULL` : 'date > 0',
+    );
+    add(
+      `${dateField} < ?`,
+      plan.dateBasis === 'uploaded'
+        ? dateBoundary(plan.before, true, true)
+        : end,
+    );
   }
   if (plan.language) add('language = ?', plan.language);
   if (plan.format) add('format = ?', plan.format);
@@ -608,7 +737,10 @@ async function searchPass(
   else if (plan.scope === 'title' && plan.term) predicates.push('matched = 1');
   const where = predicates.join(' AND ');
   const counts = { scanned: run.scanned, matches: run.scanned };
-  const order = sorts[plan.sort || 'relevance'] || sorts.relevance;
+  const order =
+    plan.dateBasis === 'uploaded' && ['new', 'old'].includes(plan.sort || '')
+      ? `CASE WHEN ${dateField} IS NULL THEN 1 ELSE 0 END ASC, ${dateField} ${plan.sort === 'old' ? 'ASC' : 'DESC'}, id ${plan.sort === 'old' ? 'ASC' : 'DESC'}`
+      : sorts[plan.sort || 'relevance'] || sorts.relevance;
   const data = await db
     .prepare(
       `SELECT COALESCE((SELECT d.payload FROM search_documents d WHERE d.key=search_hits.document_key),payload) AS payload${predicates.length > 1 ? ', COUNT(*) OVER() AS matches' : ''} FROM search_hits WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`,
@@ -622,6 +754,35 @@ async function searchPass(
           .prepare(`SELECT COUNT(*) AS matches FROM search_hits WHERE ${where}`)
           .bind(...args)
           .first<{ matches: number }>())!.matches;
+  const facets: CatalogFacets = emptyFacets();
+  const facetRows = await db
+    .prepare(`WITH eligible AS (SELECT id, ${payload} AS payload FROM search_hits WHERE ${where})
+    SELECT json_extract(f.value,'$.kind') AS kind, CAST(json_extract(f.value,'$.id') AS INTEGER) AS id,
+      MAX(json_extract(f.value,'$.name')) AS name, COUNT(DISTINCT eligible.id) AS count
+    FROM eligible, json_each(json_extract(eligible.payload,'$.facets')) AS f
+    GROUP BY json_extract(f.value,'$.kind'), CAST(json_extract(f.value,'$.id') AS INTEGER)
+    ORDER BY count DESC, id ASC`)
+    .bind(...args)
+    .all<{
+      kind: keyof CatalogFacets;
+      id: number;
+      name: string;
+      count: number;
+    }>();
+  for (const row of facetRows.results) {
+    if (!(row.kind in facets) || row.id <= 0) continue;
+    let name = row.name;
+    if (!name && row.kind === 'teachers')
+      name = directory.teachers.find((x) => x.id === row.id)?.name || '';
+    if (!name && row.kind === 'series')
+      name = directory.series.find((x) => x.id === row.id)?.name || '';
+    if (!name && row.kind === 'venues') name = venueNames.get(row.id) || '';
+    facets[row.kind].push({
+      id: row.id,
+      name: name || `Selected ${row.kind.replace(/s$/, '')} ${row.id}`,
+      count: row.count,
+    });
+  }
   return {
     items: data.results.map((r) => JSON.parse(r.payload) as Shiur),
     total: counts!.matches,
@@ -640,7 +801,7 @@ async function searchPass(
     plan,
     filtered: false,
     nextPage: complete && page * pageSize < counts!.matches ? page + 1 : null,
-    facets: { teachers: [], topics: [], series: [] },
+    facets,
   };
 }
 

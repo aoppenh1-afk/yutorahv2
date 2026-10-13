@@ -50,7 +50,8 @@
     "notifications:deploy": "node scripts/deploy-notifications.mjs",
     "notifications:verify": "node scripts/verify-notifications.mjs",
     "test:account-library": "tsx --test tests/account-library.test.ts tests/account-library-db.test.ts",
-    "account-library:verify": "tsx scripts/verify-account-library.ts"
+    "account-library:verify": "tsx scripts/verify-account-library.ts",
+    "test:parity": "tsx --test tests/feature-parity.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
@@ -59,6 +60,7 @@
     "@supabase/postgrest-js": "^2.117.3",
     "@supabase/supabase-js": "^2.117.3",
     "@tidbcloud/serverless": "0.3.0",
+    "@vercel/analytics": "^2.0.1",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "docx": "^9.9.0",

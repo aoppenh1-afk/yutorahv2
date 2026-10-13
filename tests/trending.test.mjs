@@ -894,8 +894,8 @@ void test('default trending shares durable scan progress across month, year and 
     );
     assert.equal(
       new Set(pages).size,
-      pages.length,
-      'Successful pages must not be downloaded again per chart',
+      pages.length - 1,
+      'Only the shared head reconciliation is repeated; charts do not start separate scans',
     );
   } finally {
     globalThis.fetch = original;
@@ -953,7 +953,7 @@ void test('the warmer retries stale responses and never reports a stale chart as
         },
       ]);
       assert.equal(calls, maxPasses);
-      assert.deepEqual(delays, [30000, 30000]);
+      assert.deepEqual(delays, [30000, 60000]);
       assert.equal(
         logs.filter((line) => line.includes(', complete')).length,
         maxPasses === 3 ? 1 : 0,
@@ -1152,7 +1152,9 @@ void test('a late saved response cannot replace freshly refreshed rankings', asy
   const updates = [];
   try {
     globalThis.fetch = async (url) =>
-      typeof url === 'string' && url.includes('cached=1') ? saved : Response.json(fresh);
+      typeof url === 'string' && url.includes('cached=1')
+        ? saved
+        : Response.json(fresh);
     await loadDiscovery(
       options,
       new AbortController().signal,
@@ -1476,7 +1478,7 @@ void test('the protected refresher resumes an existing browser scan and saved re
     assert.equal(data.index, undefined);
     assert.equal(data.seen, undefined);
     assert.equal(data.nextPage, undefined);
-    assert.equal(pages.length, 20);
+    assert.equal(pages.length, 21);
     assert.equal(new Set(pages).size, 20);
     globalThis.fetch = async () => {
       throw new Error('Unexpected upstream request');
@@ -1640,10 +1642,10 @@ void test('shared indexing retries a failed page on the next pass and retains pr
     assert.deepEqual(first.index.retryPages, [2]);
     const saved = JSON.stringify(first);
     offline = true;
-    await assert.rejects(
-      readTrendingIndex(options, initial + 3500, first),
-      /offline/,
-    );
+    const paused = await readTrendingIndex(options, initial + 3500, first);
+    assert.equal(paused.coverage.status, 'paused');
+    assert.equal(paused.sampled, first.sampled);
+    assert.ok(paused.index.retryPages.length > first.index.retryPages.length);
     assert.equal(
       JSON.stringify(first),
       saved,
@@ -1651,15 +1653,15 @@ void test('shared indexing retries a failed page on the next pass and retains pr
     );
     offline = false;
     pages.length = 0;
-    const next = await readTrendingIndex(options, initial + 7000, first);
+    const next = await readTrendingIndex(options, initial + 70000, first);
     assert.equal(
-      pages[0],
+      pages[1],
       2,
-      'Retry before traversing the rest of the archive',
+      'Due retries follow head reconciliation and precede the rest of the archive',
     );
-    assert.equal(next.sampled, 1410);
+    assert.equal(next.sampled, 1380);
     assert.deepEqual(next.index.retryPages, []);
-    const done = await readTrendingIndex(options, initial + 11000, next);
+    const done = await readTrendingIndex(options, initial + 74000, next);
     assert.equal(done.partial, false);
     assert.equal(done.sampled, 1800);
   } finally {
@@ -1667,7 +1669,7 @@ void test('shared indexing retries a failed page on the next pass and retains pr
   }
 });
 
-void test('duplicate shared pages cannot complete coverage and shrinking libraries invalidate the cursor', async () => {
+void test('duplicate shared pages cannot complete coverage and shrinking libraries reconcile without discarding progress', async () => {
   const original = globalThis.fetch;
   let repeated = true,
     total = 600;
@@ -1694,10 +1696,12 @@ void test('duplicate shared pages cannot complete coverage and shrinking librari
     assert.equal(done.partial, false);
     assert.equal(done.sampled, 600);
     total = 300;
-    await assert.rejects(
-      readTrendingIndex(options, initial + 11000, first),
-      /library changed/,
-    );
+    const shrinking = await readTrendingIndex(options, initial + 11000, first);
+    assert.equal(shrinking.partial, true);
+    assert.ok(shrinking.sampled >= first.sampled);
+    assert.equal(shrinking.libraryTotal, 300);
+    assert.equal(shrinking.index.audit.sampled, 0);
+    assert.equal(validTrendingIndex(shrinking), true);
     const corrupt = structuredClone(first);
     corrupt.seen = 'AAAA';
     await assert.rejects(
@@ -1828,4 +1832,886 @@ void test('a completed chart being rebuilt bypasses CDN caching so polling advan
   assert.equal(response.status, 200);
   assert.equal((await response.json()).refreshing, true);
   assert.equal(response.headers.get('Cache-Control'), 'no-store');
+});
+
+void test('the 434510/434602 stall reconciles the head instead of looping through known archive offsets', async () => {
+  const original = globalThis.fetch;
+  const total = 434602;
+  let upstreamTotal = 434510;
+  const pages = [];
+  globalThis.fetch = async (url) => {
+    const page = Number(new URL(url).searchParams.get('start'));
+    pages.push(page);
+    return Response.json({
+      response: {
+        numFound: upstreamTotal,
+        docs: Array.from(
+          {
+            length: Math.min(30, Math.max(0, upstreamTotal - (page - 1) * 30)),
+          },
+          (_, i) => raw(upstreamTotal - (page - 1) * 30 - i),
+        ),
+      },
+    });
+  };
+  try {
+    const first = await readTrendingIndex(options, initial);
+    const seen = Buffer.alloc(Math.ceil(total / 8));
+    for (let id = 1; id <= 434510; id++) seen[id >>> 3] |= 1 << (id & 7);
+    const saved = {
+      ...first,
+      sampled: 434510,
+      libraryTotal: total,
+      total,
+      seen: seen.toString('base64'),
+      nextPage: 9000,
+      index: {
+        ...first.index,
+        charts: Object.fromEntries(
+          Object.entries(first.index.charts).map(([key, chart]) => [
+            key,
+            { ...chart, total: 434510 },
+          ]),
+        ),
+      },
+    };
+    delete saved.index.audit;
+    delete saved.coverage;
+    upstreamTotal = total;
+    assert.equal(validTrendingIndex(saved), true);
+    const result = await readTrendingIndex(options, initial + 3500, saved);
+    assert.equal(
+      result.sampled,
+      total,
+      'All 92 missing new recordings must be recovered at the head',
+    );
+    assert.equal(
+      result.partial,
+      true,
+      'Historical union cardinality alone cannot certify current coverage',
+    );
+    assert.equal(result.coverage?.guaranteed, false);
+    assert.ok(
+      pages.slice(12).includes(1),
+      'Every resumed pass must reconcile new head records',
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('changing totals and offset shifts require a fresh census, then recover every ranking', async () => {
+  const original = globalThis.fetch;
+  const rows = Array.from({ length: 600 }, (_, i) => raw(600 - i));
+  globalThis.fetch = async (url) => {
+    const page = Number(new URL(url).searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: rows.length,
+        start: page,
+        docs: rows.slice((page - 1) * 30, page * 30),
+      },
+    });
+  };
+  try {
+    const first = await readTrendingIndex(options, initial);
+    rows.unshift(raw(1000, { shiurvisitsnum: 10000 }));
+    const shifted = await readTrendingIndex(options, initial + 3500, first);
+    assert.equal(shifted.sampled, 601);
+    assert.equal(
+      shifted.partial,
+      true,
+      'A changing-total sweep remains provisional even when its union matches',
+    );
+    assert.equal(shifted.coverage.status, 'reconciling');
+    const recovered = await readTrendingIndex(options, initial + 7000, shifted);
+    assert.equal(recovered.partial, false);
+    assert.equal(recovered.coverage.status, 'reconciled');
+    assert.equal(recovered.coverage.guaranteed, false);
+    for (const { value: period } of trendingPeriods)
+      for (const minutes of [0, 10, 20, 30])
+        assert.deepEqual(
+          selectTrendingChart(recovered, { period, minutes }).trending.map(
+            (s) => s.id,
+          ),
+          rankTrending(
+            rows.map(normalize),
+            30,
+            { period, minutes },
+            initial,
+          ).map((s) => s.id),
+        );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('same-total replacements cannot pass a historical union audit, and removed winners leave the reconciled chart', async () => {
+  const original = globalThis.fetch;
+  let rows = Array.from({ length: 600 }, (_, i) => raw(600 - i));
+  globalThis.fetch = async (url) => {
+    const page = Number(new URL(url).searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: rows.length,
+        docs: rows.slice((page - 1) * 30, page * 30),
+      },
+    });
+  };
+  try {
+    const first = await readTrendingIndex(options, initial);
+    rows = [raw(1000, { shiurvisitsnum: 10000 }), ...rows.slice(1)];
+    const mixed = await readTrendingIndex(options, initial + 3500, first);
+    assert.equal(mixed.sampled, 601);
+    assert.equal(mixed.libraryTotal, 600);
+    assert.equal(mixed.partial, true);
+    assert.equal(validTrendingIndex(mixed), true);
+    const recovered = await readTrendingIndex(options, initial + 7000, mixed);
+    assert.equal(recovered.partial, false);
+    assert.equal(recovered.sampled, 600);
+    assert.equal(recovered.trending[0].id, 1000);
+    assert.ok(!recovered.index.items.some((s) => s.id === 600));
+    assert.equal(recovered.index.charts['all:0'].total, 600);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('failed-page retries use persisted backoff, do not starve enumeration, and recover after a server restart', async () => {
+  const original = globalThis.fetch;
+  const { db, sqlite } = database();
+  let now = initial,
+    fail = true,
+    page2Calls = 0,
+    calls = 0;
+  globalThis.fetch = async (url) => {
+    calls++;
+    const page = Number(new URL(url).searchParams.get('start'));
+    if (page === 2) {
+      page2Calls++;
+      if (fail) return new Response('', { status: 500 });
+    }
+    return Response.json({
+      response: {
+        numFound: 2400,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(2400 - (page - 1) * 30 - i),
+        ),
+      },
+    });
+  };
+  const advance = () =>
+    createTrendingService({
+      database: () => db,
+      now: () => now,
+      requireStorage: true,
+      reportProgress: true,
+    })({ period: 'all', minutes: 0 });
+  try {
+    let data = await advance();
+    assert.equal(data.sampled, 330);
+    now += 3500;
+    data = await advance();
+    assert.equal(page2Calls, 1, 'Not retried during persisted backoff');
+    assert.ok(data.sampled > 1000, 'A failed page cannot starve the archive');
+    now = initial + 31000;
+    data = await advance();
+    assert.equal(page2Calls, 2);
+    now = initial + 92000;
+    data = await advance();
+    assert.equal(page2Calls, 3);
+    assert.equal(data.partial, true);
+    assert.equal(data.coverage.status, 'paused');
+    const saved = sqlite.prepare('SELECT plan FROM search_runs').get().plan;
+    const beforeCalls = calls;
+    now += 1000;
+    const held = await advance();
+    assert.equal(held.coverage.status, 'paused');
+    assert.equal(
+      calls,
+      beforeCalls,
+      'Restarted services make no upstream requests during backoff',
+    );
+    assert.equal(
+      sqlite.prepare('SELECT plan FROM search_runs').get().plan,
+      saved,
+    );
+    fail = false;
+    now = data.coverage.retryAt + 1;
+    data = await advance();
+    assert.equal(data.partial, false);
+    assert.equal(data.sampled, 2400);
+    assert.equal(page2Calls, 4);
+    const completedCalls = calls;
+    now += 60000;
+    await advance();
+    assert.equal(
+      calls,
+      completedCalls,
+      'Fresh census must not trigger a rescan',
+    );
+  } finally {
+    globalThis.fetch = original;
+    sqlite.close();
+  }
+});
+
+void test('missing records, duplicate records within a page, and misplaced responses remain partial until corrected', async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const fault of ['short', 'duplicate', 'offset']) {
+      let broken = true;
+      globalThis.fetch = async (url) => {
+        const page = Number(new URL(url).searchParams.get('start'));
+        const docs = Array.from({ length: 30 }, (_, i) =>
+          raw(600 - (page - 1) * 30 - i),
+        );
+        if (broken && page === 2) {
+          if (fault === 'short') docs.pop();
+          if (fault === 'duplicate') docs[1] = docs[0];
+        }
+        return Response.json({
+          response: {
+            numFound: 600,
+            start: broken && page === 2 && fault === 'offset' ? 1 : page,
+            docs,
+          },
+        });
+      };
+      const first = await readTrendingIndex(options, initial);
+      assert.equal(first.partial, true, fault);
+      assert.deepEqual(first.index.retryPages, [2], fault);
+      assert.equal(first.sampled, 330, fault);
+      broken = false;
+      const recovered = await readTrendingIndex(
+        options,
+        initial + 31000,
+        first,
+      );
+      assert.equal(recovered.partial, false, fault);
+      assert.equal(recovered.sampled, 600, fault);
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('a stable API that omits a record ends an unproductive full sweep with explicit unresolved coverage', async () => {
+  const original = globalThis.fetch;
+  const pages = [];
+  globalThis.fetch = async (url) => {
+    const page = Number(new URL(url).searchParams.get('start'));
+    pages.push(page);
+    const effective = page === 2 ? 1 : page;
+    return Response.json({
+      response: {
+        numFound: 600,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(600 - (effective - 1) * 30 - i),
+        ),
+      },
+    });
+  };
+  try {
+    let result = await readTrendingIndex(options, initial);
+    result = await readTrendingIndex(options, initial + 3500, result);
+    assert.equal(result.sampled, 570);
+    result = await readTrendingIndex(options, initial + 7000, result);
+    assert.equal(result.sampled, 570);
+    assert.equal(result.partial, true);
+    assert.equal(result.coverage.status, 'paused');
+    assert.match(result.coverage.reason, /could not reconcile/);
+    const calls = pages.length;
+    assert.equal(
+      await readTrendingIndex(options, initial + 11000, result),
+      result,
+    );
+    assert.equal(pages.length, calls);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+const { runTrendingWarm } = await load('scripts/trending-runner.ts');
+void test('the warmer stops count stalls, honors census cursor progress, bounds failures, and resumes work budgets', async () => {
+  const original = globalThis.fetch;
+  const config = {
+    base: new URL('https://fixture.test'),
+    refresh: true,
+    token: 'fixture-token',
+    minutes: 0,
+    periods: ['all'],
+    maxPasses: 100,
+    sleep: async () => {},
+    log: () => {},
+  };
+  try {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return Response.json({
+        ...snapshot({ period: 'all', minutes: 0 }),
+        sampled: 434510,
+        libraryTotal: 434602,
+        partial: true,
+      });
+    };
+    assert.equal(await runTrendingWarm(config), 'deferred');
+    assert.equal(calls, 4);
+    const delays = [];
+    calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      throw new Error('network unavailable');
+    };
+    assert.equal(
+      await runTrendingWarm({
+        ...config,
+        sleep: async (ms) => delays.push(ms),
+      }),
+      'deferred',
+    );
+    assert.equal(calls, 3);
+    assert.deepEqual(delays, [30000, 60000]);
+    calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return Response.json({
+        ...snapshot({ period: 'all', minutes: 0 }),
+        partial: calls < 6,
+        coverage: {
+          status: calls < 6 ? 'scanning' : 'reconciled',
+          guaranteed: false,
+          cursor: calls * 36,
+          round: 2,
+          sweepSampled: calls * 30,
+          pendingPages: 0,
+          requests: 36,
+          added: 0,
+        },
+      });
+    };
+    assert.equal(
+      await runTrendingWarm(config),
+      'reconciled',
+      'Known-ID census cursor movement is progress',
+    );
+    assert.equal(calls, 6);
+    let now = initial;
+    calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return Response.json({
+        ...snapshot({ period: 'all', minutes: 0 }),
+        partial: true,
+      });
+    };
+    assert.equal(
+      await runTrendingWarm({
+        ...config,
+        maxRuntimeMs: 3000,
+        now: () => now,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      }),
+      'deferred',
+    );
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('an unaudited legacy completed union is retained for display but triggers an independent census once', async () => {
+  const original = globalThis.fetch;
+  const { db, sqlite } = database();
+  let now = initial;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({
+      response: {
+        numFound: 30,
+        docs: Array.from({ length: 30 }, (_, i) => raw(30 - i)),
+      },
+    });
+  };
+  try {
+    const legacy = await readTrendingIndex(options, initial);
+    delete legacy.coverage;
+    const key = 'trending:v1:shared:2';
+    sqlite
+      .prepare(
+        'INSERT INTO search_runs (id,fingerprint,plan,total,next,created,lease) VALUES (?,?,?,?,?,?,0)',
+      )
+      .run(key, key, JSON.stringify({ snapshot: legacy }), 30, 2, now);
+    const saved = await createTrendingService({
+      database: () => db,
+      now: () => now,
+      cachedOnly: true,
+    })(options);
+    assert.equal(saved.sampled, 30);
+    assert.equal(
+      calls,
+      1,
+      'Saved reads retain legacy results without upstream work',
+    );
+    const audited = await createTrendingService({
+      database: () => db,
+      now: () => now,
+      reportProgress: true,
+      requireStorage: true,
+    })(options);
+    assert.equal(audited.coverage.status, 'reconciled');
+    assert.equal(calls, 2, 'A legacy completion cannot skip the first census');
+    now += 5000;
+    await createTrendingService({
+      database: () => db,
+      now: () => now,
+      reportProgress: true,
+    })(options);
+    assert.equal(calls, 2, 'The reconciled census remains fresh');
+  } finally {
+    globalThis.fetch = original;
+    sqlite.close();
+  }
+});
+
+void test('the protected refresh returns active rebuild coverage while public reads retain the last chart', async () => {
+  const original = globalThis.fetch;
+  const { db, sqlite } = database();
+  let now = initial,
+    total = 30;
+  globalThis.fetch = async (url) => {
+    const page = Number(new URL(url).searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: total,
+        docs: Array.from(
+          { length: Math.min(30, Math.max(0, total - (page - 1) * 30)) },
+          (_, i) => raw(total - (page - 1) * 30 - i),
+        ),
+      },
+    });
+  };
+  try {
+    const config = { database: () => db, now: () => now };
+    await createTrendingService(config)(options);
+    now += 12 * 3600000;
+    total = 600;
+    const active = await createTrendingService({
+      ...config,
+      requireStorage: true,
+      reportProgress: true,
+    })(options);
+    assert.equal(active.partial, true);
+    assert.equal(active.sampled, 360);
+    assert.equal(active.coverage.cursor, 13);
+    const display = await createTrendingService({
+      ...config,
+      cachedOnly: true,
+    })(options);
+    assert.equal(display.partial, false);
+    assert.equal(display.sampled, 30);
+    assert.equal(display.refreshing, true);
+    assert.equal(display.coverage.cursor, 13);
+  } finally {
+    globalThis.fetch = original;
+    sqlite.close();
+  }
+});
+
+void test('rolling concurrency starts healthy pages before a slow peer finishes while keeping six connections', async () => {
+  const original = globalThis.fetch;
+  const events = [];
+  let active = 0,
+    peak = 0;
+  globalThis.fetch = async (url) => {
+    const page = Number(new URL(url).searchParams.get('start'));
+    events.push(`start:${page}`);
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, page === 13 ? 40 : 1));
+    active--;
+    events.push(`end:${page}`);
+    return Response.json({
+      response: {
+        numFound: 2400,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(2400 - (page - 1) * 30 - i),
+        ),
+      },
+    });
+  };
+  try {
+    const first = await readTrendingIndex(options, initial);
+    events.length = 0;
+    await readTrendingIndex(options, initial + 3500, first);
+    assert.ok(events.indexOf('start:19') < events.indexOf('end:13'));
+    assert.ok(peak <= 6);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('the warmer honors long server backoff and paused coverage without sleeping away an Actions job', async () => {
+  const original = globalThis.fetch;
+  let calls = 0,
+    sleeps = 0;
+  const config = {
+    base: new URL('https://fixture.test'),
+    refresh: true,
+    token: 'fixture-token',
+    minutes: 0,
+    periods: ['all'],
+    maxPasses: 100,
+    log: () => {},
+    sleep: async () => {
+      sleeps++;
+    },
+  };
+  try {
+    globalThis.fetch = async () => {
+      calls++;
+      return new Response('{}', {
+        status: 503,
+        headers: { 'Retry-After': '21600' },
+      });
+    };
+    assert.equal(await runTrendingWarm(config), 'deferred');
+    assert.equal(calls, 1);
+    assert.equal(sleeps, 0);
+    calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return Response.json({
+        ...snapshot({ period: 'all', minutes: 0 }),
+        partial: true,
+        coverage: {
+          status: 'paused',
+          guaranteed: false,
+          reason: 'Pages missing',
+          retryAt: Date.now() + 21600000,
+        },
+      });
+    };
+    assert.equal(await runTrendingWarm(config), 'deferred');
+    assert.equal(calls, 1);
+    assert.equal(sleeps, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('a pass deadline preserves unstarted pages without counting them as repeated upstream failures', async () => {
+  const original = globalThis.fetch;
+  const timeoutDescriptor = Object.getOwnPropertyDescriptor(
+    AbortSignal,
+    'timeout',
+  );
+  const originalTimeout = (ms) =>
+    Reflect.apply(timeoutDescriptor.value, AbortSignal, [ms]);
+  let controller = new AbortController(),
+    interrupt = false,
+    calls = 0;
+  AbortSignal.timeout = (ms) =>
+    ms === 45000 ? controller.signal : originalTimeout(ms);
+  globalThis.fetch = async (url) => {
+    const page = Number(new URL(url).searchParams.get('start'));
+    calls++;
+    if (interrupt && page === 13) controller.abort();
+    return Response.json({
+      response: {
+        numFound: 600,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(600 - (page - 1) * 30 - i),
+        ),
+      },
+    });
+  };
+  try {
+    const first = await readTrendingIndex(options, initial);
+    interrupt = true;
+    calls = 0;
+    const interrupted = await readTrendingIndex(options, initial + 3500, first);
+    assert.equal(interrupted.partial, true);
+    assert.equal(interrupted.coverage.status, 'paused');
+    assert.ok(interrupted.sampled >= first.sampled);
+    assert.ok(interrupted.index.retryPages.length > 0);
+    assert.ok(
+      Object.values(interrupted.index.retries).every((r) => r.attempts === 0),
+    );
+    assert.equal(validTrendingIndex(interrupted), true);
+    assert.ok(calls < 9, 'The deadline stops new fetches');
+    controller = new AbortController();
+    interrupt = false;
+    const resumed = await readTrendingIndex(
+      options,
+      initial + 40000,
+      interrupted,
+    );
+    assert.equal(
+      resumed.coverage.status,
+      'scanning',
+      'Due pending pages continue without pausing the runner',
+    );
+    const recovered = await readTrendingIndex(
+      options,
+      initial + 44000,
+      resumed,
+    );
+    assert.equal(recovered.partial, false);
+    assert.equal(recovered.sampled, 600);
+  } finally {
+    globalThis.fetch = original;
+    Object.defineProperty(AbortSignal, 'timeout', timeoutDescriptor);
+  }
+});
+
+void test('browser polling honors persisted backoff instead of advancing a paused index every few seconds', async () => {
+  const original = globalThis.fetch;
+  const retries = [];
+  globalThis.fetch = async () =>
+    Response.json({
+      ...snapshot(options),
+      partial: true,
+      coverage: {
+        status: 'paused',
+        guaranteed: false,
+        retryAt: Date.now() + 3600000,
+      },
+    });
+  try {
+    await loadDiscovery(
+      options,
+      new AbortController().signal,
+      () => {},
+      (seconds) => retries.push(seconds),
+      false,
+    );
+    assert.equal(retries.length, 1);
+    assert.ok(retries[0] >= 3599 && retries[0] <= 3600);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+const { createTrendingLocalCache, trendingLocalKey, preferDiscoveryChart } =
+  await load('lib/trending-local.ts');
+const { loadSavedDiscovery } = await load('lib/discovery-client.ts');
+const localSnapshot = (selected = options, now = initial) => ({
+  ...snapshot(selected, now),
+  trending: [normalize(raw(42))],
+});
+function localStorageFixture() {
+  const values = new Map();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+}
+
+void test('local daily and weekly charts survive reloads, stay separate by duration, and strip private indexing fields', () => {
+  const storage = localStorageFixture();
+  const cache = createTrendingLocalCache(() => storage);
+  for (const period of ['day', 'week'])
+    for (const minutes of [0, 10, 20, 30]) {
+      const chart = {
+        ...localSnapshot({ period, minutes }),
+        seen: 'server-only',
+        nextPage: 123,
+        nextId: 42,
+        index: { secret: true },
+      };
+      cache.save(chart);
+    }
+  const restored = createTrendingLocalCache(() => storage).read();
+  assert.equal(Object.keys(restored).length, 8);
+  for (const period of ['day', 'week'])
+    for (const minutes of [0, 10, 20, 30]) {
+      const chart = restored[`${period}:${minutes}`];
+      assert.equal(chart.period, period);
+      assert.equal(chart.minutes, minutes);
+      assert.equal(chart.fetchedAt, new Date(initial).toISOString());
+      assert.equal(chart.stale, true);
+      for (const key of ['seen', 'index', 'nextId', 'nextPage'])
+        assert.equal(chart[key], undefined);
+    }
+});
+
+void test('corrupt or unavailable browser storage cannot hide a valid in-memory chart', () => {
+  const storage = localStorageFixture();
+  storage.setItem(trendingLocalKey, '{not json');
+  assert.deepEqual(createTrendingLocalCache(() => storage).read(), {});
+  storage.setItem(
+    trendingLocalKey,
+    JSON.stringify({
+      'week:0': { ...localSnapshot(), trending: [{ id: 42, views: 10 }] },
+      'day:0': localSnapshot(),
+    }),
+  );
+  assert.deepEqual(createTrendingLocalCache(() => storage).read(), {});
+  const missingCategory = localSnapshot();
+  delete missingCategory.trending[0].category;
+  storage.setItem(
+    trendingLocalKey,
+    JSON.stringify({ 'week:0': missingCategory }),
+  );
+  assert.deepEqual(
+    createTrendingLocalCache(() => storage).read(),
+    {},
+    'Malformed cached metadata must not crash recommendations',
+  );
+  const blocked = createTrendingLocalCache(() => {
+    throw new Error('Storage is blocked');
+  });
+  blocked.save(localSnapshot());
+  assert.equal(blocked.read()['week:0'].trending[0].id, 42);
+});
+
+void test('a local chart appears before either network response on daily and weekly Home/Trending loads', async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const period of ['day', 'week']) {
+      const selected = { period, minutes: 0 };
+      const cache = createTrendingLocalCache(() => localStorageFixture());
+      cache.save(localSnapshot(selected));
+      let release;
+      const pending = new Promise((resolve) => {
+        release = resolve;
+      });
+      const updates = [];
+      globalThis.fetch = async () => (await pending).clone();
+      const request = loadDiscovery(
+        selected,
+        new AbortController().signal,
+        (data) => updates.push(data),
+        () => {},
+        true,
+        cache,
+      );
+      assert.equal(
+        updates.length,
+        1,
+        'Local saved rankings publish synchronously',
+      );
+      assert.equal(updates[0].trending[0].id, 42);
+      assert.equal(updates[0].fetchedAt, new Date(initial).toISOString());
+      release(Response.json(localSnapshot(selected, initial + 10000)));
+      await request;
+      assert.equal(
+        updates.at(-1).fetchedAt,
+        new Date(initial + 10000).toISOString(),
+      );
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('background partial scans cannot replace the last complete local chart or its original timestamp', async () => {
+  const original = globalThis.fetch;
+  const storage = localStorageFixture();
+  const cache = createTrendingLocalCache(() => storage);
+  const previous = localSnapshot();
+  cache.save(previous);
+  const partial = {
+    ...localSnapshot(options, initial + 10000),
+    partial: true,
+    sampled: 20,
+    total: 30,
+    trending: [normalize(raw(99))],
+  };
+  try {
+    globalThis.fetch = async () => Response.json(partial);
+    const updates = [];
+    await loadDiscovery(
+      options,
+      new AbortController().signal,
+      (data) => updates.push(data),
+      () => {},
+      false,
+      cache,
+    );
+    assert.equal(updates.at(-1).trending[0].id, 42);
+    assert.equal(updates.at(-1).fetchedAt, previous.fetchedAt);
+    assert.equal(updates.at(-1).refreshing, true);
+    assert.equal(
+      createTrendingLocalCache(() => storage).read()['week:0'].trending[0].id,
+      42,
+    );
+    globalThis.fetch = async () =>
+      Response.json({ ...partial, partial: false });
+    await loadDiscovery(
+      options,
+      new AbortController().signal,
+      (data) => updates.push(data),
+      () => {},
+      false,
+      cache,
+    );
+    assert.equal(updates.at(-1).trending[0].id, 99);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('saved Home prefetch only reads cached rankings and a failed refresh retains local daily/week charts', async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const period of ['day', 'week']) {
+      const selected = { period, minutes: 0 };
+      const cache = createTrendingLocalCache(() => localStorageFixture());
+      const updates = [];
+      globalThis.fetch = async (url) => {
+        assert.equal(
+          new URL(url, 'http://localhost').searchParams.get('cached'),
+          '1',
+        );
+        return Response.json(localSnapshot(selected));
+      };
+      await loadSavedDiscovery(
+        selected,
+        new AbortController().signal,
+        (data) => updates.push(data),
+        cache,
+      );
+      assert.equal(cache.read()[`${period}:0`].trending[0].id, 42);
+      globalThis.fetch = async () => new Response('', { status: 503 });
+      const retries = [];
+      await assert.rejects(
+        loadDiscovery(
+          selected,
+          new AbortController().signal,
+          (data) => updates.push(data),
+          (n) => retries.push(n),
+          true,
+          cache,
+        ),
+        /unavailable/,
+      );
+      assert.equal(updates.at(-1).trending[0].id, 42);
+      assert.deepEqual(retries, [30]);
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('local chart selection never crosses period filters, keeps newer data, and retains a chart across an empty new census', () => {
+  const previous = localSnapshot();
+  assert.equal(
+    preferDiscoveryChart(previous, localSnapshot({ period: 'day', minutes: 0 }))
+      .period,
+    'day',
+  );
+  const newer = localSnapshot(options, initial + 10000);
+  assert.equal(preferDiscoveryChart(newer, previous), newer);
+  const empty = {
+    ...localSnapshot(options, initial + 10000),
+    partial: true,
+    trending: [],
+  };
+  assert.equal(preferDiscoveryChart(previous, empty).trending[0].id, 42);
 });

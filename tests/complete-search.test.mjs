@@ -88,6 +88,114 @@ test.after(() => {
   globalThis.fetch = realFetch;
 });
 
+void test('an empty scoped search explicitly requests all matching lessons and retains upload metadata', async (t) => {
+  const fixture = Array.from({ length: 35 }, (_, i) => ({
+    shiurid: 2000 + i,
+    shiurtitle: 'Lesson ' + i,
+    teacherid: 1,
+    teacherfullname: 'One',
+    collectionid: [55555],
+    collectionname: ['Course|55555'],
+    shiurdate: '2011-01-01',
+    shiurdatesubmitted:
+      i === 34 ? '2026-10-12T12:00:00Z' : '2026-10-01T12:00:00Z',
+    language: 'EN',
+    mediatypename: 'MP3',
+    duration: 20,
+  }));
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    const url = new URL(input);
+    if (url.pathname.includes('/browse/')) return Response.json([]);
+    assert.equal(url.searchParams.get('collectionID'), '55555');
+    assert.equal(url.searchParams.get('searchTerm'), '*');
+    const page = Number(url.searchParams.get('start'));
+    return Response.json({
+      response: {
+        docs: fixture.slice((page - 1) * 30, page * 30),
+        numFound: fixture.length,
+      },
+    });
+  });
+  const db = database();
+  const all = await completeSearch(db, '', { collectionId: 55555 });
+  assert.equal(all.complete, true);
+  assert.equal(all.total, 35);
+  assert.equal(all.facets.collections[0].name, 'Course');
+  const recent = await completeSearch(db, '', {
+    collectionId: 55555,
+    dateBasis: 'uploaded',
+    after: '2026-10-12',
+    before: '2026-10-12',
+  });
+  assert.equal(recent.run, all.run);
+  assert.equal(recent.total, 1);
+  assert.equal(recent.items[0].id, 2034);
+});
+
+void test('upload-date refinements and contextual counts cover coauthors on the final candidate page', async (t) => {
+  const fixture = Array.from({ length: 65 }, (_, i) => ({
+    shiurid: 1000 + i,
+    shiurtitle: 'Metadata parity ' + i,
+    shiurdescription: 'metadata parity',
+    teacherid: i === 64 ? [1, 2, 2] : [1],
+    teacherfullname: i === 64 ? ['One', 'Two', 'Two'] : ['One'],
+    shiurdate: '2011-01-01T00:00:00Z',
+    shiurdatesubmitted:
+      i === 64 ? '2026-10-12T12:00:00Z' : '2026-10-01T12:00:00Z',
+    subcategoryid: [10],
+    subcategoryname: ['Kashrut'],
+    categoryname: ['Halacha'],
+    mediatypename: 'MP3',
+    language: 'EN',
+    duration: 20,
+  }));
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    const url = new URL(input);
+    if (url.pathname.includes('/browse/')) return Response.json([]);
+    const page = Number(url.searchParams.get('start') || 1);
+    return Response.json({
+      response: {
+        docs: fixture.slice((page - 1) * 30, page * 30),
+        numFound: fixture.length,
+      },
+    });
+  });
+  const db = database();
+  const upload = await completeSearch(db, 'metadata parity', {
+    after: '2026-10-12',
+    before: '2026-10-12',
+    dateBasis: 'uploaded',
+    group: 'Halacha',
+  });
+  assert.equal(upload.complete, true);
+  assert.equal(upload.total, 1);
+  assert.equal(upload.items[0].id, 1064);
+  assert.deepEqual(
+    upload.facets.teachers.map((t) => [t.id, t.count]),
+    [
+      [1, 1],
+      [2, 1],
+    ],
+  );
+  assert.equal(upload.facets.topics[0].count, 1);
+  const given = await completeSearch(db, 'metadata parity', {
+    after: '2026-10-12',
+    before: '2026-10-12',
+    dateBasis: 'given',
+  });
+  assert.equal(given.run, upload.run);
+  assert.equal(given.total, 0);
+  const all = await completeSearch(db, 'metadata parity', {});
+  assert.equal(all.total, 65);
+  assert.deepEqual(
+    all.facets.teachers.map((t) => [t.id, t.count]),
+    [
+      [1, 65],
+      [2, 1],
+    ],
+  );
+});
+
 void test('a stale pass rolls back hits, documents and title learning after a peer claims the lease', async () => {
   const raw = database();
   let stolen = false;

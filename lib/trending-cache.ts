@@ -21,7 +21,7 @@ const freshFor = (options: TrendingOptions) =>
   60 *
   1000;
 const staleFor = 24 * 60 * 60 * 1000;
-const leaseFor = 60 * 1000;
+const leaseFor = 75 * 1000;
 const retryFor = 30 * 1000;
 const progressFor = 3 * 1000;
 
@@ -42,6 +42,7 @@ export function createTrendingService({
   preferCompleted = false,
   cachedOnly = false,
   requireStorage = false,
+  reportProgress = false,
 }: {
   database?: () => SearchDatabase;
   read?: (
@@ -58,6 +59,8 @@ export function createTrendingService({
   cachedOnly?: boolean;
   /** Background jobs must not report success without saving their progress. */
   requireStorage?: boolean;
+  /** Protected runners need the active checkpoint, even while old charts are served. */
+  reportProgress?: boolean;
 } = {}): (options: TrendingOptions) => Promise<DiscoveryData> {
   if (!read) {
     const shared = createTrendingService({
@@ -66,9 +69,10 @@ export function createTrendingService({
       read: readTrendingIndex,
       cacheKey: 'trending:v1:shared:2',
       validate: validTrendingIndex,
-      preferCompleted: true,
+      preferCompleted: !reportProgress,
       cachedOnly,
       requireStorage,
+      reportProgress,
     });
     return async (options: TrendingOptions) =>
       selectTrendingChart(await shared({ period: 'all', minutes: 0 }), options);
@@ -82,13 +86,22 @@ export function createTrendingService({
   const pending = new Map<string, Promise<DiscoveryData>>();
   const cooldowns = new Map<string, { until: number; error: unknown }>();
   const age = (data: DiscoveryData) => now() - Date.parse(data.fetchedAt);
+  // Old completed unions can still be shown, but cannot suppress the first
+  // independent census after deployment. Keep the same persisted cache row.
+  const unaudited = (data?: DiscoveryData) =>
+    !!data?.index && !data.partial && !data.coverage;
   const usable = (data: DiscoveryData | undefined, ttl: number) =>
     !!data && age(data) >= 0 && age(data) < ttl;
 
   const present = (key: string, data: DiscoveryData) => {
     const complete = completed.get(key);
     return preferCompleted && data.partial && usable(complete, retainedFor)
-      ? { ...complete!, refreshing: true, stale: data.stale }
+      ? {
+          ...complete!,
+          refreshing: true,
+          stale: data.stale,
+          coverage: data.coverage,
+        }
       : data;
   };
 
@@ -152,9 +165,12 @@ export function createTrendingService({
               snapshot.total >= snapshot.trending.length &&
               Number.isSafeInteger(snapshot.sampled) &&
               snapshot.sampled >= snapshot.trending.length &&
-              snapshot.sampled <= (snapshot.libraryTotal ?? snapshot.total) &&
-              snapshot.partial ===
-                snapshot.sampled < (snapshot.libraryTotal ?? snapshot.total) &&
+              (snapshot.coverage ||
+                (snapshot.sampled <=
+                  (snapshot.libraryTotal ?? snapshot.total) &&
+                  snapshot.partial ===
+                    snapshot.sampled <
+                      (snapshot.libraryTotal ?? snapshot.total))) &&
               (!snapshot.partial ||
                 (snapshot.source === 'mobile'
                   ? Number.isSafeInteger(snapshot.nextPage) &&
@@ -195,9 +211,17 @@ export function createTrendingService({
             ...saved,
             stale: saved.partial || !usable(saved, freshFor(options)),
             refreshing: (!saved.partial && previous?.partial) || undefined,
+            coverage: previous?.partial ? previous.coverage : saved.coverage,
           };
         }
         if (
+          previous?.partial &&
+          previous.coverage?.retryAt &&
+          previous.coverage.retryAt > now()
+        )
+          return previous;
+        if (
+          !unaudited(previous) &&
           usable(previous, previous?.partial ? progressFor : freshFor(options))
         ) {
           memory.set(key, previous!);
@@ -219,7 +243,12 @@ export function createTrendingService({
             lease,
             key,
             started,
-            started - (previous?.partial ? progressFor : freshFor(options)),
+            started -
+              (previous?.partial
+                ? progressFor
+                : unaudited(previous)
+                  ? 0
+                  : freshFor(options)),
           )
           .run();
         if (!claimed.meta.changes) {
@@ -274,10 +303,11 @@ export function createTrendingService({
               lease,
             )
             .run();
-          if (requireStorage && !saved.meta.changes)
+          if (!saved.meta.changes)
             throw new TrendingBusyError(
               'The trending scan lease expired before progress was saved.',
             );
+          releaseLease = false;
         } catch (error) {
           if (requireStorage) throw error;
           /* A successful upstream response survives cache write failure. */
@@ -308,7 +338,7 @@ export function createTrendingService({
         throw error;
       }
       releaseLease = false;
-      const cached = fallback(key, previous);
+      const cached = reportProgress ? previous : fallback(key, previous);
       if (cached) {
         if (previous) memory.set(key, previous);
         return { ...cached, stale: true };
@@ -335,6 +365,7 @@ export function createTrendingService({
     const hit = memory.get(key);
     if (
       !cachedOnly &&
+      !unaudited(hit) &&
       usable(hit, hit?.partial ? progressFor : freshFor(options))
     )
       return present(key, hit!);

@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
-import { trendingPeriods, type DiscoveryData } from '../lib/trending';
+import { trendingPeriods } from '../lib/trending';
+import { runTrendingWarm } from './trending-runner';
 
 const { values } = parseArgs({
   options: {
@@ -7,7 +8,8 @@ const { values } = parseArgs({
     period: { type: 'string' },
     refresh: { type: 'boolean', default: false },
     minutes: { type: 'string', default: '0' },
-    'max-passes': { type: 'string', default: '20000' },
+    'max-passes': { type: 'string', default: '100' },
+    'max-minutes': { type: 'string', default: '20' },
   },
 });
 const base = new URL(values.url!);
@@ -18,6 +20,7 @@ if (values.refresh && !token)
   );
 const minutes = values.minutes!;
 const maxPasses = Number(values['max-passes']);
+const maxMinutes = Number(values['max-minutes'] ?? '20');
 const periods = trendingPeriods
   .map((p) => p.value)
   .filter((p) => !values.period || values.period === p);
@@ -27,69 +30,29 @@ if (
   !['0', '10', '20', '30'].includes(minutes) ||
   !Number.isSafeInteger(maxPasses) ||
   maxPasses < 1 ||
-  maxPasses > 20000
+  maxPasses > 20000 ||
+  !Number.isFinite(maxMinutes) ||
+  maxMinutes < 1 ||
+  maxMinutes > 120
 )
   throw new RangeError(
-    'Choose a valid URL, period, minutes and 1–20000 passes.',
+    'Choose a valid URL, period, minutes, 1–20000 passes and 1–120 runtime minutes.',
   );
 
-let passes = 0;
-for (const period of periods) {
-  const url = new URL(
-    values.refresh ? '/api/discover/refresh' : '/api/discover',
-    base,
+const result = await runTrendingWarm({
+  base,
+  token,
+  refresh: values.refresh!,
+  minutes: Number(minutes),
+  periods,
+  maxPasses,
+  maxRuntimeMs: maxMinutes * 60000,
+});
+if (result === 'pass-limit') process.exitCode = 2;
+if (process.env.GITHUB_STEP_SUMMARY) {
+  const { appendFile } = await import('node:fs/promises');
+  await appendFile(
+    process.env.GITHUB_STEP_SUMMARY,
+    `Trending refresh outcome: ${result}. Deferred scans keep their persisted checkpoint; no completeness claim is made.\n`,
   );
-  url.search = new URLSearchParams({ period, minutes }).toString();
-  let complete = false;
-  while (passes < maxPasses) {
-    passes++;
-    const response = await fetch(url, {
-      method: values.refresh ? 'POST' : 'GET',
-      headers: values.refresh
-        ? { Authorization: `Bearer ${token}` }
-        : undefined,
-      redirect: values.refresh ? 'error' : 'follow',
-      signal: AbortSignal.timeout(60000),
-    });
-    if (response.status === 503) {
-      if (!values.refresh && !['day', 'week'].includes(period))
-        throw new Error(
-          `${period}: saved chart is not ready; use --refresh with TRENDING_REFRESH_TOKEN to resume the shared scan.`,
-        );
-      const seconds = Number(response.headers.get('Retry-After')) || 5;
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.min(30, Math.max(3, seconds)) * 1000),
-      );
-      continue;
-    }
-    if (!response.ok)
-      throw new Error(
-        `${period}: server returned ${response.status}; rerun to resume the saved cursor.`,
-      );
-    const data = (await response.json()) as DiscoveryData;
-    if (data.period !== period || data.minutes !== Number(minutes))
-      throw new Error('The server returned a different chart.');
-    if (data.stale) {
-      console.log(
-        `${period}: refresh unavailable; saved ${data.sampled}/${data.libraryTotal ?? data.total} indexed records preserved; retrying in 30 seconds`,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 30000));
-      continue;
-    }
-    console.log(
-      data.refreshing
-        ? `${period}: rebuilding the shared index; the completed chart is still available`
-        : `${period}: ${data.sampled}/${data.libraryTotal ?? data.total} indexed${data.partial ? '' : ', complete'}`,
-    );
-    if (!data.partial && !data.refreshing) {
-      complete = true;
-      break;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 3100));
-  }
-  if (!complete) {
-    console.log('Pass limit reached. Rerun this command to resume.');
-    process.exitCode = 2;
-    break;
-  }
 }

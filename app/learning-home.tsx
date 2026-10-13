@@ -1,11 +1,16 @@
 /* oxlint-disable next/no-img-element -- Subject art is pre-sized, lazy-loaded local WebP. */
 'use client';
+import type { BrowseKind as CatalogKind } from '@/lib/catalog';
 import { ShiurViews } from './shiur-views';
 import { TeacherLink } from './teacher-link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BoundedCache } from '@/lib/bounded-cache';
-import { loadDiscovery } from '@/lib/discovery-client';
+import { loadDiscovery, loadSavedDiscovery } from '@/lib/discovery-client';
+import {
+  readLocalDiscoveryCharts,
+  preferDiscoveryChart,
+} from '@/lib/trending-local';
 const feedBatches = new BoundedCache<{ items: Shiur[]; partial: boolean }>(
   64,
   4 * 1024 * 1024,
@@ -78,6 +83,8 @@ type Props = {
   onSave: (shiur: Shiur) => void;
   onQueue: (shiur: Shiur) => void;
   onFollow: (follow: Follow) => void;
+  onEntity?: (kind: CatalogKind, id?: number) => void;
+  onDaf?: (value: string) => void;
   onSearch: (query: string, filters?: Filters) => void;
   onNavigate: (
     view:
@@ -111,6 +118,8 @@ export function LearningHome(props: Props) {
     onQueue,
     onFollow,
     onSearch,
+    onEntity,
+    onDaf,
     onNavigate,
     notify,
     onRefresh,
@@ -124,6 +133,12 @@ export function LearningHome(props: Props) {
   const [trendingWanted, setTrendingWanted] = useState(false);
   const [sourceLimit, setSourceLimit] = useState(8);
   const [tab, setTab] = useState('for-you');
+  const currentTab = followingPage
+    ? 'following'
+    : trendingPage
+      ? 'trending'
+      : tab;
+
   const [minutes, setMinutes] = useState('all');
   const [limit, setLimit] = useState(8);
   const [browseMore, setBrowseMore] = useState(false);
@@ -139,7 +154,10 @@ export function LearningHome(props: Props) {
   const discoveryChartsRef = useRef(discoveryCharts);
   discoveryChartsRef.current = discoveryCharts;
   const trendingMinutes = minutes === 'all' ? 0 : Number(minutes);
-  const discoveryKey = `${trendingPeriod}:${trendingMinutes}`;
+  const discoveryPeriod = currentTab === 'trending' ? trendingPeriod : 'week';
+  const discoveryMinutes =
+    currentTab === 'for-you' && isMobile ? 0 : trendingMinutes;
+  const discoveryKey = `${discoveryPeriod}:${discoveryMinutes}`;
   const discovery = discoveryCharts[discoveryKey] ?? null;
   const [discoveryError, setDiscoveryError] = useState(false);
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
@@ -147,16 +165,17 @@ export function LearningHome(props: Props) {
   const [refresh, setRefresh] = useState(0);
   const [discoveryPass, setDiscoveryPass] = useState(0);
   const [discoveryRetry, setDiscoveryRetry] = useState(0);
-  const currentTab = followingPage
-    ? 'following'
-    : trendingPage
-      ? 'trending'
-      : tab;
   useEffect(() => {
-    if (currentTab !== 'trending' || discoveryLoading) return;
+    if (
+      (currentTab !== 'trending' &&
+        !(currentTab === 'for-you' && trendingWanted)) ||
+      discoveryLoading
+    )
+      return;
     const indexing =
       (discovery?.partial || discovery?.refreshing) &&
-      !discovery.stale &&
+      (!discovery.stale || discovery.refreshing) &&
+      discovery.coverage?.status !== 'paused' &&
       !discoveryError;
     if (!indexing && !discoveryRetry) return;
     const timer = window.setTimeout(
@@ -164,7 +183,14 @@ export function LearningHome(props: Props) {
       discoveryRetry ? discoveryRetry * 1000 : 3500,
     );
     return () => window.clearTimeout(timer);
-  }, [currentTab, discovery, discoveryLoading, discoveryError, discoveryRetry]);
+  }, [
+    currentTab,
+    discovery,
+    discoveryLoading,
+    discoveryError,
+    discoveryRetry,
+    trendingWanted,
+  ]);
   const trendingSection = useRef<HTMLElement>(null);
   useEffect(() => {
     const target = trendingSection.current;
@@ -261,6 +287,32 @@ export function LearningHome(props: Props) {
   }, [sourceQuery, refresh, currentTab, sourceLimit]);
 
   useEffect(() => {
+    const local = readLocalDiscoveryCharts();
+    setDiscoveryCharts((current) => {
+      const charts = { ...current };
+      for (const [key, data] of Object.entries(local))
+        charts[key] = preferDiscoveryChart(data, charts[key] ?? data);
+      return charts;
+    });
+    if (followingPage || trendingPage) return;
+    const abort = new AbortController();
+    // Home can show the shared saved chart before scrolling, without indexing.
+    void loadSavedDiscovery(
+      { period: 'week', minutes: 0 },
+      abort.signal,
+      (data) => {
+        setDiscoveryCharts((current) => ({
+          ...current,
+          'week:0': preferDiscoveryChart(current['week:0'], data),
+        }));
+      },
+    ).catch(() => {
+      /* Keep the local chart; visible Trending will retry normally. */
+    });
+    return () => abort.abort();
+  }, [followingPage, trendingPage]);
+
+  useEffect(() => {
     if (currentTab !== 'trending' && !trendingWanted) {
       setDiscoveryLoading(false);
       return;
@@ -271,15 +323,18 @@ export function LearningHome(props: Props) {
     setDiscoveryRetry(0);
     loadDiscovery(
       {
-        period: trendingPeriod,
-        minutes: trendingMinutes as 0 | 10 | 20 | 30,
+        period: discoveryPeriod,
+        minutes: discoveryMinutes as 0 | 10 | 20 | 30,
       },
       abort.signal,
       (data) => {
-        setDiscoveryCharts((old) => ({ ...old, [discoveryKey]: data }));
+        setDiscoveryCharts((old) => ({
+          ...old,
+          [discoveryKey]: preferDiscoveryChart(old[discoveryKey], data),
+        }));
       },
       setDiscoveryRetry,
-      currentTab === 'trending' && !discoveryChartsRef.current[discoveryKey],
+      !discoveryChartsRef.current[discoveryKey],
     )
       .catch(() => {
         if (!abort.signal.aborted) setDiscoveryError(true);
@@ -291,8 +346,8 @@ export function LearningHome(props: Props) {
   }, [
     refresh,
     discoveryPass,
-    trendingPeriod,
-    trendingMinutes,
+    discoveryPeriod,
+    discoveryMinutes,
     discoveryKey,
     currentTab,
     trendingWanted,
@@ -427,7 +482,9 @@ export function LearningHome(props: Props) {
             onPlay={onPlay}
             onDetails={onDetails}
             onTeacher={(s) =>
-              onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+              onEntity
+                ? onEntity('teacher', s.teacherId)
+                : onSearch('', { ...noFilters, teacher: String(s.teacherId) })
             }
             onSave={onSave}
             saved={savedIds.has(s.id)}
@@ -442,7 +499,8 @@ export function LearningHome(props: Props) {
       {trending.slice(0, count).map((s, i) => (
         <li
           className={
-            'trending-item' + (activeId === s.id && playing ? ' is-playing' : '')
+            'trending-item' +
+            (activeId === s.id && playing ? ' is-playing' : '')
           }
           key={s.id}
         >
@@ -473,12 +531,18 @@ export function LearningHome(props: Props) {
               <TeacherLink
                 shiur={s}
                 onTeacher={(s) =>
-                  onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+                  onEntity
+                    ? onEntity('teacher', s.teacherId)
+                    : onSearch('', {
+                        ...noFilters,
+                        teacher: String(s.teacherId),
+                      })
                 }
               />
             </p>
             <small>
-              <ShiurViews shiur={s} /><span>·</span>
+              <ShiurViews shiur={s} />
+              <span>·</span>
               {s.duration ? Math.round(s.duration / 60) + ' min' : mediaKind(s)}
             </small>
           </div>
@@ -488,7 +552,10 @@ export function LearningHome(props: Props) {
             aria-pressed={savedIds.has(s.id)}
             onClick={() => onSave(s)}
           >
-            <Bookmark size={17} fill={savedIds.has(s.id) ? 'currentColor' : 'none'} />
+            <Bookmark
+              size={17}
+              fill={savedIds.has(s.id) ? 'currentColor' : 'none'}
+            />
           </button>
         </li>
       ))}
@@ -506,7 +573,9 @@ export function LearningHome(props: Props) {
       icon: Timer,
       go: () =>
         shortSeries
-          ? onSearch('', { ...noFilters, series: String(shortSeries.id) })
+          ? onEntity
+            ? onEntity('series', shortSeries.id)
+            : onSearch('', { ...noFilters, series: String(shortSeries.id) })
           : onSearch('halacha', { ...noFilters, max: '10' }),
     },
     {
@@ -550,7 +619,7 @@ export function LearningHome(props: Props) {
           pick={pick}
           items={items.map(({ shiur }) => shiur)}
           trending={discoveryCharts['week:0']?.trending ?? []}
-          trendingLoading={discoveryLoading}
+          trendingLoading={discoveryLoading && !discoveryCharts['week:0']}
           trendingError={discoveryError}
           continuing={continuing}
           activeId={activeId}
@@ -652,10 +721,12 @@ export function LearningHome(props: Props) {
                       <TeacherLink
                         shiur={pick}
                         onTeacher={(s) =>
-                          onSearch('', {
-                            ...noFilters,
-                            teacher: String(s.teacherId),
-                          })
+                          onEntity
+                            ? onEntity('teacher', s.teacherId)
+                            : onSearch('', {
+                                ...noFilters,
+                                teacher: String(s.teacherId),
+                              })
                         }
                       />
                     </strong>
@@ -716,12 +787,17 @@ export function LearningHome(props: Props) {
                 </div>
               </div>
               {pick && (
-                <figure className={'home-hero-portrait ' + tone(pick.teacherId)}>
+                <figure
+                  className={'home-hero-portrait ' + tone(pick.teacherId)}
+                >
                   <Avatar src={pick.image} name={pick.teacher} />
                 </figure>
               )}
               {upNext.length > 0 && (
-                <aside className="home-hero-next" aria-label="More featured shiurim">
+                <aside
+                  className="home-hero-next"
+                  aria-label="More featured shiurim"
+                >
                   <h3>Also featured</h3>
                   {upNext.map((s) => (
                     <div className="hero-next-item" key={s.id}>
@@ -827,11 +903,21 @@ export function LearningHome(props: Props) {
                 ]
                   .filter(([, value]) => value)
                   .map(([label, value]) => (
-                    <button key={label} onClick={() => onSearch(value)}>
+                    <button
+                      key={label}
+                      onClick={() =>
+                        label === 'Daf Yomi' && onDaf
+                          ? onDaf(value)
+                          : onSearch(value)
+                      }
+                    >
                       <small>{label}</small>
                       <strong dir="auto">{value}</strong>
                       <span className="today-go">
-                        Find shiurim <ArrowRight size={14} />
+                        {label === 'Daf Yomi'
+                          ? 'Study the daf'
+                          : 'Find shiurim'}{' '}
+                        <ArrowRight size={14} />
                       </span>
                     </button>
                   ))}
@@ -869,10 +955,12 @@ export function LearningHome(props: Props) {
                       onPlay={(s) => onPlay(s, h.seconds)}
                       onDetails={onDetails}
                       onTeacher={(s) =>
-                        onSearch('', {
-                          ...noFilters,
-                          teacher: String(s.teacherId),
-                        })
+                        onEntity
+                          ? onEntity('teacher', s.teacherId)
+                          : onSearch('', {
+                              ...noFilters,
+                              teacher: String(s.teacherId),
+                            })
                       }
                       onSave={onSave}
                       onQueue={onQueue}
@@ -900,11 +988,15 @@ export function LearningHome(props: Props) {
             <section className="discovery-section">
               {sectionHeading(
                 'What listeners are exploring',
-                discovery?.refreshing
-                  ? 'Updating rankings. Showing the last complete chart.'
-                  : discovery?.partial
-                    ? `Indexing ${discovery.sampled.toLocaleString()} of ${(discovery.libraryTotal ?? discovery.total).toLocaleString()} ${discovery.source === 'mobile' ? 'library records' : 'matching shiurim'}. Rankings may change.`
-                    : undefined,
+                discovery?.coverage?.status === 'paused'
+                  ? 'Indexing paused while coverage is unresolved. Saved rankings remain available.'
+                  : discovery?.refreshing
+                    ? 'Updating rankings. Showing the last saved chart.'
+                    : discovery?.partial
+                      ? `Observed ${discovery.sampled.toLocaleString()} unique records; the library reports ${(discovery.libraryTotal ?? discovery.total).toLocaleString()}. Coverage is unresolved. Rankings may change.`
+                      : discovery?.source === 'mobile'
+                        ? 'Rankings use an observed library census. YUTorah does not provide a fixed snapshot.'
+                        : undefined,
               )}
               <div className="discovery-toolbar">
                 <fieldset
@@ -945,10 +1037,7 @@ export function LearningHome(props: Props) {
                   onClick={refreshAll}
                   disabled={discoveryLoading}
                 >
-                  <RefreshCw
-                    size={16}
-                    className={discoveryLoading ? 'spin' : ''}
-                  />
+                  <RefreshCw size={16} />
                 </button>
               </div>
               <p className="trending-source">
@@ -966,10 +1055,10 @@ export function LearningHome(props: Props) {
                 totals. Some source dates have day precision.
               </p>
               {discoveryLoading && !discovery ? (
-                <div className="discovery-loading">
-                  <Loader2 size={18} className="spin" />
-                  Finding trending shiurim…
-                </div>
+                <StatePanel
+                  title="No saved chart yet."
+                  description="Rankings will appear here when the background refresh is ready."
+                />
               ) : discoveryError && !discovery ? (
                 <StatePanel
                   title="Trending couldn't load."
@@ -1027,9 +1116,9 @@ export function LearningHome(props: Props) {
                     : hasInterests
                       ? 'Inspired by what you listen to, save, and follow.'
                       : 'Featured and recent shiurim from the YUTorah library.',
-                isHome ? () => setTab('featured') : undefined,
-                'Editors’ picks',
-              )}
+                  isHome ? () => setTab('featured') : undefined,
+                  'Editors’ picks',
+                )}
               {currentTab === 'following' && library.following.length > 0 && (
                 <div className="following-chips">
                   {library.following.map((f) => (
@@ -1175,11 +1264,9 @@ export function LearningHome(props: Props) {
                 'Full chart',
               )}
               {(discoveryLoading || !trendingWanted) && !discovery ? (
-                <div className="trending-skeleton" aria-hidden="true">
-                  {Array.from({ length: 6 }, (_, i) => (
-                    <span key={i} />
-                  ))}
-                </div>
+                <p className="discovery-muted">
+                  Saved weekly rankings will appear here when available.
+                </p>
               ) : discoveryError && !discovery ? (
                 <p className="discovery-muted">
                   Popularity data couldn&apos;t load.{' '}
@@ -1242,10 +1329,12 @@ export function LearningHome(props: Props) {
                         <button
                           className="teacher-shelf-profile"
                           onClick={() =>
-                            onSearch('', {
-                              ...noFilters,
-                              teacher: String(t.id),
-                            })
+                            onEntity
+                              ? onEntity('teacher', t.id)
+                              : onSearch('', {
+                                  ...noFilters,
+                                  teacher: String(t.id),
+                                })
                           }
                         >
                           <span className={'teacher-portrait ' + tone(t.id)}>
@@ -1283,10 +1372,19 @@ export function LearningHome(props: Props) {
                       <article key={s.id}>
                         <button
                           onClick={() =>
-                            onSearch('', { ...noFilters, series: String(s.id) })
+                            onEntity
+                              ? onEntity('series', s.id)
+                              : onSearch('', {
+                                  ...noFilters,
+                                  series: String(s.id),
+                                })
                           }
                         >
-                          <SeriesCover name={s.name} id={s.id} image={s.image} />
+                          <SeriesCover
+                            name={s.name}
+                            id={s.id}
+                            image={s.image}
+                          />
                           <h3 dir="auto">{s.name}</h3>
                           <p>
                             {(
@@ -1311,9 +1409,7 @@ export function LearningHome(props: Props) {
               <section className="learning-goal-band">
                 <span
                   className="goal-ring"
-                  style={
-                    { '--goal': goalProgress } as React.CSSProperties
-                  }
+                  style={{ '--goal': goalProgress } as React.CSSProperties}
                   aria-hidden="true"
                 >
                   <Target size={24} />
@@ -1349,7 +1445,8 @@ export function LearningHome(props: Props) {
                 </button>
               </section>
               <p className="learning-local-note">
-                Your library stays on this device and syncs across devices when you sign in.
+                Your library stays on this device and syncs across devices when
+                you sign in.
               </p>
             </>
           )}

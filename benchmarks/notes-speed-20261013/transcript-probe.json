@@ -1,0 +1,221 @@
+{
+  "startedAt": "2026-10-13T04:24:11.027Z",
+  "completedAt": "2026-10-13T04:25:14.373Z",
+  "method": "First ten records from catalog pages 1 and 21. Sequential official VTT reads with one-second spacing. No AI, credentials, or persisted transcripts. Not a representative sample or VM throughput measurement.",
+  "summaries": [
+    {
+      "page": 1,
+      "sampled": 10,
+      "available": 6,
+      "missing": 2,
+      "errors": 2
+    },
+    {
+      "page": 21,
+      "sampled": 10,
+      "available": 10,
+      "missing": 0,
+      "errors": 0
+    }
+  ],
+  "results": [
+    {
+      "page": 1,
+      "id": "1191297",
+      "category": "audio",
+      "status": "error",
+      "code": "TypeError",
+      "httpStatus": null,
+      "fetchMs": 10506
+    },
+    {
+      "page": 1,
+      "id": "1191443",
+      "category": "audio",
+      "status": "error",
+      "code": "TypeError",
+      "httpStatus": null,
+      "fetchMs": 10507
+    },
+    {
+      "page": 1,
+      "id": "1191442",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 8856,
+      "sourceWords": 959,
+      "durationMinutes": 5.56265,
+      "fetchMs": 4042
+    },
+    {
+      "page": 1,
+      "id": "1191459",
+      "category": "video",
+      "status": "missing",
+      "sourceBytes": 0,
+      "sourceWords": 0,
+      "durationMinutes": null,
+      "fetchMs": 209
+    },
+    {
+      "page": 1,
+      "id": "1191537",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 31555,
+      "sourceWords": 3327,
+      "durationMinutes": 18.441,
+      "fetchMs": 201
+    },
+    {
+      "page": 1,
+      "id": "1190728",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 6811,
+      "sourceWords": 719,
+      "durationMinutes": 4.985333333333333,
+      "fetchMs": 104
+    },
+    {
+      "page": 1,
+      "id": "1191560",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 10353,
+      "sourceWords": 1159,
+      "durationMinutes": 7.353316666666666,
+      "fetchMs": 189
+    },
+    {
+      "page": 1,
+      "id": "1190655",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 5237,
+      "sourceWords": 557,
+      "durationMinutes": 2.9,
+      "fetchMs": 89
+    },
+    {
+      "page": 1,
+      "id": "1190575",
+      "category": "audio",
+      "status": "missing",
+      "sourceBytes": 0,
+      "sourceWords": 0,
+      "durationMinutes": null,
+      "fetchMs": 224
+    },
+    {
+      "page": 1,
+      "id": "1191374",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 16516,
+      "sourceWords": 1721,
+      "durationMinutes": 9.230333333333334,
+      "fetchMs": 102
+    },
+    {
+      "page": 21,
+      "id": "1190818",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 125684,
+      "sourceWords": 12766,
+      "durationMinutes": 71.914,
+      "fetchMs": 350
+    },
+    {
+      "page": 21,
+      "id": "1190819",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 64067,
+      "sourceWords": 5515,
+      "durationMinutes": 27.01265,
+      "fetchMs": 225
+    },
+    {
+      "page": 21,
+      "id": "1190820",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 90953,
+      "sourceWords": 9202,
+      "durationMinutes": 43.95398333333333,
+      "fetchMs": 247
+    },
+    {
+      "page": 21,
+      "id": "1190815",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 40315,
+      "sourceWords": 4007,
+      "durationMinutes": 26.936,
+      "fetchMs": 93
+    },
+    {
+      "page": 21,
+      "id": "1190814",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 5722,
+      "sourceWords": 618,
+      "durationMinutes": 3.4066666666666667,
+      "fetchMs": 134
+    },
+    {
+      "page": 21,
+      "id": "1190813",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 25499,
+      "sourceWords": 2523,
+      "durationMinutes": 23.21066666666667,
+      "fetchMs": 134
+    },
+    {
+      "page": 21,
+      "id": "1190832",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 136848,
+      "sourceWords": 13064,
+      "durationMinutes": 73.74848333333334,
+      "fetchMs": 502
+    },
+    {
+      "page": 21,
+      "id": "1190830",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 62328,
+      "sourceWords": 5827,
+      "durationMinutes": 28.716666666666665,
+      "fetchMs": 151
+    },
+    {
+      "page": 21,
+      "id": "1190831",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 32766,
+      "sourceWords": 3267,
+      "durationMinutes": 15.92965,
+      "fetchMs": 165
+    },
+    {
+      "page": 21,
+      "id": "1190809",
+      "category": "audio",
+      "status": "available",
+      "sourceBytes": 30361,
+      "sourceWords": 3311,
+      "durationMinutes": 42.257,
+      "fetchMs": 149
+    }
+  ]
+}
