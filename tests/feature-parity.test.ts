@@ -21,6 +21,15 @@ import {
 import { resolvedSearchFilters } from '../lib/search-filters';
 import { feedbackLink } from '../lib/feedback';
 
+void test('removed publication links retain the original destination', () => {
+  for (const url of [
+    'https://www.yutorah.org/publications?publicationid=247',
+    'https://www.yutorah.org/search/?s=medicine&publicationid=247',
+    'https://www.yutorah.org/search/?publicationvolumeid=20474',
+  ])
+    assert.equal(nativeYutorahLink(url), url);
+});
+
 void test('original URLs preserve every entity restriction, query, and uploaded range', () => {
   const link = new URL(
     legacySearchLink({

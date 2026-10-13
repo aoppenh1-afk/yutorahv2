@@ -31,7 +31,6 @@ import {
   Settings2,
   Sparkles,
   Star,
-  Target,
   Timer,
   Users,
   X,
@@ -64,7 +63,6 @@ import {
 } from '@/lib/trending';
 import {
   isLearned,
-  learningStats,
   recommend,
   mergeShiurim,
   type Follow,
@@ -247,7 +245,13 @@ export function LearningHome(props: Props) {
       let collected: Shiur[] = [];
       for (let start = 0; start < selected.length; start += 8) {
         const query = new URLSearchParams();
-        for (const kind of ['teacher', 'topic', 'series'])
+        for (const kind of [
+          'teacher',
+          'topic',
+          'series',
+          'venue',
+          'collection',
+        ])
           query.set(
             kind,
             selected
@@ -413,7 +417,6 @@ export function LearningHome(props: Props) {
   const continuing = library.history.filter(
     (h) => h.seconds > 0 && !isLearned(h.shiur, library),
   );
-  const stats = learningStats(library.learningDays);
   const teachers = (directory?.teachers || []).slice(0, 7);
   const suggestedTopics = [
     ...new Map(
@@ -453,7 +456,6 @@ export function LearningHome(props: Props) {
   const upNext = (home?.featured || [])
     .filter((s) => s.id !== pick?.id)
     .slice(0, 3);
-  const goalProgress = Math.min(1, stats.today / 60 / (library.dailyGoal || 1));
   const sectionHeading = (
     title: string,
     description?: string,
@@ -640,7 +642,7 @@ export function LearningHome(props: Props) {
             <div>
               <span className="eyebrow">
                 {followingPage
-                  ? 'Your teachers & subjects'
+                  ? 'Your follows'
                   : trendingPage
                     ? 'Across the library'
                     : 'Yeshiva University · RIETS'}
@@ -655,7 +657,7 @@ export function LearningHome(props: Props) {
               {(followingPage || trendingPage) && (
                 <p>
                   {followingPage
-                    ? 'New learning from the teachers and subjects you follow.'
+                    ? 'New shiurim from the teachers and library pages you follow.'
                     : 'Discover the recordings listeners are exploring.'}
                 </p>
               )}
@@ -1193,8 +1195,8 @@ export function LearningHome(props: Props) {
               )}
               {currentTab === 'following' && !library.following.length ? (
                 <StatePanel
-                  title="Follow teachers and subjects"
-                  description="Follow a teacher, topic, or series. Their latest shiurim will appear here."
+                  title="Choose what to follow"
+                  description="Follow teachers, topics, series, venues, or collections to see their latest shiurim here."
                 >
                   <button
                     className="primary-button"
@@ -1406,44 +1408,6 @@ export function LearningHome(props: Props) {
                   </div>
                 </section>
               )}
-              <section className="learning-goal-band">
-                <span
-                  className="goal-ring"
-                  style={{ '--goal': goalProgress } as React.CSSProperties}
-                  aria-hidden="true"
-                >
-                  <Target size={24} />
-                </span>
-                <div className="learning-goal-copy">
-                  <h2>A little learning, every day.</h2>
-                  <p>
-                    {stats.streak
-                      ? `${stats.streak} day streak. Keep it going.`
-                      : 'Set a small goal. Make time to return.'}
-                  </p>
-                </div>
-                <div className="learning-goal-progress">
-                  <strong>
-                    {Math.floor(stats.today / 60)}
-                    <span> / {library.dailyGoal} min today</span>
-                  </strong>
-                  <progress
-                    aria-label="Daily learning goal"
-                    value={Math.min(stats.today / 60, library.dailyGoal)}
-                    max={library.dailyGoal}
-                  />
-                  <small>
-                    {Math.floor(stats.weekSeconds / 60)} minutes this week
-                  </small>
-                </div>
-                <button
-                  className="outline-button"
-                  onClick={() => setPreferences(true)}
-                >
-                  Set your goal
-                  <ArrowRight size={15} />
-                </button>
-              </section>
               <p className="learning-local-note">
                 Your library stays on this device and syncs across devices when
                 you sign in.
@@ -1461,27 +1425,6 @@ export function LearningHome(props: Props) {
             </DialogDescription>
           </DialogHeader>
           <div className="preferences-body">
-            <section>
-              <h3>
-                <Target size={18} />
-                Your daily listening goal
-              </h3>
-              <p>Count time spent listening, starting today.</p>
-              <div className="goal-options">
-                {[5, 10, 15, 20, 30, 45, 60].map((value) => (
-                  <button
-                    key={value}
-                    aria-pressed={library.dailyGoal === value}
-                    onClick={() =>
-                      update((old) => ({ ...old, dailyGoal: value }))
-                    }
-                  >
-                    {value}
-                    <span>min</span>
-                  </button>
-                ))}
-              </div>
-            </section>
             <section>
               <h3>
                 <Users size={18} />

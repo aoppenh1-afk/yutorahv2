@@ -115,9 +115,7 @@
 }
 
 .home-hero,
-.m-hero,
-.learning-goal-band,
-.m-goal {
+.m-hero {
   background: var(--panel);
 }
 

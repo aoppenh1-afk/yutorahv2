@@ -1,8 +1,9 @@
 # Teacher notifications
 
 Google sign-in syncs teacher follows across devices. Notifications are opt-in
-on each device. Saved shiurim, playlists, listening progress, topics, and series
-remain in browser storage. Browsing and local follows work without signing in.
+on each device. The account library also syncs saved shiurim, playlists, listening
+progress, and topic, series, venue and collection follows. Browsing and local
+follows work without signing in. See [Account library sync](account-library-sync.md).
 
 The dedicated Supabase Free project is `spdyqnkbuvszhnethmke`, named
 `yutorah-notifications`. Its dashboard is
@@ -20,8 +21,8 @@ can send alerts. Turning off a teacher's alerts keeps the follow and clears
 pending notifications. Turning them back on does not replay muted uploads.
 Signing out unsubscribes that device.
 
-Default speed in Settings starts each new shiur at the selected pace. It stays
-on this device. Changing speed in the player applies to that recording without
+Default speed in Settings starts each new shiur at the selected pace and syncs
+with the account library. Changing speed in the player applies to that recording without
 replacing the default.
 
 On iPhone or iPad, use iOS/iPadOS 16.4 or later. Open the website in Safari,

@@ -240,7 +240,9 @@ function NavItem({
         isActive={active}
         onPointerEnter={() => {
           if (label === labels.browse)
-            void import('./library-browser').catch(() => {});
+            void import('./library-browser')
+              .then((m) => m.prefetchCatalogDirectories())
+              .catch(() => {});
           if (
             [
               labels.teachers,
@@ -255,7 +257,9 @@ function NavItem({
         }}
         onFocus={() => {
           if (label === labels.browse)
-            void import('./library-browser').catch(() => {});
+            void import('./library-browser')
+              .then((m) => m.prefetchCatalogDirectories())
+              .catch(() => {});
           if (
             [
               labels.teachers,
@@ -684,15 +688,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         window.history.replaceState({}, '', '/?view=browse');
         return;
       }
-      if (
-        [
-          'teacher',
-          'series',
-          'topic',
-          'venue',
-          'collection',
-        ].includes(kind)
-      )
+      if (['teacher', 'series', 'topic', 'venue', 'collection'].includes(kind))
         setCatalogKind(kind);
       else if (['teachers', 'series', 'topics'].includes(v))
         setCatalogKind(
@@ -841,7 +837,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       (f) => (f.kind === 'teacher') === (item.kind === 'teacher'),
     );
     if (!exists && sameGroup.length >= 100) {
-      notify('You can follow up to 100 teachers and 100 topics or series.');
+      notify(
+        'You can follow up to 100 teachers and 100 other library sources.',
+      );
       return;
     }
     update((old) => ({
@@ -2457,6 +2455,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           {['browse', 'teachers', 'series', 'topics'].includes(view) && (
             <ScreenBoundary>
               <LibraryBrowser
+                directory={directory}
+                directoryError={directoryError}
+                retryDirectory={loadDirectory}
                 kind={catalogKind}
                 initialQuery={catalogQuery}
                 onKind={(kind) => openCatalog(kind)}
@@ -2801,7 +2802,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                   />
                 </ScreenBoundary>
               ) : null}
-              {detail.topicPaths?.length || detail.venue || detail.uploadedAt ? (
+              {detail.topicPaths?.length ||
+              detail.venue ||
+              detail.uploadedAt ? (
                 <details className="detail-attribution">
                   <summary>Topics & recording details</summary>
                   {detail.topicPaths?.map((t) => (

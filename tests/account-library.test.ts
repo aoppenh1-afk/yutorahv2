@@ -148,7 +148,17 @@ void test('every study-library field round trips, with recording metadata stored
     volume: 0.5,
     dailyGoal: 30,
     learningDays: { '2026-10-11': 60 },
-    following: [{ kind: 'topic', id: 4, name: 'Halacha' }],
+    following: [
+      { kind: 'topic', id: 4, name: 'Halacha' },
+      { kind: 'series', id: 5, name: 'Series' },
+      { kind: 'venue', id: 6, name: 'Venue' },
+      {
+        kind: 'collection',
+        id: 7,
+        name: 'Collection',
+        image: 'https://example.test/collection.jpg',
+      },
+    ],
     hidden: [9],
     completed: [10],
     savedSearches: [

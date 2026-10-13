@@ -32,7 +32,6 @@ import {
   type Shiur,
 } from '@/lib/yutorah';
 import type { LibraryState } from '@/lib/library';
-import { learningStats } from '@/lib/learning';
 
 type Subject = {
   key: string;
@@ -104,7 +103,6 @@ export function MobileDiscover({
   const [query, setQuery] = useState('');
   const [feed, setFeed] = useState('recommended');
   const [shown, setShown] = useState(5);
-  const stats = learningStats(library.learningDays);
   const shelfSeries = useSeriesWithArt(
     [...(home?.series || []), ...(directory?.series || [])],
     8,
@@ -157,7 +155,6 @@ export function MobileDiscover({
     </div>
   );
   const savedPick = !!pick && library.saved.some((s) => s.id === pick.id);
-  const goal = Math.min(1, stats.today / 60 / (library.dailyGoal || 1));
   const daily = home
     ? [
         ['This week’s parsha', home.parsha || ''],
@@ -492,28 +489,15 @@ export function MobileDiscover({
         </section>
       )}
 
-      <section className="m-goal">
-        <span
-          className="goal-ring"
-          style={{ '--goal': goal } as React.CSSProperties}
-          aria-hidden="true"
+      <div className="m-preferences">
+        <button
+          className="text-button"
+          onClick={onPreferences}
+          aria-label="Learning preferences"
         >
-          <strong>{Math.floor(stats.today / 60)}</strong>
-        </span>
-        <div>
-          <h2>
-            {Math.floor(stats.today / 60)} of {library.dailyGoal} minutes today
-          </h2>
-          <p>
-            {stats.streak
-              ? `${stats.streak} day streak. Keep it going.`
-              : 'A little learning, every day.'}
-          </p>
-        </div>
-        <button onClick={onPreferences} aria-label="Learning preferences">
-          <Settings2 size={18} />
+          <Settings2 size={16} /> Follows & interests
         </button>
-      </section>
+      </div>
       <p className="m-local-note">
         Your saved shiurim, progress, and follows stay on this device.
       </p>

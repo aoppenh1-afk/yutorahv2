@@ -7,22 +7,17 @@ import {
   type CatalogKind,
 } from '@/lib/catalog';
 import { dafTractates } from '@/lib/daf';
-const kinds = [
-  'teacher',
-  'series',
-  'topic',
-  'venue',
-  'publication',
-  'collection',
-];
+const kinds = ['teacher', 'series', 'topic', 'venue', 'collection'];
 export async function GET(request: Request) {
   const p = new URL(request.url).searchParams;
   const action = p.get('action') || 'directory',
     kind = p.get('kind') as CatalogKind;
   try {
     let data: unknown;
-    if (action === 'facets') data = await catalogDictionary();
-    else if (action === 'daf') {
+    if (action === 'facets') {
+      const dictionary = await catalogDictionary();
+      data = { ...dictionary, publications: [], volumes: [] };
+    } else if (action === 'daf') {
       const tractate = p.get('tractate') || '',
         page = Number(p.get('page')),
         side = p.get('side');

@@ -1,4 +1,5 @@
 import { naturalSearch } from './natural-search';
+import { orderedTopicGroups } from './topic-groups';
 import { viewCount } from './view-count';
 import { searchText, teacherMention } from './search-discovery';
 import {
@@ -585,7 +586,7 @@ export async function getDirectory(): Promise<Directory> {
           description: plain(s.description),
         })),
     ),
-    groups: categories.map((c) => c.shortName || c.name),
+    groups: orderedTopicGroups(categories.map((c) => c.shortName || c.name)),
   };
   directorySnapshot = { until: Date.now() + 3600000, data };
   return data;

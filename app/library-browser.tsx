@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
-  BookOpen,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -20,7 +19,7 @@ import type {
   CollectionData,
   DafData,
 } from '@/lib/catalog';
-import type { Shiur } from '@/lib/yutorah';
+import type { Shiur, Directory } from '@/lib/yutorah';
 import type { LibraryState } from '@/lib/library';
 import type { Follow } from '@/lib/learning';
 import { isLearned } from '@/lib/learning';
@@ -29,6 +28,16 @@ import { dafTractates, type DafSelection } from '@/lib/daf';
 import { Avatar, StatePanel, tone } from './ui';
 import { FollowButton } from './follow-button';
 import { PagedItems } from './paged-items';
+import { TopicCard } from './topic-card';
+import { CatalogCover } from './catalog-cover';
+import { orderedTopicGroups } from '@/lib/topic-groups';
+import {
+  cachedCatalogResource,
+  invalidateCatalogResource,
+  loadCatalogResource,
+  prefetchCatalogDirectories,
+} from '@/lib/catalog-client';
+export { prefetchCatalogDirectories } from '@/lib/catalog-client';
 
 export const catalogLabels: Record<CatalogKind, string> = {
   teacher: 'Teachers',
@@ -39,34 +48,47 @@ export const catalogLabels: Record<CatalogKind, string> = {
 };
 const kinds = Object.keys(catalogLabels) as CatalogKind[];
 function useCatalog<T>(params: Record<string, string>) {
-  const query = new URLSearchParams(params).toString();
-  const [data, setData] = useState<T | null>(null),
-    [error, setError] = useState(''),
-    [loading, setLoading] = useState(true),
-    [retry, setRetry] = useState(0);
+  const url = '/api/catalog?' + new URLSearchParams(params).toString();
+  const cached = cachedCatalogResource<T>(url);
+  const [state, setState] = useState<{
+    url: string;
+    data: T | null;
+    error: string;
+    loading: boolean;
+  }>(() => ({
+    url,
+    data: cached ?? null,
+    error: '',
+    loading: cached === undefined,
+  }));
+  const [retry, setRetry] = useState(0);
+  const current =
+    state.url === url
+      ? state
+      : { url, data: cached ?? null, error: '', loading: cached === undefined };
   useEffect(() => {
-    const abort = new AbortController();
-    setData(null);
-    setError('');
-    setLoading(true);
-    fetch('/api/catalog?' + query, { signal: abort.signal })
-      .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || 'This page could not load.');
-        return d as T;
-      })
+    let active = true;
+    const hit = cachedCatalogResource<T>(url);
+    setState({ url, data: hit ?? null, error: '', loading: hit === undefined });
+    loadCatalogResource<T>(url)
       .then((d) => {
-        if (!abort.signal.aborted) setData(d);
+        if (active) setState({ url, data: d, error: '', loading: false });
       })
       .catch((e) => {
-        if (!abort.signal.aborted) setError(e.message);
-      })
-      .finally(() => {
-        if (!abort.signal.aborted) setLoading(false);
+        if (active)
+          setState({ url, data: null, error: e.message, loading: false });
       });
-    return () => abort.abort();
-  }, [query, retry]);
-  return { data, error, loading, retry: () => setRetry((n) => n + 1) };
+    return () => {
+      active = false;
+    };
+  }, [url, retry]);
+  return {
+    ...current,
+    retry: () => {
+      invalidateCatalogResource(url);
+      setRetry((n) => n + 1);
+    },
+  };
 }
 type Shared = {
   library: LibraryState;
@@ -122,6 +144,22 @@ function Entries({
         ))}
       </div>
     );
+  if (kind === 'topic') {
+    return (
+      <div className="catalog-grid catalog-topic">
+        {entries.map((e) => (
+          <TopicCard
+            key={e.id + '-' + e.group}
+            topic={e}
+            heading="h2"
+            onOpen={() => onOpen(kind, e.id)}
+            library={library}
+            follow={follow}
+          />
+        ))}
+      </div>
+    );
+  }
   return (
     <div className={'catalog-grid catalog-' + kind}>
       {entries.map((e) => (
@@ -130,9 +168,7 @@ function Entries({
             className="catalog-card-main"
             onClick={() => onOpen(kind, e.id)}
           >
-            <span className="catalog-card-icon">
-              <BookOpen size={23} />
-            </span>
+            <CatalogCover kind={kind} id={e.id} image={e.image} />
             <div>
               {e.path && (
                 <span className="catalog-path">
@@ -145,13 +181,11 @@ function Entries({
                   {e.description}
                 </p>
               )}
-              <span>
-                {e.count.toLocaleString()} shiurim
-              </span>
+              <span>{e.count.toLocaleString()} shiurim</span>
             </div>
             <ArrowRight size={17} />
           </button>
-          {['teacher', 'series', 'topic'].includes(kind) && (
+          {
             <FollowButton
               follow={{
                 kind: kind as Follow['kind'],
@@ -162,13 +196,180 @@ function Entries({
               library={library}
               onFollow={follow}
             />
-          )}
+          }
         </article>
       ))}
     </div>
   );
 }
-export function LibraryBrowser({
+function CatalogHeading({
+  kind,
+  onKind,
+}: {
+  kind: CatalogKind;
+  onKind: (k: CatalogKind) => void;
+}) {
+  return (
+    <>
+      <div className="view-heading">
+        <div className="eyebrow">Explore the library</div>
+        <h1>Browse.</h1>
+        <p>
+          Find a teacher, follow a subject, or learn your way through a
+          collection.
+        </p>
+      </div>
+      <nav className="catalog-tabs" aria-label="Library sections">
+        {kinds.map((k) => (
+          <button
+            key={k}
+            aria-current={kind === k ? 'page' : undefined}
+            onClick={() => onKind(k)}
+          >
+            {catalogLabels[k]}
+          </button>
+        ))}
+      </nav>
+    </>
+  );
+}
+type BrowserProps = Shared & {
+  kind: CatalogKind;
+  onKind: (k: CatalogKind) => void;
+  initialQuery?: string;
+  directory: Directory | null;
+  directoryError: string;
+  retryDirectory: () => void;
+};
+export function LibraryBrowser(props: BrowserProps) {
+  useEffect(() => {
+    prefetchCatalogDirectories();
+  }, []);
+  return props.kind === 'topic' ? (
+    <TopicsBrowser {...props} />
+  ) : (
+    <PagedBrowser key={props.kind} {...props} />
+  );
+}
+function TopicsBrowser({
+  directory,
+  directoryError,
+  retryDirectory,
+  initialQuery = '',
+  ...props
+}: BrowserProps) {
+  const [query, setQuery] = useState(initialQuery),
+    [group, setGroup] = useState('all'),
+    [limit, setLimit] = useState(36);
+  useEffect(() => {
+    setQuery(initialQuery);
+    setLimit(36);
+  }, [initialQuery]);
+  const groups = orderedTopicGroups(directory?.groups || []);
+  const groupRank = new Map(groups.map((g, i) => [g, i]));
+  const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const entries = (directory?.topics || [])
+    .filter(
+      (t) =>
+        (group === 'all' || t.group === group) &&
+        words.every((word) =>
+          [t.name, ...(t.path || [t.group])]
+            .join(' ')
+            .toLocaleLowerCase()
+            .includes(word),
+        ),
+    )
+    .sort(
+      (a, b) =>
+        (groupRank.get(a.group) ?? groups.length) -
+          (groupRank.get(b.group) ?? groups.length) || b.count - a.count,
+    );
+  const chooseGroup = (g: string) => {
+    setGroup(g);
+    setLimit(36);
+  };
+  const cards = (list: CatalogEntry[], heading: 'h2' | 'h3') =>
+    list.map((t) => (
+      <TopicCard
+        key={t.id + '-' + t.group}
+        topic={t}
+        heading={heading}
+        onOpen={() => props.onOpen('topic', t.id)}
+        library={props.library}
+        follow={props.follow}
+      />
+    ));
+  return (
+    <section className="catalog-view">
+      <CatalogHeading kind="topic" onKind={props.onKind} />
+      <div className="catalog-toolbar">
+        <label className="catalog-search">
+          <Search size={18} />
+          <input
+            type="search"
+            aria-label="Find topics"
+            placeholder="Find topics…"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setLimit(36);
+            }}
+          />
+        </label>
+        <span aria-live="polite">
+          {directory
+            ? entries.length.toLocaleString() +
+              (entries.length === 1 ? ' topic' : ' topics')
+            : ''}
+        </span>
+      </div>
+      {directoryError ? (
+        <StatePanel
+          title="The directory could not load"
+          description={directoryError}
+          action="Try again"
+          onAction={retryDirectory}
+        />
+      ) : !directory ? (
+        <Loading />
+      ) : (
+        <>
+          <div className="topic-groups" aria-label="Subjects">
+            {['all', ...groups].map((g) => (
+              <button
+                key={g}
+                aria-pressed={group === g}
+                onClick={() => chooseGroup(g)}
+              >
+                {g === 'all' ? 'All subjects' : g}
+              </button>
+            ))}
+          </div>
+          <div className="catalog-grid catalog-topic">
+            {cards(entries.slice(0, limit), 'h2')}
+          </div>
+          {!entries.length && (
+            <StatePanel
+              title="No matches"
+              description="Try another name or subject."
+            />
+          )}
+          {entries.length > limit && (
+            <div className="load-more">
+              <button
+                className="outline-button"
+                onClick={() => setLimit((n) => n + 36)}
+              >
+                Show more topics <ArrowRight size={16} />
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+function PagedBrowser({
   kind,
   onKind,
   initialQuery = '',
@@ -214,25 +415,7 @@ export function LibraryBrowser({
   }, [result.data, offset]);
   return (
     <section className="catalog-view">
-      <div className="view-heading">
-        <div className="eyebrow">Explore the library</div>
-        <h1>Browse.</h1>
-        <p>
-          Find a teacher, follow a subject, or learn your way through a
-          collection.
-        </p>
-      </div>
-      <nav className="catalog-tabs" aria-label="Library sections">
-        {kinds.map((k) => (
-          <button
-            key={k}
-            aria-current={kind === k ? 'page' : undefined}
-            onClick={() => onKind(k)}
-          >
-            {catalogLabels[k]}
-          </button>
-        ))}
-      </nav>
+      <CatalogHeading kind={kind} onKind={onKind} />
       <div className="catalog-toolbar">
         <label className="catalog-search">
           <Search size={18} />
@@ -265,14 +448,19 @@ export function LibraryBrowser({
         />
       ) : (
         <>
-          <Entries entries={entries} kind={kind} {...props} />
+          <Entries
+            entries={offset === 0 ? result.data?.entries || [] : entries}
+            kind={kind}
+            {...props}
+          />
           {result.loading && <Loading />}
-          {!result.loading && !entries.length && (
-            <StatePanel
-              title="No matches"
-              description="Try another name or subject."
-            />
-          )}
+          {!result.loading &&
+            !(offset === 0 ? result.data?.entries.length : entries.length) && (
+              <StatePanel
+                title="No matches"
+                description="Try another name or subject."
+              />
+            )}
           {result.data?.next !== null && result.data?.next !== undefined && (
             <button
               className="load-more"
@@ -338,17 +526,17 @@ export function EntityPage({
         <ArrowLeft size={16} /> {catalogLabels[kind]}
       </button>
       <header className="catalog-profile">
-        {kind === 'teacher' && <Avatar src={d.image} name={d.name} />}
+        {kind === 'teacher' ? (
+          <Avatar src={d.image} name={d.name} />
+        ) : (
+          d.image && <CatalogCover kind={kind} id={id} image={d.image} large />
+        )}
         <div>
           <div className="eyebrow">
             {kind === 'teacher' ? 'Torah educator' : catalogLabels[kind]}
           </div>
           <h1 dir="auto">{d.name}</h1>
-          {d.count > 0 && (
-            <p>
-              {d.count.toLocaleString()} shiurim
-            </p>
-          )}
+          {d.count > 0 && <p>{d.count.toLocaleString()} shiurim</p>}
           {d.description && (
             <p className="catalog-bio" dir="auto">
               {d.description}
@@ -367,7 +555,7 @@ export function EntityPage({
               <Search size={16} /> Search{' '}
               {kind === 'teacher' ? 'this teacher' : 'this ' + kind}
             </button>
-            {['teacher', 'series', 'topic'].includes(kind) && (
+            {
               <FollowButton
                 follow={{
                   kind: kind as Follow['kind'],
@@ -378,7 +566,7 @@ export function EntityPage({
                 library={props.library}
                 onFollow={props.follow}
               />
-            )}
+            }
           </div>
         </div>
       </header>
@@ -451,7 +639,7 @@ export function CollectionPage({ id, ...props }: Shared & { id: number }) {
       />
     );
   const d = result.data,
-    completed = d.items.filter((s) => isLearned(s, props.library)).length,
+    hasLearned = d.items.some((s) => isLearned(s, props.library)),
     next = d.items.find((s) => !isLearned(s, props.library));
   return (
     <section className="catalog-view">
@@ -462,9 +650,7 @@ export function CollectionPage({ id, ...props }: Shared & { id: number }) {
         <ArrowLeft size={16} /> Collections
       </button>
       <header className="catalog-profile">
-        <div className="catalog-course-mark">
-          <BookOpen size={40} />
-        </div>
+        <CatalogCover kind="collection" id={id} image={d.image} large />
         <div>
           <div className="eyebrow">YUTorah collection</div>
           <h1 dir="auto">{d.name}</h1>
@@ -492,7 +678,7 @@ export function CollectionPage({ id, ...props }: Shared & { id: number }) {
                 onClick={() => props.onPlay(next)}
               >
                 <Play size={16} />{' '}
-                {completed ? 'Continue learning' : 'Start learning'}
+                {hasLearned ? 'Continue learning' : 'Start learning'}
               </button>
             )}
             <button
@@ -501,16 +687,11 @@ export function CollectionPage({ id, ...props }: Shared & { id: number }) {
             >
               <ListPlus size={16} /> Queue collection
             </button>
-          </div>
-          <div className="collection-progress">
-            <progress
-              max={d.count || 1}
-              value={completed}
-              aria-label="Collection learning progress"
+            <FollowButton
+              follow={{ kind: 'collection', id, name: d.name, image: d.image }}
+              library={props.library}
+              onFollow={props.follow}
             />
-            <span>
-              {completed} of {d.count} learned
-            </span>
           </div>
         </div>
       </header>

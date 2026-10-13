@@ -91,7 +91,7 @@ async function memo<T>(
   ttl = 300_000,
 ): Promise<T> {
   const hit = cache.get(key);
-  if (hit) return hit as T;
+  if (hit !== undefined) return hit as T;
   let request = pending.get(key);
   if (!request) {
     if (pending.size >= 24)
@@ -165,6 +165,7 @@ export function catalogFacets(value: unknown): CatalogFacets {
         id: Number(x[id]),
         name: plain(x[name]),
         count: Number(x.Match) || 0,
+        image: safeUrl(x.imageURL),
         ...(kind === 'volumes' ? { group: plain(x.PublicationName) } : {}),
       }))
       .filter((x) => Number.isSafeInteger(x.id) && x.id > 0 && x.name);
@@ -274,6 +275,7 @@ function rawLandingEntries(value: unknown): CatalogEntry[] {
       id: Number(x.typeID),
       name: plain(x.typeName),
       count: Number(x.numShiurim) || 0,
+      image: safeUrl(x.imageURL),
     }))
     .filter((x) => x.id > 0 && x.name);
 }
@@ -364,7 +366,30 @@ export async function catalogLanding(
       ['venues', 'venues'],
       ['collections', 'collections'],
     ] as const)
-      facets[key] = rawLandingEntries(detail?.[field]);
+      facets[key] = rawLandingEntries(detail?.[field]).map((e) => {
+        const topic =
+          key === 'topics'
+            ? directory.topics.find((t) => t.id === e.id)
+            : undefined;
+        return {
+          ...e,
+          ...(topic
+            ? {
+                group: topic.group,
+                path: topic.path,
+                description: topic.description,
+              }
+            : {}),
+          image:
+            e.image ||
+            (key === 'teachers'
+              ? directory.teachers
+              : key === 'series'
+                ? directory.series
+                : []
+            ).find((x) => x.id === e.id)?.image,
+        };
+      });
     return {
       kind,
       id,
@@ -402,11 +427,45 @@ export async function shiurCollections(ids: number[]): Promise<CatalogEntry[]> {
   );
   if (raw.isError || !Array.isArray(raw.data))
     throw new Error('Collections could not load.');
+  const directory = await getDirectory();
   return raw.data.map((x) => ({
     id: Number(x.ID),
     name: plain(x.name),
     count: Array.isArray(x.shiurList) ? x.shiurList.length : 0,
+    image: collectionImage(x.imageURL, directory),
   }));
+}
+/** Resolve YUTorah's legacy ///filename using the matching catalog asset. */
+export function collectionImage(
+  value: unknown,
+  directory: Awaited<ReturnType<typeof getDirectory>>,
+): string {
+  if (typeof value !== 'string') return '';
+  if (value.startsWith('///')) {
+    const filename = value.slice(3);
+    if (!/^[\w.-]+$/.test(filename)) return '';
+    return (
+      [...directory.teachers, ...directory.series].find((e) =>
+        e.image.endsWith('/' + filename),
+      )?.image || ''
+    );
+  }
+  return safeUrl(value);
+}
+export async function catalogCollectionArtwork(id: number): Promise<string> {
+  return memo(
+    'collection-art:' + id,
+    async () => {
+      const raw = await upstream<Record<string, unknown>>(
+        'collections/get?collectionID=' + id,
+        600,
+      );
+      if (Number(raw.collectionID) !== id)
+        throw new Error('Collection not found.');
+      return collectionImage(raw.collectionImageURL, await getDirectory());
+    },
+    3_600_000,
+  );
 }
 export async function catalogCollection(id: number): Promise<CollectionData> {
   return memo(`collection:${id}`, async () => {
@@ -421,7 +480,15 @@ export async function catalogCollection(id: number): Promise<CollectionData> {
       throw new Error('This collection could not be found.');
     const directory = await getDirectory();
     const items = records(raw.collectionShiurim)
-      .map((s) => enrichShiur(normalize(s as RawShiur), directory))
+      .map((s) => {
+        const item = enrichShiur(normalize(s as RawShiur), directory);
+        if (!item.collections?.some((c) => c.id === id))
+          item.collections = [
+            ...(item.collections || []),
+            { id, name: plain(raw.collectionTitle) },
+          ];
+        return item;
+      })
       .sort((a, b) => Date.parse(a.date) - Date.parse(b.date) || a.id - b.id);
     const teacherId = items[0]?.teacherId;
     let related: CatalogEntry[] = [];
@@ -437,7 +504,7 @@ export async function catalogCollection(id: number): Promise<CollectionData> {
       id,
       name: plain(raw.collectionTitle),
       description: plain(raw.collectionDescription),
-      image: items[0]?.image || '',
+      image: collectionImage(raw.collectionImageURL, directory),
       count: items.length,
       teacherId,
       items,
