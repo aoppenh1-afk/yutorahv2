@@ -670,6 +670,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
       { height: 800 },
       { height: 2000 },
       { height: 2000, sectionGap: 2600 },
+      { height: 6000 },
     ]) {
       await t.test(
         `Home shows saved Trending and defers scans until scrolling near its section at ${height}px height${sectionGap ? ' with extra content above Trending' : ''}`,
@@ -710,6 +711,11 @@ void test('player controls stop playback and the phone dialog stays inside the b
           );
           try {
             const section = page.locator('.trending-section');
+            // Sparse Home fixtures can fit entirely inside a tall viewport.
+            // Give the page scroll range so the test exercises a real scroll event.
+            await page.addStyleTag({
+              content: '.app-body { min-height: calc(100dvh + 100px); }',
+            });
             if (sectionGap) {
               // Keep Trending below even a tall viewport to cover layout variation.
               await page.addStyleTag({
@@ -721,6 +727,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             assert.equal(savedRequests, 1, 'Home reads the saved chart once');
             assert.equal(discoveryRequests, 0, 'initial Home defers scanning');
             await page.evaluate(() => window.scrollTo(0, 1));
+            await page.waitForFunction(() => window.scrollY > 0);
             if (height === 800 || sectionGap) {
               await page.waitForTimeout(100);
               assert.equal(
