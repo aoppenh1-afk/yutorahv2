@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { XMLParser } from 'fast-xml-parser';
-import { followsToImport, mergeTeacherFollows } from '../lib/account-follows';
+import {
+  followsToImport,
+  mergeTeacherFollows,
+  teacherFollowImage,
+} from '../lib/account-follows';
 import {
   catalogItems,
   rssItems,
@@ -21,6 +25,48 @@ const remote = {
   image: null,
   following: true,
 };
+void test('cloud follows without a photo retain the teacher portrait for notification settings', () => {
+  const image =
+    'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/teacher.jpg';
+  const local = { ...teacher, image };
+  const merged = mergeTeacherFollows([local], [remote], {});
+  assert.equal(merged[0].image, image);
+});
+void test('notification settings recover missing and stale saved portraits from the directory by teacher ID', () => {
+  const image =
+    'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/teacher.jpg';
+  const directory = [
+    { id: teacher.id, image },
+    { id: 2, image: 'other.jpg' },
+  ];
+  assert.equal(teacherFollowImage(teacher, directory), image);
+  assert.equal(
+    teacherFollowImage({ ...teacher, image: 'stale.jpg' }, directory),
+    image,
+  );
+  assert.equal(teacherFollowImage({ ...teacher, image }, []), image);
+  assert.equal(teacherFollowImage({ ...teacher, id: 3 }, directory), '');
+  assert.equal(
+    teacherFollowImage({ ...teacher, image }, [{ id: teacher.id, image: '' }]),
+    image,
+  );
+});
+void test('cloud portrait updates win while remote unfollows remain removed', () => {
+  const local = { ...teacher, image: 'local.jpg' };
+  assert.equal(
+    mergeTeacherFollows([local], [{ ...remote, image: 'updated.jpg' }], {})[0]
+      .image,
+    'updated.jpg',
+  );
+  assert.equal(
+    mergeTeacherFollows([local], [{ ...remote, image: '' }], {})[0].image,
+    'local.jpg',
+  );
+  assert.deepEqual(
+    mergeTeacherFollows([local], [{ ...remote, following: false }], {}),
+    [],
+  );
+});
 void test('cloud teacher follows do not discard this device’s topic and series follows', () => {
   const teachers = Array.from({ length: 100 }, (_, i) => ({
     teacher_id: i + 1,

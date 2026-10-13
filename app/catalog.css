@@ -285,14 +285,26 @@
   font-weight: 400;
 }
 .daf-recordings .shiur-row {
-  flex-wrap: wrap;
   padding: 18px 0;
 }
+.daf-recordings .shiur-row:not(.mobile-shiur-row) {
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: start;
+  row-gap: 12px;
+}
 .daf-recordings .row-actions {
-  margin-left: auto;
+  grid-column: 2;
+  flex-wrap: wrap;
+  margin-left: 0;
 }
 .daf-recordings .row-content {
-  flex-basis: 65%;
+  padding-right: 60px;
+}
+.daf-recordings .row-play {
+  position: absolute;
+  top: 18px;
+  right: 0;
+  margin-left: 0;
 }
 .daf-recordings .row-meta {
   font-size: 11px;

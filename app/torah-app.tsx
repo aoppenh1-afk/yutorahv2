@@ -1372,6 +1372,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         open={accountOpen}
         onOpenChange={setAccountOpen}
         teachers={library.following.filter((f) => f.kind === 'teacher')}
+        directory={directory}
         defaultSpeed={library.defaultSpeed}
         onSpeedChange={(speed) =>
           update((old) => ({ ...old, defaultSpeed: speed, speed }))
@@ -1431,19 +1432,27 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                     active={
                       view === item.view ||
                       (item.view === 'browse' &&
-                        [
+                        ([
                           'teachers',
                           'series',
                           'topics',
                           'entity',
                           'collection',
-                          'daf',
-                        ].includes(view))
+                        ].includes(view) ||
+                          (isMobile && view === 'daf')))
                     }
                     shortcut={item.view === 'search'}
                     onClick={() => navigate(item.view)}
                   />
                 ))}
+                {!isMobile && (
+                  <NavItem
+                    icon={BookOpen}
+                    label="Daf Yomi"
+                    active={view === 'daf'}
+                    onClick={() => navigate('daf')}
+                  />
+                )}
               </SidebarMenu>
             </SidebarGroup>
             <SidebarGroup>
@@ -2233,6 +2242,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                             follow={{
                               kind: 'teacher',
                               id: results.plan.teacherId,
+                              image: directory?.teachers.find(
+                                (t) => t.id === results.plan.teacherId,
+                              )?.image,
                               name:
                                 results.plan.teacherName ||
                                 directory?.teachers.find(

@@ -112,7 +112,7 @@
   color: var(--ink);
   font-weight: 600;
 }
-.home-hero-byline span::before {
+.home-hero-byline > span:not(:empty)::before {
   content: '·';
   margin-right: 8px;
 }
@@ -171,6 +171,7 @@
 }
 .home-hero-portrait {
   grid-area: portrait;
+  align-self: center;
   margin: 0;
   width: clamp(180px, 16vw, 248px);
   aspect-ratio: 240 / 280;

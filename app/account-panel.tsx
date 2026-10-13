@@ -24,6 +24,8 @@ import {
 } from '@/components/ui/select';
 import type { useAccount } from '@/lib/use-account';
 import type { Follow } from '@/lib/learning';
+import type { Directory } from '@/lib/yutorah';
+import { teacherFollowImage } from '@/lib/account-follows';
 import { PLAYBACK_SPEEDS } from '@/lib/playback-speed';
 import Link from 'next/link';
 import { Avatar } from './ui';
@@ -59,6 +61,7 @@ export function AccountPanel({
   open,
   onOpenChange,
   teachers,
+  directory,
   defaultSpeed,
   onSpeedChange,
   onTeacherNotificationsChange,
@@ -68,6 +71,7 @@ export function AccountPanel({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   teachers: Follow[];
+  directory: Directory | null;
   defaultSpeed: number;
   onSpeedChange: (speed: number) => void;
   onTeacherNotificationsChange: (teacher: Follow, enabled: boolean) => void;
@@ -293,7 +297,13 @@ export function AccountPanel({
                 <div className="teacher-notification-list">
                   {teachers.map((teacher) => (
                     <div className="teacher-notification-row" key={teacher.id}>
-                      <Avatar src={teacher.image || ''} name={teacher.name} />
+                      <Avatar
+                        src={teacherFollowImage(
+                          teacher,
+                          directory?.teachers ?? [],
+                        )}
+                        name={teacher.name}
+                      />
                       <div className="teacher-notification-name">
                         <strong dir="auto">{teacher.name}</strong>
                         <span>

@@ -14,6 +14,17 @@ export type FollowIntent = {
 };
 export type FollowIntents = Record<string, FollowIntent>;
 
+export function teacherFollowImage(
+  follow: Follow,
+  teachers: readonly { id: number; image: string }[],
+): string {
+  return (
+    teachers.find((teacher) => teacher.id === follow.id)?.image ||
+    follow.image ||
+    ''
+  );
+}
+
 export function mergeTeacherFollows(
   local: Follow[],
   remote: RemoteFollow[],
@@ -26,7 +37,11 @@ export function mergeTeacherFollows(
         kind: 'teacher',
         id: f.teacher_id,
         name: f.teacher_name,
-        image: f.image ?? undefined,
+        image:
+          f.image ||
+          local.find(
+            (follow) => follow.kind === 'teacher' && follow.id === f.teacher_id,
+          )?.image,
         ...(typeof f.notifications_enabled === 'boolean'
           ? { notificationsEnabled: f.notifications_enabled }
           : {}),
