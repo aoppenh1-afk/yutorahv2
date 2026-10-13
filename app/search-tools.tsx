@@ -60,6 +60,7 @@ export function SearchPresets({
             after: date.toISOString().slice(0, 10),
             before: '',
             sort: 'new',
+            dateBasis: 'uploaded',
           });
         }}
       >

@@ -1,5 +1,12 @@
 import type { RawShiur } from '@/lib/api-types';
-import { normalize, upstream, plain, safeUrl } from '@/lib/yutorah';
+import {
+  normalize,
+  upstream,
+  plain,
+  safeUrl,
+  getDirectory,
+} from '@/lib/yutorah';
+import { catalogVenues, shiurCollections } from '@/lib/catalog';
 import { getShiurViews } from '@/lib/shiur-views';
 export async function GET(request: Request) {
   const id = new URL(request.url).searchParams.get('id');
@@ -16,6 +23,30 @@ export async function GET(request: Request) {
         { status: 404 },
       );
     const shiur = normalize(raw);
+    const [directory, collections] = await Promise.all([
+      getDirectory().catch(() => null),
+      shiurCollections([shiur.id]).catch(() => null),
+    ]);
+    if (directory) {
+      shiur.series ||=
+        directory.series.find((s) => s.id === shiur.seriesId)?.name || '';
+      shiur.topicPaths = (shiur.topicIds || []).flatMap((id) => {
+        const t = directory.topics.find((t) => t.id === id);
+        return t
+          ? [{ id, name: t.name, group: t.group, branch: t.branch }]
+          : [];
+      });
+      if (shiur.topicPaths.length) {
+        shiur.topics = shiur.topicPaths.map((t) => t.name);
+        shiur.category = shiur.topicPaths[0].group;
+      }
+    }
+    if (collections) shiur.collections = collections;
+    if (shiur.venueId && !shiur.venue)
+      shiur.venue =
+        (await catalogVenues().catch(() => [])).find(
+          (v) => v.id === shiur.venueId,
+        )?.name || '';
     if (shiur.views === undefined) {
       const views = await getShiurViews([shiur.id]);
       shiur.views = views[shiur.id];

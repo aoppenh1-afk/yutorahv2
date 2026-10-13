@@ -38,6 +38,16 @@ export type Shiur = {
   description: string;
   format: string;
   materials: { name: string; url: string }[];
+  speakers?: { id: number; name: string; image: string }[];
+  topicPaths?: { id: number; name: string; group: string; branch?: string }[];
+  venueId?: number;
+  venue?: string;
+  publicationId?: number;
+  publication?: string;
+  volumeId?: number;
+  volume?: string;
+  collections?: { id: number; name: string; position?: number }[];
+  facets?: { kind: string; id: number; name: string }[];
 };
 export type Series = {
   id: number;
@@ -59,6 +69,14 @@ export type HomeData = {
   mishna: string;
   parsha?: string;
   fetchedAt: string;
+  campaigns?: {
+    id: number;
+    name: string;
+    description: string;
+    image: string;
+    url: string;
+  }[];
+  editorial?: { id: number; name: string; image: string; url: string }[];
 };
 export const ORIGIN = 'https://yutorah.org';
 /** Preserve editorial order, with a playable rabbi-led recording for the hero. */
@@ -136,6 +154,29 @@ export function uploadDate(value: unknown): string | undefined {
     ? new Date(timestamp).toISOString()
     : undefined;
 }
+const dateBoundaries = new Map<string, string>();
+/** Uploaded calendar days follow YUTorah's New York timestamps. */
+export function dateBoundary(
+  day: string,
+  uploaded = false,
+  exclusiveEnd = false,
+): string {
+  const key = `${day}:${uploaded}:${exclusiveEnd}`,
+    cached = dateBoundaries.get(key);
+  if (cached) return cached;
+  const date = exclusiveEnd
+    ? new Date(Date.parse(day + 'T00:00:00Z') + 86400000)
+        .toISOString()
+        .slice(0, 10)
+    : day;
+  const result = uploaded
+    ? uploadDate(date + 'T00:00:00')!
+    : date + 'T00:00:00.000Z';
+  dateBoundaries.set(key, result);
+  if (dateBoundaries.size > 128)
+    dateBoundaries.delete(dateBoundaries.keys().next().value!);
+  return result;
+}
 export function normalize(raw: RawShiur): Shiur {
   const teacher = raw.shiurTeachers?.[0];
   const seconds = String(raw.shiurLength ?? '0:0:0')
@@ -149,7 +190,39 @@ export function normalize(raw: RawShiur): Shiur {
       ? 'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/' + legacyPhoto
       : '');
   const id = Number(raw.shiurID ?? raw.shiurid);
-  return {
+  const array = <T>(value: T | T[] | undefined | null): T[] =>
+    Array.isArray(value) ? value : value == null ? [] : [value];
+  const names = array(raw.teacherfullname);
+  const teacherIds = array(raw.teacherid);
+  const photos = array(raw.photo);
+  const speakers = raw.shiurTeachers?.length
+    ? raw.shiurTeachers.map((t) => ({
+        id: t.teacherID,
+        name: plain(t.teacherName),
+        image: safeUrl(t.teacherPhotoURL),
+      }))
+    : names.map((name, index) => ({
+        id: Number(teacherIds[index]) || 0,
+        name: plain(name),
+        image:
+          index === 0
+            ? safeUrl(photo)
+            : photos[index]
+              ? safeUrl(
+                  'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/' +
+                    photos[index],
+                )
+              : '',
+      }));
+  const collections = (raw.collectionid || []).map((collectionId, index) => {
+    const parts = String(raw.collectionname?.[index] || '').split('|');
+    return {
+      id: collectionId,
+      name: plain(parts[0]),
+      ...(Number(parts[2]) > 0 ? { position: Number(parts[2]) } : {}),
+    };
+  });
+  const result: Shiur = {
     id,
     title: plain(raw.shiurTitle ?? raw.shiurtitle),
     teacher: plain(
@@ -198,7 +271,71 @@ export function normalize(raw: RawShiur): Shiur {
     description: plain(raw.shiurDescription ?? raw.shiurdescription),
     format: String(raw.shiurMediaType ?? raw.mediatypename ?? '').toLowerCase(),
     materials: [],
+    speakers,
+    topicPaths:
+      raw.shiurSubcategoriesObj?.map((topic) => ({
+        id: Number(topic.subCategoryID || topic.ID),
+        name: plain(topic.name),
+        group: plain(topic.categoryShortName || topic.categoryName),
+        branch: plain(topic.middleTierName),
+      })) ||
+      (raw.subcategoryid || []).map((topicId, index) => ({
+        id: topicId,
+        name: plain(raw.subcategoryname?.[index]),
+        group: plain(raw.categoryname?.[index]),
+      })),
+    venueId: Number(raw.shiurVenue || array(raw.locationid)[0]) || undefined,
+    venue: plain(raw.shiurVenueName || raw.location),
+    publicationId:
+      Number(raw.shiurPublicationId || array(raw.publicationid)[0]) ||
+      undefined,
+    publication: plain(
+      raw.shiurPublicationName || array(raw.publicationname)[0],
+    ),
+    // Mobile details use "shiurPublication" for the volume key.
+    volumeId:
+      Number(
+        raw.shiurPublicationVolumeKey ||
+          raw.shiurPublication ||
+          array(raw.publicationvolumeid)[0],
+      ) || undefined,
+    volume: plain(
+      raw.shiurPublicationVolumeName || array(raw.publicationvolumename)[0],
+    ),
+    collections,
   };
+  result.facets = [
+    ...speakers.map((x) => ({ kind: 'teachers', id: x.id, name: x.name })),
+    ...(result.topicPaths || []).map((x) => ({
+      kind: 'topics',
+      id: x.id,
+      name: [x.group, x.branch, x.name].filter(Boolean).join(' / '),
+    })),
+    ...(result.seriesId
+      ? [{ kind: 'series', id: result.seriesId, name: result.series }]
+      : []),
+    ...(result.venueId
+      ? [{ kind: 'venues', id: result.venueId, name: result.venue || '' }]
+      : []),
+    ...(result.publicationId
+      ? [
+          {
+            kind: 'publications',
+            id: result.publicationId,
+            name: result.publication || '',
+          },
+        ]
+      : []),
+    ...(result.volumeId
+      ? [{ kind: 'volumes', id: result.volumeId, name: result.volume || '' }]
+      : []),
+    ...collections.map((x) => ({
+      kind: 'collections',
+      id: x.id,
+      name: x.name,
+    })),
+  ].filter((x) => x.id > 0);
+  return result;
 }
 import { performanceSample } from './performance-metrics';
 const cache = new Map<string, { until: number; data: unknown }>();
@@ -249,6 +386,10 @@ async function fetchUpstream(path: string): Promise<unknown> {
           teachers: (f.teachers || []).slice(0, 50),
           subcategories: (f.subcategories || []).slice(0, 40),
           series: (f.series || []).slice(0, 40),
+          locations: (f.locations || []).slice(0, 60),
+          collections: (f.collections || []).slice(0, 80),
+          publications: (f.publications || []).slice(0, 80),
+          publicationVolumes: (f.publicationVolumes || []).slice(0, 100),
         },
       },
     };
@@ -359,6 +500,19 @@ export async function getHome(): Promise<HomeData> {
         ? j.timelyData.parshaStr
         : undefined,
     fetchedAt: new Date().toISOString(),
+    campaigns: (j.slideshow || []).map((c) => ({
+      id: c.id,
+      name: plain(c.name),
+      description: plain(c.description),
+      image: safeUrl(c.imageURL),
+      url: safeUrl(c.targetURL),
+    })),
+    editorial: (j.carousel || []).map((c) => ({
+      id: c.id,
+      name: plain(c.name),
+      image: safeUrl(c.imageURL),
+      url: safeUrl(c.targetURL),
+    })),
   };
 }
 export type Teacher = {
@@ -369,7 +523,15 @@ export type Teacher = {
   count: number;
   image: string;
 };
-export type Topic = { id: number; name: string; count: number; group: string };
+export type Topic = {
+  id: number;
+  name: string;
+  count: number;
+  group: string;
+  branch?: string;
+  path?: string[];
+  description?: string;
+};
 export type Directory = {
   teachers: Teacher[];
   series: Series[];
@@ -416,12 +578,55 @@ export async function getDirectory(): Promise<Directory> {
           name: s.name,
           count: s.shiurCount,
           group: c.shortName || c.name,
+          branch: plain(s.middleTierName),
+          path: [c.shortName || c.name, plain(s.middleTierName), s.name].filter(
+            Boolean,
+          ),
+          description: plain(s.description),
         })),
     ),
     groups: categories.map((c) => c.shortName || c.name),
   };
   directorySnapshot = { until: Date.now() + 3600000, data };
   return data;
+}
+export function enrichShiur(shiur: Shiur, directory: Directory): Shiur {
+  const paths = (shiur.topicIds || []).map((id) => {
+    const t = directory.topics.find((t) => t.id === id);
+    return t
+      ? { id, name: t.name, group: t.group, branch: t.branch }
+      : shiur.topicPaths?.find((t) => t.id === id) || {
+          id,
+          name: '',
+          group: '',
+        };
+  });
+  const result = {
+    ...shiur,
+    series:
+      shiur.series ||
+      directory.series.find((s) => s.id === shiur.seriesId)?.name ||
+      '',
+    topicPaths: paths,
+  };
+  if (paths.some((t) => t.name)) {
+    result.topics = paths.filter((t) => t.name).map((t) => t.name);
+    result.category = paths.find((t) => t.group)?.group || result.category;
+  }
+  result.facets = [
+    ...(shiur.facets || []).filter(
+      (f) => !['topics', 'series'].includes(f.kind),
+    ),
+    ...paths.map((t) => ({
+      kind: 'topics',
+      id: t.id,
+      name: [t.group, t.branch, t.name].filter(Boolean).join(' / '),
+    })),
+    ...(result.seriesId
+      ? [{ kind: 'series', id: result.seriesId, name: result.series }]
+      : []),
+  ];
+  return result;
 }
 export type SearchPlan = {
   term: string;
@@ -443,6 +648,15 @@ export type SearchPlan = {
   seriesId: number;
   seriesName: string;
   topicId: number;
+  venueId?: number;
+  collectionId?: number;
+  publicationId?: number;
+  volumeId?: number;
+  group?: string;
+  dateBasis?: 'given' | 'uploaded';
+  uploadedAfter?: string;
+  uploadedBefore?: string;
+  entityIds?: Record<string, number[]>;
   labels: string[];
 };
 export function parseSearch(
@@ -658,6 +872,15 @@ export function parseSearch(
     seriesId,
     seriesName,
     topicId: options.topicId || 0,
+    venueId: options.venueId || 0,
+    collectionId: options.collectionId || 0,
+    publicationId: options.publicationId || 0,
+    volumeId: options.volumeId || 0,
+    group: options.group || '',
+    dateBasis: options.dateBasis === 'uploaded' ? 'uploaded' : 'given',
+    uploadedAfter: options.uploadedAfter || '',
+    uploadedBefore: options.uploadedBefore || '',
+    entityIds: options.entityIds,
     labels,
   };
 }
@@ -668,12 +891,25 @@ export function matchesPlan(s: Shiur, plan: SearchPlan) {
       : [s.title, s.teacher, s.series, ...s.topics, s.description].join(' '),
   );
   const padded = ` ${text} `;
-  const date = Date.parse(s.date);
+  const date = Date.parse(
+    plan.dateBasis === 'uploaded' ? s.uploadedAt || '' : s.date,
+  );
   return (
+    (!plan.uploadedAfter ||
+      Date.parse(s.uploadedAt || '') >=
+        Date.parse(dateBoundary(plan.uploadedAfter, true))) &&
+    (!plan.uploadedBefore ||
+      Date.parse(s.uploadedAt || '') <
+        Date.parse(dateBoundary(plan.uploadedBefore, true, true))) &&
     (!plan.min || s.duration >= plan.min * 60) &&
-    (!plan.after || date >= Date.parse(plan.after + 'T00:00:00Z')) &&
+    (!plan.after ||
+      date >=
+        Date.parse(dateBoundary(plan.after, plan.dateBasis === 'uploaded'))) &&
     (!plan.before ||
-      date < Date.parse(plan.before + 'T00:00:00Z') + 86400000) &&
+      date <
+        Date.parse(
+          dateBoundary(plan.before, plan.dateBasis === 'uploaded', true),
+        )) &&
     (!plan.phrase || padded.includes(` ${searchText(plan.phrase)} `)) &&
     (!plan.exclude ||
       searchText(plan.exclude)
@@ -721,5 +957,9 @@ export type SearchResult = {
     teachers: { id: number; name: string; count: number }[];
     topics: { id: number; name: string; count: number }[];
     series: { id: number; name: string; count: number }[];
+    venues?: { id: number; name: string; count: number }[];
+    collections?: { id: number; name: string; count: number }[];
+    publications?: { id: number; name: string; count: number }[];
+    volumes?: { id: number; name: string; count: number }[];
   };
 };

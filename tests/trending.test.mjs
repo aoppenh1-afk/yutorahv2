@@ -2552,6 +2552,17 @@ void test('corrupt or unavailable browser storage cannot hide a valid in-memory 
     }),
   );
   assert.deepEqual(createTrendingLocalCache(() => storage).read(), {});
+  const missingCategory = localSnapshot();
+  delete missingCategory.trending[0].category;
+  storage.setItem(
+    trendingLocalKey,
+    JSON.stringify({ 'week:0': missingCategory }),
+  );
+  assert.deepEqual(
+    createTrendingLocalCache(() => storage).read(),
+    {},
+    'Malformed cached metadata must not crash recommendations',
+  );
   const blocked = createTrendingLocalCache(() => {
     throw new Error('Storage is blocked');
   });

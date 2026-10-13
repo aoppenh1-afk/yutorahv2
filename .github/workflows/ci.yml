@@ -56,6 +56,7 @@ jobs:
       - run: npm run test:transcription-control
       - run: npm run test:sources
       - run: npm run test:search
+      - run: npm run test:parity
       - run: npm run test:learning
       - run: npm run test:notifications
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5

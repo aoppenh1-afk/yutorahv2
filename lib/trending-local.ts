@@ -39,6 +39,32 @@ export function preferDiscoveryChart(
   return incoming;
 }
 
+function publicChart(data: DiscoveryData): DiscoveryData {
+  const {
+    index: _index,
+    seen: _seen,
+    nextPage: _page,
+    nextId: _id,
+    ...chart
+  } = data;
+  return {
+    ...chart,
+    trending: chart.trending.map((item) => ({
+      ...item,
+      // The upstream normalizer can leave unknown teacher IDs as NaN, which
+      // becomes null in JSON. Keep those recordings and use the unknown ID.
+      teacherId:
+        Number.isSafeInteger(item.teacherId) && item.teacherId > 0
+          ? item.teacherId
+          : 0,
+      seriesId:
+        Number.isSafeInteger(item.seriesId) && item.seriesId > 0
+          ? item.seriesId
+          : 0,
+    })),
+  };
+}
+
 function validChart(value: unknown): value is DiscoveryData {
   if (!value || typeof value !== 'object') return false;
   const data = value as DiscoveryData;
@@ -48,6 +74,8 @@ function validChart(value: unknown): value is DiscoveryData {
     data.dateBasis === 'upload-date' &&
     typeof data.partial === 'boolean' &&
     typeof data.stale === 'boolean' &&
+    typeof data.fetchedAt === 'string' &&
+    typeof data.before === 'string' &&
     Number.isFinite(Date.parse(data.fetchedAt)) &&
     Number.isFinite(Date.parse(data.before)) &&
     Number.isSafeInteger(data.sampled) &&
@@ -67,8 +95,34 @@ function validChart(value: unknown): value is DiscoveryData {
         item.id > 0 &&
         Number.isFinite(item.views) &&
         item.views! > 0 &&
-        typeof item.title === 'string' &&
-        typeof item.teacher === 'string' &&
+        [
+          'title',
+          'teacher',
+          'image',
+          'audio',
+          'url',
+          'date',
+          'category',
+          'language',
+          'series',
+          'description',
+          'format',
+        ].every(
+          (field) => typeof item[field as keyof typeof item] === 'string',
+        ) &&
+        (item.teacherId == null ||
+          Number.isNaN(item.teacherId) ||
+          Number.isSafeInteger(item.teacherId)) &&
+        (item.seriesId == null ||
+          Number.isNaN(item.seriesId) ||
+          Number.isSafeInteger(item.seriesId)) &&
+        Array.isArray(item.materials) &&
+        item.materials.every(
+          (material) =>
+            material &&
+            typeof material.name === 'string' &&
+            typeof material.url === 'string',
+        ) &&
         Number.isFinite(item.duration) &&
         item.duration >= 0 &&
         Array.isArray(item.topics) &&
@@ -93,7 +147,7 @@ export function createTrendingLocalCache(
           if (saved && typeof saved === 'object' && !Array.isArray(saved))
             for (const [key, data] of Object.entries(saved))
               if (validChart(data) && key === chartKey(data))
-                charts[key] = data;
+                charts[key] = publicChart(data);
         }
       } catch {
         /* Private browsing, corrupt storage and quota failures do not hide charts. */
@@ -112,13 +166,7 @@ export function createTrendingLocalCache(
     if (!validChart(data)) return data;
     const key = chartKey(data);
     const selected = preferDiscoveryChart(charts[key], data);
-    const {
-      index: _index,
-      seen: _seen,
-      nextPage: _page,
-      nextId: _id,
-      ...publicData
-    } = selected;
+    const publicData = publicChart(selected);
     charts[key] = publicData;
     try {
       const encoded = JSON.stringify(charts);

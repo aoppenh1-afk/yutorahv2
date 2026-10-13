@@ -136,10 +136,14 @@ export function StatePanel({
   title,
   description,
   children,
+  action,
+  onAction,
 }: {
   title: string;
-  description: string;
+  description?: string;
   children?: React.ReactNode;
+  action?: string;
+  onAction?: () => void;
 }) {
   return (
     <Empty className="state-panel">
@@ -148,6 +152,11 @@ export function StatePanel({
         <EmptyDescription>{description}</EmptyDescription>
       </EmptyHeader>
       {children}
+      {action && onAction && (
+        <button className="outline-button" onClick={onAction}>
+          {action}
+        </button>
+      )}
     </Empty>
   );
 }

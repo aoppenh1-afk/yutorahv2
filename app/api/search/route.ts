@@ -10,13 +10,33 @@ export async function GET(request: Request) {
   const number = (key: string, max = 1000000) =>
     Math.max(0, Math.min(max, Number(p.get(key)) || 0));
   const q = p.get('q') || '';
+  const entityIds: Record<string, number[]> = {};
+  for (const key of [
+    'teacher',
+    'series',
+    'topic',
+    'venue',
+    'collection',
+    'publication',
+    'volume',
+  ]) {
+    const value = p.get(key);
+    if (!value) continue;
+    if (!/^[1-9]\d{0,5}(?:,[1-9]\d{0,5}){0,19}$/.test(value))
+      return Response.json(
+        { error: 'Choose valid library filters.' },
+        { status: 400 },
+      );
+    entityIds[key] = [...new Set(value.split(',').map(Number))];
+  }
+  const entity = (key: string) => entityIds[key]?.[0] || 0;
   if (q.length > 300)
     return Response.json(
       { error: 'Please use a shorter search.' },
       { status: 400 },
     );
   const date = (key: string) => p.get(key) || '';
-  for (const key of ['after', 'before']) {
+  for (const key of ['after', 'before', 'uploadedAfter', 'uploadedBefore']) {
     const value = date(key);
     if (
       value &&
@@ -28,6 +48,9 @@ export async function GET(request: Request) {
   }
   if (
     (date('after') && date('before') && date('after') > date('before')) ||
+    (date('uploadedAfter') &&
+      date('uploadedBefore') &&
+      date('uploadedAfter') > date('uploadedBefore')) ||
     (number('min', 240) &&
       number('max', 240) &&
       number('min', 240) > number('max', 240))
@@ -62,6 +85,8 @@ export async function GET(request: Request) {
         min: number('min', 240),
         after: date('after'),
         before: date('before'),
+        uploadedAfter: date('uploadedAfter'),
+        uploadedBefore: date('uploadedBefore'),
         phrase: p.get('phrase') || '',
         exclude: p.get('exclude') || '',
         scope: p.get('scope') === 'title' ? 'title' : '',
@@ -73,9 +98,16 @@ export async function GET(request: Request) {
         format: ['audio', 'video', 'text'].includes(p.get('format') || '')
           ? p.get('format')!
           : '',
-        teacherId: number('teacher'),
-        seriesId: number('series'),
-        topicId: number('topic'),
+        teacherId: entity('teacher'),
+        seriesId: entity('series'),
+        topicId: entity('topic'),
+        venueId: entity('venue'),
+        collectionId: entity('collection'),
+        publicationId: entity('publication'),
+        volumeId: entity('volume'),
+        entityIds,
+        group: (p.get('group') || '').slice(0, 100),
+        dateBasis: p.get('dateBasis') === 'uploaded' ? 'uploaded' : 'given',
       },
       Math.max(1, Math.floor(number('page', 20000))),
       (p.get('run') || '').slice(0, 64),

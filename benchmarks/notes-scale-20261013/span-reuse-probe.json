@@ -1,0 +1,96 @@
+{
+  "method": "Greedy exact substring references of at least 64 Unicode code points, mixed with literal text in compact JSON. Encoded offsets use Python Unicode positions. Original eight Muse benchmark notes, no pilot files. Every expansion asserted identical to the saved note. Encoder knows the completed note. Model selection accuracy, added input labeling, tokenizer effects, and speed unmeasured; this is not a bound on all possible reference encodings.",
+  "noteBytes": 88169,
+  "encodedBytes": 82185,
+  "results": [
+    {
+      "id": "1056185",
+      "noteBytes": 6463,
+      "encodedBytes": 6549,
+      "copiedSourceBytes": 0,
+      "reductionPercent": -1.3,
+      "references": 0,
+      "roundTripExact": true,
+      "sourceHash": "3179de6ada8b087dba995305c4e07e74f909f872ff1b52774ffc8f0213d3475a",
+      "noteHash": "16777255658157b5fc39f29891b78262aea574eb708d9c2b25c64ae04effa9c6"
+    },
+    {
+      "id": "1117682",
+      "noteBytes": 5373,
+      "encodedBytes": 5072,
+      "copiedSourceBytes": 463,
+      "reductionPercent": 5.6,
+      "references": 4,
+      "roundTripExact": true,
+      "sourceHash": "903d2549844f7ce1f68e7959159b74bc166bf02e6de00bcefd17df30a773aaa2",
+      "noteHash": "795ce32d0236bdbaa806cba66b35046894cc1e24ff8dd6e61ba97f1397508c34"
+    },
+    {
+      "id": "1122687",
+      "noteBytes": 8634,
+      "encodedBytes": 7499,
+      "copiedSourceBytes": 1504,
+      "reductionPercent": 13.1,
+      "references": 12,
+      "roundTripExact": true,
+      "sourceHash": "bf1ef7253ac2be621960f70ee810a344ffa88b40b88d081a1b24dec955416ffa",
+      "noteHash": "1563513ef01ba9ef592cb5d60b1d29d745d426043449d1844aee61b0f394aa68"
+    },
+    {
+      "id": "1151241",
+      "noteBytes": 6412,
+      "encodedBytes": 6337,
+      "copiedSourceBytes": 203,
+      "reductionPercent": 1.2,
+      "references": 2,
+      "roundTripExact": true,
+      "sourceHash": "d93d68818603530a0991deb385bd557b61645580ef02ead03c9c705bcc214ff9",
+      "noteHash": "65df3cb072cd2880ec07f102ae92fea48c50334714bba28c38ee1f9afb66a271"
+    },
+    {
+      "id": "1180975",
+      "noteBytes": 13444,
+      "encodedBytes": 13350,
+      "copiedSourceBytes": 302,
+      "reductionPercent": 0.7,
+      "references": 4,
+      "roundTripExact": true,
+      "sourceHash": "313df3751256dc809b8af2615d45bfa2c7883dcda5ed5bc653c25b053fbb9abe",
+      "noteHash": "355ce5df4571c03e4a6e82b68d15fa87f75859709bb9e96fcc19996678d51a7c"
+    },
+    {
+      "id": "1181042",
+      "noteBytes": 18399,
+      "encodedBytes": 16624,
+      "copiedSourceBytes": 2226,
+      "reductionPercent": 9.6,
+      "references": 12,
+      "roundTripExact": true,
+      "sourceHash": "dfad1ce94c3304253a1a512d12f3f7d6bc5570f4ba2b11ac8d0d431e27601b83",
+      "noteHash": "82f23d81b1ce51cc38efd90ffe780d508c48ea0c640abeb6dd9b9395935d4146"
+    },
+    {
+      "id": "1181377",
+      "noteBytes": 14771,
+      "encodedBytes": 12588,
+      "copiedSourceBytes": 2814,
+      "reductionPercent": 14.8,
+      "references": 20,
+      "roundTripExact": true,
+      "sourceHash": "6bf6677f620895b27b7a1735da41c44f2af9bed368e409a8d14ad31a6dbc92d2",
+      "noteHash": "1c4eed0a0e799fb3807bfcc456a901a4d3aff61cc40b2e278b7cb787c6aa87a3"
+    },
+    {
+      "id": "1183432",
+      "noteBytes": 14673,
+      "encodedBytes": 14166,
+      "copiedSourceBytes": 808,
+      "reductionPercent": 3.5,
+      "references": 7,
+      "roundTripExact": true,
+      "sourceHash": "abcf6abe1af316f3e479d273561fe081167c882e4b706db4376baa8bbe11f5b0",
+      "noteHash": "a01d61d84b6340af3dc438e3e6ec46ab2fb829df95e9fdd3a37717a3197bee01"
+    }
+  ],
+  "reductionPercent": 6.8
+}

@@ -1,5 +1,6 @@
 /* oxlint-disable next/no-img-element -- Subject art is pre-sized, lazy-loaded local WebP. */
 'use client';
+import type { BrowseKind as CatalogKind } from '@/lib/catalog';
 import { ShiurViews } from './shiur-views';
 import { TeacherLink } from './teacher-link';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -82,6 +83,8 @@ type Props = {
   onSave: (shiur: Shiur) => void;
   onQueue: (shiur: Shiur) => void;
   onFollow: (follow: Follow) => void;
+  onEntity?: (kind: CatalogKind, id?: number) => void;
+  onDaf?: (value: string) => void;
   onSearch: (query: string, filters?: Filters) => void;
   onNavigate: (
     view:
@@ -115,6 +118,8 @@ export function LearningHome(props: Props) {
     onQueue,
     onFollow,
     onSearch,
+    onEntity,
+    onDaf,
     onNavigate,
     notify,
     onRefresh,
@@ -150,7 +155,8 @@ export function LearningHome(props: Props) {
   discoveryChartsRef.current = discoveryCharts;
   const trendingMinutes = minutes === 'all' ? 0 : Number(minutes);
   const discoveryPeriod = currentTab === 'trending' ? trendingPeriod : 'week';
-  const discoveryMinutes = currentTab === 'for-you' && isMobile ? 0 : trendingMinutes;
+  const discoveryMinutes =
+    currentTab === 'for-you' && isMobile ? 0 : trendingMinutes;
   const discoveryKey = `${discoveryPeriod}:${discoveryMinutes}`;
   const discovery = discoveryCharts[discoveryKey] ?? null;
   const [discoveryError, setDiscoveryError] = useState(false);
@@ -476,7 +482,9 @@ export function LearningHome(props: Props) {
             onPlay={onPlay}
             onDetails={onDetails}
             onTeacher={(s) =>
-              onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+              onEntity
+                ? onEntity('teacher', s.teacherId)
+                : onSearch('', { ...noFilters, teacher: String(s.teacherId) })
             }
             onSave={onSave}
             saved={savedIds.has(s.id)}
@@ -523,7 +531,12 @@ export function LearningHome(props: Props) {
               <TeacherLink
                 shiur={s}
                 onTeacher={(s) =>
-                  onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+                  onEntity
+                    ? onEntity('teacher', s.teacherId)
+                    : onSearch('', {
+                        ...noFilters,
+                        teacher: String(s.teacherId),
+                      })
                 }
               />
             </p>
@@ -560,7 +573,9 @@ export function LearningHome(props: Props) {
       icon: Timer,
       go: () =>
         shortSeries
-          ? onSearch('', { ...noFilters, series: String(shortSeries.id) })
+          ? onEntity
+            ? onEntity('series', shortSeries.id)
+            : onSearch('', { ...noFilters, series: String(shortSeries.id) })
           : onSearch('halacha', { ...noFilters, max: '10' }),
     },
     {
@@ -706,10 +721,12 @@ export function LearningHome(props: Props) {
                       <TeacherLink
                         shiur={pick}
                         onTeacher={(s) =>
-                          onSearch('', {
-                            ...noFilters,
-                            teacher: String(s.teacherId),
-                          })
+                          onEntity
+                            ? onEntity('teacher', s.teacherId)
+                            : onSearch('', {
+                                ...noFilters,
+                                teacher: String(s.teacherId),
+                              })
                         }
                       />
                     </strong>
@@ -886,11 +903,21 @@ export function LearningHome(props: Props) {
                 ]
                   .filter(([, value]) => value)
                   .map(([label, value]) => (
-                    <button key={label} onClick={() => onSearch(value)}>
+                    <button
+                      key={label}
+                      onClick={() =>
+                        label === 'Daf Yomi' && onDaf
+                          ? onDaf(value)
+                          : onSearch(value)
+                      }
+                    >
                       <small>{label}</small>
                       <strong dir="auto">{value}</strong>
                       <span className="today-go">
-                        Find shiurim <ArrowRight size={14} />
+                        {label === 'Daf Yomi'
+                          ? 'Study the daf'
+                          : 'Find shiurim'}{' '}
+                        <ArrowRight size={14} />
                       </span>
                     </button>
                   ))}
@@ -928,10 +955,12 @@ export function LearningHome(props: Props) {
                       onPlay={(s) => onPlay(s, h.seconds)}
                       onDetails={onDetails}
                       onTeacher={(s) =>
-                        onSearch('', {
-                          ...noFilters,
-                          teacher: String(s.teacherId),
-                        })
+                        onEntity
+                          ? onEntity('teacher', s.teacherId)
+                          : onSearch('', {
+                              ...noFilters,
+                              teacher: String(s.teacherId),
+                            })
                       }
                       onSave={onSave}
                       onQueue={onQueue}
@@ -1300,10 +1329,12 @@ export function LearningHome(props: Props) {
                         <button
                           className="teacher-shelf-profile"
                           onClick={() =>
-                            onSearch('', {
-                              ...noFilters,
-                              teacher: String(t.id),
-                            })
+                            onEntity
+                              ? onEntity('teacher', t.id)
+                              : onSearch('', {
+                                  ...noFilters,
+                                  teacher: String(t.id),
+                                })
                           }
                         >
                           <span className={'teacher-portrait ' + tone(t.id)}>
@@ -1341,7 +1372,12 @@ export function LearningHome(props: Props) {
                       <article key={s.id}>
                         <button
                           onClick={() =>
-                            onSearch('', { ...noFilters, series: String(s.id) })
+                            onEntity
+                              ? onEntity('series', s.id)
+                              : onSearch('', {
+                                  ...noFilters,
+                                  series: String(s.id),
+                                })
                           }
                         >
                           <SeriesCover

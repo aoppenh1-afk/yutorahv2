@@ -8,6 +8,7 @@ export type RawTeacher = {
   shiurCount: number;
   isHidden: boolean;
   imageURL: string;
+  landingPageURL?: string;
 };
 export type RawSeries = {
   ID: number;
@@ -24,6 +25,9 @@ export type RawTopic = {
   name: string;
   categoryShortName: string;
   shiurCount: number;
+  middleTierName?: string | null;
+  categoryName?: string | null;
+  description?: string | null;
 };
 export type RawCategory = {
   name: string;
@@ -50,6 +54,7 @@ export type RawShiur = {
     teacherName: string;
     teacherID: number;
     teacherPhotoURL: string;
+    teacherBio?: string | null;
   }[];
   teacherfullname?: string | string[];
   teacherid?: number | number[];
@@ -60,6 +65,21 @@ export type RawShiur = {
   subcategoryname?: string[];
   subcategoryid?: number[];
   categoryname?: string[];
+  shiurVenue?: number | null;
+  shiurVenueName?: string | null;
+  location?: string | null;
+  locationid?: number | number[];
+  shiurPublication?: number | null;
+  shiurPublicationId?: number | null;
+  shiurPublicationName?: string | null;
+  shiurPublicationVolumeKey?: number | null;
+  shiurPublicationVolumeName?: string | null;
+  publicationid?: number | number[];
+  publicationname?: string | string[];
+  publicationvolumeid?: number | number[];
+  publicationvolumename?: string | string[];
+  collectionid?: number[];
+  collectionname?: string[];
   shiurLength?: string;
   duration?: number;
   shiurDate?: string;
@@ -89,6 +109,20 @@ export type HomeResponse = {
   recentlyViewed?: RawShiur[];
   dailyShiurim: RawShiur[];
   featuredSeries: RawSeries[];
+  slideshow?: {
+    id: number;
+    name: string;
+    description: string;
+    imageURL: string;
+    targetURL: string;
+    urlTitle: string;
+  }[];
+  carousel?: {
+    id: number;
+    name: string | null;
+    imageURL: string;
+    targetURL: string;
+  }[];
   totalShiurCount: number;
   hebrewDateString: string;
   timelyData: {
@@ -109,6 +143,22 @@ export type SearchResponse = {
         Match: number;
       }[];
       series?: { SeriesId: number; SeriesName: string; Match: number }[];
+      locations?: { LocationId: number; LocationName: string; Match: number }[];
+      collections?: {
+        CollectionId: number;
+        CollectionName: string;
+        Match: number;
+      }[];
+      publications?: {
+        PublicationId: number;
+        PublicationName: string;
+        Match: number;
+      }[];
+      publicationVolumes?: {
+        PublicationVolumeId: number;
+        PublicationVolume: string;
+        Match: number;
+      }[];
     };
   };
 };

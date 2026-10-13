@@ -1,6 +1,9 @@
 /* oxlint-disable next/no-img-element -- Teacher photos and series covers stream from YUTorah’s CDN. */
 /* oxlint-disable jsx-a11y/media-has-caption -- YUTorah provides no caption tracks for these recordings; never invent captions. */
 'use client';
+import type { BrowseKind as CatalogKind } from '@/lib/catalog';
+import { parseDaf, type DafSelection } from '@/lib/daf';
+import { entityLink } from '@/lib/legacy-links';
 import { pollDelay } from '@/lib/poll-delay';
 import Link from 'next/link';
 import {
@@ -8,6 +11,7 @@ import {
   noFilters,
   resolvedSearchFilters,
 } from '@/lib/search-filters';
+import { SelectableResult } from './selectable-result';
 import { SearchBox } from './search-box';
 import {
   copySearchLink,
@@ -130,7 +134,35 @@ const LearningHome = lazy(() =>
   import('./learning-home').then((m) => ({ default: m.LearningHome })),
 );
 
+const ArticleReader = lazy(() =>
+  import('./article-reader').then((m) => ({ default: m.ArticleReader })),
+);
+const CollectionContext = lazy(() =>
+  import('./collection-context').then((m) => ({
+    default: m.CollectionContext,
+  })),
+);
+const FeedbackDialog = lazy(() =>
+  import('./feedback-dialog').then((m) => ({ default: m.FeedbackDialog })),
+);
+const LibraryBrowser = lazy(() =>
+  import('./library-browser').then((m) => ({ default: m.LibraryBrowser })),
+);
+const EntityPage = lazy(() =>
+  import('./library-browser').then((m) => ({ default: m.EntityPage })),
+);
+const CollectionPage = lazy(() =>
+  import('./library-browser').then((m) => ({ default: m.CollectionPage })),
+);
+const DafWorkspace = lazy(() =>
+  import('./library-browser').then((m) => ({ default: m.DafWorkspace })),
+);
+
 type View =
+  | 'browse'
+  | 'entity'
+  | 'collection'
+  | 'daf'
   | 'discover'
   | 'following'
   | 'trending'
@@ -142,6 +174,10 @@ type View =
   | 'history'
   | 'playlists';
 const labels: Record<View, string> = {
+  browse: 'Browse',
+  entity: 'Browse',
+  collection: 'Collection',
+  daf: 'Daf study',
   discover: 'Discover',
   trending: 'Trending',
   following: 'Following',
@@ -203,6 +239,8 @@ function NavItem({
         className="nav-button"
         isActive={active}
         onPointerEnter={() => {
+          if (label === labels.browse)
+            void import('./library-browser').catch(() => {});
           if (
             [
               labels.teachers,
@@ -216,6 +254,8 @@ function NavItem({
             void loadSecondaryScreens().catch(() => {});
         }}
         onFocus={() => {
+          if (label === labels.browse)
+            void import('./library-browser').catch(() => {});
           if (
             [
               labels.teachers,
@@ -252,8 +292,31 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   useViewPerformance();
   const isMobile = useIsMobile();
   const [home, setHome] = useState(initialHome);
+  const homeDaf = useRef(home?.daf || '');
+  homeDaf.current = home?.daf || '';
   const [homeLoading, setHomeLoading] = useState(false);
   const [view, setView] = useState<View>('discover');
+  useEffect(() => {
+    if (
+      view === 'daf' &&
+      home?.daf &&
+      !new URLSearchParams(window.location.search).has('tractate')
+    ) {
+      const daf = parseDaf(home.daf);
+      if (daf) setDafSelection(daf);
+    }
+  }, [view, home?.daf]);
+  const [catalogKind, setCatalogKind] = useState<CatalogKind>('teacher');
+  const [entityId, setEntityId] = useState(0);
+  const [dafSelection, setDafSelection] = useState<DafSelection>({
+    tractate: 'Berachot',
+    page: 2,
+    side: 'a',
+  });
+  const [catalogQuery, setCatalogQuery] = useState('');
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [playlistBatch, setPlaylistBatch] = useState<Shiur[]>([]);
   const [q, setQ] = useState('');
   const [submitted, setSubmitted] = useState('');
   const [filters, setFilters] = useState<Filters>(noFilters);
@@ -292,6 +355,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   const [selectedPlaylist, setSelectedPlaylist] = useState('');
   const [toast, setToast] = useState('');
   const [help, setHelp] = useState(false);
+  const [feedback, setFeedback] = useState<{ shiur?: Shiur } | null>(null);
 
   const [accountOpen, setAccountOpen] = useState(false);
 
@@ -418,6 +482,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       setSubmitted(query);
       setFilters(nextFilters);
       if (page === 1) {
+        setAdvancedFilters(false);
+        setSelecting(false);
+        setSelectedIds(new Set());
         setResults(null);
         setWithinResults('');
         setResultOrder('library');
@@ -436,7 +503,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         setResultOrder(result.plan.sort || 'relevance');
         while (result.complete === false && !controller.signal.aborted) {
           setResults(result);
-          setAdvancedFilters(false);
           p.set('run', result.run!);
           await pollDelay(result.retryAfterMs || 1500, controller.signal);
           result = await requestJson<SearchResult>(
@@ -459,7 +525,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           );
           if (page === 1) {
             setResultOrder(result.plan.sort || 'relevance');
-            setAdvancedFilters(false);
             const resolved = resolvedSearchFilters(result.plan);
             setFilters(resolved);
           }
@@ -481,6 +546,15 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       searchAbort.current?.abort();
       setSearchLoading(false);
       setView(next);
+      if (['teachers', 'series', 'topics'].includes(next))
+        setCatalogKind(
+          next === 'teachers'
+            ? 'teacher'
+            : next === 'series'
+              ? 'series'
+              : 'topic',
+        );
+      setCatalogQuery('');
       setDirectoryQuery('');
       setLibraryQuery('');
       setDirectoryLimit(36);
@@ -493,6 +567,33 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     },
     [changeURL],
   );
+  const openCatalog = useCallback((kind: CatalogKind, id?: number) => {
+    searchAbort.current?.abort();
+    setSearchLoading(false);
+    setDetail(null);
+    setCatalogKind(kind);
+    setEntityId(id || 0);
+    setCatalogQuery('');
+    setView(id ? (kind === 'collection' ? 'collection' : 'entity') : 'browse');
+    window.history.pushState(
+      {},
+      '',
+      id ? entityLink(kind, id) : '/?view=browse&kind=' + kind,
+    );
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, []);
+  const openDaf = useCallback((selection: DafSelection) => {
+    setDafSelection(selection);
+    setView('daf');
+    setDetail(null);
+    const p = new URLSearchParams({
+      view: 'daf',
+      tractate: selection.tractate,
+      page: String(selection.page),
+      side: selection.side,
+    });
+    window.history.pushState({}, '', '/?' + p);
+  }, []);
   const showDetail = useCallback(
     async (s: Shiur, loaded = false, pending?: AbortController) => {
       if (!pending || detailAbort.current !== pending)
@@ -516,6 +617,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             category: fresh.category || s.category,
             series: fresh.series || s.series,
             seriesId: fresh.seriesId || s.seriesId,
+            uploadedAt: fresh.uploadedAt || s.uploadedAt,
+            collections: fresh.collections?.length
+              ? fresh.collections
+              : s.collections,
+            publicationId: fresh.publicationId || s.publicationId,
+            publication: fresh.publication || s.publication,
+            volumeId: fresh.volumeId || s.volumeId,
+            volume: fresh.volume || s.volume,
           });
       } catch (e) {
         if (!controller.signal.aborted)
@@ -563,7 +672,49 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       });
       searchAbort.current?.abort();
       setSearchLoading(false);
-      if (query || (v === 'search' && Object.values(fs).some(Boolean)))
+      const kind = params.get('kind') as CatalogKind;
+      if (
+        params.get('kind') === 'publication' &&
+        ['browse', 'entity'].includes(v)
+      ) {
+        setCatalogKind('teacher');
+        setEntityId(0);
+        setCatalogQuery('');
+        setView('browse');
+        window.history.replaceState({}, '', '/?view=browse');
+        return;
+      }
+      if (
+        [
+          'teacher',
+          'series',
+          'topic',
+          'venue',
+          'collection',
+        ].includes(kind)
+      )
+        setCatalogKind(kind);
+      else if (['teachers', 'series', 'topics'].includes(v))
+        setCatalogKind(
+          v === 'teachers' ? 'teacher' : v === 'series' ? 'series' : 'topic',
+        );
+      setEntityId(Number(params.get('id')) || 0);
+      setCatalogQuery(v === 'browse' ? query : '');
+      if (v === 'daf') {
+        const parsed = parseDaf(
+          (params.get('tractate') ||
+            homeDaf.current?.replace(/\s+\d+$/, '') ||
+            'Berachot') +
+            ' ' +
+            (params.get('page') || homeDaf.current?.match(/\d+$/)?.[0] || '2') +
+            (params.get('side') || 'a'),
+        );
+        if (parsed) setDafSelection(parsed);
+      }
+      if (
+        (!v && query) ||
+        (v === 'search' && (query || Object.values(fs).some(Boolean)))
+      )
         void runSearch(query, fs, 1, false);
       else if (v && v in labels) setView(v);
       else setView('discover');
@@ -716,6 +867,19 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     update((old) => ({ ...old, queue: [...old.queue, s] }));
     notify('Added to your queue.');
   };
+  const enqueueMany = (items: Shiur[]) => {
+    const audio = items.filter((s) => mediaKind(s) === 'audio');
+    const added = audio.filter(
+      (s) => !library.queue.some((q) => q.id === s.id),
+    ).length;
+    update((old) => ({
+      ...old,
+      queue: [
+        ...new Map([...old.queue, ...audio].map((s) => [s.id, s])).values(),
+      ],
+    }));
+    notify(`Added ${added} audio shiurim to your queue.`);
+  };
   const play = (s: Shiur) => {
     if (mediaKind(s) !== 'audio') {
       void showDetail(s);
@@ -727,6 +891,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   const addToPlaylist = (s: Shiur) => {
     setEditingPlaylist('');
     setPlaylistTarget(s);
+    setPlaylistBatch([]);
     setPlaylistName('');
     setPlaylistDialog(true);
   };
@@ -751,7 +916,15 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       ...old,
       playlists: [
         ...old.playlists,
-        { id, name, items: playlistTarget ? [playlistTarget] : [] },
+        {
+          id,
+          name,
+          items: playlistTarget
+            ? playlistBatch.length
+              ? playlistBatch
+              : [playlistTarget]
+            : [],
+        },
       ],
     }));
     setPlaylistDialog(false);
@@ -840,47 +1013,59 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     <PagedItems key={view + withinResults + libraryQuery} items={items}>
       {(visible) =>
         visible.map((s) => (
-          <ShiurRow
+          <SelectableResult
             key={s.id}
+            enabled={selecting && view === 'search'}
+            selected={selectedIds.has(s.id)}
             shiur={s}
-            query={view === 'search' ? results?.plan.term : undefined}
-            onPlay={play}
-            onDetails={showDetail}
-            onTeacher={(s) =>
-              void runSearch('', { ...noFilters, teacher: String(s.teacherId) })
+            onSelect={() =>
+              setSelectedIds((old) => {
+                const next = new Set(old);
+                if (next.has(s.id)) next.delete(s.id);
+                else next.add(s.id);
+                return next;
+              })
             }
-            onSave={save}
-            onQueue={enqueue}
-            onPlaylist={() => addToPlaylist(s)}
-            onLearned={() => toggleLearned(s)}
-            active={player.active?.id === s.id && player.playing}
-            saved={savedIds.has(s.id)}
-            learned={learnedIds.has(s.id)}
-            progress={history ? historyById.get(s.id) : undefined}
-            extra={
-              <>
-                <button
-                  className="icon-button learned-action"
-                  aria-label={
-                    (learnedIds.has(s.id)
-                      ? 'Mark as not learned: '
-                      : 'Mark as learned: ') + s.title
-                  }
-                  aria-pressed={learnedIds.has(s.id)}
-                  onClick={() => toggleLearned(s)}
-                >
-                  <Check size={17} />
-                </button>
-                <button
-                  className="icon-button add-playlist-action"
-                  aria-label={'Add to playlist: ' + s.title}
-                  onClick={() => addToPlaylist(s)}
-                >
-                  <Plus size={17} />
-                </button>
-              </>
-            }
-          />
+          >
+            <ShiurRow
+              shiur={s}
+              query={view === 'search' ? results?.plan.term : undefined}
+              onPlay={play}
+              onDetails={showDetail}
+              onTeacher={(s) => openCatalog('teacher', s.teacherId)}
+              onSave={save}
+              onQueue={enqueue}
+              onPlaylist={() => addToPlaylist(s)}
+              onLearned={() => toggleLearned(s)}
+              active={player.active?.id === s.id && player.playing}
+              saved={savedIds.has(s.id)}
+              learned={learnedIds.has(s.id)}
+              progress={history ? historyById.get(s.id) : undefined}
+              extra={
+                <>
+                  <button
+                    className="icon-button learned-action"
+                    aria-label={
+                      (learnedIds.has(s.id)
+                        ? 'Mark as not learned: '
+                        : 'Mark as learned: ') + s.title
+                    }
+                    aria-pressed={learnedIds.has(s.id)}
+                    onClick={() => toggleLearned(s)}
+                  >
+                    <Check size={17} />
+                  </button>
+                  <button
+                    className="icon-button add-playlist-action"
+                    aria-label={'Add to playlist: ' + s.title}
+                    onClick={() => addToPlaylist(s)}
+                  >
+                    <Plus size={17} />
+                  </button>
+                </>
+              }
+            />
+          </SelectableResult>
         ))
       }
     </PagedItems>
@@ -889,20 +1074,32 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     <PagedItems key={view + withinResults + libraryQuery} items={items}>
       {(visible) =>
         visible.map((s, i) => (
-          <ShiurCard
+          <SelectableResult
             key={s.id}
+            enabled={selecting && view === 'search'}
+            selected={selectedIds.has(s.id)}
             shiur={s}
-            index={i}
-            query={view === 'search' ? results?.plan.term : undefined}
-            onPlay={play}
-            onDetails={showDetail}
-            onTeacher={(s) =>
-              void runSearch('', { ...noFilters, teacher: String(s.teacherId) })
+            onSelect={() =>
+              setSelectedIds((old) => {
+                const next = new Set(old);
+                if (next.has(s.id)) next.delete(s.id);
+                else next.add(s.id);
+                return next;
+              })
             }
-            onSave={save}
-            saved={savedIds.has(s.id)}
-            active={player.active?.id === s.id && player.playing}
-          />
+          >
+            <ShiurCard
+              shiur={s}
+              index={i}
+              query={view === 'search' ? results?.plan.term : undefined}
+              onPlay={play}
+              onDetails={showDetail}
+              onTeacher={(s) => openCatalog('teacher', s.teacherId)}
+              onSave={save}
+              saved={savedIds.has(s.id)}
+              active={player.active?.id === s.id && player.playing}
+            />
+          </SelectableResult>
         ))
       }
     </PagedItems>
@@ -1226,16 +1423,25 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                     { icon: Flame, view: 'trending' },
                     { icon: Users, view: 'following' },
                     { icon: Search, view: 'search' },
-                    { icon: Users, view: 'teachers' },
-                    { icon: BookOpen, view: 'series' },
-                    { icon: LayoutGrid, view: 'topics' },
+                    { icon: LayoutGrid, view: 'browse' },
                   ] as const
                 ).map((item) => (
                   <NavItem
                     key={item.view}
                     icon={item.icon}
                     label={labels[item.view]}
-                    active={view === item.view}
+                    active={
+                      view === item.view ||
+                      (item.view === 'browse' &&
+                        [
+                          'teachers',
+                          'series',
+                          'topics',
+                          'entity',
+                          'collection',
+                          'daf',
+                        ].includes(view))
+                    }
                     shortcut={item.view === 'search'}
                     onClick={() => navigate(item.view)}
                   />
@@ -1276,6 +1482,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 onClick={() => {
                   setEditingPlaylist('');
                   setPlaylistTarget(null);
+                  setPlaylistBatch([]);
                   setPlaylistName('');
                   setPlaylistDialog(true);
                 }}
@@ -1350,9 +1557,17 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             },
             {
               icon: LayoutGrid,
-              view: 'topics',
+              view: 'browse',
               label: 'Browse',
-              active: ['topics', 'teachers', 'series'].includes(view),
+              active: [
+                'browse',
+                'entity',
+                'collection',
+                'daf',
+                'topics',
+                'teachers',
+                'series',
+              ].includes(view),
             },
             {
               icon: Users,
@@ -1466,24 +1681,18 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               <h1>Your library</h1>
               <p>
                 {library.saved.length} saved · {library.playlists.length}{' '}
-                playlists · On this device
+                playlists ·{' '}
+                {account.user
+                  ? account.error
+                    ? 'Sync needs attention'
+                    : account.syncing
+                      ? 'Syncing library…'
+                      : account.pendingCount
+                        ? 'Changes waiting to sync'
+                        : 'Synced library'
+                  : 'On this device'}
               </p>
             </div>
-          )}
-          {['topics', 'teachers', 'series'].includes(view) && (
-            <nav className="mobile-view-tabs" aria-label="Browse the library">
-              {(['topics', 'teachers', 'series'] as const).map(
-                (destination) => (
-                  <button
-                    key={destination}
-                    aria-current={view === destination ? 'page' : undefined}
-                    onClick={() => navigate(destination)}
-                  >
-                    {labels[destination]}
-                  </button>
-                ),
-              )}
-            </nav>
           )}
           {['saved', 'history', 'playlists'].includes(view) && (
             <nav className="mobile-view-tabs" aria-label="Your library">
@@ -1523,6 +1732,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 onFollow={follow}
                 onSearch={(query, fs) => void runSearch(query, fs)}
                 onNavigate={navigate}
+                onEntity={openCatalog}
+                onDaf={(value) => {
+                  const selected = parseDaf(value);
+                  if (selected) openDaf(selected);
+                }}
                 notify={notify}
                 onRefresh={refreshHome}
                 refreshing={homeLoading}
@@ -1591,7 +1805,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                         }}
                         onClick={() => setAdvancedFilters(!advancedFilters)}
                       >
-                        <SlidersHorizontal size={16} /> More filters{' '}
+                        <SlidersHorizontal size={16} /> Refine{' '}
                         <ChevronDown size={14} />
                       </button>
                       <FilterSelect
@@ -1678,6 +1892,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                           filters={filters}
                           directory={directory}
                           loading={searchLoading}
+                          results={results}
                           onApply={(next) => void runSearch(q, next)}
                         />
                       </ScreenBoundary>
@@ -1707,6 +1922,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                             exclude: `Exclude: ${value}`,
                             scope: 'Title only',
                             literal: 'Exact wording',
+                            venue: `Venue: ${results?.facets.venues?.find((e) => String(e.id) === value)?.name || value}`,
+                            collection: `Collection: ${results?.facets.collections?.find((e) => String(e.id) === value)?.name || value}`,
+                            publication: `Publication: ${results?.facets.publications?.find((e) => String(e.id) === value)?.name || value}`,
+                            volume: `Volume: ${results?.facets.volumes?.find((e) => String(e.id) === value)?.name || value}`,
+                            group: `Subject group: ${value}`,
+                            dateBasis: 'Upload date',
+                            uploadedAfter: `Uploaded from ${value}`,
+                            uploadedBefore: `Uploaded through ${value}`,
                           };
                           const label =
                             extraLabels[key] ||
@@ -1890,28 +2113,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                             />
                             <button
                               className="text-button"
+                              aria-pressed={selecting}
                               onClick={() => {
-                                const audio = visibleResults.filter(
-                                  (s) => mediaKind(s) === 'audio',
-                                );
-                                update((old) => ({
-                                  ...old,
-                                  queue: [
-                                    ...new Map(
-                                      [...old.queue, ...audio].map((s) => [
-                                        s.id,
-                                        s,
-                                      ]),
-                                    ).values(),
-                                  ],
-                                }));
-                                notify(
-                                  `Added ${audio.length} audio shiurim to your queue.`,
-                                );
+                                setSelecting(!selecting);
+                                setSelectedIds(new Set());
                               }}
                             >
-                              <ListPlus size={16} />
-                              Queue results
+                              <Check size={16} />
+                              {selecting ? 'Done selecting' : 'Select results'}
                             </button>
                             {(withinResults || learningFilter !== 'all') && (
                               <p>
@@ -1931,6 +2140,87 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                           </div>
                         )}
                       </SearchOptions>
+                      {selecting && (
+                        <fieldset
+                          className="search-selection"
+                          aria-label="Selected result actions"
+                        >
+                          <strong aria-live="polite">
+                            {selectedIds.size} selected
+                          </strong>
+                          <button
+                            className="text-button"
+                            onClick={() =>
+                              setSelectedIds(
+                                new Set(visibleResults.map((s) => s.id)),
+                              )
+                            }
+                          >
+                            Select loaded matches ({visibleResults.length})
+                          </button>
+                          <button
+                            className="text-button"
+                            onClick={() => setSelectedIds(new Set())}
+                          >
+                            Clear
+                          </button>
+                          <button
+                            className="outline-button"
+                            disabled={!selectedIds.size}
+                            onClick={() => {
+                              const items = results.items.filter((s) =>
+                                selectedIds.has(s.id),
+                              );
+                              update((old) => ({
+                                ...old,
+                                saved: [
+                                  ...new Map(
+                                    [...items, ...old.saved].map((s) => [
+                                      s.id,
+                                      s,
+                                    ]),
+                                  ).values(),
+                                ],
+                              }));
+                              notify(`Saved ${items.length} shiurim.`);
+                            }}
+                          >
+                            <Bookmark size={15} />
+                            Save
+                          </button>
+                          <button
+                            className="outline-button"
+                            disabled={!selectedIds.size}
+                            onClick={() =>
+                              enqueueMany(
+                                results.items.filter((s) =>
+                                  selectedIds.has(s.id),
+                                ),
+                              )
+                            }
+                          >
+                            <ListPlus size={15} />
+                            Queue
+                          </button>
+                          <button
+                            className="outline-button"
+                            disabled={!selectedIds.size}
+                            onClick={() => {
+                              const items = results.items.filter((s) =>
+                                selectedIds.has(s.id),
+                              );
+                              setPlaylistBatch(items);
+                              setPlaylistTarget(items[0] || null);
+                              setPlaylistName('');
+                              setEditingPlaylist('');
+                              setPlaylistDialog(true);
+                            }}
+                          >
+                            <Plus size={15} />
+                            Playlist
+                          </button>
+                        </fieldset>
+                      )}
                       {results.plan.teacherId > 0 && (
                         <div className="search-follow-banner">
                           <span>
@@ -2118,17 +2408,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               )}
             </section>
           )}
-          {[
-            'teachers',
-            'series',
-            'topics',
-            'saved',
-            'history',
-            'playlists',
-          ].includes(view) && (
+          {['saved', 'history', 'playlists'].includes(view) && (
             <ScreenBoundary>
               <SecondaryScreens
-                view={view}
+                view={view as 'saved' | 'history' | 'playlists'}
                 directory={directory}
                 directoryQuery={directoryQuery}
                 setDirectoryQuery={setDirectoryQuery}
@@ -2157,7 +2440,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 setSelectedPlaylist={setSelectedPlaylist}
                 setEditingPlaylist={setEditingPlaylist}
                 setPlaylistName={setPlaylistName}
-                setPlaylistTarget={setPlaylistTarget}
+                setPlaylistTarget={(target) => {
+                  setPlaylistBatch([]);
+                  setPlaylistTarget(target);
+                }}
                 setPlaylistDialog={setPlaylistDialog}
                 setUndoAction={setUndoAction}
                 play={play}
@@ -2165,6 +2451,68 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 save={save}
                 enqueue={enqueue}
                 savedIds={savedIds}
+              />
+            </ScreenBoundary>
+          )}
+          {['browse', 'teachers', 'series', 'topics'].includes(view) && (
+            <ScreenBoundary>
+              <LibraryBrowser
+                kind={catalogKind}
+                initialQuery={catalogQuery}
+                onKind={(kind) => openCatalog(kind)}
+                library={library}
+                follow={follow}
+                onOpen={openCatalog}
+                onSearch={(q, f) => void runSearch(q, f)}
+                rows={rows}
+                onPlay={play}
+                onQueue={enqueueMany}
+              />
+            </ScreenBoundary>
+          )}
+          {view === 'entity' && catalogKind !== 'collection' && (
+            <ScreenBoundary>
+              <EntityPage
+                key={catalogKind + entityId}
+                kind={catalogKind}
+                id={entityId}
+                library={library}
+                follow={follow}
+                onOpen={openCatalog}
+                onSearch={(q, f) => void runSearch(q, f)}
+                rows={rows}
+                onPlay={play}
+                onQueue={enqueueMany}
+              />
+            </ScreenBoundary>
+          )}
+          {view === 'collection' && (
+            <ScreenBoundary>
+              <CollectionPage
+                key={entityId}
+                id={entityId}
+                library={library}
+                follow={follow}
+                onOpen={openCatalog}
+                onSearch={(q, f) => void runSearch(q, f)}
+                rows={rows}
+                onPlay={play}
+                onQueue={enqueueMany}
+              />
+            </ScreenBoundary>
+          )}
+          {view === 'daf' && (
+            <ScreenBoundary>
+              <DafWorkspace
+                selection={dafSelection}
+                onChange={openDaf}
+                library={library}
+                follow={follow}
+                onOpen={openCatalog}
+                onSearch={(q, f) => void runSearch(q, f)}
+                rows={rows}
+                onPlay={play}
+                onQueue={enqueueMany}
               />
             </ScreenBoundary>
           )}
@@ -2179,6 +2527,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             </p>
             <div>
               <button onClick={() => setHelp(true)}>About the library</button>
+              <button onClick={() => setFeedback({})}>Feedback</button>
               <Link href="/privacy">Privacy policy</Link>
               <span>Audio and teaching © YUTorah</span>
             </div>
@@ -2218,24 +2567,32 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                   {detail.topics.slice(0, 3).join(' · ') || detail.category}
                 </div>
                 <h2 dir="auto">{detail.title}</h2>
-                <button
-                  className="detail-teacher"
-                  onClick={() => {
-                    setDetail(null);
-                    void runSearch('', {
-                      ...noFilters,
-                      teacher: String(detail.teacherId),
-                    });
-                  }}
-                >
-                  <Avatar src={detail.image} name={detail.teacher} />
-                  <div>
-                    <strong>{detail.teacher}</strong>
-                    <span>
-                      More from this teacher <ArrowRight size={13} />
-                    </span>
-                  </div>
-                </button>
+                <div className="detail-credits">
+                  {(detail.speakers?.length
+                    ? detail.speakers
+                    : [
+                        {
+                          id: detail.teacherId,
+                          name: detail.teacher,
+                          image: detail.image,
+                        },
+                      ]
+                  ).map((speaker, i) => (
+                    <button
+                      key={speaker.id + ':' + i}
+                      className="detail-teacher"
+                      onClick={() => openCatalog('teacher', speaker.id)}
+                    >
+                      <Avatar src={speaker.image} name={speaker.name} />
+                      <div>
+                        <strong>{speaker.name}</strong>
+                        <span>
+                          View profile <ArrowRight size={13} />
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="detail-follow-controls">
                 <FollowButton
@@ -2330,6 +2687,18 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                       ? ' / resume'
                       : ' now'}
                   </button>
+                ) : mediaKind(detail) === 'text' &&
+                  /pdf/i.test(detail.format + detail.audio) ? (
+                  <button
+                    className="primary-button"
+                    onClick={() =>
+                      document
+                        .getElementById('detail-article-reader')
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }
+                  >
+                    <FileText size={16} /> Read article
+                  </button>
                 ) : (
                   <a
                     className="primary-button"
@@ -2414,6 +2783,58 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                     playsInline
                   />
                 )}
+              {mediaKind(detail) === 'text' &&
+                /pdf/i.test(detail.format + detail.audio) && (
+                  <div id="detail-article-reader">
+                    <ScreenBoundary>
+                      <ArticleReader key={detail.id} shiur={detail} />
+                    </ScreenBoundary>
+                  </div>
+                )}
+              {detail.collections?.length ? (
+                <ScreenBoundary>
+                  <CollectionContext
+                    key={detail.id}
+                    shiur={detail}
+                    onOpen={(id) => openCatalog('collection', id)}
+                    onDetails={showDetail}
+                  />
+                </ScreenBoundary>
+              ) : null}
+              {detail.topicPaths?.length || detail.venue || detail.uploadedAt ? (
+                <details className="detail-attribution">
+                  <summary>Topics & recording details</summary>
+                  {detail.topicPaths?.map((t) => (
+                    <button
+                      key={t.id}
+                      className="text-button"
+                      onClick={() => openCatalog('topic', t.id)}
+                    >
+                      {[t.group, t.branch, t.name].filter(Boolean).join(' / ')}{' '}
+                      <ArrowRight size={13} />
+                    </button>
+                  ))}
+                  {detail.venueId && (
+                    <button
+                      className="text-button"
+                      onClick={() => openCatalog('venue', detail.venueId)}
+                    >
+                      {detail.venue || 'Venue'} <ArrowRight size={13} />
+                    </button>
+                  )}
+                  {detail.uploadedAt && (
+                    <p>
+                      Uploaded{' '}
+                      {new Date(detail.uploadedAt).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        timeZone: 'UTC',
+                      })}
+                    </p>
+                  )}
+                </details>
+              ) : null}
               {detail.description && (
                 <section className="detail-section">
                   <h3>About this shiur</h3>
@@ -2427,10 +2848,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                     className="series-detail-link"
                     onClick={() => {
                       setDetail(null);
-                      void runSearch('', {
-                        ...noFilters,
-                        series: String(detail.seriesId),
-                      });
+                      openCatalog('series', detail.seriesId);
                     }}
                   >
                     <BookOpen size={20} />
@@ -2465,12 +2883,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                   ))}
                 </section>
               )}
-              <ScreenBoundary>
-                <TranscriptReader
-                  shiurId={detail.id}
-                  onSeek={(seconds) => player.start(detail, seconds)}
-                />
-              </ScreenBoundary>
+              {mediaKind(detail) !== 'text' && (
+                <ScreenBoundary>
+                  <TranscriptReader
+                    shiurId={detail.id}
+                    onSeek={(seconds) => player.start(detail, seconds)}
+                  />
+                </ScreenBoundary>
+              )}
               {player.active?.id === detail.id && (
                 <PlaybackPosition>
                   {(clock) => (
@@ -2518,14 +2938,22 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                   ))}
                 </section>
               )}
-              <a
-                className="original-shiur-link"
-                href={detail.url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                View original on YUTorah <ExternalLink size={14} />
-              </a>
+              <div className="detail-source-actions">
+                <a
+                  className="original-shiur-link"
+                  href={detail.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View original on YUTorah <ExternalLink size={14} />
+                </a>
+                <button
+                  className="text-button"
+                  onClick={() => setFeedback({ shiur: detail })}
+                >
+                  <Info size={14} /> Report an issue
+                </button>
+              </div>
             </div>
           )}
         </SheetContent>
@@ -2672,7 +3100,25 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           </div>
         </SheetContent>
       </Sheet>
-      <Dialog open={playlistDialog} onOpenChange={setPlaylistDialog}>
+      {feedback && (
+        <ScreenBoundary>
+          <FeedbackDialog
+            key={feedback.shiur?.id || 'general'}
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) setFeedback(null);
+            }}
+            shiur={feedback.shiur}
+          />
+        </ScreenBoundary>
+      )}
+      <Dialog
+        open={playlistDialog}
+        onOpenChange={(open) => {
+          setPlaylistDialog(open);
+          if (!open) setPlaylistBatch([]);
+        }}
+      >
         <DialogContent className="playlist-dialog">
           <DialogHeader>
             <DialogTitle>
@@ -2684,8 +3130,12 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             </DialogTitle>
             <DialogDescription>
               {playlistTarget
-                ? playlistTarget.title
-                : 'Give your collection a name. Playlists are saved on this device.'}
+                ? playlistBatch.length
+                  ? `${playlistBatch.length} selected shiurim`
+                  : playlistTarget.title
+                : account.user
+                  ? 'Give your collection a name. Playlists sync with your account.'
+                  : 'Give your collection a name. Playlists are saved on this device.'}
             </DialogDescription>
           </DialogHeader>
           {playlistTarget && library.playlists.length > 0 && (
@@ -2694,7 +3144,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 <button
                   key={p.id}
                   onClick={() => {
-                    if (p.items.some((s) => s.id === playlistTarget.id)) {
+                    const additions = (
+                      playlistBatch.length ? playlistBatch : [playlistTarget]
+                    ).filter((s) => !p.items.some((item) => item.id === s.id));
+                    if (!additions.length) {
                       notify('This shiur is already in the playlist.');
                       return;
                     }
@@ -2702,7 +3155,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                       ...old,
                       playlists: old.playlists.map((v) =>
                         v.id === p.id
-                          ? { ...v, items: [...v.items, playlistTarget] }
+                          ? { ...v, items: [...v.items, ...additions] }
                           : v,
                       ),
                     }));
@@ -2713,7 +3166,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                   <ListMusic size={19} />
                   {p.name}
                   <span>
-                    {p.items.some((s) => s.id === playlistTarget.id) ? (
+                    {(playlistBatch.length
+                      ? playlistBatch
+                      : [playlistTarget]
+                    ).every((s) => p.items.some((item) => item.id === s.id)) ? (
                       <Check size={17} />
                     ) : (
                       <Plus size={17} />
@@ -2738,7 +3194,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             <button className="primary-button" disabled={!playlistName.trim()}>
               <Plus size={16} />
               {editingPlaylist ? 'Save name' : 'Create'}
-              {playlistTarget ? ' and add shiur' : ''}
+              {playlistTarget
+                ? playlistBatch.length > 1
+                  ? ' and add shiurim'
+                  : ' and add shiur'
+                : ''}
             </button>
           </form>
         </DialogContent>
@@ -2758,10 +3218,12 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           </p>
           <h3>Your library and teacher follows</h3>
           <p>
-            Teacher follows sync across devices when you sign in with Google.
-            Saved shiurim, playlists, listening progress, topics, series, saved
-            searches, and learning goals stay in this browser. Clearing this
-            browser&apos;s site data removes those local items.
+            Saved shiurim, playlists, listening progress, teacher and subject
+            follows, saved searches, and learning goals sync across devices when
+            you sign in with Google. Signed-out learning stays in this browser.
+            Offline changes sync when you reconnect; pending changes appear in
+            Settings. Clearing site data removes local learning and any changes
+            that have not synced.
           </p>
           <button
             className="outline-button"

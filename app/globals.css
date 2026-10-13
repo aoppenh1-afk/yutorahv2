@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
+@import './catalog.css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -76,10 +77,10 @@
   --r-lg: 16px;
   --r-xl: 20px;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-2: 0 8px 24px -12px rgba(0, 0, 0, 0.18),
-    0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-3: 0 24px 48px -20px rgba(0, 0, 0, 0.3),
-    0 4px 12px -4px rgba(0, 0, 0, 0.12);
+  --shadow-2:
+    0 8px 24px -12px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-3:
+    0 24px 48px -20px rgba(0, 0, 0, 0.3), 0 4px 12px -4px rgba(0, 0, 0, 0.12);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --page-x: clamp(20px, 3.2vw, 52px);
   --content-max: 1380px;
@@ -121,12 +122,36 @@
 }
 
 /* Six restrained tonal palettes, assigned by teacher, series, or group id. */
-.tone-0 { --t1: #1b3f7d; --t2: #0d1f3f; --t3: #6f93d6; }
-.tone-1 { --t1: #7a4a24; --t2: #2e1a0c; --t3: #d9a56b; }
-.tone-2 { --t1: #1f5a54; --t2: #0b2523; --t3: #6fbfb2; }
-.tone-3 { --t1: #5b2f5e; --t2: #23102a; --t3: #c08bc5; }
-.tone-4 { --t1: #8a3a2c; --t2: #31110b; --t3: #e3917f; }
-.tone-5 { --t1: #3d4a63; --t2: #141a27; --t3: #9fb0cf; }
+.tone-0 {
+  --t1: #1b3f7d;
+  --t2: #0d1f3f;
+  --t3: #6f93d6;
+}
+.tone-1 {
+  --t1: #7a4a24;
+  --t2: #2e1a0c;
+  --t3: #d9a56b;
+}
+.tone-2 {
+  --t1: #1f5a54;
+  --t2: #0b2523;
+  --t3: #6fbfb2;
+}
+.tone-3 {
+  --t1: #5b2f5e;
+  --t2: #23102a;
+  --t3: #c08bc5;
+}
+.tone-4 {
+  --t1: #8a3a2c;
+  --t2: #31110b;
+  --t3: #e3917f;
+}
+.tone-5 {
+  --t1: #3d4a63;
+  --t2: #141a27;
+  --t3: #9fb0cf;
+}
 
 @layer base {
   * {
@@ -635,7 +660,10 @@ input[type='search']::-webkit-search-cancel-button {
   top: 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(320px, 600px) minmax(150px, 1fr);
+  grid-template-columns: minmax(150px, 1fr) minmax(320px, 600px) minmax(
+      150px,
+      1fr
+    );
   align-items: center;
   gap: 20px;
   height: 72px;
@@ -700,7 +728,9 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: 50%;
   color: var(--ink-2);
   background: var(--surface);
-  box-shadow: var(--shadow-1), inset 0 0 0 1px var(--line);
+  box-shadow:
+    var(--shadow-1),
+    inset 0 0 0 1px var(--line);
   transition:
     color 0.2s,
     transform 0.2s var(--ease);
@@ -1103,7 +1133,7 @@ input[type='search']::-webkit-search-cancel-button {
   }
   .mobile-library-heading h1 {
     font-family: var(--display);
-  letter-spacing: -0.025em;
+    letter-spacing: -0.025em;
     font-weight: 640;
     font-size: 40px;
     line-height: 1.08;
