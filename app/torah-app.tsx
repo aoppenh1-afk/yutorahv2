@@ -439,7 +439,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   const homeNotify = useRef(notify);
   homeNotify.current = notify;
   useEffect(() => {
-    if (hasHome || !['discover', 'following', 'trending'].includes(view))
+    if (hasHome || !['discover', 'following', 'trending', 'daf'].includes(view))
       return;
     const controller = new AbortController();
     setHomeLoading(true);
@@ -550,6 +550,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       searchAbort.current?.abort();
       setSearchLoading(false);
       setView(next);
+      if (next === 'daf') {
+        const dailyDaf = parseDaf(homeDaf.current);
+        if (dailyDaf) setDafSelection(dailyDaf);
+      }
       if (['teachers', 'series', 'topics'].includes(next))
         setCatalogKind(
           next === 'teachers'
