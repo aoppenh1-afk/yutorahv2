@@ -1,13 +1,7 @@
 'use client';
 import { Check, Download, Loader2, X } from 'lucide-react';
 import type { Shiur } from '@/lib/yutorah';
-import { useState } from 'react';
-import {
-  useDownloads,
-  downloadShiur,
-  cancelDownload,
-  updateDownloadContent,
-} from '@/lib/downloads';
+import { useDownloads, downloadShiur, cancelDownload } from '@/lib/downloads';
 import { useConnectivity } from '@/lib/connectivity';
 
 export function DownloadButton({
@@ -19,7 +13,6 @@ export function DownloadButton({
 }) {
   const downloads = useDownloads();
   const { online } = useConnectivity();
-  const [updating, setUpdating] = useState(false);
   const saved = downloads.items.some((item) => item.id === shiur.id);
   const job = downloads.jobs.find((value) => value.shiur.id === shiur.id);
   const busy = job && job.status !== 'failed';
@@ -69,28 +62,6 @@ export function DownloadButton({
         <p role="alert" className="download-inline-error">
           {job.error}
         </p>
-      )}
-      {saved && online && (
-        <button
-          disabled={updating}
-          onClick={async () => {
-            setUpdating(true);
-            try {
-              await updateDownloadContent(shiur.id);
-              notify(
-                'Offline content checked. Available transcripts, notes and images are saved on this device.',
-              );
-            } catch {
-              notify(
-                'Could not update offline content. Your recording is still saved.',
-              );
-            } finally {
-              setUpdating(false);
-            }
-          }}
-        >
-          {updating ? 'Updating offline content…' : 'Update offline content'}
-        </button>
       )}
     </div>
   );

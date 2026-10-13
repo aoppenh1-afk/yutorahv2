@@ -55,6 +55,7 @@ let loading: Promise<void> | undefined;
 let enriching: Promise<void> | undefined;
 let active = false;
 let channel: BroadcastChannel | undefined;
+let contentRefreshTimer: ReturnType<typeof setInterval> | undefined;
 let database: Promise<IDBDatabase> | undefined;
 function publish(update: Partial<Snapshot> = {}) {
   snapshot = { ...snapshot, ...update, jobs: [...jobs.values()] };
@@ -141,18 +142,12 @@ async function refresh() {
     ...available.map((item) => item.shiur),
     ...[...jobs.values()].map((job) => job.shiur),
   ]).catch(() => {});
-  // Add content to recordings downloaded before this release, and retry missing
-  // content at most hourly when the device is online. Audio remains playable.
+  // Keep downloaded materials current, including revisions to already saved
+  // content. Check at most hourly while online; audio remains playable.
   if (navigator.onLine && !window.__YUTORAH_OFFLINE__ && !enriching)
     enriching = (async () => {
       for (const item of available)
-        if (
-          !item.content ||
-          ((!item.content.transcript ||
-            !item.content.notes ||
-            (item.shiur.image && !item.content.image)) &&
-            Date.now() - item.content.checkedAt > 60 * 60_000)
-        )
+        if (!item.content || Date.now() - item.content.checkedAt > 60 * 60_000)
           await updateDownloadContent(item.id).catch(() => {});
     })().finally(() => {
       enriching = undefined;
@@ -179,6 +174,7 @@ function subscribe(fn: () => void) {
     window.addEventListener('pageshow', onVisible);
     window.addEventListener('online', onVisible);
     document.addEventListener('visibilitychange', onVisible);
+    contentRefreshTimer = setInterval(onVisible, 60 * 60_000);
   }
   return () => {
     listeners.delete(fn);
@@ -188,6 +184,8 @@ function subscribe(fn: () => void) {
       window.removeEventListener('pageshow', onVisible);
       window.removeEventListener('online', onVisible);
       document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(contentRefreshTimer);
+      contentRefreshTimer = undefined;
     }
   };
 }
@@ -386,7 +384,7 @@ export async function removeDownload(id: number) {
   publish({ items: snapshot.items.filter((item) => item.id !== id) });
   channel?.postMessage({ id });
 }
-export async function updateDownloadContent(id: number) {
+async function updateDownloadContent(id: number) {
   if (
     contentControllers.has(id) ||
     !navigator.onLine ||

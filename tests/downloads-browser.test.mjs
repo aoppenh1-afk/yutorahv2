@@ -545,6 +545,101 @@ try {
     );
   }
   await test(
+    'downloaded study content refreshes automatically without a manual update action',
+    { timeout: 90000 },
+    async () => {
+      const browser = await chromium.launch();
+      const { context, page } = await setup(browser);
+      try {
+        await startDownload(page);
+        await page
+          .getByRole('button', { name: 'Downloaded', exact: true })
+          .waitFor({ timeout: 60000 });
+        await page.goto(origin + '/?view=downloads');
+        await page
+          .getByText('Transcript, Notes, Summaries saved offline', {
+            exact: true,
+          })
+          .waitFor();
+        await offline(context, page, true);
+        await page.reload();
+        await page
+          .getByRole('heading', { name: 'No internet connection' })
+          .waitFor();
+        // All materials are already saved, but the transcript has since changed.
+        const content = await page.evaluate(async () => {
+          const cache = await caches.open('yutorah-study-v1');
+          const path = '/api/transcript?id=900001';
+          const saved = await (await cache.match(path)).json();
+          saved.segments[0].text = 'Old saved transcript';
+          await cache.put(path, Response.json(saved));
+          const content = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('yutorah-downloads-v1');
+            request.onsuccess = () => {
+              const db = request.result;
+              const tx = db.transaction('shiurim', 'readwrite');
+              const store = tx.objectStore('shiurim');
+              const get = store.get(900001);
+              let content;
+              get.onsuccess = () => {
+                const item = get.result;
+                content = { ...item.content };
+                item.content.checkedAt = Date.now() - 61 * 60_000;
+                store.put(item);
+              };
+              tx.oncomplete = () => {
+                db.close();
+                resolve(content);
+              };
+              tx.onerror = () => reject(tx.error);
+            };
+            request.onerror = () => reject(request.error);
+          });
+          return content;
+        });
+        for (const kind of ['transcript', 'notes', 'summary', 'image'])
+          assert.equal(content[kind], true, kind + ' is already saved');
+        await offline(context, page, false);
+        await page.waitForFunction(
+          async () => {
+            const saved = await (
+              await (
+                await caches.open('yutorah-study-v1')
+              ).match('/api/transcript?id=900001')
+            ).json();
+            return saved.segments[0].text !== 'Old saved transcript';
+          },
+          null,
+          { timeout: 5000 },
+        );
+        assert.equal(await page.locator('.toast.visible').count(), 0);
+        await page.goto(origin + '/?shiur=' + shiur.id);
+        await page
+          .getByRole('button', { name: 'Downloaded', exact: true })
+          .waitFor();
+        assert.equal(
+          await page
+            .getByRole('button', { name: 'Update offline content' })
+            .count(),
+          0,
+        );
+        await offline(context, page, true);
+        assert.equal(
+          await page.evaluate(async () => {
+            const response = await (
+              await caches.open('yutorah-study-v1')
+            ).match('/api/transcript?id=900001');
+            return (await response.json()).segments[0].text;
+          }),
+          transcript.segments[0].text,
+        );
+      } finally {
+        await context.close();
+        await browser.close();
+      }
+    },
+  );
+  await test(
     'rebbei portraits are shared across downloads and existing downloads gain study content',
     { timeout: 90000 },
     async () => {
