@@ -173,8 +173,10 @@ export function nativeYutorahLink(input: string): string {
       /\/publications\/?$/i.test(url.pathname) ||
       p.publicationid ||
       p.publicationID ||
+      p.publication ||
       p.publicationvolumeid ||
-      p.publicationVolumeID
+      p.publicationVolumeID ||
+      p.volume
     )
       return url.href;
     if (/\/search\/?$/i.test(url.pathname)) {

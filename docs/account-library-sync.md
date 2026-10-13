@@ -2,8 +2,8 @@
 
 Google accounts sync saved shiurim, playlists and membership order, recently
 listened shiurim and resume positions, personal notes, the queue and last shiur,
-topic and series follows, hidden and completed items, saved searches, learning
-goals and activity, and playback preferences. Teacher follows and notification
+topic, series, venue and collection follows, hidden and completed items, saved searches, learning
+legacy goals and activity, and playback preferences. Teacher follows and notification
 preferences remain in the existing notification tables. Push permissions and
 device subscriptions remain specific to each device. Recordings themselves are
 not copied into Supabase.
@@ -16,6 +16,20 @@ serializes account updates, compares each item's version, retains deletion
 tombstones, returns incremental changes in pages, and bounds each batch to 250
 writes. Requests are pinned to the initiating account before authorization so a
 sign-in change cannot send the previous account's data under the new session.
+
+`202610130009_catalog_follows.sql` validates catalog follow keys and their
+kind, ID, name and optional artwork. It uses the same private account rows and
+unfollow tombstones. Venues and collections appear in the Following feed using
+their IDs. Push alerts continue to use the existing teacher notification tables.
+Each account keeps its own follows; signing in on another device restores them.
+
+Both library migrations are applied to the existing Supabase project. The
+focused `npm run account-library:deploy` command applies these migrations without
+redeploying the notification worker. It requires the existing private credentials
+file and, for IPv4, `SUPABASE_DATABASE_HOST` from the dashboard's Connect dialog.
+TLS certificate verification stays enabled. The live verification script checks
+all four catalog follow types, unfollow/refollow, stale imports and isolation
+between two disposable accounts, then removes its fixtures.
 
 First sign-in imports the existing device library once. New devices may import
 their own existing items; cloud versions and tombstones win over stale imports.
@@ -46,3 +60,8 @@ in-flight edits, account switching, time counters, and same-browser tabs.
 `tests/account-library-db.test.ts` checks the SQL against disposable PostgreSQL.
 `scripts/verify-account-library.ts` uses disposable live Supabase accounts and
 removes its fixtures, checking the actual RPC, account isolation and stale edits.
+
+The current interface no longer shows learned-count bars, daily listening totals,
+streaks or daily-goal settings, and playback no longer accumulates daily listening
+counters. Legacy goal/activity fields remain readable for older clients.
+Individual learned controls, listening positions and continue-learning behavior remain.

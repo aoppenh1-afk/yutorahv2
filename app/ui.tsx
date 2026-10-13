@@ -74,12 +74,22 @@ export function Avatar({
   src,
   name,
   className = '',
+  fallback,
 }: {
   src: string;
   name: string;
   className?: string;
+  fallback?: React.ReactNode;
 }) {
-  return <Portrait key={src} src={src} name={name} className={className} />;
+  return (
+    <Portrait
+      key={src}
+      src={src}
+      name={name}
+      className={className}
+      fallback={fallback}
+    />
+  );
 }
 const cdnPortrait =
   /^(https:\/\/cdnyutorah\.cachefly\.net\/_images\/roshei_yeshiva\/[^?#]+?)(?:_o|_lp)?(\.(?:jpe?g|png))$/i;
@@ -87,10 +97,12 @@ function Portrait({
   src,
   name,
   className,
+  fallback,
 }: {
   src: string;
   name: string;
   className: string;
+  fallback?: React.ReactNode;
 }) {
   const [failures, setFailures] = useState(0);
   const image = useRef<HTMLImageElement>(null);
@@ -122,13 +134,14 @@ function Portrait({
     />
   ) : (
     <span className={'avatar initials ' + className} aria-hidden="true">
-      {name
-        .replace(/^Rabbi\s+/, '')
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((s) => s[0])
-        .join('')}
+      {fallback ??
+        name
+          .replace(/^Rabbi\s+/, '')
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((s) => s[0])
+          .join('')}
     </span>
   );
 }

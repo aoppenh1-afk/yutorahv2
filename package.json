@@ -51,7 +51,8 @@
     "notifications:verify": "node scripts/verify-notifications.mjs",
     "test:account-library": "tsx --test tests/account-library.test.ts tests/account-library-db.test.ts",
     "account-library:verify": "tsx scripts/verify-account-library.ts",
-    "test:parity": "tsx --test tests/feature-parity.test.ts"
+    "account-library:deploy": "node scripts/deploy-account-library.mjs",
+    "test:parity": "tsx --test tests/feature-parity.test.ts tests/catalog-artwork.test.ts tests/catalog-loading.test.ts tests/catalog-loading-view.test.tsx tests/topic-groups.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

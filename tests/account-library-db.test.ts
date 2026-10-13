@@ -24,6 +24,12 @@ void test(
           'utf8',
         ),
       );
+      await db.query(
+        await readFile(
+          'supabase/migrations/202610130009_catalog_follows.sql',
+          'utf8',
+        ),
+      );
       const a = '00000000-0000-0000-0000-000000000001',
         b = '00000000-0000-0000-0000-000000000002';
       const as = async (id: string) => {
@@ -83,6 +89,49 @@ void test(
         30,
         'Counters never shrink',
       );
+      for (const kind of ['topic', 'series', 'venue', 'collection']) {
+        const key = `follow:${kind}:7`,
+          value = {
+            kind,
+            id: 7,
+            name: 'Followed ' + kind,
+            image: 'https://example.test/cover.jpg',
+          };
+        const created = await sync([change(key, value)]);
+        assert.deepEqual(
+          (await sync()).items.find((r: { key: string }) => r.key === key)
+            .value,
+          value,
+          'Another device restores the complete follow',
+        );
+        const version = created.resolved[0].version;
+        const unfollowed = await sync([change(key, null, version, true)]);
+        assert.deepEqual(
+          (await sync([change(key, value)])).conflicts,
+          [key],
+          'Stale imports cannot revive an unfollow',
+        );
+        await db.query('savepoint invalid_follow');
+        await assert.rejects(
+          sync([
+            change(key, { ...value, id: 8 }, unfollowed.resolved[0].version),
+          ]),
+          /Invalid library follow/,
+        );
+        await db.query('rollback to savepoint invalid_follow');
+      }
+      for (const key of [
+        'follow:teacher:1',
+        'follow:unknown:1',
+        'follow:venue:0',
+      ]) {
+        await db.query('savepoint invalid_kind');
+        await assert.rejects(
+          sync([change(key, { kind: 'venue', id: 1, name: 'Venue' })]),
+          /Invalid library follow/,
+        );
+        await db.query('rollback to savepoint invalid_kind');
+      }
       await as(b);
       assert.deepEqual((await sync()).items, []);
       assert.equal(

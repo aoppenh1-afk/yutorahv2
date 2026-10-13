@@ -282,3 +282,75 @@ void test('feed fetches bounded sources, deduplicates records and reports partia
     globalThis.fetch = originalFetch;
   }
 });
+
+void test('venues and collections match by identity and survive sparse feed merges', () => {
+  const venue = { kind: 'venue', id: 439, name: 'Shabbat' },
+    collection = { kind: 'collection', id: 15353, name: 'Shabbat' };
+  const items = [
+    shiur(1, { venueId: 439 }),
+    shiur(2, { collections: [{ id: 15353, name: 'Course' }] }),
+    shiur(3),
+  ];
+  assert.equal(followsShiur(items[2], venue), false);
+  assert.equal(followsShiur(items[2], collection), false);
+  const merged = mergeShiurim([...items, shiur(1), shiur(2)]);
+  assert.deepEqual(
+    recommend(merged, context({ following: [venue, collection] }), {
+      followingOnly: true,
+    })
+      .map((r) => r.shiur.id)
+      .sort(),
+    [1, 2],
+  );
+  assert.equal(
+    followsShiur(shiur(4, { topicIds: [99] }), {
+      kind: 'topic',
+      id: 10,
+      name: 'Shabbat',
+    }),
+    false,
+    'Same-name topics do not cross subject identities',
+  );
+  assert.equal(
+    followsShiur(shiur(4, { speakers: [{ id: 9, name: 'Coauthor' }] }), {
+      kind: 'teacher',
+      id: 9,
+      name: 'Coauthor',
+    }),
+    true,
+  );
+  assert.equal(
+    restoreLearning({ following: [venue, collection, venue] }).following.length,
+    2,
+  );
+});
+void test('venue and collection feed requests preserve scoped membership across duplicate records', async () => {
+  const originalFetch = globalThis.fetch,
+    paths = [];
+  globalThis.fetch = async (url) => {
+    paths.push(new URL(url));
+    return Response.json({
+      response: {
+        docs: [{ shiurID: 987654, shiurTitle: 'Scoped record' }],
+        numFound: 1,
+      },
+    });
+  };
+  try {
+    const data = await (
+      await GET(
+        new Request('http://localhost/api/feed?venue=439&collection=15353'),
+      )
+    ).json();
+    assert.equal(data.items.length, 1);
+    assert.equal(data.items[0].venueId, 439);
+    assert.equal(data.items[0].collections[0].id, 15353);
+    assert.ok(paths.every((p) => p.searchParams.get('searchTerm') === '*'));
+    assert.ok(paths.some((p) => p.searchParams.get('locationID') === '439'));
+    assert.ok(
+      paths.some((p) => p.searchParams.get('collectionID') === '15353'),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

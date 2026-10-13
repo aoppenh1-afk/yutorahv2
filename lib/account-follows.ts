@@ -35,7 +35,7 @@ export function mergeTeacherFollows(
     if (intent.following) teachers.set(intent.follow.id, intent.follow);
     else teachers.delete(intent.follow.id);
   }
-  // Topics and series continue to be local preferences.
+  // Other follows sync through the private account library.
   return [...teachers.values(), ...local.filter((f) => f.kind !== 'teacher')];
 }
 

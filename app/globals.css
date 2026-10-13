@@ -114,9 +114,7 @@
   --sidebar-ring: var(--brand-2);
 }
 
-.home-hero,
-.learning-goal-band,
-.m-goal {
+.home-hero {
   background: var(--panel);
 }
 

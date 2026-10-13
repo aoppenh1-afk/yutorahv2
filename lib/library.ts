@@ -6,7 +6,6 @@ import { PLAYBACK_SPEEDS } from './playback-speed';
 import {
   defaultLearning,
   restoreLearning,
-  dayKey,
   type LearningPreferences,
 } from './learning';
 export type Progress = {
@@ -373,33 +372,6 @@ export function useAudio(
   const wantsPlay = useRef(false);
   const loaded = useRef(false);
   const lastSave = useRef(0);
-  useEffect(() => {
-    if (!playing) return;
-    let previous = Date.now();
-    const tick = () => {
-      const now = Date.now();
-      const elapsed = Math.min(10, (now - previous) / 1000);
-      previous = now;
-      const el = audio.current;
-      if (!el || el.readyState < 3 || el.seeking || elapsed < 0.5) return;
-      const day = dayKey();
-      update(
-        (old) => ({
-          ...old,
-          learningDays: {
-            ...old.learningDays,
-            [day]: (old.learningDays[day] || 0) + elapsed,
-          },
-        }),
-        'progress',
-      );
-    };
-    const interval = setInterval(tick, 5000);
-    return () => {
-      clearInterval(interval);
-      tick();
-    };
-  }, [playing, update]);
   useEffect(() => {
     if (ready && !loaded.current) {
       loaded.current = true;

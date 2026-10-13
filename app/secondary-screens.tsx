@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Avatar, SeriesCover, StatePanel, ShiurRow, tone } from './ui';
 import { FollowButton } from './follow-button';
+import { TopicCard } from './topic-card';
 import { PagedItems } from './paged-items';
 import { noFilters, type Filters } from '@/lib/search-filters';
 import {
@@ -36,51 +37,6 @@ type View =
   | 'history'
   | 'playlists';
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
-function TopicCard({
-  topic,
-  tone,
-  max,
-  heading: Heading,
-  runSearch,
-  library,
-  follow,
-}: {
-  topic: Directory['topics'][number];
-  tone: number;
-  max: number;
-  heading: 'h2' | 'h3';
-  runSearch: SecondaryScreenProps['runSearch'];
-  library: LibraryState;
-  follow: (follow: Follow) => void;
-}) {
-  return (
-    <article className="topic-follow-wrap">
-      <button
-        className={'topic-card group-' + tone}
-        style={
-          {
-            '--share': Math.max(0.06, topic.count / (max || 1)),
-          } as React.CSSProperties
-        }
-        onClick={() =>
-          void runSearch('', { ...noFilters, topic: String(topic.id) })
-        }
-      >
-        <span>{topic.group}</span>
-        <Heading>{topic.name}</Heading>
-        <p>
-          {topic.count.toLocaleString()} shiurim <ArrowUpRight size={17} />
-        </p>
-        <i className="topic-meter" aria-hidden="true" />
-      </button>
-      <FollowButton
-        follow={{ kind: 'topic', id: topic.id, name: topic.name }}
-        library={library}
-        onFollow={follow}
-      />
-    </article>
-  );
-}
 export type SecondaryScreenProps = {
   view: View;
   directory: Directory | null;
@@ -342,15 +298,18 @@ export function SecondaryScreens({
                             </button>
                           )}
                         </header>
-                        <div className="topic-grid">
+                        <div className="catalog-grid catalog-topic">
                           {inGroup.slice(0, 8).map((t) => (
                             <TopicCard
                               key={t.id + '-' + t.group}
                               topic={t}
-                              tone={directory.groups.indexOf(t.group) % 6}
-                              max={inGroup[0].count}
                               heading="h3"
-                              runSearch={runSearch}
+                              onOpen={() =>
+                                void runSearch('', {
+                                  ...noFilters,
+                                  topic: String(t.id),
+                                })
+                              }
                               library={library}
                               follow={follow}
                             />
@@ -360,15 +319,18 @@ export function SecondaryScreens({
                     );
                   })
                 ) : (
-                  <div className="topic-grid">
+                  <div className="catalog-grid catalog-topic">
                     {listedTopics.slice(0, directoryLimit).map((t) => (
                       <TopicCard
                         key={t.id + '-' + t.group}
                         topic={t}
-                        tone={directory.groups.indexOf(t.group) % 6}
-                        max={Math.max(...listedTopics.map((x) => x.count))}
                         heading="h2"
-                        runSearch={runSearch}
+                        onOpen={() =>
+                          void runSearch('', {
+                            ...noFilters,
+                            topic: String(t.id),
+                          })
+                        }
                         library={library}
                         follow={follow}
                       />
@@ -385,16 +347,16 @@ export function SecondaryScreens({
                   : view === 'series'
                     ? listedSeries.length
                     : listedTopics.length) > directoryLimit && (
-                <div className="load-more">
-                  <button
-                    className="outline-button"
-                    onClick={() => setDirectoryLimit((v) => v + 36)}
-                  >
-                    Show more {view}
-                    <ArrowRight size={16} />
-                  </button>
-                </div>
-              )}
+                  <div className="load-more">
+                    <button
+                      className="outline-button"
+                      onClick={() => setDirectoryLimit((v) => v + 36)}
+                    >
+                      Show more {view}
+                      <ArrowRight size={16} />
+                    </button>
+                  </div>
+                )}
               {(view === 'teachers'
                 ? listedTeachers.length
                 : view === 'series'

@@ -134,7 +134,22 @@ try {
         createdAt: new Date().toISOString(),
       },
     ],
-    following: [{ kind: 'series', id: 5, name: 'Series' }],
+    following: [
+      { kind: 'topic', id: 4, name: 'Topic' },
+      { kind: 'series', id: 5, name: 'Series' },
+      {
+        kind: 'venue',
+        id: 439,
+        name: 'Venue',
+        image: 'https://example.invalid/venue.jpg',
+      },
+      {
+        kind: 'collection',
+        id: 15353,
+        name: 'Collection',
+        image: 'https://example.invalid/collection.jpg',
+      },
+    ],
     dailyGoal: 30,
     learningDays: { '2026-10-11': 60 },
   });
@@ -153,6 +168,11 @@ try {
   await other.sync.sync();
   assert.deepEqual(other.view.saved, []);
   assert.deepEqual(other.view.notes, []);
+  assert.deepEqual(
+    other.view.following,
+    [],
+    'Follows belong to the signed-in account',
+  );
   const privateRead = await b.client.from('library_items').select('key');
   assert.equal(privateRead.error, null);
   assert.deepEqual(privateRead.data, []);
@@ -164,6 +184,54 @@ try {
     value: { id: 999, index: 0 },
   });
   assert.ok(forbidden.error, 'Direct writes cannot bypass the RPC');
+  first.sync.observe({
+    ...first.view,
+    following: first.view.following.filter(
+      (f) => f.kind !== 'venue' && f.kind !== 'collection',
+    ),
+  });
+  await first.sync.sync();
+  await second.sync.sync();
+  assert.deepEqual(
+    second.view.following.map((f) => f.kind).sort(),
+    ['series', 'topic'],
+    'Unfollows sync to another device',
+  );
+  const staleFollows = device(a.id, a.transport, local);
+  await staleFollows.sync.sync();
+  assert.deepEqual(
+    staleFollows.view.following.map((f) => f.kind).sort(),
+    ['series', 'topic'],
+    'Offline imports cannot revive deleted follows',
+  );
+  second.sync.observe({
+    ...second.view,
+    following: [
+      ...second.view.following,
+      { kind: 'venue', id: 439, name: 'Venue' },
+      { kind: 'collection', id: 15353, name: 'Collection' },
+    ],
+  });
+  await second.sync.sync();
+  await first.sync.sync();
+  assert.deepEqual(
+    first.view.following.map((f) => f.kind).sort(),
+    ['collection', 'series', 'topic', 'venue'],
+    'An intentional refollow syncs',
+  );
+  const invalidFollow = await a.client.rpc('sync_account_library', {
+    p_changes: [
+      {
+        key: 'follow:venue:123',
+        value: { kind: 'collection', id: 123, name: 'Mismatch' },
+        deleted: false,
+        base_version: 0,
+        operation: crypto.randomUUID(),
+      },
+    ],
+    p_since: 0,
+  });
+  assert.match(invalidFollow.error?.message || '', /Invalid library follow/);
   first.sync.observe({ ...first.view, saved: [] });
   await first.sync.sync();
   const stale = device(a.id, a.transport, local);
@@ -196,7 +264,7 @@ try {
     'Anonymous sync is forbidden',
   );
   console.log(
-    'Live library checks passed: full restore, private accounts, notes, stale deletions, additive listening time, RPC-only writes and anonymous rejection.',
+    'Live library checks passed: all catalog follows restore across devices, unfollow/refollow, private accounts, invalid follow rejection, full library restore, stale deletions, notes, counters and RPC-only writes.',
   );
 } finally {
   for (const id of users) {

@@ -1,8 +1,15 @@
 import type { Shiur } from './yutorah';
 import { searchText } from './search-discovery';
 
+export const followKinds = [
+  'teacher',
+  'topic',
+  'series',
+  'venue',
+  'collection',
+] as const;
 export type Follow = {
-  kind: 'teacher' | 'topic' | 'series';
+  kind: (typeof followKinds)[number];
   id: number;
   name: string;
   image?: string;
@@ -47,22 +54,34 @@ export function restoreLearning(
           .filter(
             (f) =>
               f &&
-              ['teacher', 'topic', 'series'].includes(f.kind) &&
+              followKinds.includes(f.kind) &&
               Number.isSafeInteger(f.id) &&
               f.id > 0 &&
-              typeof f.name === 'string',
+              typeof f.name === 'string' &&
+              f.name.trim().length > 0,
           )
           .filter(
-            ((counts: Record<string, number>) => (f: Follow) => {
-              const group = f.kind === 'teacher' ? 'teachers' : 'other';
-              counts[group] = (counts[group] ?? 0) + 1;
-              return counts[group] <= 100;
-            })({}),
+            (
+              (counts: Record<string, number>, seen: Set<string>) =>
+              (f: Follow) => {
+                const key = f.kind + ':' + f.id;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                const group = f.kind === 'teacher' ? 'teachers' : 'other';
+                counts[group] = (counts[group] ?? 0) + 1;
+                return counts[group] <= 100;
+              }
+            )({}, new Set()),
           )
           .map((f) => {
-            const { notificationsEnabled, ...follow } = f;
+            const { notificationsEnabled } = f;
             return {
-              ...follow,
+              kind: f.kind,
+              id: f.id,
+              name: f.name.trim().slice(0, 300),
+              ...(typeof f.image === 'string'
+                ? { image: f.image.slice(0, 2048) }
+                : {}),
               ...(f.kind === 'teacher' &&
               typeof notificationsEnabled === 'boolean'
                 ? { notificationsEnabled }
@@ -133,8 +152,16 @@ export function learningStats(days: Record<string, number>, now = new Date()) {
   };
 }
 export function followsShiur(shiur: Shiur, follow: Follow) {
-  if (follow.kind === 'teacher') return shiur.teacherId === follow.id;
+  if (follow.kind === 'teacher')
+    return (
+      shiur.teacherId === follow.id ||
+      !!shiur.speakers?.some((s) => s.id === follow.id)
+    );
   if (follow.kind === 'series') return shiur.seriesId === follow.id;
+  if (follow.kind === 'venue') return shiur.venueId === follow.id;
+  if (follow.kind === 'collection')
+    return !!shiur.collections?.some((c) => c.id === follow.id);
+  if (shiur.topicIds?.length) return shiur.topicIds.includes(follow.id);
   return [...shiur.topics, shiur.category].some(
     (name) => searchText(name) === searchText(follow.name),
   );
@@ -178,6 +205,16 @@ export function mergeShiurim(items: Shiur[]) {
             seriesId: s.seriesId || previous.seriesId,
             category: s.category || previous.category,
             topicIds: s.topicIds?.length ? s.topicIds : previous.topicIds,
+            speakers: s.speakers?.length ? s.speakers : previous.speakers,
+            venueId: s.venueId || previous.venueId,
+            venue: s.venue || previous.venue,
+            collections: [
+              ...new Map(
+                [...(previous.collections || []), ...(s.collections || [])].map(
+                  (c) => [c.id, c],
+                ),
+              ).values(),
+            ],
             views: s.views ?? previous.views,
             downloads: s.downloads ?? previous.downloads,
           }
@@ -216,10 +253,6 @@ export function recommend(
   const saved = new Set(library.saved.map((s) => s.id));
   const teachers = new Set(interests.map((s) => s.teacherId));
   const topics = new Set(interests.flatMap((s) => s.topics.map(searchText)));
-  const following = library.following.map((follow) => ({
-    follow,
-    topic: follow.kind === 'topic' ? searchText(follow.name) : '',
-  }));
   const now = options.now ?? Date.now();
   const ranked: Recommendation[] = [];
   for (const s of mergeShiurim(items)) {
@@ -228,17 +261,9 @@ export function recommend(
     if (options.minutes && (!s.duration || s.duration > options.minutes * 60))
       continue;
     const normalizedTopics = s.topics.map(searchText);
-    const followedTopics = new Set([
-      ...normalizedTopics,
-      searchText(s.category),
-    ]);
-    const followed = following.find(({ follow, topic }) =>
-      follow.kind === 'teacher'
-        ? s.teacherId === follow.id
-        : follow.kind === 'series'
-          ? s.seriesId === follow.id
-          : followedTopics.has(topic),
-    )?.follow;
+    const followed = library.following.find((follow) =>
+      followsShiur(s, follow),
+    );
     if (options.followingOnly && !followed) continue;
     let score = 0;
     let reason = 'From the YUTorah library';
@@ -270,7 +295,6 @@ export function recommend(
     }
     const age = Math.max(0, (now - (Date.parse(s.date) || 0)) / 86400000);
     score += Math.max(0, 12 - age / 7);
-    if (s.duration > 0 && s.duration <= library.dailyGoal * 60) score += 5;
     if (saved.has(s.id)) score -= 8;
     ranked.push({ shiur: s, reason, score });
   }
