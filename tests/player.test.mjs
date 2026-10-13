@@ -587,6 +587,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
       async () => {
         let discoveryRequests = 0;
         let savedRequests = 0;
+        const refreshedTitle = 'Refreshed polling chart';
         const { context, page } = await openPlayer(
           { width: 1280, height: 800 },
           false,
@@ -600,7 +601,9 @@ void test('player controls stop playback and the phone dialog stays inside the b
                 else discoveryRequests++;
                 return route.fulfill({
                   json: {
-                    trending: [shiur],
+                    trending: [
+                      { ...shiur, title: saved ? shiur.title : refreshedTitle },
+                    ],
                     sampled: 30,
                     total: 30,
                     libraryTotal: 30,
@@ -624,13 +627,13 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .click();
           await page
             .locator('.trending-list')
-            .getByText(shiur.title, { exact: true })
+            .getByText(refreshedTitle, { exact: true })
             .waitFor();
           assert.equal(discoveryRequests, 1);
           assert.equal(savedRequests, 1);
           await page.clock.runFor(30100);
           await page
-            .getByText('Updating rankings. Showing the last complete chart.', {
+            .getByText('Updating rankings. Showing the last saved chart.', {
               exact: true,
             })
             .waitFor();
@@ -643,7 +646,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
           await page.waitForFunction(
             () =>
               !document.body.textContent.includes(
-                'Updating rankings. Showing the last complete chart.',
+                'Updating rankings. Showing the last saved chart.',
               ),
           );
           assert.equal(
@@ -665,9 +668,11 @@ void test('player controls stop playback and the phone dialog stays inside the b
     );
     for (const height of [800, 2000]) {
       await t.test(
-        `Home defers Trending until scrolling near its section at ${height}px height`,
+        `Home shows saved Trending and defers scans until scrolling near its section at ${height}px height`,
         async () => {
           let discoveryRequests = 0;
+          let savedRequests = 0;
+          const savedTitle = 'Saved Home ranking';
           const { context, page } = await openPlayer(
             { width: 1280, height },
             false,
@@ -675,13 +680,21 @@ void test('player controls stop playback and the phone dialog stays inside the b
               initialLibrary: { history: [] },
               onPage: async (_page, context) => {
                 await context.route('**/api/discover?*', (route) => {
-                  discoveryRequests++;
+                  const saved =
+                    new URL(route.request().url()).searchParams.get(
+                      'cached',
+                    ) === '1';
+                  if (saved) savedRequests++;
+                  else discoveryRequests++;
                   return route.fulfill({
                     json: {
-                      trending: [shiur],
+                      trending: [
+                        { ...shiur, title: saved ? savedTitle : shiur.title },
+                      ],
                       sampled: 1,
                       total: 1,
                       partial: false,
+                      stale: saved,
                       period: 'week',
                       minutes: 0,
                       fetchedAt: new Date().toISOString(),
@@ -693,16 +706,17 @@ void test('player controls stop playback and the phone dialog stays inside the b
           );
           try {
             const section = page.locator('.trending-section');
-            await section.waitFor();
+            await section.getByText(savedTitle, { exact: true }).waitFor();
             await page.waitForTimeout(100);
-            assert.equal(discoveryRequests, 0, 'initial Home defers the chart');
+            assert.equal(savedRequests, 1, 'Home reads the saved chart once');
+            assert.equal(discoveryRequests, 0, 'initial Home defers scanning');
             await page.evaluate(() => window.scrollTo(0, 1));
             if (height === 800) {
               await page.waitForTimeout(100);
               assert.equal(
                 discoveryRequests,
                 0,
-                'scrolling far from Trending still defers the chart',
+                'scrolling far from Trending still defers scanning',
               );
               await section.scrollIntoViewIfNeeded();
             }
@@ -715,6 +729,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
               1,
               'further scrolling reuses the chart',
             );
+            assert.equal(savedRequests, 1, 'scanning reuses the saved chart');
           } finally {
             await context.close();
           }
@@ -738,8 +753,22 @@ void test('player controls stop playback and the phone dialog stays inside the b
                 })),
                 history: [],
               },
-              onPage: (page) => {
+              onPage: async (page, context) => {
                 page.on('request', (request) => requests.push(request.url()));
+                await context.route('**/api/discover?*', (route) =>
+                  route.fulfill({
+                    json: {
+                      trending: [shiur],
+                      sampled: 1,
+                      total: 1,
+                      partial: false,
+                      stale: true,
+                      period: 'week',
+                      minutes: 0,
+                      fetchedAt: new Date().toISOString(),
+                    },
+                  }),
+                );
               },
             },
           );
@@ -758,9 +787,15 @@ void test('player controls stop playback and the phone dialog stays inside the b
                   .split(',')
                   .filter(Boolean).length <= 8,
               );
-            assert.equal(
-              requests.filter((url) => url.includes('/api/discover?')).length,
-              0,
+            const discoveryRequests = requests.filter((url) =>
+              url.includes('/api/discover?'),
+            );
+            assert.equal(discoveryRequests.length, 1);
+            assert.ok(
+              discoveryRequests.every(
+                (url) => new URL(url).searchParams.get('cached') === '1',
+              ),
+              'initial Home only reads saved rankings without starting a scan',
             );
             assert.equal(
               requests.filter((url) =>
