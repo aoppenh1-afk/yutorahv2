@@ -3,7 +3,6 @@
 
 import { useMemo, useState } from 'react';
 import { usePlayerDialog } from '@/hooks/use-player-dialog';
-import { ShiurViews } from './shiur-views';
 import { TeacherLink } from './teacher-link';
 import {
   ArrowRight,
@@ -200,36 +199,38 @@ export function MobileDiscover({
       </section>
 
       {pick && (
-        <section className="m-hero" aria-label="Featured shiur">
+        <section
+          className={'m-hero ' + tone(pick.teacherId)}
+          aria-label="Featured shiur"
+        >
           <div className="m-hero-top">
-            <span className="m-hero-eyebrow">
-              Featured{pick.category ? ' · ' + pick.category : ''}
-            </span>
             <button
-              className={'m-hero-portrait ' + tone(pick.teacherId)}
+              className="m-hero-portrait"
               aria-label={'View ' + pick.teacher + ' shiur details'}
               onClick={() => onDetails(pick)}
             >
               <Avatar src={pick.image} name={pick.teacher} />
             </button>
+            <div className="m-hero-byline">
+              <span className="m-hero-eyebrow">
+                {home?.featured.some((s) => s.id === pick.id)
+                  ? 'Editors’ pick'
+                  : 'Featured'}
+                {pick.category ? ' in ' + pick.category : ''}
+              </span>
+              <TeacherLink
+                shiur={pick}
+                onTeacher={(s) =>
+                  onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+                }
+              />
+            </div>
           </div>
           <h2>
             <button dir="auto" onClick={() => onDetails(pick)}>
               {pick.title}
             </button>
           </h2>
-          <p>
-            <TeacherLink
-              shiur={pick}
-              onTeacher={(s) =>
-                onSearch('', { ...noFilters, teacher: String(s.teacherId) })
-              }
-            />
-            {pick.duration > 0 && (
-              <span> · {Math.round(pick.duration / 60)} min</span>
-            )}
-            <ShiurViews shiur={pick} />
-          </p>
           <div className="m-hero-actions">
             <button
               className="m-hero-play"
@@ -247,11 +248,14 @@ export function MobileDiscover({
               }
             >
               {activeId === pick.id && playing ? (
-                <Pause size={17} fill="currentColor" />
+                <Pause size={19} fill="currentColor" />
               ) : (
-                <Play size={17} fill="currentColor" />
+                <Play size={19} fill="currentColor" />
               )}
-              {activeId === pick.id && playing ? 'Pause' : 'Listen now'}
+              {activeId === pick.id && playing ? 'Pause' : 'Play'}
+              {pick.duration > 0 && (
+                <small>{Math.round(pick.duration / 60)} min</small>
+              )}
             </button>
             <button
               className="m-hero-save"

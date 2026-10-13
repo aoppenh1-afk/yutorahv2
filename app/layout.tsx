@@ -10,7 +10,7 @@ const sans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 const mono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
 const hebrew = Frank_Ruhl_Libre({
   variable: '--font-hebrew',
-  subsets: ['hebrew'],
+  subsets: ['hebrew', 'latin'],
   weight: ['400', '500', '700'],
   display: 'swap',
 });

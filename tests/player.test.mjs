@@ -346,52 +346,59 @@ void test('player controls stop playback and the phone dialog stays inside the b
         }
       },
     );
-    await t.test('mobile Listen now opens the full audio player', async () => {
-      const { context, page } = await openPlayer(
-        { width: 390, height: 844 },
-        false,
-        {
-          home: {
-            featured: [{ ...shiur, teacher: 'Rabbi Test teacher' }],
-            recent: [shiur],
-          },
-        },
-      );
-      try {
-        await page.getByRole('button', { name: 'Pause', exact: true }).click();
-        await page.locator('.m-hero-play').getByText('Listen now').waitFor();
-        await page.locator('.m-hero-play').click();
-        await page.waitForFunction(
-          () => !document.querySelector('audio').paused,
-        );
-        await page.locator('.mobile-now-playing').waitFor();
-        assert.equal(
-          await page.locator('.mobile-now-playing').isVisible(),
-          true,
-        );
-        await page
-          .getByRole('button', { name: 'Collapse player controls' })
-          .click();
-        await page.locator('.mobile-now-playing').waitFor({ state: 'hidden' });
-        assert.equal(
-          await page.locator('.mobile-now-playing').isVisible(),
+    await t.test(
+      'mobile featured Play opens the full audio player',
+      async () => {
+        const { context, page } = await openPlayer(
+          { width: 390, height: 844 },
           false,
+          {
+            home: {
+              featured: [{ ...shiur, teacher: 'Rabbi Test teacher' }],
+              recent: [shiur],
+            },
+          },
         );
-        await page
-          .getByRole('button', { name: 'Close player', exact: true })
-          .click();
-        await page.reload({ waitUntil: 'domcontentloaded' });
-        await page.locator('.m-hero-play').getByText('Listen now').waitFor();
-        assert.equal(await page.locator('.player').count(), 0);
-        await page.locator('.m-hero-play').click();
-        await page.locator('.mobile-now-playing').waitFor();
-        await page.waitForFunction(
-          () => !document.querySelector('audio').paused,
-        );
-      } finally {
-        await context.close();
-      }
-    });
+        try {
+          await page
+            .getByRole('button', { name: 'Pause', exact: true })
+            .click();
+          await page.locator('.m-hero-play[aria-label^="Play "]').waitFor();
+          await page.locator('.m-hero-play').click();
+          await page.waitForFunction(
+            () => !document.querySelector('audio').paused,
+          );
+          await page.locator('.mobile-now-playing').waitFor();
+          assert.equal(
+            await page.locator('.mobile-now-playing').isVisible(),
+            true,
+          );
+          await page
+            .getByRole('button', { name: 'Collapse player controls' })
+            .click();
+          await page
+            .locator('.mobile-now-playing')
+            .waitFor({ state: 'hidden' });
+          assert.equal(
+            await page.locator('.mobile-now-playing').isVisible(),
+            false,
+          );
+          await page
+            .getByRole('button', { name: 'Close player', exact: true })
+            .click();
+          await page.reload({ waitUntil: 'domcontentloaded' });
+          await page.locator('.m-hero-play[aria-label^="Play "]').waitFor();
+          assert.equal(await page.locator('.player').count(), 0);
+          await page.locator('.m-hero-play').click();
+          await page.locator('.mobile-now-playing').waitFor();
+          await page.waitForFunction(
+            () => !document.querySelector('audio').paused,
+          );
+        } finally {
+          await context.close();
+        }
+      },
+    );
     for (const viewport of [
       { width: 1280, height: 800 },
       { width: 390, height: 844 },
