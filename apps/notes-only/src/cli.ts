@@ -1,33 +1,62 @@
-import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, chmod } from 'node:fs/promises';
 import { resolve, join, dirname } from 'node:path';
 import { homedir, hostname } from 'node:os';
-import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
 import { NotesQueue } from '../../../packages/notes-only/src/queue.js';
+import { NotesPipeline } from '../../../packages/notes-only/src/pipeline.js';
 import {
-  NotesPipeline,
+  importLegacy,
+  loadArtifact,
+  digest,
   durableWrite,
-} from '../../../packages/notes-only/src/pipeline.js';
+} from '../../../packages/notes-only/src/artifacts.js';
+import {
+  runCoordinator,
+  defaults,
+  metrics,
+  diskHeadroom,
+} from '../../../packages/notes-only/src/coordinator.js';
+import {
+  InferenceLimiter,
+  PipelineFailure,
+} from '../../../packages/notes-only/src/control.js';
+import {
+  priorityInventoryPage,
+  type PriorityTeacher,
+} from '../../../packages/notes-only/src/inventory.js';
+import { beginRegeneration } from '../../../packages/notes-only/src/regeneration.js';
+import { backupArtifacts } from '../../../packages/notes-only/src/backup.js';
+import {
+  notesProfile,
+  generateNotes,
+} from '../../../packages/notes-only/src/notes.js';
 import {
   TiDBNotesStore,
   type NotesCredential,
 } from '../../../lib/tidb-notes-store.js';
 import {
-  generateNotes,
-  notesProfile,
-} from '../../../packages/transcription/src/notes.js';
-import {
   withOpenCode,
   recoverOpenCode,
   FREE_NOTES_MODEL,
   openCodeIdentity,
+  notesAgentConfig,
 } from '../../../packages/opencode-acp/src/runtime.js';
-import { catalogPage } from '../../../packages/yutorah-core/src/media.js';
+import { OpenCodeServer } from '../../../packages/opencode-acp/src/server.js';
+import {
+  pendingCohort,
+  cohortJobs,
+  verifyCohort,
+  promoteCompletedRollout,
+  type CohortJob,
+} from '../../../packages/notes-only/src/rollout.js';
+import type { Qualification } from '../../../packages/notes-only/src/qualification.js';
 
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string) => {
   const i = args.indexOf(name);
-  return i < 0 ? fallback : (args[i + 1] ?? fallback);
+  if (i >= 0 && !args[i + 1]) throw new Error(`Missing ${name}.`);
+  return i < 0 ? fallback : args[i + 1];
 };
 const integer = (name: string, fallback: number, min: number, max: number) => {
   const n = Number(option(name, String(fallback)));
@@ -42,115 +71,416 @@ const command = args[0] ?? 'help';
 const abort = new AbortController();
 process.once('SIGINT', () => abort.abort());
 process.once('SIGTERM', () => abort.abort());
-const controller = abort.signal;
+const signal = abort.signal;
+const log = (record: unknown) => console.log(JSON.stringify(record));
 async function main() {
   if (command === 'help') {
-    console.log(`Notes-only pipeline. All state belongs under persistent home. No listening ports.
-  enqueue --ids 1190357,1190833   Add shiur IDs without transcripts
-  enqueue --file ids.txt         One numeric ID per line
-  catalog --pages 20            Resume catalog discovery, 30 IDs/page
-  run --limit 3                 Process a bounded pilot
-  run --all --follow            Continue the queue, wait for quota resets
-  status                        Show durable progress
-  restore --limit 20            Republish verified local compressed-note backups
+    console.log(`Staged notes coordinator (queue v2). Node 22.13+; OpenCode 1.18.33; ${FREE_NOTES_MODEL}, plan, high only.
+  enqueue --ids ID,ID | --file FILE [--priority 1]
+  catalog --pages 20               Resume the verified paced catalog cursor
+  migrate                          Import verified legacy notes without changing completions
+  regenerate --file TEACHERS --instruction TEXT  Archive checkpoints and start fresh notes
+  replacement-check                Check UPDATE rights without changing a published note
+  retry --ids ID,ID                 Retry reviewed failures without an accepted artifact
+  run --limit 3                    Bounded pilot, including fetching and publication
+  run --all --follow --inventory   Continuous coordinated pools
+  rollout --route server-high      Resume verified 100/500/1000 cohorts, then production
+  status | metrics                 Read-only; never recover active leases
+  backup [--audit]                 Incremental artifact backup / full integrity audit
+  reclaim                          Delete backed-up completed sources after retention
+  verify-cohort --file RUN          Verify exact candidate pilot rows through TiDB readback
+  readback --limit 20               Independently verify completed TiDB rows against artifacts
+  restore --limit 20                Republish accepted completed artifacts with insert/readback
+  review --file FILE                Record exact-artifact human acceptance or rejection
+  resume-route --upstream muse      Clear an inspected route pause
+  runtime-check                    Verify pinned server/schema/config/zero prices; no inference
+  qualification --file FILE        Validate and record human-reviewed candidate evidence
 Common: --state DIR --credential FILE --opencode EXECUTABLE
-Model is pinned to ${FREE_NOTES_MODEL}; paid fallback is forbidden.`);
+Generation: --route acp-high|server-high (default acp-high), --concurrency 1..10 (default 4)
+Pools: --fetchers 3 --publishers 1 --ready-low 20 --ready-target 50 --ready-max 100
+Bounds: --source-mib 1024 --outbox-mib 1024 --outbox-count 1000 --disk-reserve-mib 2048
+Admission: --min-free-memory-mib 3072 --spacing-ms 2000 --requests-per-minute 30 --tokens-per-minute 2000000
+Deadlines: --request-timeout-ms 1200000 --max-runtime-ms 21600000
+Candidate outputs remain local until the exact profile passes its human and operational gates.
+`);
+    return;
+  }
+  if (['status', 'metrics'].includes(command)) {
+    const queue = new NotesQueue(join(root, 'queue.sqlite'), true);
+    try {
+      log({
+        state: root,
+        schema: queue.db.prepare('PRAGMA user_version').get()?.user_version,
+        ...metrics(queue),
+        nextCatalogPage: queue.cursor('catalog'),
+      });
+    } finally {
+      queue.close();
+    }
     return;
   }
   await mkdir(root, { recursive: true, mode: 0o700 });
-  if (command === 'status') {
-    const statusQueue = new NotesQueue(join(root, 'queue.sqlite'));
-    try {
-      console.log(
-        JSON.stringify({
-          state: root,
-          jobs: statusQueue.status(),
-          nextCatalogPage: statusQueue.cursor('catalog'),
-        }),
-      );
-    } finally {
-      statusQueue.close();
-    }
-    return;
-  }
+  await chmod(root, 0o700);
+  // Every mutating entry, including maintenance, requires the same inherited kernel lock.
+  if (process.env.YUTORAH_NOTES_LOCK_HELD !== '1')
+    throw new Error(
+      'Use the installed run.sh or scripts/notes.mjs; the mutation kernel lock is required.',
+    );
   const lock = join(root, 'runner.lock');
-  try {
-    await mkdir(lock, { mode: 0o700 });
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-    const owner = JSON.parse(
-      await readFile(join(lock, 'owner.json'), 'utf8'),
-    ) as { pid: number; hostname: string };
-    if (owner.hostname === hostname()) {
-      let alive = true;
-      try {
-        process.kill(owner.pid, 0);
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code === 'ESRCH') alive = false;
-        else throw e;
-      }
-      if (alive) throw new Error('Another notes process is running.');
+  const owner = await readFile(join(lock, 'owner.json'), 'utf8')
+    .then(JSON.parse)
+    .catch((e: NodeJS.ErrnoException) => {
+      if (e.code === 'ENOENT') return null;
+      throw e;
+    });
+  if (owner?.hostname === hostname()) {
+    try {
+      process.kill(owner.pid, 0);
+      throw new Error('Another notes process is running.');
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ESRCH') throw e;
     }
-    await rm(lock, { recursive: true });
-    await mkdir(lock, { mode: 0o700 });
-  }
+  } else if (owner)
+    throw new Error(
+      'Notes ownership belongs to another host; reconcile before migration.',
+    );
+  await rm(lock, { recursive: true, force: true });
+  await mkdir(lock, { mode: 0o700 });
   await durableWrite(
     join(lock, 'owner.json'),
     JSON.stringify({ pid: process.pid, hostname: hostname() }),
   );
   const queue = new NotesQueue(join(root, 'queue.sqlite'));
+  let server: OpenCodeServer | undefined;
   try {
-    queue.recover();
-    queue.recheckMissing();
+    const teachers: PriorityTeacher[] = await readFile(
+      join(root, 'teachers.json'),
+      'utf8',
+    )
+      .then(JSON.parse)
+      .catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return [];
+        throw error;
+      });
+    if (command === 'regenerate') {
+      const requested: PriorityTeacher[] = JSON.parse(
+        await readFile(option('--file', ''), 'utf8'),
+      );
+      log(
+        await beginRegeneration(
+          root,
+          queue,
+          requested,
+          option('--instruction', ''),
+        ),
+      );
+      return;
+    }
     if (command === 'enqueue') {
-      const filename = option('--file', '');
-      const ids = filename
-        ? (await readFile(filename, 'utf8')).split(/\s+/).filter(Boolean)
+      const file = option('--file', '');
+      const ids = file
+        ? (await readFile(file, 'utf8')).split(/\s+/).filter(Boolean)
         : option('--ids', '').split(',').filter(Boolean);
       if (!ids.length || ids.length > 1_000_000)
-        throw new Error('Provide shiur IDs.');
-      queue.enqueue(ids.map((id) => ({ id })));
-      console.log(JSON.stringify(queue.status()));
+        throw new Error('Provide at most 1,000,000 numeric shiur IDs.');
+      queue.enqueue(
+        ids.map((id) => ({ id })),
+        integer('--priority', 1, 0, 1),
+      );
+      log(queue.status());
+      return;
+    }
+    if (command === 'retry') {
+      const ids = option('--ids', '').split(',');
+      if (!ids.length || ids.some((id) => !/^\d{1,12}$/.test(id)))
+        throw new Error('Provide numeric shiur IDs.');
+      let retried = 0;
+      for (const id of ids)
+        retried += Number(
+          queue.db
+            .prepare(
+              "UPDATE jobs SET status=CASE WHEN source_path IS NULL THEN 'discovered' ELSE 'ready' END,next_at=0,error=NULL WHERE id=? AND status IN ('blocked','needs_review') AND artifact_path IS NULL",
+            )
+            .run(id).changes,
+        );
+      log({ retried });
+      return;
+    }
+    if (command === 'migrate') {
+      const imported = await importLegacy(root, queue);
+      queue.setCursor('legacyImported', 2);
+      log({ imported, jobs: queue.status() });
+      return;
+    }
+    if (command === 'resume-route') {
+      const upstream = option('--upstream', 'muse');
+      if (!['muse', 'tidb', 'yutorah'].includes(upstream))
+        throw new Error('Invalid upstream.');
+      queue.resume(upstream);
+      log({ resumed: upstream });
       return;
     }
     if (command === 'catalog') {
-      const pages = integer('--pages', 20, 1, 15000);
-      for (let i = 0; i < pages; i++) {
-        controller.throwIfAborted();
-        const page = queue.cursor('catalog');
-        const result = await catalogPage(page, controller);
-        const expected = Math.max(
-          0,
-          Math.min(30, result.total - (page - 1) * 30),
-        );
-        if (result.docs.length !== expected)
-          throw new Error('Incomplete catalog page; cursor was not advanced.');
-        const records = result.docs.map((raw) => {
-          const scalar = (v: unknown): string => {
-            if (Array.isArray(v)) return scalar(v[0]);
-            return typeof v === 'string' || typeof v === 'number'
-              ? String(v)
-              : '';
-          };
-          return {
-            id: scalar(raw.shiurID ?? raw.shiurid),
-            title: scalar(raw.shiurTitle ?? raw.shiurtitle).replace(
-              /<[^>]*>/g,
-              '',
-            ),
-            teacher: scalar(raw.teacherfullname),
-          };
-        });
-        queue.enqueue(records);
-        queue.setCursor('catalog', page + 1);
-        console.log(
-          JSON.stringify({ page, total: result.total, queued: records.length }),
-        );
-        if (page * 30 >= result.total) break;
-        await delay(1000, undefined, { signal: controller });
+      for (let i = 0; i < integer('--pages', 20, 1, 15000); i++) {
+        log(await priorityInventoryPage(queue, signal, teachers));
+        if (queue.cursor('catalog') === 1) break;
+        await delay(1000, undefined, { signal });
       }
       return;
     }
+    const backupDestination = resolve(
+      option('--backup-dir', join(root, '..', 'yutorah-notes-backup', 'v2')),
+    );
+    if (command === 'backup') {
+      log(
+        await backupArtifacts(
+          root,
+          backupDestination,
+          queue,
+          args.includes('--audit'),
+        ),
+      );
+      return;
+    }
+    if (command === 'review') {
+      const value = JSON.parse(
+        await readFile(option('--file', ''), 'utf8'),
+      ) as {
+        reviewer: string;
+        profile: string;
+        notes: Array<{
+          id: string;
+          sourceHash: string;
+          notesHash: string;
+          decision: 'accepted' | 'rejected';
+          reason: string;
+        }>;
+      };
+      if (
+        !value.reviewer?.trim() ||
+        !Array.isArray(value.notes) ||
+        value.notes.length > 10000
+      )
+        throw new Error(
+          'A named human reviewer and bounded artifact decisions are required.',
+        );
+      queue.transaction(() => {
+        for (const review of value.notes) {
+          if (
+            !['accepted', 'rejected'].includes(review.decision) ||
+            !review.reason?.trim()
+          )
+            throw new Error('Explicit review decisions and reasons required.');
+          const job = queue.db
+            .prepare(
+              "SELECT * FROM jobs WHERE id=? AND profile=? AND source_hash=? AND notes_hash=? AND status='needs_review' AND artifact_path IS NOT NULL",
+            )
+            .get(review.id, value.profile, review.sourceHash, review.notesHash);
+          if (!job)
+            throw new Error(
+              'Review does not match a retained pending artifact.',
+            );
+          queue.db
+            .prepare(
+              'INSERT INTO reviews VALUES(?,?,?,?,?,?,?) ON CONFLICT(notes_hash) DO UPDATE SET reviewer=excluded.reviewer,decision=excluded.decision,reason=excluded.reason,reviewed_at=excluded.reviewed_at',
+            )
+            .run(
+              review.notesHash,
+              review.sourceHash,
+              value.profile,
+              value.reviewer,
+              review.decision,
+              review.reason.slice(0, 1000),
+              Date.now(),
+            );
+          queue.db
+            .prepare(
+              'UPDATE jobs SET review=?,error=? WHERE id=? AND notes_hash=?',
+            )
+            .run(
+              review.decision,
+              review.decision === 'rejected' ? 'human_rejection' : null,
+              review.id,
+              review.notesHash,
+            );
+        }
+      });
+      log({ reviewed: value.notes.length });
+      return;
+    }
+    if (command === 'qualification') {
+      const { validateQualification } =
+        await import('../../../packages/notes-only/src/qualification.js');
+      const evidence: Qualification = JSON.parse(
+        await readFile(option('--file', ''), 'utf8'),
+      );
+      validateQualification(evidence);
+      if (evidence.phase === 'production')
+        for (const size of [100, 500, 1000])
+          if (
+            !queue.db
+              .prepare('SELECT 1 FROM cohorts WHERE profile=? AND size=?')
+              .get(evidence.profile, size)
+          )
+            throw new Error(
+              'Verify each local cohort through independent TiDB readback first.',
+            );
+      if (evidence.waivers) {
+        const directory = join(root, 'authorizations');
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        await durableWrite(
+          join(directory, Date.now() + '.json'),
+          JSON.stringify(evidence, null, 2),
+        );
+      }
+      queue.db
+        .prepare(
+          'INSERT INTO approvals VALUES(?,?,?) ON CONFLICT(profile) DO UPDATE SET evidence=excluded.evidence,approved_at=excluded.approved_at',
+        )
+        .run(evidence.profile, JSON.stringify(evidence), Date.now());
+      for (const review of evidence.reviews)
+        queue.db
+          .prepare(
+            "UPDATE jobs SET review='accepted',status='generated',error=NULL WHERE profile=? AND source_hash=? AND notes_hash=? AND status='needs_review'",
+          )
+          .run(
+            evidence.profile,
+            review.sourceHash,
+            review.candidateArtifactHash,
+          );
+      log({ approvedProfile: evidence.profile });
+      return;
+    }
+    const route = option('--route', 'acp-high');
+    if (!['acp-high', 'server-high'].includes(route))
+      throw new Error('Unsupported route.');
+    const config = {
+      executable: option(
+        '--opencode',
+        process.env.OPENCODE_EXECUTABLE ?? 'opencode-notes',
+      ),
+      scratch: join(root, 'runtime', 'acp'),
+    };
+    server = new OpenCodeServer(
+      {
+        executable: config.executable,
+        root: join(root, 'runtime', 'server'),
+        deadlineMs: integer('--request-timeout-ms', 1200_000, 1000, 7200_000),
+        catalogTtlMs: integer('--catalog-ttl-ms', 60_000, 1, 300_000),
+      },
+      queue,
+    );
+    if (command === 'runtime-check') {
+      await server.guard();
+      log({
+        runtime: 'opencode:1.18.33',
+        model: FREE_NOTES_MODEL,
+        effort: 'high',
+        schemaVerified: true,
+        zeroPricesVerified: true,
+      });
+      return;
+    }
+    if (
+      ![
+        'run',
+        'rollout',
+        'reclaim',
+        'readback',
+        'restore',
+        'verify-cohort',
+        'replacement-check',
+      ].includes(command)
+    )
+      throw new Error('Unknown command.');
+    const assetRoot =
+      process.env.NOTES_ASSET_ROOT ??
+      resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+    const notesSkill = await readFile(
+      join(
+        assetRoot,
+        'packages/notes-only/skills/written-shiur-notes/SKILL.md',
+      ),
+      'utf8',
+    );
+    const profile = notesProfile({
+      model: FREE_NOTES_MODEL,
+      language: 'hebrewEnglish',
+      runtime:
+        route === 'acp-high'
+          ? openCodeIdentity(config)
+          : 'opencode:1.18.33:server:plan:high:v1',
+      notesSkill,
+    });
+    const approval = queue.db
+      .prepare('SELECT evidence FROM approvals WHERE profile=?')
+      .get(profile.id);
+    const qualification = approval
+      ? JSON.parse(String(approval.evidence))
+      : null;
+    const isRollout = command === 'rollout';
+    if (isRollout && (route !== 'server-high' || !qualification))
+      throw new Error(
+        'Server rollout requires explicit exact-profile approval.',
+      );
+    const progress =
+      isRollout && qualification?.phase === 'quality'
+        ? await pendingCohort(root, queue, profile.id)
+        : null;
+    const cohortSize = progress?.size ?? integer('--limit', 3, 1, 1000);
+    if (
+      !isRollout &&
+      command === 'run' &&
+      route === 'server-high' &&
+      qualification?.phase === 'quality' &&
+      (args.includes('--all') ||
+        ![100, 500, 1000].includes(integer('--limit', 3, 1, 1000)))
+    )
+      throw new Error(
+        'Quality approval permits controlled 100/500/1000 note cohorts; continuous production requires the operational gate.',
+      );
+    if (
+      ['run', 'rollout'].includes(command) &&
+      route === 'server-high' &&
+      qualification?.phase === 'quality'
+    ) {
+      const size = cohortSize;
+      for (const previous of size === 1000
+        ? [100, 500]
+        : size === 500
+          ? [100]
+          : [])
+        if (
+          !queue.db
+            .prepare('SELECT 1 FROM cohorts WHERE profile=? AND size=?')
+            .get(profile.id, previous)
+        )
+          throw new Error(
+            'Verify the preceding candidate cohort before increasing its size.',
+          );
+    }
+    if (isRollout && qualification?.phase === 'quality' && !progress) {
+      const promoted = await promoteCompletedRollout(
+        root,
+        queue,
+        qualification,
+      );
+      log({
+        type: 'rollout',
+        phase: promoted.phase,
+        profile: profile.id,
+        waivers: promoted.waivers,
+      });
+    }
+    const identity = {
+      profile: profile.id,
+      generator: JSON.stringify({
+        ...profile,
+        runtimeConfig: notesAgentConfig(),
+      }),
+      route: route as 'acp-high' | 'server-high',
+      approved: route === 'acp-high' || !!qualification,
+    };
     const credential = JSON.parse(
       await readFile(
         resolve(option('--credential', join(root, 'writer.json'))),
@@ -158,192 +488,369 @@ Model is pinned to ${FREE_NOTES_MODEL}; paid fallback is forbidden.`);
       ),
     ) as NotesCredential;
     const store = new TiDBNotesStore(credential);
-    const limit = args.includes('--all')
-      ? Infinity
-      : integer('--limit', 3, 1, 1000);
-    if (command === 'restore') {
-      let restored = 0;
-      for (const id of await readdir(join(root, 'notes'))) {
-        if (restored >= limit) break;
-        if (!/^[1-9]\d{0,11}$/.test(id)) continue;
-        const folder = join(root, 'notes', id);
-        const metadata = JSON.parse(
-          await readFile(join(folder, 'metadata.json'), 'utf8'),
-        );
-        await store.publish({
-          ...metadata,
-          gzip: new Uint8Array(await readFile(join(folder, 'notes.md.gz'))),
-        });
-        restored++;
-        console.log(JSON.stringify({ id, status: 'restored' }));
-      }
+    if (command === 'replacement-check') {
+      await store.verifyReplacementPermission();
+      log({ replacementPermission: true, changedRows: 0 });
       return;
     }
-    if (command !== 'run') throw new Error('Unknown command.');
-    const config = {
-      executable: option(
-        '--opencode',
-        process.env.OPENCODE_EXECUTABLE ?? 'opencode-notes',
+    if (command === 'verify-cohort') {
+      const runBytes = await readFile(option('--file', ''));
+      const run = JSON.parse(runBytes.toString()) as {
+        profile: string;
+        route: string;
+        jobs: CohortJob[];
+      };
+      if (run.route !== 'server-high')
+        throw new Error('A server candidate cohort is required.');
+      log(
+        await verifyCohort({
+          root,
+          queue,
+          store,
+          profile: run.profile,
+          jobs: run.jobs,
+          runHash: digest(runBytes),
+        }),
+      );
+      return;
+    }
+    if (command === 'readback' || command === 'restore') {
+      const rows = queue.db
+        .prepare(
+          "SELECT id,artifact_path,notes_hash FROM jobs WHERE status='completed' AND artifact_path IS NOT NULL ORDER BY completed_at DESC NULLS LAST,rowid DESC LIMIT ?",
+        )
+        .all(integer('--limit', 20, 1, 1000));
+      const verified = [];
+      for (const row of rows) {
+        const { note } = await loadArtifact(root, String(row.artifact_path));
+        if (note.notesHash !== row.notes_hash || note.shiurId !== row.id)
+          throw new Error('Completed artifact mismatch.');
+        const saved =
+          command === 'restore'
+            ? await store.publish(note)
+            : await store.get(String(row.id));
+        if (
+          !saved ||
+          saved.notesHash !== note.notesHash ||
+          saved.sourceHash !== note.sourceHash ||
+          saved.generatorVersion !== note.generatorVersion
+        )
+          throw new Error('Independent TiDB readback conflict.');
+        const { unpackNote } = await import('../../../lib/tidb-notes-store.js');
+        await unpackNote(saved);
+        verified.push({
+          id: row.id,
+          notesHash: saved.notesHash,
+          sourceHash: saved.sourceHash,
+        });
+      }
+      await durableWrite(
+        join(root, 'readback-verification.json'),
+        JSON.stringify({ at: Date.now(), command, verified }),
+      );
+      log({ command, verified: verified.length });
+      return;
+    }
+    const concurrency = integer('--concurrency', defaults.generators, 1, 10);
+    if (
+      route === 'server-high' &&
+      qualification &&
+      concurrency > qualification.concurrency
+    )
+      throw new Error('Requested concurrency exceeds the qualified setting.');
+    const limiter = new InferenceLimiter(queue, {
+      concurrency,
+      spacingMs: integer('--spacing-ms', 2000, 0, 60000),
+      requestsPerMinute: integer('--requests-per-minute', 30, 1, 1000),
+      tokensPerMinute: integer(
+        '--tokens-per-minute',
+        2000_000,
+        1000,
+        100_000_000,
       ),
-      scratch: join(root, 'scratch'),
-    };
-    const assetRoot =
-      process.env.NOTES_ASSET_ROOT ??
-      resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-    const transcriptionSkill = await readFile(
-      join(
-        assetRoot,
-        'packages/transcription/skills/lectern-transcription/SKILL.md',
-      ),
-      'utf8',
-    );
-    const notesSkill = await readFile(
-      join(assetRoot, 'packages/transcription/skills/lectern-notes/SKILL.md'),
-      'utf8',
-    );
-    const profile = notesProfile({
-      model: FREE_NOTES_MODEL,
-      language: 'hebrewEnglish',
-      runtime: openCodeIdentity(config),
-      transcriptionSkill,
-      notesSkill,
+      outputReservation: 131072,
     });
-    const cleanRuntime = async (scratch: string) => {
+    const ownedServer = server;
+    const reconcileRuntime = async (job: { id: string }) => {
+      const scratch = join(root, 'jobs', job.id, 'acp');
       for (const name of await readdir(scratch).catch(
         (e: NodeJS.ErrnoException) => {
           if (e.code === 'ENOENT') return [];
           throw e;
         },
-      )) {
+      ))
         if (name.startsWith('opencode-'))
           await recoverOpenCode(
             { ...config, scratch },
             join(scratch, name),
-            controller,
+            signal,
           );
+      for (const row of queue.db
+        .prepare(
+          "SELECT id FROM sessions WHERE job_id=? AND state!='deleted' AND runtime='acp'",
+        )
+        .all(job.id)) {
+        // New ACP attempts use their durable per-request scratch ledgers.
+        for (const attempt of await readdir(
+          join(root, 'attempts', job.id),
+        ).catch(() => [])) {
+          const folder = join(root, 'attempts', job.id, attempt, 'acp');
+          for (const name of await readdir(folder).catch(() => []))
+            if (name.startsWith('opencode-'))
+              await recoverOpenCode(
+                { ...config, scratch: folder },
+                join(folder, name),
+                signal,
+              );
+        }
+        await ownedServer.guard();
+        await ownedServer.adapter.cancelAndDelete(String(row.id));
       }
+      if (
+        queue.db
+          .prepare(
+            "SELECT 1 FROM sessions WHERE job_id=? AND runtime='server' AND state!='deleted'",
+          )
+          .get(job.id)
+      ) {
+        await ownedServer.guard();
+        for (const row of queue.db
+          .prepare(
+            "SELECT id FROM sessions WHERE job_id=? AND runtime='server' AND state!='deleted'",
+          )
+          .all(job.id))
+          await ownedServer.adapter.cancelAndDelete(String(row.id));
+      }
+      queue.db
+        .prepare(
+          "UPDATE requests SET status='reconciled_interrupted',ended_at=? WHERE job_id=? AND status='active'",
+        )
+        .run(Date.now(), job.id);
     };
     const pipeline = new NotesPipeline({
       root,
       queue,
       store,
-      signal: controller,
-      language: 'hebrewEnglish',
-      generatorVersion: profile.id,
-      cleanupRuntime: cleanRuntime,
-      generate: async (source, job) => {
+      identity,
+      regenerationStartedAt:
+        queue.cursor('regenerationStartedAt') > 1
+          ? queue.cursor('regenerationStartedAt')
+          : undefined,
+      reconcileRuntime,
+      generate: async (source, job, jobSignal, evidenceDir) => {
         const result = await generateNotes({
           profile,
           source,
-          signal: controller,
-          saveCleaned: async () => {},
-          request: async (prompt) =>
-            withOpenCode(
-              { ...config, scratch: join(root, 'jobs', job.id, 'acp') },
-              controller,
-              async (client, workspace) => {
-                await client.session(workspace, FREE_NOTES_MODEL);
-                return client.textPrompt(prompt);
+          signal: jobSignal,
+          request: async (prompt, kind) =>
+            limiter.run(
+              job,
+              route,
+              kind,
+              prompt,
+              jobSignal,
+              async (requestID) => {
+                await ownedServer.guard(); // The current pinned runtime catalog gates ACP as well as server requests.
+                await durableWrite(
+                  join(evidenceDir, requestID + '.prompt.txt'),
+                  prompt,
+                );
+                let generated;
+                const capture = async (messages: unknown) =>
+                  durableWrite(
+                    join(evidenceDir, requestID + '.messages.json'),
+                    JSON.stringify(messages),
+                  );
+                if (route === 'server-high')
+                  generated = await ownedServer.request(
+                    job,
+                    requestID,
+                    prompt,
+                    jobSignal,
+                    capture,
+                  );
+                else {
+                  const sessionIds: string[] = [];
+                  generated = await withOpenCode(
+                    {
+                      ...config,
+                      scratch: join(evidenceDir, 'acp'),
+                      onCleanup: async (ids, deleted) => {
+                        for (const id of ids)
+                          queue.db
+                            .prepare('UPDATE sessions SET state=? WHERE id=?')
+                            .run(deleted ? 'deleted' : 'uncertain', id);
+                      },
+                      onSession: async (id) => {
+                        sessionIds.push(id);
+                        queue.db
+                          .prepare(
+                            "INSERT INTO sessions VALUES(?,?,?,?,'active',?)",
+                          )
+                          .run(id, job.id, job.lease_token, 'acp', Date.now());
+                      },
+                    },
+                    jobSignal,
+                    async (client, workspace) => {
+                      await client.session(workspace, FREE_NOTES_MODEL);
+                      return client.verifiedPrompt(
+                        prompt,
+                        ownedServer.config.deadlineMs,
+                        capture,
+                      );
+                    },
+                  );
+                  for (const id of sessionIds)
+                    queue.db
+                      .prepare("UPDATE sessions SET state='deleted' WHERE id=?")
+                      .run(id);
+                }
+                await durableWrite(
+                  join(evidenceDir, requestID + '.raw.txt'),
+                  generated.value,
+                );
+                await durableWrite(
+                  join(evidenceDir, requestID + '.runtime.json'),
+                  JSON.stringify({
+                    evidence: generated.evidence,
+                    messages: generated.messages,
+                  }),
+                );
+                return generated;
               },
             ),
         });
         return result.markdown;
       },
     });
-    let processed = 0;
-    while (processed < limit && !controller.aborted) {
-      queue.recheckMissing();
-      const job = queue.claim();
-      if (!job) {
-        if (!args.includes('--follow')) break;
-        await delay(60_000, undefined, { signal: controller });
-        continue;
-      }
-      try {
-        const status = await pipeline.process(job);
-        processed++;
-        console.log(JSON.stringify({ id: job.id, status, processed }));
-      } catch (e) {
-        const error = e as Error & {
-          code?: string;
-          status?: number;
-          retryAfterMs?: number;
-          retryAfter?: string;
-        };
-        const message = [credential.username, credential.password]
-          .reduce(
-            (text, secret) =>
-              secret ? text.replaceAll(secret, '[REDACTED]') : text,
-            error.message ?? 'Unknown error',
-          )
-          .replace(/\b(?:Bearer|Basic)\s+\S+/gi, '[REDACTED]')
-          .replace(/https?:\/\/[^\s"'<>]+/gi, '[URL REDACTED]')
-          .replace(
-            /(["']?(?:password|passwd|secret|token|api[_-]?key|authorization|credential)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-            '$1[REDACTED]',
-          )
-          .replace(/\p{Cc}/gu, ' ')
-          .slice(0, 300);
-        const code =
-          error.code ??
-          (error.status ? `database_${error.status}` : 'processing_failed');
-        if (
-          code === 'invalid_transcript' ||
-          /conflict|checksum|version/i.test(error.message)
-        ) {
-          queue.blocked(job.id, code);
-          console.log(
-            JSON.stringify({ id: job.id, status: 'blocked', code, message }),
-          );
-          processed++;
-          continue;
-        }
-        const after = Math.max(
-          error.retryAfterMs ?? 0,
-          Math.min(6 * 3600_000, 60_000 * 2 ** Math.min(job.attempts, 9)),
-        );
-        queue.retry(job.id, code, after);
-        console.log(
-          JSON.stringify({
-            id: job.id,
-            status: 'retry',
-            code,
-            message,
-            retryAfterMs: after,
-          }),
-        );
-        if (controller.aborted) break;
-        const providerCooldown =
-          code === 'quota_exhausted' ||
-          error.status === 429 ||
-          error.status === 503 ||
-          error.retryAfterMs != null ||
-          error.retryAfter != null;
-        if (!args.includes('--follow')) {
-          process.exitCode = 1;
-          processed++;
-          if (providerCooldown) break;
-        }
-        // Only provider/rate-limit failures delay unrelated queued work.
-        if (args.includes('--follow') && providerCooldown)
-          await delay(after, undefined, { signal: controller });
-      }
-      if (!controller.aborted)
-        await delay(integer('--pace-ms', 2000, 1000, 60000), undefined, {
-          signal: controller,
+    if (command === 'reclaim') {
+      log({ reclaimed: await pipeline.reclaim() });
+      return;
+    }
+    if (queue.cursor('legacyImported') !== 2) {
+      await importLegacy(root, queue);
+      queue.setCursor('legacyImported', 2);
+    }
+    const settings = {
+      ...defaults,
+      fetchers: integer('--fetchers', defaults.fetchers, 1, 16),
+      fetchSpacingMs: integer('--fetch-spacing-ms', 250, 0, 60000),
+      generators: concurrency,
+      publishers: integer('--publishers', defaults.publishers, 1, 8),
+      readyLow: integer('--ready-low', 20, 0, 10000),
+      readyTarget: integer('--ready-target', 50, 1, 10000),
+      readyMax: integer('--ready-max', 100, 1, 10000),
+      sourceBytes: integer('--source-mib', 1024, 8, 102400) * 1024 ** 2,
+      outboxBytes: integer('--outbox-mib', 1024, 1, 102400) * 1024 ** 2,
+      outboxCount: integer('--outbox-count', 1000, 1, 100000),
+      diskReserveBytes:
+        integer('--disk-reserve-mib', 2048, 1, 102400) * 1024 ** 2,
+      minFreeMemoryMiB: integer('--min-free-memory-mib', 3072, 0, 100000),
+    };
+    const headroom = await diskHeadroom(root);
+    if (headroom < settings.diskReserveBytes)
+      throw new Error('Insufficient disk reserve.');
+    log({
+      type: 'configuration',
+      profile: profile.id,
+      route,
+      effort: 'high',
+      settings,
+      sourceBytes: settings.sourceBytes,
+      outboxBytes: settings.outboxBytes,
+      candidateApproved: identity.approved,
+    });
+    const completedInCohort = progress ? cohortJobs(queue, progress) : [];
+    if (progress)
+      log({
+        type: 'rollout',
+        cohort: progress.size,
+        completed: completedInCohort.length,
+        profile: profile.id,
+      });
+    const remaining = progress
+      ? progress.size - completedInCohort.length
+      : null;
+    const runResult =
+      remaining === 0
+        ? null
+        : await runCoordinator({
+            root,
+            queue,
+            pipeline,
+            settings,
+            signal,
+            limit:
+              remaining ??
+              (args.includes('--all')
+                ? Infinity
+                : integer('--limit', 3, 1, 1000)),
+            follow: !progress && args.includes('--follow'),
+            maxRuntimeMs: integer(
+              '--max-runtime-ms',
+              21600_000,
+              100,
+              604800_000,
+            ),
+            inventory: args.includes('--inventory')
+              ? () => priorityInventoryPage(queue, signal, teachers)
+              : undefined,
+            inventoryDuringBoundedRun: isRollout,
+            maintenance: async () => {
+              const audit =
+                Date.now() - queue.cursor('lastBackupAudit') >= 86400_000;
+              await backupArtifacts(root, backupDestination, queue, audit);
+              if (audit) queue.setCursor('lastBackupAudit', Date.now());
+              await pipeline.reclaim();
+              queue.pruneTelemetry();
+            },
+            log,
+          });
+    await mkdir(join(root, 'runs'), { recursive: true, mode: 0o700 });
+    await durableWrite(
+      join(root, 'runs', String(Date.now()) + '.json'),
+      JSON.stringify({
+        at: Date.now(),
+        profile: profile.id,
+        route,
+        settings,
+        ...runResult,
+      }),
+    );
+    log(runResult);
+    if (progress) {
+      const completed = cohortJobs(queue, progress);
+      if (completed.length === progress.size)
+        log({
+          type: 'rollout',
+          ...(await verifyCohort({
+            root,
+            queue,
+            store,
+            profile: profile.id,
+            jobs: completed,
+            runHash: digest(JSON.stringify({ progress, completed })),
+          })),
+        });
+      else
+        log({
+          type: 'rollout',
+          cohort: progress.size,
+          completed: completed.length,
+          remaining: progress.size - completed.length,
         });
     }
-    console.log(JSON.stringify({ jobs: queue.status() }));
   } finally {
+    await server?.close();
     queue.close();
     await rm(lock, { recursive: true, force: true });
   }
 }
-main().catch((e) => {
+main().catch((error) => {
   console.error(
-    e?.name === 'AbortError'
-      ? 'Stopped; progress is saved.'
-      : 'Pipeline stopped. Check configuration or run status.',
+    JSON.stringify({
+      error: error instanceof PipelineFailure ? error.code : 'command_failed',
+    }),
   );
   process.exitCode = 1;
 });

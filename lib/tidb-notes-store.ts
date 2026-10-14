@@ -145,47 +145,68 @@ export class TiDBNotesStore {
       gzip: row.notes_gzip,
     };
   }
-  /** An insert-only writer cannot replace published notes on a stale retry. */
-  async publish(note: SavedNote) {
+  /** A zero-row probe checks replacement rights without changing a published note. */
+  async verifyReplacementPermission() {
+    await this.db.execute(
+      'UPDATE shiur_notes SET source_sha256=source_sha256, notes_sha256=notes_sha256, generator_version=generator_version, language=language, raw_bytes=raw_bytes, created_at_ms=created_at_ms, notes_gzip=notes_gzip WHERE shiur_id=0',
+    );
+  }
+  /** First verified publication wins; return the canonical note on stale retries. */
+  async publish(note: SavedNote, replaceHash?: string | null) {
     await unpackNote(note);
     const binary = (value: string) =>
       Uint8Array.from(value.match(/../g)!, (x) => parseInt(x, 16));
     let saved: SavedNote | null | undefined;
     try {
-      await this.db.execute(
-        'INSERT INTO shiur_notes (shiur_id, source_sha256, notes_sha256, generator_version, language, raw_bytes, created_at_ms, notes_gzip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-          note.shiurId,
-          binary(note.sourceHash),
-          binary(note.notesHash),
-          note.generatorVersion,
-          note.language,
-          note.rawBytes,
-          note.createdAtMs,
-          note.gzip,
-        ],
-      );
+      if (replaceHash) {
+        if (!/^[a-f0-9]{64}$/.test(replaceHash))
+          throw new Error('Invalid replacement hash.');
+        // Compare-and-swap preserves the old row until a complete replacement is ready.
+        await this.db.execute(
+          'UPDATE shiur_notes SET source_sha256=?, notes_sha256=?, generator_version=?, language=?, raw_bytes=?, created_at_ms=?, notes_gzip=? WHERE shiur_id=? AND notes_sha256=?',
+          [
+            binary(note.sourceHash),
+            binary(note.notesHash),
+            note.generatorVersion,
+            note.language,
+            note.rawBytes,
+            note.createdAtMs,
+            note.gzip,
+            note.shiurId,
+            binary(replaceHash),
+          ],
+        );
+      } else
+        await this.db.execute(
+          'INSERT INTO shiur_notes (shiur_id, source_sha256, notes_sha256, generator_version, language, raw_bytes, created_at_ms, notes_gzip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            note.shiurId,
+            binary(note.sourceHash),
+            binary(note.notesHash),
+            note.generatorVersion,
+            note.language,
+            note.rawBytes,
+            note.createdAtMs,
+            note.gzip,
+          ],
+        );
     } catch (error) {
       // Resolve duplicate inserts and lost acknowledgements by reading durable state.
       saved = await this.get(note.shiurId).catch(() => null);
       if (!saved) throw error;
       if (
-        saved.sourceHash !== note.sourceHash ||
-        saved.notesHash !== note.notesHash ||
-        saved.generatorVersion !== note.generatorVersion
+        replaceHash &&
+        saved.notesHash === replaceHash &&
+        (saved.notesHash !== note.notesHash ||
+          saved.generatorVersion !== note.generatorVersion ||
+          saved.sourceHash !== note.sourceHash)
       )
-        throw new Error(
-          'Published notes conflict; explicit replacement is required.',
-        );
+        throw error;
     }
     saved ??= await this.get(note.shiurId);
-    if (
-      !saved ||
-      saved.sourceHash !== note.sourceHash ||
-      saved.notesHash !== note.notesHash ||
-      saved.generatorVersion !== note.generatorVersion ||
-      (await unpackNote(saved)) !== (await unpackNote(note))
-    )
+    if (!saved || saved.shiurId !== note.shiurId)
       throw new Error('Notes publication was not confirmed.');
+    await unpackNote(saved);
+    return saved;
   }
 }

@@ -1,15 +1,23 @@
 import { build } from 'esbuild';
-import { mkdir, cp, chmod, writeFile, access } from 'node:fs/promises';
+import {
+  mkdir,
+  cp,
+  chmod,
+  writeFile,
+  access,
+  readFile,
+} from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 const directory = resolve(process.argv[2] ?? 'outputs/notes-pipeline');
-// Keep reusable build output separate from private transfer packages.
 if (
   await access(directory + '/writer.json').then(
     () => true,
     () => false,
   )
 )
-  throw new Error('Use an output directory without private credentials.');
+  throw new Error('Build into a directory without private credentials.');
 await mkdir(directory, { recursive: true, mode: 0o700 });
 await build({
   entryPoints: ['apps/notes-only/src/cli.ts'],
@@ -22,31 +30,63 @@ await build({
     js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
   },
 });
-for (const skill of ['lectern-transcription', 'lectern-notes']) {
-  const target = directory + `/packages/transcription/skills/${skill}`;
-  await mkdir(target, { recursive: true });
-  await cp(
-    `packages/transcription/skills/${skill}/SKILL.md`,
-    target + '/SKILL.md',
-  );
-}
-for (const name of ['install.sh', 'run.sh']) {
+const target = directory + '/packages/notes-only/skills/written-shiur-notes';
+await mkdir(target, { recursive: true });
+await cp('packages/notes-only/skills/written-shiur-notes', target, {
+  recursive: true,
+});
+// Preserve the complete transcription contract as a versioned reference, independently of notes generation.
+const reference =
+  directory + '/packages/transcription/skills/lectern-transcription';
+await mkdir(reference, { recursive: true });
+await cp('packages/transcription/skills/lectern-transcription', reference, {
+  recursive: true,
+});
+for (const name of [
+  'install.sh',
+  'run.sh',
+  'supervise.sh',
+  'ensure-running.sh',
+  'status.sh',
+  'backup.sh',
+  'pause.sh',
+  'resume.sh',
+  'rollback.sh',
+  'installation.mjs',
+  'pool-settings.mjs',
+]) {
   await cp('deploy/notes-only/' + name, directory + '/' + name);
-  await chmod(directory + '/' + name, 0o700);
+  await chmod(directory + '/' + name, name.endsWith('.sh') ? 0o700 : 0o600);
 }
 await cp('docs/notes-only-pipeline.md', directory + '/OPERATIONS.md');
-await cp('deploy/notes-only/VM-HANDOFF.md', directory + '/VM-HANDOFF.md');
-await writeFile(
-  directory + '/README.txt',
-  `This package has the notes-only pipeline and its complete generation contracts.
-Requires Node.js 22.13+, git, and OpenCode 1.18.33. Use the VM's existing opencode-notes binary.
-The only allowed model is opencode/muse-spark-1.3-contributor-free. A missing/unavailable free model stops or backs off; it never switches to a paid model.
-Install: bash install.sh
-Run commands from the installed persistent state directory: ./run.sh help
-Pass --opencode /path/to/opencode-notes if the binary is not on PATH.
-Provide writer.json privately. It must never be committed or uploaded to a public repository.
-The website needs separate read-only credentials, never this writer credential.
-All work is outbound. Startup hooks must be configured in your VM service after the pilot.
-`,
+await cp(
+  'deploy/notes-only/priority-teachers.json',
+  directory + '/priority-teachers.json',
 );
-console.log('Packaged ' + directory);
+await cp(
+  'packages/transcription/LECTERN-LICENSE',
+  directory + '/packages/transcription/LECTERN-LICENSE',
+);
+const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
+const manifest = {
+  format: 2,
+  createdAt: Date.now(),
+  sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+  }).trim(),
+  sourceDiffSha256: hash(execFileSync('git', ['diff', '--binary', 'HEAD'])),
+  bundleSha256: hash(await readFile(directory + '/notes-pipeline.mjs')),
+  contractSha256: hash(await readFile(target + '/SKILL.md')),
+  runtime: 'opencode:1.18.33',
+  model: 'opencode/muse-spark-1.3-contributor-free',
+  effort: 'high',
+  defaultRoute: 'acp-high',
+  defaultPools: { fetchers: 3, generators: 4, publishers: 1 },
+  schema: 2,
+};
+await writeFile(
+  directory + '/manifest.json',
+  JSON.stringify(manifest, null, 2),
+  { mode: 0o600 },
+);
+console.log(JSON.stringify({ directory, ...manifest }));

@@ -41,7 +41,7 @@ The stable runtime's anonymous native free lane worked: **no Zen API key was req
 
 ## Two concurrent jobs
 
-Two full notes jobs (1117682 and 1183432) were launched together using the same saved sources and skill. Both passed structural checks without a repair or provider error. They finished in **22.4 seconds total**, individually **13.9** and **22.4 seconds**. See [concurrency-check.json](concurrency-check.json) and the [reproducible check](concurrency-check.ts). This establishes that two simultaneous sessions worked in this short test, not sustained free-tier capacity.
+Two full notes jobs (1117682 and 1183432) were launched together using the same saved sources and skill. Both passed structural checks without a repair or provider error. They finished in **22.4 seconds total**, individually **13.9** and **22.4 seconds**. See [concurrency-check.json](concurrency-check.json) (the retired outline-generation executable has been removed). This establishes that two simultaneous sessions worked in this short test, not sustained free-tier capacity.
 
 ## Source-grounding review
 

@@ -2,5 +2,13 @@
 set -euo pipefail
 umask 077
 notes_state=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+notes_node="$notes_state/bin/node"
+export PATH="$notes_state/bin:/home/box/.local/bin:/usr/local/bin:/usr/bin:/bin"
 export NOTES_ASSET_ROOT="$notes_state/app"
-exec node "$notes_state/app/notes-pipeline.mjs" "$@" --state "$notes_state"
+case "${1:-help}" in
+  help|status|metrics) exec "$notes_node" "$notes_state/app/notes-pipeline.mjs" "$@" --state "$notes_state" ;;
+esac
+exec 9>"$notes_state/process.lock"
+flock -n -E 75 9 || exit 75
+export YUTORAH_NOTES_LOCK_HELD=1
+exec "$notes_node" "$notes_state/app/notes-pipeline.mjs" "$@" --state "$notes_state"

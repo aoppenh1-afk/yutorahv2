@@ -17,7 +17,10 @@ export async function vmCatalogText(url, signal, maxBytes, fetcher = fetch) {
   });
   if (!response.ok || !response.body) {
     await response.body?.cancel();
-    throw new Error('Catalog request failed.');
+    throw Object.assign(new Error('Catalog request failed.'), {
+      status: response.status,
+      retryAfter: response.headers.get('Retry-After'),
+    });
   }
   const reader = response.body.getReader();
   const chunks = [];

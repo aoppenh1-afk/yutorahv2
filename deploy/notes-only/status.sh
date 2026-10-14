@@ -2,6 +2,8 @@
 set -euo pipefail
 notes_state=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 "$notes_state/run.sh" status
+printf 'Selected route: %s\n' "$(cat "$notes_state/route" 2>/dev/null || printf 'acp-high')"
+if [[ -f "$notes_state/pools.json" ]]; then printf 'Configured pools: %s\n' "$(cat "$notes_state/pools.json")"; fi
 if flock -n "$notes_state/supervisor.lock" true; then
   printf '%s\n' 'Supervisor: stopped'
 else

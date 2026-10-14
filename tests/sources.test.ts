@@ -29,7 +29,7 @@ import { sourceRequest, sourceRetryDelay } from '../lib/source-request';
 import { cachedSourceText, sourceSnapshot } from '../lib/sources-cache';
 import { SourcesLeaseError } from '../lib/sources';
 import { sourceEditions } from '../lib/source-sheet';
-import { preparePublishedSources } from '../apps/worker/src/source-preparation';
+import { preparePublishedSources } from '../lib/prepare-published-sources';
 import { evaluateSourcesCorpus } from '../scripts/evaluate-sources';
 import type { SearchDatabase, SearchStatement } from '../lib/search-storage';
 import { spokenCitations } from '../lib/spoken-sources';
