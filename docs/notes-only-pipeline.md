@@ -1,162 +1,97 @@
-# Notes-only pipeline
+# Staged notes pipeline
 
-Implemented and tested October 9, 2026. TiDB Starter `yutorah-notes` is active
-in AWS us-east-1 with a $0 spending limit. No card was added. Database
-`yutorah_notes` stores compressed notes; transcripts remain on YUTorah.
+The only processing pipeline is the Node/SQLite notes coordinator. It consumes complete official YUTorah VTT and publishes compressed TiDB notes, with hash-guarded replacements during explicitly authorized regeneration. The former audio-transcription worker, Antigravity runtime, operator UI, outline generator, and bundle-rewriting compatibility patches have been removed. Existing published transcripts, archive readers, schema history, and published notes remain available.
 
-## Verified pilot
+Generation uses the user-supplied `packages/notes-only/skills/written-shiur-notes/SKILL.md` unchanged. Its output is a compact written shiur in connected English prose with Hebrew terminology. The complete source is supplied on every generation and bounded repair; output is never shortened by truncating the source. The full contract and runtime configuration contribute to the profile hash. Changing the contract does not regenerate previously published shiurim.
 
-Shiur 1190357 was fetched as complete public VTT, processed by the existing
-Lectern notes generator through OpenCode's free model, uploaded, read back, and
-displayed in the local website. Notes were 11,647 UTF-8 bytes and 4,549 gzip bytes.
-The temporary transcript and ACP workspace were removed after verified publication
-and a durable completion checkpoint. A compressed local notes backup remains.
+## Install and operate
 
-The portable installer also passed a live test: a new local queue recognized the
-published shiur and completed without another download or AI generation call.
-The original Mac pilot generated one new shiur. The VM agent has since installed
-the worker and started catalog batches; see its verification report below.
-
-## Install on the VM
-
-Open an agent directly on the managed VM and transfer the private
-`outputs/yutorah-notes-vm-private.zip`. The archive contains a bundled Node.js
-program, complete generation contracts, installer, and insert-only writer
-credential. Keep the archive private. The public source package is generated
-without credentials by `npm run notes:package`.
-
-Requires Node.js 22.13 or later, git, and OpenCode 1.18.33. Use a separate
-`opencode-notes` binary if the VM's default OpenCode version differs. The runtime
-checks its version and confirms the exact free model and High thinking before
-generation. User plugin and
-agent configuration is isolated; provider state remains available to the native
-runtime. No paid fallback is allowed.
-
-From the extracted package:
+Use Node 22.13+ (the actual VM uses its private Node 24.20.0), Git, flock, and pinned OpenCode 1.18.33. The shell's Node 20 remains untouched.
 
 ```sh
-bash install.sh
-cd "$HOME/.local/share/yutorah-notes"
+PATH=/home/box/.local/share/yutorah-notes/bin:$PATH npm run notes:package
+bash deploy/notes-only/install-vm.sh outputs/notes-pipeline /home/box/.local/share/yutorah-notes/bin/node
+cd /home/box/.local/share/yutorah-notes
+./run.sh runtime-check --opencode /home/box/.local/bin/opencode-notes
 ./run.sh enqueue --ids 1190357,1190833
-./run.sh run --limit 2 --opencode /path/to/opencode-notes
-./run.sh status
+./run.sh run --limit 2 --concurrency 2 --opencode /home/box/.local/bin/opencode-notes
+./status.sh
+./pause.sh
+./resume.sh
+./run.sh backup
+./run.sh backup --audit
+./rollback.sh
 ```
 
-1190357 should be recognized as already published. Verify 1190833 on the actual
-VM before starting the library import. If a quota or configuration error occurs,
-the worker preserves progress and completed notes for retry. Its logs omit
-credentials, prompts, and source text.
+Run `./pause.sh` and wait for the supervisor and mutation locks before installing. Installation holds both locks, makes a consistent SQLite backup including WAL, verifies completed attempts/hashes and the credential fingerprint, installs an immutable release, imports legacy notes with original provenance, and atomically selects the new release. Reinstallation is supported. The public package contains no writer credential; installation reuses the existing mode-600 SELECT/INSERT credential. Database services, spending caps, and website deployments remain unchanged. Published note replacement is available only through the separately authorized regeneration workflow below.
 
-Queue catalog IDs in bounded batches, then process them:
+`./resume.sh` removes the pause file and starts the supervisor. `./pause.sh` prevents watchdog restarts and cancels owned work; accepted artifacts remain durable. Automatic startup requires the VM's supported startup hook. The supplied cron installer preserves unrelated entries. A replaced host still needs its home directory and cron daemon restored; this is a separate recovery boundary.
+
+In a source checkout, use `npm run notes:only -- COMMAND --state DIR`. The wrapper acquires the same mutation lock. Read-only `status` and `metrics` never migrate or reset active work. `migrate` performs explicit legacy reconciliation. `resume-route --upstream muse|yutorah|tidb` clears a route pause after its cause has been resolved.
+
+## Coordinator and limits
+
+The lifecycle is `discovered → fetching → ready → generating → generated → publishing → completed`. Missing sources get a seven-day recheck. Transient fetch failures stay retryable. Invalid input is blocked. Structurally invalid content gets at most one repair, then needs review. Source-fidelity review is independent of structural validity; explicit user waivers are recorded separately from completed reviews. Conflicting published hashes remain explicit conflicts with both immutable artifacts retained.
+
+One coordinator owns the SQLite queue and inventory cursor. Its independent pools default to three fetchers, four generation workers, and one continuous publisher. The installed supervisor reads these counts from private `STATE/pools.json`, which survives upgrades. Publishers immediately consume saved notes; they do not wait for a periodic bulk flush. Starts are spaced by two seconds. Admission preserves at least 3 GiB of available memory, includes a conservative 512 MiB reservation per starting generation, and leaves a configurable disk reserve. Initial ready-buffer low/target/max values are 20/50/100. Source and outbox byte caps are each 1 GiB; the outbox also has a 1,000-item cap. In-flight reservations count against the bounds. The VM's actual headroom is checked before running. Use `help` for the current flags.
+
+Inventory resumes the existing paced catalog cursor, deduplicates IDs, and wraps to catch new publications. Explicitly enqueued jobs have bounded priority; every fourth claim services the oldest backlog. A trending list or catalog count is not evidence of usable transcript count. Plain numeric checkpoint files may be imported with `enqueue --file`; undocumented bitmap formats are not trusted.
+
+A failed TiDB lookup leaves publication eligibility unknown. Fetching may fill the source buffer, but generation cannot treat an outage as evidence of an absent row. Publication consumes the accepted artifact independently and uses insert/readback/hash checks. During an explicitly authorized regeneration it uses a hash-conditional UPDATE for rows that already exist, preserving the old row until the complete new artifact is ready. A lost insert acknowledgement reuses that artifact. No publication failure repeats inference.
+
+YUTorah, Muse, and TiDB have independent persisted cooldowns. Numeric and HTTP-date Retry-After values are honored. Authentication, unconfirmed configuration, uncertain session ownership, or a paid selection pauses the affected route. Backoff is bounded with jitter. Filling the outbox stops generation; filling the source buffer stops fetching. Other stages can drain.
+
+## Runtime safety and qualification
+
+The fallback reference route is `--route acp-high`. Server generation is `--route server-high`; the installed `STATE/route` explicitly selects the active route. Both pin `opencode/muse-spark-1.3-contributor-free`, plan mode, High effort, and the same free small model. A locally authenticated server on 127.0.0.1 verifies the pinned live schema, effective configuration, and input/output/cache-read/cache-write zero prices. Catalog evidence expires after 60 seconds by default (maximum five minutes). No direct model API or paid fallback is used. One shared inference limiter accounts for both routes, repairs, retries, exposed helper requests, and conservative token reservations. The local request/token controls are operating limits, not claims about an undocumented provider quota.
+
+Each request gets fresh context. Server sessions have explicit worker/job/attempt titles and a durable ownership ledger. ACP attempts own separate Git workspaces and process groups. Tools and permission requests are rejected. Cancellation aborts and confirms session termination before freeing the inference slot. Cleanup uncertainty pauses the route and retains recovery metadata. Only owned sessions are deleted. Server restart reconciles ownership before admitting replacement work.
+
+OpenCode's bundled Bun runtime can leave extracted native `.so` libraries behind after exit. Both `TMPDIR` and `BUN_TMPDIR` point to a mode-700 `tmp` directory inside the owned server or ACP workspace. The server removes that directory after stopping, failed startup, and recovery of a previous process group. ACP cleanup removes it even when a session ledger must remain for recovery; recovery recreates scratch for its own cleanup commands. A running server retains its loaded library until shutdown, and repeated sessions share that one extraction. This prevents the per-launch library files from accumulating in shared `/tmp`.
+
+For local-only trials, pause production and hold its mutation lock:
 
 ```sh
-./run.sh catalog --pages 20
-./run.sh run --all --follow --opencode /path/to/opencode-notes
+PATH=/home/box/.local/share/yutorah-notes/bin:$PATH flock -n \
+  /home/box/.local/share/yutorah-notes/process.lock \
+  node --import tsx scripts/qualify-notes.ts --route server-high --concurrency 2 \
+  --ids 1117682,1056185 --output PRIVATE_DIRECTORY
 ```
 
-Catalog discovery saves a cursor, fetches 30 IDs per page, and waits at least one
-second between pages. Run further catalog batches while the worker is stopped.
-One test page reported 434,295 catalog records; this does not establish how many
-have transcripts. Missing transcripts are eligible for another check after seven
-days. The portable base CLI processes one job at a time. The managed VM runner adds
-up to ten concurrent jobs with pacing and shared backoff for provider or database
-failures. Its installation and verification are documented in
-[notes-only-vm.md](notes-only-vm.md). `status` can run while the worker is active.
+The qualification runner never constructs a TiDB writer. The default qualification policy requires at least 100 varied matched human-reviewed sources, followed by verified publication cohorts of 100, 500, and 1,000 notes and a 24-hour operational observation. Submit exact-profile evidence with `qualification --file FILE`. Concurrency above the qualified setting is rejected.
 
-All connections are outbound. SSH, a public IP, and incoming ports are unnecessary.
-Keep state in the VM's persistent home directory, not its temporary runtime disk.
-Install the worker in the VM service's supported startup mechanism and test a
-runtime restart. A detached process alone will not restart after replacement.
-The VM agent verified cron recovery after a controlled worker interruption.
-Automatic recovery after a full host/runtime replacement remains unverified.
+On October 14, 2026, the user explicitly waived human reviews and the 24-hour observation. Approval evidence records `waivers.humanReview`, `waivers.observation24h`, `requestedBy: "user"`, the instruction, and its timestamp. Human acceptance remains zero and no elapsed observation is invented. Without that explicit waiver evidence, the original requirements remain enforced. Waivers do not disable model identity, High effort, zero-price verification, bounded repairs, resource admission, or hash-verified publication.
 
-## Recovery and backups
+`rollout --route server-high --all --follow --inventory` resumes a durable 100-note cohort, then separate 500- and 1,000-note cohorts. Failed or unavailable jobs do not count toward the published target. Each cohort has a persistent start boundary; it is limited to its remaining number of completions and independently reads back every row before advancing. Cohorts must contain distinct notes. Restarts recover prior completions instead of resetting the cohort. When all cohorts pass and the 24-hour requirement is explicitly waived, the supervisor records production approval and continues normal server generation. If an observation is still required, automatic production promotion stops. The supervisor uses this rollout command whenever `STATE/route` selects `server-high`.
 
-SQLite holds IDs, status, retry times, and the catalog cursor. Temporary VTT lives
-only under `jobs/<id>`. Completed notes are stored as `notes/<id>/notes.md.gz` plus
-small metadata. The worker saves that backup before publication. If publication
-fails or its acknowledgement is lost, it compares hashes and retries from the
-backup without repeating generation. It checkpoints completion before deleting
-temporary source material.
+## Durability, recovery, and rollback
 
-The database writer has SELECT and INSERT privileges only. The first verified
-published note wins, including when another writer publishes during generation.
-The worker adopts its hash and completes the job. A different locally generated
-note is archived under `notes/<id>/unpublished/<hash>` in both local backups.
-Replacing a published note still requires an administrative writer.
+Claims use `UPDATE … RETURNING`, unique ownership tokens, renewable leases, and conditional completion. Merely opening SQLite does not recover jobs. Expired leases are fenced before cancellation/reconciliation. A stale worker can leave an orphan but cannot accept it, replace an accepted hash, or publish it.
 
-To restore local backups to the configured database:
+Sources are pinned under `sources/ID/SHA.vtt`. Accepted notes live at `artifacts/ID/SOURCE_SHA/PROFILE/ATTEMPT`, with a gzip and a complete manifest. Files are synced and the manifest directory is atomically committed before acceptance. The durable attempt index allows recovery to adopt a matching completed artifact across the filesystem/SQLite crash gap. Corrupt or mismatched artifacts stop recovery rather than requesting another generation silently. Private prompts, raw responses, normalized artifacts, and metadata remain in `attempts/`; general logs contain only bounded classifications and metrics.
+
+Backups consume the durable accepted-artifact journal. A repair query derives missing entries from accepted queue state. Normal backups read pending artifacts only; the coordinator performs a full integrity audit daily, and `--audit` requests one immediately. Gzip size and hashes are checked before copying and after atomic commit. Existing legacy backups and generated alternatives are preserved. Credentials, runtime sessions, transcripts, and prompts are excluded from these shared note backups. Sources are reclaimable only after verified completion, successful backup, and the retention interval. Orphans remain retained for investigation; no automatic orphan deletion is enabled.
+
+`rollback.sh` pauses the worker and restores the ACP High route while retaining the v2 schema and all newer committed artifacts. This is the supported runtime rollback. Pre-v2 executables do not understand the staged queue and must not open it. Old code and the consistent pre-upgrade SQLite snapshot remain private recovery assets; restoring that snapshot over newer work would forget publications and is not a supported rollback.
+
+`metrics` reports stage depths/bytes, sessions, p50/p95 stage latency, repair and retry classes, cooldowns, verified publications/hour, and an explicit observation window. Running logs include available memory and disk headroom. A short local pilot is not a sustained-throughput baseline or an ETA for the catalog.
+
+See [the actual VM report](notes-only-vm.md) for installation evidence and pending gates.
+
+## Regenerating all notes with teacher priority
+
+The user requested fresh generation of every old note, keeping the old public note visible until its replacement is ready. The requested first teachers are recorded in `deploy/notes-only/priority-teachers.json`. On the installed worker:
 
 ```sh
-./run.sh restore --limit 20
+./pause.sh
+./run.sh regenerate --file /path/to/priority-teachers.json --instruction 'Regenerate all notes; prioritize these ten teachers; keep old notes visible until replaced.'
+./run.sh replacement-check
+./run.sh catalog --pages 10
+./resume.sh
 ```
 
-Copy the compressed notes and metadata to another durable location periodically.
-Keep credentials separate from shared backups. TiDB's free daily backup has only
-one-day retention. If an interrupted startup leaves `runner.lock` without an owner
-file, verify that no notes worker is running before removing that lock directory.
+Run regeneration once: repeating it refuses to erase new progress. The command requires the worker to be paused with all leases and sessions reconciled. It saves a consistent SQLite archive and original completion hashes under `STATE/upgrades/regeneration-TIMESTAMP`, preserves all immutable notes and backups, clears old completion checkpoints from the active queue, and records the user's instruction. Legacy note import is disabled for this generation epoch, including on reinstall. Status and metrics count the new epoch separately.
 
-## Website
+Teacher-filtered catalog pages use official numeric IDs and persist separate cursors. Discovery cycles through all ten teachers before the general catalog; their jobs have priority over ordinary backlog even on fairness claims. Existing queue IDs are deduplicated and promoted when encountered. Catalog counts do not establish transcript availability.
 
-The new server route `/api/study-notes?id=1190357` reads one primary-key row,
-verifies and decompresses its notes, and supports ETags. Its bounded server cache
-keeps completed notes for one hour and missing rows for one minute. The browser
-requests notes only when Study notes is selected, caches completed notes for an
-hour, and does not poll. CDN responses permit one hour of caching and one day of
-stale responses during revalidation. Database credentials stay in the server.
-Reader permissions allow only SELECT.
-
-`TIDB_NOTES_HOST`, `TIDB_NOTES_USERNAME`, `TIDB_NOTES_PASSWORD`, and
-`TIDB_NOTES_DATABASE` were saved as secret environment variables in Vercel's
-`yutorah` project for Production and Preview. The deployed PR preview displayed
-VM-generated notes for shiur 1191069. Production deployment is gated on PR checks.
-
-Study notes load independently of the official transcript, including during
-upstream transcript failures. Official summaries and quizzes are not fetched.
-Searching within the loaded transcript works. This notes-only database does not
-create a full-library transcript or notes search index.
-
-## Database usage controls
-
-A normal new job makes three targeted SQL calls: look up its shiur ID, insert
-that shiur's compressed notes, and read the row back to verify publication.
-Completion does not trigger a library sync, table scan, or database export.
-Backups scan local compressed files and make no database calls. Already completed
-jobs remain checkpointed in SQLite. Up to ten VM workers share a cooldown after quota
-or provider errors and drain active jobs before stopping new claims.
-
-The website coalesces simultaneous requests for the same shiur and limits
-concurrent uncached lookups to eight per server process. A database error creates
-a one-minute cooldown shared across IDs in that process. Cached notes remain
-readable. These caches and cooldowns are process-local; separate hosting instances
-can each make a lookup. They reduce usage but do not cap the entire account's RUs.
-The $0 database spending limit remains the billing backstop.
-
-Regression tests count actual SDK requests for successful publication, lost
-acknowledgements, concurrent readers, negative caching, and failure cooldowns.
-Browser tests verify zero notes requests while reading a transcript, one on
-selecting Study notes, and no repeat request when switching tabs or waiting.
-The source removes a duplicate verification read after a lost acknowledgement;
-an existing VM installation needs a rebuilt package to receive that optimization.
-
-## Free capacity
-
-Keep the Starter spending limit at $0. Exhausting storage or monthly Request Units
-can interrupt work or reads; the worker backs off instead of upgrading. Free AI
-availability and website hosting quotas are separate constraints.
-
-Eight earlier notes averaged 4,011 gzip bytes, projecting approximately 1.61 GiB
-of compressed payload for 430,000 notes. The new 19-minute pilot is 4,549 bytes.
-These are small samples. TiDB row/index overhead and real Request Unit usage have
-not been measured for a representative batch or production traffic. The 5 GiB
-allowance permits about 12,485 bytes per row including overhead at that scale.
-
-## Validation
-
-Both website builds, TypeScript checks, worker compilation, targeted lint,
-34 player browser tests, and the pipeline/ACP tests passed. The combined version
-also passed six concurrency tests and a regenerated-package compatibility test. Live TiDB checks
-confirmed binary gzip round trips, Hebrew checksums, duplicate publication,
-conflict rejection, and privilege boundaries. The website returned HTTP 200 and
-conditional HTTP 304 for the stored pilot notes. Simulated upload failure and
-queue reopening verified recovery without a second AI call.
+Every old public note is hash-verified and archived before replacement. Its hash is pinned in `jobs.replace_hash`. Publication uses `UPDATE ... WHERE shiur_id=? AND notes_sha256=?`, then independently reads/decompresses/checks the saved note. Lost acknowledgements reuse the accepted artifact; a concurrent conflicting write remains a conflict. No DELETE or destructive table reset is used. The installed TiDB v8.5.3 cluster requires table-scoped UPDATE permission in addition to SELECT/INSERT; column privileges require TiDB v8.5.6 or later. The replacement SQL itself updates only the seven content columns and never changes the shiur primary key. No DELETE or schema privileges are granted. `replacement-check` probes these rights using the impossible ID zero without changing any row. The website's existing caches can retain an older response until their normal expiry.

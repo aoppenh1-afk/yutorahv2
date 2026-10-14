@@ -321,8 +321,8 @@ word in the timestamp's own segment. Only active transcripts are returned, with
 literal matches ordered first. Numbers use exact clauses. The three-second
 statement timeout and existing request/result limits remain in place.
 
-Run the existing worker `migrate` command before restarting an upgraded
-transcript service. The migration preserves SELECT access for an existing
+Apply the owner migrations in `db/transcription/` before restarting an upgraded
+read-only transcript service. The migration preserves SELECT access for an existing
 `yutorah-search` role; custom read-only roles also need SELECT on the vocabulary
 table. Fresh installations use the updated grants in the operations guide.
 Metadata search requires the new D1 title-vocabulary migration described above;
@@ -335,9 +335,8 @@ Use Node 22.13 or newer:
 ```sh
 npm run test:search
 node --test tests/learning.test.mjs
-TEST_DATABASE_URL=postgresql://... npm run test:worker
+TEST_DATABASE_URL=postgresql://... npm run test:content
 npx tsc --noEmit
-npm run worker:build
 npm run lint
 npm run build
 # Against a running production preview:

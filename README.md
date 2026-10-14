@@ -4,24 +4,11 @@ A responsive reading and listening interface connected to YUTorah's public libra
 
 ## Run
 
-Start with [the VM transcription operator](docs/transcription-operator.md) to select teachers or series, set recording budgets, connect Google, and run the queue. Completed shiurim have a timestamped transcript reader and automatic Lectern study notes.
+The [staged notes pipeline](docs/notes-only-pipeline.md) generates written shiur notes from complete official VTT. It replaces the former audio-transcription worker and operator. Use `npm run notes:only -- help`, `npm run test:notes-only`, and `npm run test:notes-vm`. The supplied written-shiur skill is the generation contract; published notes are preserved across profile changes.
 
-VM bots such as Grok can use [`yutorah-queue`](docs/transcription-bot.md)
-to add batches and manage that queue from the terminal.
-
-The Linux Antigravity transcription worker is described in
-[the first-deployment checklist](docs/transcription-setup.md),
-[the architecture report](docs/transcription-architecture.md) and
-[the provisioning/operations guide](docs/transcription-operations.md).
-Oracle Cloud Free Tier setup starts with [the Oracle VM notes](docs/transcription-oracle.md).
-It uses the complete Lectern skill, PostgreSQL jobs/checkpoints, and native ACP audio.
-Build with `npm run worker:build`; test with `npm run test:worker`.
-Once enabled, the worker discovers audio only from your selected teachers/series within their budgets, and the search
-view shows timestamped matches from completed transcripts. The Vercel website
-reads the managed PostgreSQL database through a server-side
-`TRANSCRIPT_DATABASE_URL` using a read-only role. The transcription computer uses
-its separate write connection. Completed transcripts remain available when that
-computer is offline. Hosts that use the HTTP reader can instead configure
+Existing transcript/archive readers remain for previously published content. The public website uses
+`TRANSCRIPT_DATABASE_URL` using a read-only role.
+Completed transcripts remain available independently of the notes worker. Hosts that use the HTTP reader can instead configure
 `TRANSCRIPT_API_URL` and `TRANSCRIPT_API_TOKEN` as described in the operations guide.
 
 Completed transcripts also have a **Sources** tab with conservative Sefaria
@@ -91,8 +78,8 @@ Natural queries support English number words, time budgets such as "I have half 
 
 Typo/prefix retrieval uses YUTorah's existing Solr index. The transcript panel
 defaults to tolerant matching and still offers exact phrase and exact words.
-Existing transcript installations must run the worker's `migrate` command before
-restarting the upgraded search service. Research, matching rules, and rollout
+Existing transcript installations must apply the owner migrations in `db/transcription/` before
+restarting the upgraded read-only search service. Research, matching rules, and rollout
 details are in [the search architecture guide](docs/search-architecture.md).
 
 Local setup runs `npm run db:migrate:local` before starting the app. D1 schema lives in `db/schema.ts`; reviewed, append-only migrations live in `drizzle/`. Sites applies those migrations to its hosted DB binding when publishing. The operator title-transfer endpoint requires both explicit enablement and a secret; it is disabled by default and switched off after migration. Credentials stay on the server.
@@ -118,19 +105,17 @@ npm run test:learning
 npm run test:api
 npm run test:sources
 npm run test:performance
-npm run test:transcription-control
-npm run worker:build
 # Use a disposable PostgreSQL database; runs the database/recovery tests:
-TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:worker
+TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:content
 TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:maintenance
+npm run test:notes-only
+npm run test:notes-vm
 npm run performance:fixtures
 npm run build
 npm run performance:budgets
 # Browser player regressions use the built website and an isolated local state directory:
 npx playwright install chromium
 npm run test:player
-# Checks the built website, compiled search service and PostgreSQL together:
-TEST_DATABASE_URL=postgresql://USER@127.0.0.1/worker_test npm run test:pipeline
 # Start the production server in another terminal first:
 npm run test:live
 ```
@@ -141,7 +126,7 @@ Implementation status, measurements, privacy-safe diagnostics, supported library
 
 ## Publishing
 
-The public production website is **https://yutorah.vercel.app**, deployed by the GitHub integration for `aoppenh1-afk/yutorahv2`. Its Vercel project uses `vercel.json` and `npm run build:vercel` to generate Nitro server functions and static assets. Configure server-side secrets `SEARCH_DATABASE_URL` and `TRANSCRIPT_DATABASE_URL` in Production and Preview. Search uses `yutorah_search_app` in the separate Neon Free project `yutorah-titles`, with access only to its `yutorah_search` schema. Transcripts and notes use `yutorah_reader` in the Neon Free project `yutorah-transcription`, with read-only access to content tables. Builds compile without database access. Before activating a release, apply owner migrations with `npm run search:schema:migrate`; Vercel then runs the separate read-only `npm run search:schema:check` after compiling and blocks activation if the schema is incompatible. The public website reads completed transcripts independently of the transcription computer. The operator on that computer uses its separate write connection to `yutorah-transcription` for new audio processing. See [the verified database split](docs/search-storage-research.md#completed-database-split) for migration evidence, measured storage, backups and rollback requirements.
+The public production website is **https://yutorah.vercel.app**, deployed by the GitHub integration for `aoppenh1-afk/yutorahv2`. Its Vercel project uses `vercel.json` and `npm run build:vercel` to generate Nitro server functions and static assets. Configure server-side secrets `SEARCH_DATABASE_URL` and `TRANSCRIPT_DATABASE_URL` in Production and Preview. Search uses `yutorah_search_app` in the separate Neon Free project `yutorah-titles`, with access only to its `yutorah_search` schema. Transcripts and notes use `yutorah_reader` in the Neon Free project `yutorah-transcription`, with read-only access to content tables. Builds compile without database access. Before activating a release, apply owner migrations with `npm run search:schema:migrate`; Vercel then runs the separate read-only `npm run search:schema:check` after compiling and blocks activation if the schema is incompatible. The public website reads completed transcripts independently of the transcription computer. The notes coordinator uses its separate TiDB writer for verified note publication and authorized hash-guarded replacements; it does not generate new audio transcripts. See [the verified database split](docs/search-storage-research.md#completed-database-split) for migration evidence, measured storage, backups and rollback requirements.
 
 The complete learned title index is stored in PostgreSQL. Compact phrase keys are derived from the vocabulary; word deletion keys use PostgreSQL's inverted index. This preserves the audited spelling candidates without storing millions of repeated phrase-key rows. See [the PostgreSQL migration procedure](docs/search-architecture.md#vercel-postgresql-migration) for schema setup, source export, and hash verification. Local development and Sites keep their native D1 binding. Vercel's old Cloudflare credentials and transcript tunnel settings are unnecessary. Verify the deployed homepage, assets, typo searches, and transcripts after publishing.
 

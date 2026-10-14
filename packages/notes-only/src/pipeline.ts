@@ -1,36 +1,30 @@
-import { mkdir, readFile, rename, open, rm } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
-  TiDBNotesStore,
   packNote,
   unpackNote,
-  notesHash,
   type SavedNote,
+  type TiDBNotesStore,
 } from '../../../lib/tidb-notes-store.js';
 import { parseVtt } from '../../../lib/webvtt.mjs';
 import { fetchOfficialVtt } from '../../../lib/official-transcript.mjs';
-export { fetchOfficialVtt } from '../../../lib/official-transcript.mjs';
 import { NotesQueue, type NoteJob } from './queue.js';
-
-export async function durableWrite(path: string, data: string | Uint8Array) {
-  const temporary = path + '.next';
-  const file = await open(temporary, 'w', 0o600);
-  try {
-    await file.writeFile(data);
-    await file.sync();
-  } finally {
-    await file.close();
-  }
-  await rename(temporary, path);
-  const directory = await open(join(path, '..'), 'r');
-  try {
-    await directory.sync();
-  } finally {
-    await directory.close();
-  }
-}
-export type NotesPublisher = Pick<TiDBNotesStore, 'get'> & {
-  publish: (note: SavedNote) => Promise<SavedNote | void>;
+import {
+  durableWrite,
+  digest,
+  loadArtifact,
+  saveArtifact,
+  pinSource,
+  statePath,
+} from './artifacts.js';
+import { PipelineFailure, classify } from './control.js';
+export { durableWrite } from './artifacts.js';
+export type NotesPublisher = Pick<TiDBNotesStore, 'get' | 'publish'>;
+export type GeneratorIdentity = {
+  profile: string;
+  generator: string;
+  route: 'acp-high' | 'server-high';
+  approved: boolean;
 };
 export class NotesPipeline {
   constructor(
@@ -38,157 +32,367 @@ export class NotesPipeline {
       root: string;
       queue: NotesQueue;
       store: NotesPublisher;
-      generatorVersion: string;
-      language: string;
-      generate: (source: string, job: NoteJob) => Promise<string>;
-      signal: AbortSignal;
+      identity: GeneratorIdentity;
+      generate: (
+        source: string,
+        job: NoteJob,
+        signal: AbortSignal,
+        evidenceDir: string,
+      ) => Promise<string>;
       fetchTranscript?: (
         id: string,
         signal: AbortSignal,
       ) => Promise<string | null>;
-      cleanupRuntime?: (scratch: string) => Promise<void>;
+      reconcileRuntime: (job: NoteJob) => Promise<void>;
+      sourceRetentionMs?: number;
+      regenerationStartedAt?: number;
     },
   ) {}
-  async process(job: NoteJob) {
-    const { root, queue, store, signal } = this.config;
+  async fetching(job: NoteJob, signal: AbortSignal) {
+    const { root, queue, store } = this.config;
     signal.throwIfAborted();
-    const temporary = join(root, 'jobs', job.id);
-    const backup = join(root, 'notes', job.id);
-    await mkdir(temporary, { recursive: true, mode: 0o700 });
-    await mkdir(backup, { recursive: true, mode: 0o700 });
-    await this.config.cleanupRuntime?.(join(temporary, 'acp'));
-    const published = await store.get(job.id);
-    if (published) {
-      if (published.shiurId !== job.id)
-        throw new Error('Notes publication was not confirmed.');
-      await unpackNote(published);
-      await this.saveBackup(backup, published);
-      queue.completed(job.id, published.notesHash);
-      await rm(temporary, { recursive: true, force: true });
-      return 'already_published';
+    let source = job.source_path
+      ? {
+          path: job.source_path,
+          hash: job.source_hash!,
+          bytes: job.source_bytes,
+        }
+      : null;
+    // A failed eligibility lookup never becomes evidence of an absent published note.
+    let eligibility = 'unknown';
+    let replaceHash: string | null = job.replace_hash;
+    if (queue.available('tidb')) {
+      try {
+        const published = await store.get(job.id);
+        if (
+          published &&
+          !(
+            this.config.regenerationStartedAt &&
+            (published.generatorVersion !== this.config.identity.profile ||
+              published.createdAtMs < this.config.regenerationStartedAt)
+          )
+        ) {
+          await this.completeExisting(job, published);
+          return 'already_published';
+        }
+        if (published) {
+          await unpackNote(published);
+          const path = join(
+            'artifacts',
+            job.id,
+            published.sourceHash,
+            published.generatorVersion,
+            'before-replacement-' + job.lease_token,
+          );
+          await saveArtifact(root, path, published, {
+            profile: published.generatorVersion,
+            generator: JSON.stringify({
+              provenance: 'published_before_replacement',
+            }),
+            route: 'existing',
+            review: 'published',
+            attempt: job.lease_token,
+          });
+          queue.journal(job.id, path, published.notesHash);
+          replaceHash = published.notesHash;
+        }
+        eligibility = 'eligible';
+      } catch (error) {
+        const e = classify(error, 'tidb');
+        queue.cooldown('tidb', e.retryAfterMs || 30_000, e.code, e.pause);
+      }
     }
-    const metadata = await readFile(join(backup, 'metadata.json'), 'utf8')
-      .then(JSON.parse)
-      .catch((e: NodeJS.ErrnoException) => {
-        if (e.code === 'ENOENT') return null;
-        throw e;
-      });
-    let note: SavedNote;
-    if (metadata) {
-      note = {
-        ...metadata,
-        gzip: new Uint8Array(await readFile(join(backup, 'notes.md.gz'))),
-      };
-      if (
-        note.shiurId !== job.id ||
-        note.generatorVersion !== this.config.generatorVersion
-      )
-        throw new Error('Backup version conflict.');
-      await unpackNote(note);
-    } else {
-      let vtt = await readFile(join(temporary, 'source.vtt'), 'utf8').catch(
-        (e: NodeJS.ErrnoException) => {
-          if (e.code === 'ENOENT') return null;
-          throw e;
-        },
+    if (!source) {
+      const vtt = await (this.config.fetchTranscript ?? fetchOfficialVtt)(
+        job.id,
+        signal,
       );
       if (vtt === null) {
-        vtt = await (this.config.fetchTranscript ?? fetchOfficialVtt)(
-          job.id,
-          signal,
-        );
-        if (vtt === null) {
-          queue.missing(job.id);
-          await rm(temporary, { recursive: true, force: true });
-          return 'missing';
-        }
-        await durableWrite(join(temporary, 'source.vtt'), vtt);
+        queue.finish(job, {
+          status: 'missing',
+          next_at: Date.now() + 7 * 86400_000,
+          error: null,
+        });
+        return 'missing';
       }
       const cues = parseVtt(vtt);
       if (!cues.length) {
-        queue.missing(job.id);
-        await rm(temporary, { recursive: true, force: true });
+        queue.finish(job, {
+          status: 'missing',
+          next_at: Date.now() + 7 * 86400_000,
+        });
         return 'missing';
       }
-      // Every cue is included; never sample or truncate a lecture to fit a model.
-      const text = cues
-        .map((c) =>
-          c.text
-            .replace(/<[^>]*>/g, '')
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&quot;/g, '"'),
-        )
-        .join('\n\n');
-      const sourceHash = await notesHash(new TextEncoder().encode(vtt));
-      const markdown = await this.config.generate(text, job);
-      note = await packNote({
-        shiurId: job.id,
-        sourceHash,
-        generatorVersion: this.config.generatorVersion,
-        language: this.config.language,
-        markdown,
-      });
-      await this.saveBackup(backup, note);
-      await this.config.cleanupRuntime?.(join(temporary, 'acp'));
+      source = await pinSource(root, job.id, vtt);
     }
     signal.throwIfAborted();
-    const canonical = await store.publish(note);
-    if (canonical) {
-      if (canonical.shiurId !== job.id)
-        throw new Error('Notes publication was not confirmed.');
-      await unpackNote(canonical);
-      if (
-        canonical.notesHash !== note.notesHash ||
-        canonical.sourceHash !== note.sourceHash ||
-        canonical.generatorVersion !== note.generatorVersion ||
-        canonical.createdAtMs !== note.createdAtMs ||
-        canonical.language !== note.language
-      )
-        await this.saveBackup(backup, canonical);
-    }
-    // A durable completion checkpoint precedes source deletion. publish verifies hashes.
-    queue.completed(job.id, canonical?.notesHash ?? note.notesHash);
-    await rm(temporary, { recursive: true, force: true });
-    return canonical && canonical.notesHash !== note.notesHash
-      ? 'already_published'
-      : 'completed';
+    queue.finish(job, {
+      status: 'ready',
+      source_path: source.path,
+      source_hash: source.hash,
+      source_bytes: source.bytes,
+      eligibility,
+      replace_hash: replaceHash,
+      error: eligibility === 'unknown' ? 'eligibility_unknown' : null,
+      next_at: eligibility === 'unknown' ? Date.now() + 30_000 : 0,
+    });
+    return 'ready';
   }
-  private async saveBackup(path: string, note: SavedNote) {
-    // Keep a generated alternative before adopting a different published note.
-    const previous = await readFile(join(path, 'metadata.json'), 'utf8')
-      .then(JSON.parse)
-      .catch((e: NodeJS.ErrnoException) => {
-        if (e.code === 'ENOENT') return null;
-        throw e;
-      });
-    if (previous && previous.notesHash !== note.notesHash) {
-      const alternative: SavedNote = {
-        ...previous,
-        gzip: new Uint8Array(await readFile(join(path, 'notes.md.gz'))),
-      };
-      if (alternative.shiurId !== note.shiurId)
-        throw new Error('Backup shiur conflict.');
-      await unpackNote(alternative);
-      const archive = join(path, 'unpublished', alternative.notesHash);
-      await mkdir(archive, { recursive: true, mode: 0o700 });
-      const { gzip, ...metadata } = alternative;
-      await durableWrite(join(archive, 'notes.md.gz'), gzip);
-      await durableWrite(
-        join(archive, 'metadata.json'),
-        JSON.stringify(metadata),
+  private async completeExisting(job: NoteJob, note: SavedNote) {
+    if (note.shiurId !== job.id)
+      throw new PipelineFailure('publication_invalid', 'tidb', 0, true);
+    await unpackNote(note);
+    const path = join(
+      'artifacts',
+      job.id,
+      note.sourceHash,
+      note.generatorVersion,
+      'published-' + job.lease_token,
+    );
+    const manifest = await saveArtifact(this.config.root, path, note, {
+      profile: note.generatorVersion,
+      generator: JSON.stringify({
+        provenance: 'published',
+        profile: note.generatorVersion,
+      }),
+      route: 'existing',
+      review: 'published',
+      attempt: job.lease_token,
+    });
+    this.config.queue.accept(job, {
+      status: 'completed',
+      artifact_path: path,
+      artifact_bytes:
+        manifest.gzipBytes + Buffer.byteLength(JSON.stringify(manifest)),
+      source_hash: note.sourceHash,
+      notes_hash: note.notesHash,
+      profile: manifest.profile,
+      generator: manifest.generator,
+      review: 'published',
+      eligibility: 'published',
+      error: null,
+    });
+  }
+  async generating(job: NoteJob, signal: AbortSignal) {
+    const { root, queue, identity } = this.config;
+    await this.config.reconcileRuntime(job);
+    signal.throwIfAborted();
+    if (!queue.owns(job)) throw new PipelineFailure('lease_lost');
+    if (!job.source_path || !job.source_hash)
+      throw new PipelineFailure('invalid_transcript', 'yutorah');
+    const bytes = await readFile(statePath(root, job.source_path));
+    if (digest(bytes) !== job.source_hash)
+      throw new PipelineFailure('source_changed', 'yutorah');
+    const vtt = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    const source = parseVtt(vtt)
+      .map((c) =>
+        c.text
+          .replace(/<[^>]*>/g, '')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&quot;/g, '"'),
+      )
+      .join('\n\n');
+    if (!source.trim())
+      throw new PipelineFailure('invalid_transcript', 'yutorah');
+    const path = join(
+      'artifacts',
+      job.id,
+      job.source_hash,
+      identity.profile,
+      job.lease_token,
+    );
+    queue.db
+      .prepare('INSERT INTO generation_artifacts VALUES(?,?,?,?,?,?)')
+      .run(
+        job.lease_token,
+        job.id,
+        job.source_hash,
+        identity.profile,
+        path,
+        Date.now(),
       );
-      const directory = await open(join(path, 'unpublished'), 'r');
-      try {
-        await directory.sync();
-      } finally {
-        await directory.close();
-      }
+    const evidenceDir = join(root, 'attempts', job.id, job.lease_token);
+    await mkdir(evidenceDir, { recursive: true, mode: 0o700 });
+    await durableWrite(
+      join(evidenceDir, 'identity.json'),
+      JSON.stringify({
+        ...identity,
+        sourceHash: job.source_hash,
+        sourcePath: job.source_path,
+        job: job.id,
+        token: job.lease_token,
+      }),
+    );
+    const markdown = await this.config.generate(
+      source,
+      job,
+      signal,
+      evidenceDir,
+    );
+    signal.throwIfAborted();
+    const note = await packNote({
+      shiurId: job.id,
+      sourceHash: job.source_hash,
+      generatorVersion: identity.profile,
+      language: 'hebrewEnglish',
+      markdown,
+    });
+    const review = identity.approved ? 'approved_route' : 'pending';
+    const manifest = await saveArtifact(root, path, note, {
+      ...identity,
+      review,
+      attempt: job.lease_token,
+    });
+    // A stale worker may leave an immutable orphan, but cannot accept or publish it.
+    queue.accept(job, {
+      status: identity.approved ? 'generated' : 'needs_review',
+      artifact_path: path,
+      artifact_bytes:
+        manifest.gzipBytes + Buffer.byteLength(JSON.stringify(manifest)),
+      notes_hash: note.notesHash,
+      profile: identity.profile,
+      generator: identity.generator,
+      route: identity.route,
+      review,
+      error: null,
+      next_at: 0,
+    });
+    return identity.approved ? 'generated' : 'needs_review';
+  }
+  async publishing(job: NoteJob, signal: AbortSignal) {
+    const { root, queue, store } = this.config;
+    if (!job.artifact_path)
+      throw new PipelineFailure('publication_invalid', 'tidb');
+    const { note } = await loadArtifact(root, job.artifact_path);
+    if (
+      note.shiurId !== job.id ||
+      note.notesHash !== job.notes_hash ||
+      note.generatorVersion !== job.profile
+    )
+      throw new PipelineFailure('publication_invalid', 'tidb');
+    // Freeze identity before the irreversible insert. Completion still requires the current lease.
+    signal.throwIfAborted();
+    if (!queue.owns(job)) throw new PipelineFailure('lease_lost');
+    const published = await store.publish(note, job.replace_hash);
+    if (!published || published.shiurId !== job.id)
+      throw new PipelineFailure('publication_invalid', 'tidb');
+    await unpackNote(published);
+    if (
+      published.notesHash !== note.notesHash ||
+      published.sourceHash !== note.sourceHash ||
+      published.generatorVersion !== note.generatorVersion
+    ) {
+      const path = join(
+        'artifacts',
+        job.id,
+        published.sourceHash,
+        published.generatorVersion,
+        'conflicting-published-' + job.lease_token,
+      );
+      await saveArtifact(root, path, published, {
+        profile: published.generatorVersion,
+        generator: JSON.stringify({ provenance: 'conflicting_published' }),
+        route: 'existing',
+        review: 'published',
+        attempt: job.lease_token,
+      });
+      queue.journal(job.id, path, published.notesHash);
+      queue.finish(job, {
+        status: 'conflict',
+        error: 'published_hash_conflict',
+      });
+      return 'conflict';
     }
-    const { gzip, ...metadata } = note;
-    await durableWrite(join(path, 'notes.md.gz'), gzip);
-    await durableWrite(join(path, 'metadata.json'), JSON.stringify(metadata));
+    queue.finish(job, { status: 'completed', error: null });
+    return 'completed';
+  }
+  async recoverExpired() {
+    const { queue, root } = this.config;
+    for (const expired of queue.expired()) {
+      const owned = queue.fence(expired);
+      if (!owned) continue;
+      await this.config.reconcileRuntime(expired);
+      if (owned.artifact_path) {
+        const { note } = await loadArtifact(root, owned.artifact_path);
+        if (note.notesHash !== owned.notes_hash)
+          throw new PipelineFailure('publication_invalid', 'tidb', 0, true);
+        queue.finish(owned, {
+          status: owned.review === 'pending' ? 'needs_review' : 'generated',
+          error: 'recovered_artifact',
+          next_at: 0,
+        });
+        continue;
+      }
+      const candidates = queue.db
+        .prepare(
+          'SELECT * FROM generation_artifacts WHERE job_id=? ORDER BY created_at DESC',
+        )
+        .all(owned.id);
+      let adopted = false;
+      for (const candidate of candidates) {
+        if (
+          candidate.source_hash !== owned.source_hash ||
+          candidate.profile !== this.config.identity.profile
+        )
+          continue;
+        const artifact = await loadArtifact(root, String(candidate.path)).catch(
+          (e: NodeJS.ErrnoException) => {
+            if (e.code === 'ENOENT') return null;
+            throw e;
+          },
+        );
+        if (!artifact) continue;
+        const { note, manifest } = artifact;
+        if (
+          note.shiurId !== owned.id ||
+          note.sourceHash !== candidate.source_hash ||
+          manifest.attempt !== candidate.token ||
+          manifest.profile !== candidate.profile
+        )
+          throw new PipelineFailure('publication_invalid', 'tidb', 0, true);
+        queue.accept(owned, {
+          status: manifest.review === 'pending' ? 'needs_review' : 'generated',
+          artifact_path: String(candidate.path),
+          artifact_bytes:
+            manifest.gzipBytes + Buffer.byteLength(JSON.stringify(manifest)),
+          notes_hash: note.notesHash,
+          profile: manifest.profile,
+          generator: manifest.generator,
+          route: manifest.route,
+          review: manifest.review,
+          error: 'adopted_crash_artifact',
+          next_at: 0,
+        });
+        adopted = true;
+        break;
+      }
+      if (!adopted)
+        queue.finish(owned, {
+          status: owned.source_path ? 'ready' : 'discovered',
+          error: 'recovered_expired_lease',
+          next_at: 0,
+        });
+    }
+  }
+  async reclaim(now = Date.now()) {
+    // Accepted notes are retained. Sources are reclaimable only after completion and the backup checkpoint.
+    const rows = this.config.queue.db
+      .prepare(`SELECT j.id,j.source_path FROM jobs j JOIN backup_journal b ON b.path=j.artifact_path
+      WHERE j.status='completed' AND j.source_path IS NOT NULL AND b.backed_up_at IS NOT NULL AND j.completed_at<?`)
+      .all(now - (this.config.sourceRetentionMs ?? 86400_000));
+    for (const row of rows) {
+      await rm(statePath(this.config.root, String(row.source_path)), {
+        force: true,
+      });
+      this.config.queue.db
+        .prepare(
+          "UPDATE jobs SET source_path=NULL,source_bytes=0 WHERE id=? AND status='completed'",
+        )
+        .run(row.id!);
+    }
+    return rows.length;
   }
 }

@@ -93,6 +93,54 @@ void test('normal publication writes one row and verifies it with one primary-ke
   assert.ok(queries[0].startsWith('INSERT'));
   assert.ok(queries[1].startsWith('SELECT'));
 });
+void test('authorized replacements compare the exact old hash and resolve a lost acknowledgement without deleting the old row first', async (t) => {
+  const saved = await note('2170020');
+  const queries: string[] = [];
+  t.mock.method(
+    globalThis,
+    'fetch',
+    async (_url: unknown, init: RequestInit) => {
+      const query = sqlQuery(init);
+      queries.push(query);
+      if (query.startsWith('UPDATE')) {
+        assert.match(query, /WHERE shiur_id=.*AND notes_sha256=/);
+        throw new Error('Acknowledgement lost');
+      }
+      return wire(saved);
+    },
+  );
+  assert.equal(
+    (await new TiDBNotesStore(credential).publish(saved, 'b'.repeat(64)))
+      .notesHash,
+    saved.notesHash,
+  );
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every((q) => !q.startsWith('DELETE')));
+});
+
+void test('a denied replacement is not mistaken for a successful duplicate publication', async (t) => {
+  const old = await note('2170021');
+  const candidate = await packNote({
+    shiurId: old.shiurId,
+    sourceHash: old.sourceHash,
+    generatorVersion: 'fresh-generator',
+    language: 'hebrewEnglish',
+    markdown: '# New notes\n\n## Topic\n\nFresh prose.',
+  });
+  t.mock.method(
+    globalThis,
+    'fetch',
+    async (_url: unknown, init: RequestInit) => {
+      if (sqlQuery(init).startsWith('UPDATE'))
+        throw new Error('UPDATE command denied');
+      return wire(old);
+    },
+  );
+  await assert.rejects(
+    new TiDBNotesStore(credential).publish(candidate, old.notesHash),
+    /UPDATE command denied/,
+  );
+});
 void test('a lost upload acknowledgement verifies the saved row without reading its blob twice', async (t) => {
   const saved = await note('2170002');
   let reads = 0,

@@ -1,26 +1,20 @@
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  writeFile,
-  rename,
-  rm,
-} from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ACPClient, type Launch } from '../../antigravity-acp/src/client.js';
-import { runProcess } from '../../antigravity-acp/src/process.js';
-import {
-  Failure,
-  failure,
-  checkAbort,
-} from '../../antigravity-acp/src/errors.js';
+import { ACPClient, type Launch } from './client.js';
+import { runProcess, terminateOwnedWorkspace } from './process.js';
+import { messageEvidence } from './evidence.js';
+import { PipelineFailure } from '../../notes-only/src/control.js';
+import { durableWrite } from '../../notes-only/src/artifacts.js';
+import { Failure, failure, checkAbort } from './errors.js';
 
-export const FREE_NOTES_MODEL = 'opencode/muse-spark-1.3-contributor-free';
-export const OPENCODE_VERSION = '1.18.33';
+import { FREE_NOTES_MODEL, OPENCODE_VERSION } from './constants.js';
+export { FREE_NOTES_MODEL, OPENCODE_VERSION } from './constants.js';
 export type OpenCodeConfig = {
   executable: string;
   scratch: string;
   version?: string;
+  onSession?: (id: string) => Promise<void>;
+  onCleanup?: (ids: string[], deleted: boolean) => Promise<void>;
 };
 export const openCodeIdentity = (config: OpenCodeConfig) =>
   `opencode:${config.version ?? OPENCODE_VERSION}:notes-3-high`;
@@ -40,13 +34,54 @@ export class OpenCodeClient extends ACPClient {
   get sessionDeleted() {
     return this.deleted;
   }
+  async verifiedPrompt(
+    prompt: string,
+    timeoutMs: number,
+    capture?: (messages: unknown) => Promise<void>,
+  ) {
+    let text: string | undefined;
+    let promptError: unknown;
+    try {
+      text = await this.textPrompt(prompt, timeoutMs);
+    } catch (error) {
+      promptError = error;
+    }
+    const exported = JSON.parse(
+      (
+        await runProcess(this.launch.executable, ['export', this.sessionId!], {
+          cwd: this.launch.cwd,
+          env: this.launch.env,
+          signal: AbortSignal.timeout(30_000),
+          maxBytes: 16 * 1024 * 1024,
+          timeoutMs: 30_000,
+        })
+      ).toString(),
+    );
+    await capture?.(exported.messages);
+    if (promptError) {
+      try {
+        messageEvidence(exported.messages ?? [], this.sessionId!);
+      } catch (error) {
+        if (
+          error instanceof PipelineFailure &&
+          ['paid_route', 'unconfirmed_identity'].includes(error.code)
+        )
+          throw error;
+        if (error && typeof error === 'object' && 'status' in error)
+          throw error;
+      }
+      throw promptError;
+    }
+    const evidence = messageEvidence(exported.messages ?? [], this.sessionId!);
+    return { value: text!, evidence, messages: exported.messages };
+  }
   constructor(
     launch: Launch,
     signal: AbortSignal,
     graceMs = 2000,
     onSession?: (id: string) => Promise<void>,
   ) {
-    super(launch, signal, undefined, graceMs, onSession);
+    super(launch, signal, graceMs, onSession);
   }
   override async initialize(): Promise<Value> {
     const result = await this.request('initialize', {
@@ -154,7 +189,10 @@ export async function withOpenCode<T>(
   const root = await mkdtemp(join(config.scratch, 'opencode-'));
   let client: OpenCodeClient | undefined;
   const ids: string[] = [];
+  let result: T | undefined;
+  let operationError: unknown;
   try {
+    await mkdir(join(root, 'tmp'), { mode: 0o700 });
     // OpenCode resolves project config at the Git root. An owned empty repo
     // prevents scratch inside a checkout from inheriting that checkout's config.
     await runProcess('git', ['init', '--quiet', '--template=', root], {
@@ -180,29 +218,53 @@ export async function withOpenCode<T>(
       2000,
       async (id) => {
         ids.push(id);
-        await writeFile(
-          join(root, 'sessions.json.next'),
-          JSON.stringify({ version: 1, ids }),
-          { mode: 0o600 },
-        );
-        await rename(
-          join(root, 'sessions.json.next'),
+        await durableWrite(
           join(root, 'sessions.json'),
+          JSON.stringify({ version: 1, ids }),
         );
+        await config.onSession?.(id);
       },
     );
+    const pid = client.runtimePid;
+    if (!pid) throw new Failure('configuration');
+    const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
+    await durableWrite(
+      join(root, 'process.json'),
+      JSON.stringify({
+        pid,
+        startTicks: stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19],
+      }),
+    );
     await client.initialize();
-    return await operation(client, root);
-  } finally {
+    result = await operation(client, root);
+  } catch (error) {
+    operationError = error;
+  }
+  try {
     try {
       await client?.close();
+      await config.onCleanup?.(ids, !!client?.sessionDeleted);
     } finally {
+      // Session IDs may need recovery, but all owned subprocesses have stopped.
+      // Native libraries never need to survive with the session ledger.
+      await rm(join(root, 'tmp'), { recursive: true, force: true });
       // Keep the ID ledger when cancellation/crash prevents an acknowledged
       // deletion. The next notes-worker start removes that owned session first.
       if (!ids.length || client?.sessionDeleted)
         await rm(root, { recursive: true, force: true });
+      else
+        operationError = new PipelineFailure(
+          'session_uncertain',
+          'muse',
+          0,
+          true,
+        );
     }
+  } catch (error) {
+    operationError = error;
   }
+  if (operationError) throw operationError;
+  return result as T;
 }
 
 function launch(config: OpenCodeConfig, root: string): Launch {
@@ -216,6 +278,8 @@ function launch(config: OpenCodeConfig, root: string): Launch {
     env: {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
+      TMPDIR: join(root, 'tmp'),
+      BUN_TMPDIR: join(root, 'tmp'),
       NODE_ENV: 'production',
       LANG: 'C.UTF-8',
       // Keep user-installed agents/plugins out of this owned notes workspace.
@@ -251,6 +315,9 @@ export async function recoverOpenCode(
   root: string,
   signal: AbortSignal,
 ): Promise<void> {
+  await terminateOwnedWorkspace(root, 'process.json');
+  await rm(join(root, 'tmp'), { recursive: true, force: true });
+  await mkdir(join(root, 'tmp'), { mode: 0o700 });
   const text = await readFile(join(root, 'sessions.json'), 'utf8').catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return null;
