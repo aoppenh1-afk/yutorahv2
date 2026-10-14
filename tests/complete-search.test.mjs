@@ -975,6 +975,36 @@ void test('most popular ranks every matching candidate by views after applying r
   assert.equal(hebrew.items[0].id, 180);
 });
 
+void test('teacher profile popularity includes the most viewed shiur beyond the first indexing pass', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    const url = new URL(input);
+    if (url.pathname.includes('/browse/')) return Response.json([]);
+    assert.equal(url.searchParams.get('teacherID'), '1');
+    assert.equal(url.searchParams.get('searchTerm'), '*');
+    const page = Number(url.searchParams.get('start'));
+    return Response.json({
+      response: {
+        docs: records.slice((page - 1) * 30, page * 30),
+        numFound: records.length,
+      },
+    });
+  });
+  const db = database();
+  const options = { teacherId: 1, sort: 'popular' };
+  let result = await completeSearch(db, '', options);
+  assert.equal(result.complete, false);
+  assert.notEqual(result.items[0].id, 180);
+  while (!result.complete)
+    result = await completeSearch(db, '', options, 1, result.run);
+  assert.equal(result.scanned, records.length);
+  assert.equal(result.items[0].id, 180);
+  assert.equal(result.items[0].views, 1000000);
+  assert.deepEqual(
+    result.items.map((s) => s.views),
+    result.items.map((s) => s.views).sort((a, b) => b - a),
+  );
+});
+
 void test('an exhausted search with no matching records reports exact zero', async () => {
   const db = database();
   let result = await completeSearch(db, 'empty-test', {

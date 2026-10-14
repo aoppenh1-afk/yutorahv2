@@ -177,12 +177,14 @@ export function MobileDiscover({
             className="m-search"
             onSubmit={(e) => {
               e.preventDefault();
+              e.currentTarget.querySelector('input')?.blur();
               onSearch(query.trim());
             }}
           >
             <Search size={19} aria-hidden="true" />
             <input
               type="search"
+              enterKeyHint="search"
               aria-label="Search the Torah library"
               placeholder="Shiurim, teachers, topics…"
               value={query}

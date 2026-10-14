@@ -2706,7 +2706,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 <ShiurViews shiur={detail} />
                 <span>
                   {detail.duration
-                    ? `${Math.round(detail.duration / 60)} minutes`
+                    ? `${Math.round(detail.duration / 60)} min`
                     : detail.format.toUpperCase()}
                 </span>
                 <span>
@@ -3354,7 +3354,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         {toast && (
           <>
             <Check size={17} />
-            {toast}
+            <span className="toast-message">{toast}</span>
             {undoAction && (
               <button className="undo-button" onClick={undoAction}>
                 Undo

@@ -28,6 +28,26 @@
   color: var(--brand);
   border-color: var(--brand);
 }
+.catalog-popularity-status {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+.catalog-popularity-status output {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.catalog-popularity-status output svg {
+  flex-shrink: 0;
+}
+.catalog-popularity-status progress {
+  width: 100%;
+  height: 4px;
+  accent-color: var(--brand);
+}
 .catalog-toolbar {
   display: flex;
   align-items: center;

@@ -102,12 +102,14 @@ export function SearchBox({
     }
     setOpen(false);
     setSelectedKey(null);
+    input.current?.blur();
     onSearch(query);
   };
   const choose = (index: number) => {
     if (index < suggestions.length) {
       setOpen(false);
       setSelectedKey(null);
+      input.current?.blur();
       const suggestion = suggestions[index];
       if (suggestion.kind === 'shiur') onSelectShiur(suggestion);
       else onSelect(suggestion);
@@ -172,6 +174,7 @@ export function SearchBox({
               : undefined
           }
           autoComplete="off"
+          enterKeyHint="search"
           maxLength={300}
         />
         {value && (

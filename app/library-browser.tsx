@@ -30,6 +30,7 @@ import { FollowButton } from './follow-button';
 import { PagedItems } from './paged-items';
 import { TopicCard } from './topic-card';
 import { CatalogCover } from './catalog-cover';
+import { TeacherPopularShiurim } from './teacher-popular-shiurim';
 import { orderedTopicGroups } from '@/lib/topic-groups';
 import {
   cachedCatalogResource,
@@ -511,10 +512,19 @@ export function EntityPage({
       key: 'recent',
       label: 'Recent shiurim',
     },
-    ...(d.popular.length ? [{ key: 'popular', label: 'Most viewed' }] : []),
+    ...(kind === 'teacher' || d.popular.length
+      ? [{ key: 'popular', label: 'Most viewed' }]
+      : []),
     ...(d.featured.length ? [{ key: 'featured', label: 'Featured' }] : []),
+    ...(kind === 'teacher' && d.facets.collections.length
+      ? [{ key: 'collections', label: 'Collections' }]
+      : []),
     ...Object.entries(facetKind)
-      .filter(([key]) => d.facets[key as keyof typeof facetKind].length)
+      .filter(
+        ([key]) =>
+          !(kind === 'teacher' && key === 'collections') &&
+          d.facets[key as keyof typeof facetKind].length,
+      )
       .map(([key, k]) => ({ key, label: catalogLabels[k] })),
   ];
   return (
@@ -581,7 +591,9 @@ export function EntityPage({
           </button>
         ))}
       </nav>
-      {['recent', 'popular', 'featured'].includes(tab) ? (
+      {tab === 'popular' && kind === 'teacher' ? (
+        <TeacherPopularShiurim key={id} teacherId={id} rows={props.rows} />
+      ) : ['recent', 'popular', 'featured'].includes(tab) ? (
         props.rows(d[tab as 'recent' | 'popular' | 'featured'])
       ) : (
         <PagedItems

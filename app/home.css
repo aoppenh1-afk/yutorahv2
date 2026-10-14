@@ -1716,6 +1716,12 @@
   .listening-home .discover-heading h1 {
     font-size: 34px;
   }
+  .following-page .discover-heading {
+    margin-bottom: 16px;
+  }
+  .following-page .recommended-section {
+    margin-top: 0;
+  }
   .discovery-tabs {
     display: flex;
     flex-wrap: nowrap;

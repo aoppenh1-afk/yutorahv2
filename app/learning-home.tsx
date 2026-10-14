@@ -610,7 +610,13 @@ export function LearningHome(props: Props) {
   ];
 
   return (
-    <div className={'listening-home ' + (isHome ? 'has-mobile-home' : '')}>
+    <div
+      className={
+        'listening-home ' +
+        (isHome ? 'has-mobile-home' : '') +
+        (followingPage ? ' following-page' : '')
+      }
+    >
       {isHome && isMobile && (
         <MobileDiscover
           onTrending={() => setTrendingWanted(true)}
