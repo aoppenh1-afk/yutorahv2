@@ -44,7 +44,7 @@ export async function createNotesPdf(markdown: string): Promise<Blob> {
   return pdf(
     <Document title="Notes" author="YUTorah">
       <Page
-        size="A4"
+        size="LETTER"
         style={{
           padding: 48,
           fontFamily: ['NotesLatin', 'Notes'],

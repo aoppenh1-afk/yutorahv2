@@ -200,7 +200,7 @@ void test('Word paragraphs keep the preview’s left-to-right layout when an Eng
   );
 });
 
-void test('PDF keeps bold Hebrew source labels on the left before Hebrew or English explanations', async () => {
+void test('PDF uses US Letter pages and keeps bold Hebrew source labels before explanations', async () => {
   // Pre-register local copies so the real browser exporter also runs in Node.
   for (const [family, name] of [
     ['Notes', 'NotoSansHebrew'],
@@ -235,6 +235,9 @@ void test('PDF keeps bold Hebrew source labels on the left before Hebrew or Engl
   const document = await loading.promise;
   try {
     const page = await document.getPage(1);
+    const viewport = page.getViewport({ scale: 1 });
+    assert.equal(viewport.width, 612, 'US Letter width is 8.5 inches');
+    assert.equal(viewport.height, 792, 'US Letter height is 11 inches');
     const content = await page.getTextContent();
     const items = content.items.filter((item) => 'str' in item);
     const hebrew = items.find((item) => item.str.includes('תורה'))!;
