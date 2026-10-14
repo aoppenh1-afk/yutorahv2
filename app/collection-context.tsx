@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Shiur } from '@/lib/yutorah';
 import type { CollectionData } from '@/lib/catalog';
 export function CollectionContext({
@@ -54,8 +54,7 @@ export function CollectionContext({
       ],
     });
   return (
-    <section className="detail-section collection-context">
-      <h3>In this collection</h3>
+    <section className="detail-collection" aria-label="Collection">
       {memberships.length > 1 && (
         <select
           aria-label="Shiur collection"
@@ -69,44 +68,52 @@ export function CollectionContext({
           ))}
         </select>
       )}
-      <button className="series-detail-link" onClick={() => onOpen(selected)}>
-        <BookOpen size={19} />
-        <span>
-          {data?.name ||
-            memberships.find((c) => c.id === selected)?.name ||
-            'Open collection'}
-          {index >= 0 && data && (
+      <div className="detail-collection-card">
+        <button
+          className="detail-collection-open"
+          onClick={() => onOpen(selected)}
+        >
+          <BookOpen size={18} />
+          <span>
+            <strong dir="auto">
+              {data?.name ||
+                memberships.find((c) => c.id === selected)?.name ||
+                'Open collection'}
+            </strong>
             <small>
-              Lesson {index + 1} of {data.items.length}
+              {index >= 0 && data
+                ? `Lesson ${index + 1} of ${data.items.length}`
+                : 'Collection'}
             </small>
-          )}
-        </span>
-        <ArrowRight size={16} />
-      </button>
-      {error ? (
-        <p className="inline-error">
-          {error} <button onClick={() => setRetry((n) => n + 1)}>Retry</button>
-        </p>
-      ) : (
-        index >= 0 &&
-        data && (
+          </span>
+        </button>
+        {index >= 0 && data && (
           <nav aria-label="Collection lessons">
             <button
-              className="text-button"
+              className="detail-collection-step"
+              aria-label="Previous lesson"
+              title="Previous lesson"
               disabled={index === 0}
               onClick={() => go(data.items[index - 1])}
             >
-              <ArrowLeft size={15} /> Previous lesson
+              <ChevronLeft size={18} />
             </button>
             <button
-              className="text-button"
+              className="detail-collection-step"
+              aria-label="Next lesson"
+              title="Next lesson"
               disabled={index === data.items.length - 1}
               onClick={() => go(data.items[index + 1])}
             >
-              Next lesson <ArrowRight size={15} />
+              <ChevronRight size={18} />
             </button>
           </nav>
-        )
+        )}
+      </div>
+      {error && (
+        <p className="inline-error">
+          {error} <button onClick={() => setRetry((n) => n + 1)}>Retry</button>
+        </p>
       )}
     </section>
   );

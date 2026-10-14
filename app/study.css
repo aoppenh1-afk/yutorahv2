@@ -77,69 +77,113 @@
 }
 
 /* ─── Transcript & study notes ──────────────────────────────── */
+.generated-study {
+  gap: 0;
+}
+/* Sticky inside the detail sheet so readers can switch views mid-scroll. */
+.study-bar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin-inline: calc(-1 * var(--detail-x, 0px));
+  padding: 12px var(--detail-x, 0px);
+  background: var(--surface);
+  box-shadow: 0 1px 0 var(--line);
+}
 .study-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--panel);
 }
 .study-tabs button {
-  min-height: 34px;
-  padding: 0 14px;
+  min-height: 36px;
+  padding: 0 8px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.05);
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    background 0.2s var(--ease),
+    color 0.2s var(--ease);
+}
+.study-tabs button:hover:not([aria-pressed='true']) {
+  color: var(--ink);
 }
 .study-tabs button[aria-pressed='true'] {
   background: var(--ink);
   color: #fff;
 }
-.study-tabs .study-download {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-.study-notes-actions {
+.study-toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
+  min-height: 46px;
+  padding: 6px 0 8px;
+}
+.study-toolbar .study-note-label {
+  flex: 1;
+  min-width: 0;
+}
+.study-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
   margin-left: auto;
 }
-.study-tabs .study-expand {
+.study-tool {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-}
-.study-tabs button:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
-.notes-download-positioner {
-  z-index: 80;
-}
-.notes-download-menu {
-  min-width: 160px;
-  padding: 6px;
-  border-radius: 14px;
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow:
-    var(--shadow-2),
-    inset 0 0 0 1px var(--line);
-  outline: none;
-}
-.notes-download-menu [role='menuitem'] {
-  padding: 10px 12px;
-  border-radius: 9px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
   font-size: 13px;
-  cursor: pointer;
-  outline: none;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+  transition:
+    background 0.2s var(--ease),
+    color 0.2s var(--ease);
 }
-.notes-download-menu [data-highlighted] {
-  background: var(--brand-tint);
+.study-tool.is-icon {
+  width: 34px;
+  padding: 0;
+}
+.study-tool:hover:not(:disabled),
+.study-tool[data-popup-open] {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--ink);
+}
+.study-tool:disabled {
+  opacity: 0.45;
+}
+.study-tool:disabled .spin {
+  opacity: 1;
+}
+.study-tool-caret {
+  margin-left: -2px;
+  color: var(--ink-3);
+}
+@media (max-width: 560px) {
+  .study-toolbar .study-tool > span,
+  .study-toolbar .study-tool-caret {
+    display: none;
+  }
+  .study-toolbar .study-tool {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+  }
 }
 .notes-expanded[data-slot='dialog-content'] {
   inset: 0;
@@ -166,17 +210,17 @@
   border-bottom: 1px solid var(--line);
 }
 .notes-expanded-header > div:first-child {
+  display: grid;
+  gap: 6px;
   flex: 1;
   min-width: 180px;
 }
 .notes-expanded-header [data-slot='dialog-title'] {
-  margin-bottom: 8px;
   font-size: 24px;
 }
 .notes-expanded .study-markdown {
   flex: 1;
   min-height: 0;
-  max-height: none;
   width: min(100%, 880px);
   margin-inline: auto;
   padding-inline: 8px;
@@ -187,14 +231,8 @@
   height: 34px !important;
   border-radius: 999px !important;
 }
-.study-tabs > .text-button {
-  order: 10;
-  flex-basis: 100%;
-  justify-content: flex-start;
-  font-size: 12.5px;
-}
 .study-transcript {
-  max-height: 480px;
+  max-height: min(520px, 62dvh);
   overflow-y: auto;
   padding: 6px 8px 6px 0;
   outline: none;
@@ -248,7 +286,6 @@
   text-underline-offset: 3px;
 }
 .study-markdown {
-  max-height: 560px;
   overflow-y: auto;
   padding-right: 8px;
   font-size: 14.5px;
@@ -289,6 +326,22 @@
 }
 .study-markdown li > p {
   margin: 0;
+}
+.study-markdown > :first-child {
+  margin-top: 4px;
+}
+/* Notes headings sit below the shiur title, so they step down a size in the sheet. */
+.generated-study .study-markdown {
+  padding-right: 0;
+  font-size: 15px;
+}
+.generated-study .study-markdown h1 {
+  font-size: 23px;
+  line-height: 1.15;
+}
+.generated-study .study-markdown h2 {
+  font-size: 19px;
+  line-height: 1.25;
 }
 .study-markdown a,
 .sefaria-credit a,

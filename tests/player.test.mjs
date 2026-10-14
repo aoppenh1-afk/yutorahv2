@@ -1082,6 +1082,10 @@ void test('player controls stop playback and the phone dialog stays inside the b
           await page
             .getByRole('button', { name: 'Open shiur details and notes' })
             .click();
+          await page
+            .getByRole('region', { name: 'Transcript, notes, and sources' })
+            .getByRole('button', { name: 'Transcript', exact: true })
+            .click();
           await page.locator('.study-segment').first().waitFor();
           assert.equal(await page.locator('.study-segment').count(), 100);
           assert.equal(
@@ -1700,6 +1704,12 @@ void test('player controls stop playback and the phone dialog stays inside the b
             name: 'Transcript, notes, and sources',
             exact: true,
           });
+          await region.getByRole('heading', { name: 'Hosted notes' }).waitFor();
+          await region.getByRole('heading', { name: 'תשובה' }).waitFor();
+          assert.equal(noteReads, 1, 'notes are the first view');
+          await region
+            .getByRole('button', { name: 'Transcript', exact: true })
+            .click();
           await region
             .getByText('Official transcript from YUTorah.', { exact: true })
             .waitFor();
@@ -1726,8 +1736,8 @@ void test('player controls stop playback and the phone dialog stays inside the b
           assert.equal(statuses, 0, 'official content has no notes polling');
           assert.equal(
             noteReads,
-            0,
-            'reading a transcript does not read TiDB notes',
+            1,
+            'reading the transcript does not reread TiDB notes',
           );
           await region
             .getByRole('button', { name: 'Play from 0:12', exact: true })
@@ -1750,12 +1760,13 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .waitFor();
           assert.equal(reads, 2);
           assert.equal(statuses, 0);
+          const reread = page.waitForResponse('**/api/study-notes?*');
           await region
             .getByRole('button', { name: 'Notes', exact: true })
             .click();
+          await reread;
           await region.getByRole('heading', { name: 'Hosted notes' }).waitFor();
-          await region.getByRole('heading', { name: 'תשובה' }).waitFor();
-          assert.equal(noteReads, 1);
+          assert.equal(noteReads, 2, 'Refresh rereads notes once');
           await region
             .getByRole('button', { name: 'Transcript', exact: true })
             .click();
@@ -1766,7 +1777,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
           await page.clock.fastForward(600_000);
           assert.equal(
             noteReads,
-            1,
+            2,
             'tab switching and elapsed time reuse saved notes',
           );
         } finally {
@@ -1805,12 +1816,6 @@ void test('player controls stop playback and the phone dialog stays inside the b
             exact: true,
           });
           await region
-            .getByText('Transcript temporarily unavailable', { exact: false })
-            .waitFor();
-          await region
-            .getByRole('button', { name: 'Notes', exact: true })
-            .click();
-          await region
             .getByRole('heading', { name: 'Saved study notes', exact: true })
             .waitFor();
           assert.equal(
@@ -1825,6 +1830,12 @@ void test('player controls stop playback and the phone dialog stays inside the b
               .count(),
             1,
           );
+          await region
+            .getByRole('button', { name: 'Transcript', exact: true })
+            .click();
+          await region
+            .getByText('Transcript temporarily unavailable', { exact: false })
+            .waitFor();
         } finally {
           await context.close();
         }
@@ -2053,6 +2064,9 @@ void test('player controls stop playback and the phone dialog stays inside the b
               );
             });
             await assertInViewport(sheet, viewport);
+            await sheet
+              .getByRole('button', { name: 'Show more', exact: true })
+              .click();
             const rect = await sheet.boundingBox();
             assert.ok(Math.abs(rect.width - width) <= 1, JSON.stringify(rect));
             assert.ok(

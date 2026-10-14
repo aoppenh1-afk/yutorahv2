@@ -444,60 +444,6 @@
 .official-summaries h3 {
   line-height: 1.6;
 }
-.detail-credits {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.detail-source-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
-  font-size: 13px;
-}
-.collection-context nav button:disabled {
-  color: var(--ink-3);
-  opacity: 0.5;
-  cursor: default;
-}
-.detail-attribution {
-  padding: 18px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: 13px;
-}
-.detail-attribution summary {
-  cursor: pointer;
-  font-weight: 500;
-}
-.detail-attribution > button {
-  display: flex;
-  margin-top: 12px;
-  text-align: start;
-  line-height: 1.6;
-}
-.detail-attribution p {
-  color: var(--ink-3);
-  margin-top: 12px;
-  font-size: 12px;
-}
-.collection-context .series-detail-link span {
-  flex: 1;
-  text-align: start;
-}
-.collection-context .series-detail-link small {
-  display: block;
-  color: var(--ink-3);
-  margin-top: 5px;
-  font-size: 12px;
-  font-weight: 400;
-}
-.collection-context nav {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 14px;
-  gap: 20px;
-}
 .article-toolbar {
   display: flex;
   gap: 16px;

@@ -286,6 +286,11 @@ async function offline(context, page, value, engine = 'chromium') {
   await context.addInitScript(update, value);
   await page.evaluate(update, value);
 }
+const study = (page) =>
+  page.getByRole('region', {
+    name: 'Transcript, notes, and sources',
+    exact: true,
+  });
 async function startDownload(page, id = 900001) {
   await page.goto(origin + '/?shiur=' + id);
   const download = page.getByRole('button', {
@@ -342,15 +347,15 @@ try {
             })
             .click();
           await page
-            .getByText('The saved transcript can be read without internet.', {
+            .getByText('These study notes remain readable offline.', {
               exact: true,
             })
             .waitFor();
-          await page
-            .getByRole('button', { name: 'Notes', exact: true })
+          await study(page)
+            .getByRole('button', { name: 'Transcript', exact: true })
             .click();
           await page
-            .getByText('These study notes remain readable offline.', {
+            .getByText('The saved transcript can be read without internet.', {
               exact: true,
             })
             .waitFor();
@@ -508,22 +513,6 @@ try {
               exact: true,
             })
             .click();
-          if (mode === 'local')
-            await page
-              .getByText('The saved transcript can be read without internet.', {
-                exact: true,
-              })
-              .waitFor();
-          else
-            await page
-              .getByText(
-                'This transcript was not saved for offline use. Connect to the internet to load it.',
-                { exact: true },
-              )
-              .waitFor();
-          await page
-            .getByRole('button', { name: 'Notes', exact: true })
-            .click();
           if (mode === 'missing')
             await page
               .getByText(
@@ -536,6 +525,22 @@ try {
               .getByText('These study notes remain readable offline.', {
                 exact: true,
               })
+              .waitFor();
+          await study(page)
+            .getByRole('button', { name: 'Transcript', exact: true })
+            .click();
+          if (mode === 'local')
+            await page
+              .getByText('The saved transcript can be read without internet.', {
+                exact: true,
+              })
+              .waitFor();
+          else
+            await page
+              .getByText(
+                'This transcript was not saved for offline use. Connect to the internet to load it.',
+                { exact: true },
+              )
               .waitFor();
         } finally {
           await context.close();
@@ -715,6 +720,14 @@ try {
           .locator('.downloaded-shiur')
           .filter({ hasText: shiur.title })
           .getByRole('button', { name: 'Read transcript & notes', exact: true })
+          .click();
+        await page
+          .getByText('These study notes remain readable offline.', {
+            exact: true,
+          })
+          .waitFor({ timeout: 5000 });
+        await study(page)
+          .getByRole('button', { name: 'Transcript', exact: true })
           .click();
         await page
           .getByText('The saved transcript can be read without internet.', {

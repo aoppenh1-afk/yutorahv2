@@ -31,15 +31,13 @@ import {
 } from './playback';
 import { PagedItems } from './paged-items';
 import { DownloadsPage } from './downloads-page';
-import { DownloadButton } from './download-button';
 import { useDownloadCount } from '@/lib/downloads';
 import { useOnline } from '@/lib/connectivity';
 import { useViewPerformance } from './performance-monitor';
 import { FollowButton } from './follow-button';
 import { useAccount } from '@/lib/use-account';
 import { AccountPanel } from './account-panel';
-import { ShiurViews } from './shiur-views';
-import { isLearned, relatedShiurim, type Follow } from '@/lib/learning';
+import { relatedShiurim, type Follow } from '@/lib/learning';
 import { createRelevanceScorer } from '@/lib/search-discovery';
 import { prepareSearchText, createQueryMatcher } from '@/lib/search-matching';
 import {
@@ -69,10 +67,8 @@ import {
   ListPlus,
   X,
   Download,
-  Share2,
   ExternalLink,
   AudioLines,
-  FileText,
   Link2,
   SlidersHorizontal,
   Loader2,
@@ -115,7 +111,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { Avatar, FilterSelect, ShiurCard, ShiurRow, StatePanel } from './ui';
+import { FilterSelect, ShiurCard, ShiurRow, StatePanel } from './ui';
 import { useLibrary, timeLabel } from '@/lib/library';
 import { PLAYBACK_SPEEDS } from '@/lib/playback-speed';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -127,8 +123,9 @@ const AdvancedSearch = lazy(() =>
 const TranscriptSearch = lazy(() =>
   import('./transcript-search').then((m) => ({ default: m.TranscriptSearch })),
 );
-const TranscriptReader = lazy(() =>
-  import('./transcript-reader').then((m) => ({ default: m.TranscriptReader })),
+const loadShiurDetail = () => import('./shiur-detail');
+const ShiurDetail = lazy(() =>
+  loadShiurDetail().then((m) => ({ default: m.ShiurDetail })),
 );
 const loadSecondaryScreens = () => import('./secondary-screens');
 const SecondaryScreens = lazy(() =>
@@ -138,14 +135,6 @@ const LearningHome = lazy(() =>
   import('./learning-home').then((m) => ({ default: m.LearningHome })),
 );
 
-const ArticleReader = lazy(() =>
-  import('./article-reader').then((m) => ({ default: m.ArticleReader })),
-);
-const CollectionContext = lazy(() =>
-  import('./collection-context').then((m) => ({
-    default: m.CollectionContext,
-  })),
-);
 const FeedbackDialog = lazy(() =>
   import('./feedback-dialog').then((m) => ({ default: m.FeedbackDialog })),
 );
@@ -437,6 +426,15 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   useEffect(() => {
     if (online) loadDirectory();
   }, [loadDirectory, online]);
+  useEffect(() => {
+    const warm = () => void loadShiurDetail().catch(() => {});
+    if (typeof requestIdleCallback === 'function') {
+      const id = requestIdleCallback(warm, { timeout: 5000 });
+      return () => cancelIdleCallback(id);
+    }
+    const timer = setTimeout(warm, 3000);
+    return () => clearTimeout(timer);
+  }, []);
   const refreshHome = () => {
     setHomeLoading(true);
     requestJson<HomeData>('/api/home')
@@ -1330,14 +1328,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         : [],
     [directory, directoryMatcher, preparedDirectory, topicGroup, view],
   );
-  const videoSource =
-    detail?.video ||
-    (['youtube', 'video', 'mp4'].includes(detail?.format || '')
-      ? detail?.audio
-      : '');
-  const youtubeId = videoSource?.match(
-    /(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/,
-  )?.[1];
   const playlist = library.playlists.find((p) => p.id === selectedPlaylist);
   const resultViewControls = (
     <div className="result-view-controls">
@@ -2623,408 +2613,32 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             <SheetDescription>From the YUTorah library</SheetDescription>
           </SheetHeader>
           {detail && (
-            <div className="detail-body">
-              <div className="detail-hero">
-                <div className="detail-topic">
-                  {detail.topics.slice(0, 3).join(' · ') || detail.category}
-                </div>
-                <h2 dir="auto">{detail.title}</h2>
-                <div className="detail-credits">
-                  {(detail.speakers?.length
-                    ? detail.speakers
-                    : [
-                        {
-                          id: detail.teacherId,
-                          name: detail.teacher,
-                          image: detail.image,
-                        },
-                      ]
-                  ).map((speaker, i) => (
-                    <button
-                      key={speaker.id + ':' + i}
-                      className="detail-teacher"
-                      onClick={() => openCatalog('teacher', speaker.id)}
-                    >
-                      <Avatar src={speaker.image} name={speaker.name} />
-                      <div>
-                        <strong>{speaker.name}</strong>
-                        <span>
-                          View profile <ArrowRight size={13} />
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="detail-follow-controls">
-                <FollowButton
-                  follow={{
-                    kind: 'teacher',
-                    id: detail.teacherId,
-                    name: detail.teacher,
-                    image: detail.image,
-                  }}
-                  library={library}
-                  onFollow={follow}
-                />
-                <button
-                  className="text-button"
-                  aria-pressed={isLearned(detail, library)}
-                  onClick={() => {
-                    const learned = isLearned(detail, library);
-                    update((old) => ({
-                      ...old,
-                      completed: learned
-                        ? old.completed.filter((id) => id !== detail.id)
-                        : [...new Set([...old.completed, detail.id])],
-                      history: learned
-                        ? old.history.map((h) =>
-                            h.shiur.id === detail.id ? { ...h, seconds: 0 } : h,
-                          )
-                        : old.history.some((h) => h.shiur.id === detail.id)
-                          ? old.history
-                          : [
-                              {
-                                shiur: detail,
-                                seconds: 0,
-                                duration: detail.duration,
-                                updatedAt: new Date().toISOString(),
-                              },
-                              ...old.history,
-                            ].slice(0, 200),
-                    }));
-                    notify(
-                      learned ? 'Marked as not learned.' : 'Marked as learned.',
-                    );
-                  }}
-                >
-                  <Check size={15} />
-                  {isLearned(detail, library) ? 'Learned' : 'Mark as learned'}
-                </button>
-              </div>
-              <div className="detail-meta">
-                <ShiurViews shiur={detail} />
-                <span>
-                  {detail.duration
-                    ? `${Math.round(detail.duration / 60)} min`
-                    : detail.format.toUpperCase()}
-                </span>
-                <span>
-                  {detail.language === 'HE'
-                    ? 'Hebrew'
-                    : detail.language === 'EN'
-                      ? 'English'
-                      : detail.language}
-                </span>
-                <span>
-                  {detail.date
-                    ? new Date(detail.date).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        timeZone: 'UTC',
-                      })
-                    : ''}
-                </span>
-              </div>
-              <div className="detail-actions">
-                {mediaKind(detail) === 'audio' ? (
-                  <button
-                    className="primary-button"
-                    onClick={() => {
-                      const params = new URLSearchParams(
-                        window.location.search,
-                      );
-                      const shared =
-                        params.get('shiur') === String(detail.id) &&
-                        params.has('t')
-                          ? Math.max(0, Number(params.get('t')) || 0)
-                          : undefined;
-                      player.start(detail, shared);
-                    }}
-                  >
-                    <Play size={16} fill="currentColor" />
-                    Listen
-                    {library.history.some((h) => h.shiur.id === detail.id)
-                      ? ' / resume'
-                      : ' now'}
-                  </button>
-                ) : mediaKind(detail) === 'text' &&
-                  /pdf/i.test(detail.format + detail.audio) ? (
-                  <button
-                    className="primary-button"
-                    onClick={() =>
-                      document
-                        .getElementById('detail-article-reader')
-                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    }
-                  >
-                    <FileText size={16} /> Read article
-                  </button>
-                ) : (
-                  <a
-                    className="primary-button"
-                    href={detail.audio || detail.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {mediaKind(detail) === 'text' ? (
-                      <FileText size={16} />
-                    ) : (
-                      <Play size={16} />
-                    )}{' '}
-                    {mediaKind(detail) === 'text'
-                      ? 'Read article'
-                      : 'Open video'}{' '}
-                    <ExternalLink size={14} />
-                  </a>
-                )}
-                <button className="outline-button" onClick={() => save(detail)}>
-                  <Bookmark
-                    size={16}
-                    fill={savedIds.has(detail.id) ? 'currentColor' : 'none'}
-                  />
-                  {savedIds.has(detail.id) ? 'Saved' : 'Save'}
-                </button>
-              </div>
-              {detail.audio && mediaKind(detail) === 'audio' && (
-                <div className="detail-downloads">
-                  <DownloadButton shiur={detail} notify={notify} />
-                </div>
-              )}
-              <div className="detail-tools">
-                {mediaKind(detail) === 'audio' && (
-                  <button onClick={() => enqueue(detail)}>
-                    <ListPlus size={17} />
-                    Queue
-                  </button>
-                )}
-                <button onClick={() => addToPlaylist(detail)}>
-                  <Plus size={17} />
-                  Playlist
-                </button>
-                <button onClick={() => void share(detail)}>
-                  <Share2 size={16} />
-                  Share
-                </button>
-                {detail.audio && (
-                  <a
-                    className="download-file"
-                    href={detail.audio}
-                    target="_blank"
-                    rel="noreferrer"
-                    download
-                  >
-                    <Download size={17} />
-                    Download file
-                  </a>
-                )}
-              </div>
-              {detailLoading && (
-                <output className="inline-loading">
-                  <Loader2 size={14} className="spin" />
-                  Loading notes and sources…
-                </output>
-              )}
-              {detailError && (
-                <div className="inline-error" role="alert">
-                  {detailError}
-                  <button onClick={() => void showDetail(detail)}>Retry</button>
-                </div>
-              )}
-              {youtubeId && (
-                <iframe
-                  className="video-embed"
-                  src={'https://www.youtube-nocookie.com/embed/' + youtubeId}
-                  title="YUTorah shiur video"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
-              )}
-              {videoSource &&
-                !youtubeId &&
-                /\.mp4(?:\?|$)/i.test(videoSource) && (
-                  <video
-                    className="video-embed"
-                    src={videoSource}
-                    controls
-                    playsInline
-                  />
-                )}
-              {mediaKind(detail) === 'text' &&
-                /pdf/i.test(detail.format + detail.audio) && (
-                  <div id="detail-article-reader">
-                    <ScreenBoundary>
-                      <ArticleReader key={detail.id} shiur={detail} />
-                    </ScreenBoundary>
-                  </div>
-                )}
-              {online && detail.collections?.length ? (
-                <ScreenBoundary>
-                  <CollectionContext
-                    key={detail.id}
-                    shiur={detail}
-                    onOpen={(id) => openCatalog('collection', id)}
-                    onDetails={showDetail}
-                  />
-                </ScreenBoundary>
-              ) : null}
-              {detail.topicPaths?.length ||
-              detail.venue ||
-              detail.uploadedAt ? (
-                <details className="detail-attribution">
-                  <summary>Topics & recording details</summary>
-                  {detail.topicPaths?.map((t) => (
-                    <button
-                      key={t.id}
-                      className="text-button"
-                      onClick={() => openCatalog('topic', t.id)}
-                    >
-                      {[t.group, t.branch, t.name].filter(Boolean).join(' / ')}{' '}
-                      <ArrowRight size={13} />
-                    </button>
-                  ))}
-                  {detail.venueId && (
-                    <button
-                      className="text-button"
-                      onClick={() => openCatalog('venue', detail.venueId)}
-                    >
-                      {detail.venue || 'Venue'} <ArrowRight size={13} />
-                    </button>
-                  )}
-                  {detail.uploadedAt && (
-                    <p>
-                      Uploaded{' '}
-                      {new Date(detail.uploadedAt).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        timeZone: 'UTC',
-                      })}
-                    </p>
-                  )}
-                </details>
-              ) : null}
-              {detail.description && (
-                <section className="detail-section">
-                  <h3>About this shiur</h3>
-                  <p>{detail.description}</p>
-                </section>
-              )}
-              {detail.series && (
-                <section className="detail-section">
-                  <h3>Part of a series</h3>
-                  <button
-                    className="series-detail-link"
-                    onClick={() => {
-                      setDetail(null);
-                      openCatalog('series', detail.seriesId);
-                    }}
-                  >
-                    <BookOpen size={20} />
-                    {detail.series}
-                    <ArrowRight size={16} />
-                  </button>
-                </section>
-              )}
-              {detail.text && (
-                <section className="detail-section">
-                  <h3>Text from YUTorah</h3>
-                  <p className="source-text" dir="auto">
-                    {detail.text}
-                  </p>
-                </section>
-              )}
-              {detail.materials.length > 0 && (
-                <section className="detail-section">
-                  <h3>Source sheets</h3>
-                  {detail.materials.map((m, i) => (
-                    <a
-                      className="source-link"
-                      key={m.url + i}
-                      href={m.url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <FileText size={16} />
-                      {m.name || `Source sheet ${i + 1}`}
-                      <ExternalLink size={14} />
-                    </a>
-                  ))}
-                </section>
-              )}
-              {mediaKind(detail) !== 'text' && (
-                <ScreenBoundary>
-                  <TranscriptReader
-                    shiurId={detail.id}
-                    onSeek={(seconds) => player.start(detail, seconds)}
-                  />
-                </ScreenBoundary>
-              )}
-              {player.active?.id === detail.id && (
-                <PlaybackPosition>
-                  {(clock) => (
-                    <button
-                      className="outline-button timestamp-share"
-                      onClick={() => void share(detail, clock.time)}
-                    >
-                      <Share2 size={16} />
-                      Copy link at {timeLabel(clock.time)}
-                    </button>
-                  )}
-                </PlaybackPosition>
-              )}
-              {(detailRelated.length > 0 || relatedLoading || relatedError) && (
-                <section className="detail-section detail-related">
-                  <h3>Based on this shiur</h3>
-                  {relatedLoading && (
-                    <p className="feed-loading">
-                      <Loader2 className="spin" size={14} />
-                      Finding related learning…
-                    </p>
-                  )}
-                  {relatedError && (
-                    <p className="feed-notice">
-                      Some recommendations could not load.{' '}
-                      <button onClick={() => setRelatedRetry((n) => n + 1)}>
-                        Try again
-                      </button>
-                    </p>
-                  )}
-                  {detailRelated.slice(0, 5).map(({ shiur: s, reason }) => (
-                    <button key={s.id} onClick={() => void showDetail(s)}>
-                      <span>
-                        <strong>{s.title}</strong>
-                        <small>
-                          {s.teacher} ·{' '}
-                          {s.duration
-                            ? Math.round(s.duration / 60) + ' min'
-                            : s.format}
-                        </small>
-                        <small className="related-reason">{reason}</small>
-                      </span>
-                      <ArrowRight size={16} />
-                    </button>
-                  ))}
-                </section>
-              )}
-              <div className="detail-source-actions">
-                <a
-                  className="original-shiur-link"
-                  href={detail.url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View original on YUTorah <ExternalLink size={14} />
-                </a>
-                <button
-                  className="text-button"
-                  onClick={() => setFeedback({ shiur: detail })}
-                >
-                  <Info size={14} /> Report an issue
-                </button>
-              </div>
-            </div>
+            <ScreenBoundary>
+              <ShiurDetail
+              shiur={detail}
+              library={library}
+              saved={savedIds.has(detail.id)}
+              learned={learnedIds.has(detail.id)}
+              online={online}
+              loading={detailLoading}
+              error={detailError}
+              related={detailRelated}
+              relatedLoading={relatedLoading}
+              relatedError={relatedError}
+              notify={notify}
+              onRetry={() => void showDetail(detail)}
+              onRelatedRetry={() => setRelatedRetry((n) => n + 1)}
+              onOpen={openCatalog}
+              onDetails={(s) => void showDetail(s)}
+              onFollow={follow}
+              onSave={save}
+              onQueue={enqueue}
+              onPlaylist={addToPlaylist}
+              onShare={share}
+              onToggleLearned={toggleLearned}
+              onReport={(s) => setFeedback({ shiur: s })}
+              />
+            </ScreenBoundary>
           )}
         </SheetContent>
       </Sheet>

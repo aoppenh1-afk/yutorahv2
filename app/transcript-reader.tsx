@@ -7,7 +7,14 @@ const SourcesPanel = lazy(() =>
   import('./sources-panel').then((m) => ({ default: m.SourcesPanel })),
 );
 import type { OfficialStudy } from '@/lib/official-study';
-import { Download, Loader2, Maximize2, Minimize2 } from 'lucide-react';
+import {
+  Download,
+  ExternalLink,
+  Loader2,
+  Maximize2,
+  Minimize2,
+  RotateCw,
+} from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -65,7 +72,12 @@ export function TranscriptReader({
   const [content, setContent] = useState<Content | null>(null);
   const [tab, setTab] = useState<
     'transcript' | 'notes' | 'sources' | 'summary'
-  >('transcript');
+  >('notes');
+  const tabChosen = useRef(false);
+  const choose = (next: typeof tab) => {
+    tabChosen.current = true;
+    setTab(next);
+  };
   const [official, setOfficial] = useState<OfficialStudy | null>(null),
     [officialError, setOfficialError] = useState(''),
     [officialRetry, setOfficialRetry] = useState(0);
@@ -148,6 +160,11 @@ export function TranscriptReader({
     content?.source === 'official-yutorah' || !content?.notes?.markdown
       ? hostedNote
       : content.notes;
+  useEffect(() => {
+    if (tabChosen.current || tab !== 'notes' || loading || !content) return;
+    if (!hostedNote || hostedNote.status === 'loading') return;
+    if (!displayedNotes?.markdown) setTab('transcript');
+  }, [tab, loading, content, hostedNote, displayedNotes]);
   const last = useRef<{ id: number; content: Content } | null>(null);
   const sources = useTranscriptSources(
     shiurId,
@@ -165,7 +182,8 @@ export function TranscriptReader({
     let current = last.current?.id === shiurId ? last.current.content : null;
     if (!current) {
       setContent(null);
-      setTab('transcript');
+      tabChosen.current = false;
+      setTab('notes');
       setSourcesEnabled(false);
     }
     setLoading(!current);
@@ -295,9 +313,6 @@ export function TranscriptReader({
   }, [shiurId, retry, online]);
   const notesContent = displayedNotes?.markdown ? (
     <div className="study-markdown" dir="ltr">
-      <p className="study-note-label">
-        Automatically generated from this shiur’s transcript.
-      </p>
       {content?.source === 'official-yutorah' &&
         hostedNote?.sourceHash &&
         hostedNote.sourceHash !== content.version && (
@@ -374,88 +389,112 @@ export function TranscriptReader({
         className="detail-section generated-study"
         aria-label={'Transcript, notes, and sources'}
       >
-        <div className="study-tabs">
-          {content && online && (
-            <a
-              className="text-button"
-              href={`/api/transcript-text?id=${shiurId}${content.version ? '&version=' + content.version : ''}${content.source === 'official-yutorah' ? '&source=official-yutorah' : ''}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open complete text
-            </a>
-          )}
-          <button
-            type="button"
-            aria-pressed={tab === 'transcript'}
-            onClick={() => setTab('transcript')}
-          >
-            Transcript
-          </button>
-          <button
-            type="button"
-            aria-pressed={tab === 'notes'}
-            onClick={() => setTab('notes')}
-          >
-            Notes
-          </button>
-          {official?.available && (
+        <div className="study-bar">
+          <div className="study-tabs">
             <button
               type="button"
-              aria-pressed={tab === 'summary'}
-              onClick={() => setTab('summary')}
+              aria-pressed={tab === 'notes'}
+              onClick={() => choose('notes')}
             >
-              Summaries
+              Notes
             </button>
-          )}
-          {online && content && content.source !== 'official-yutorah' && (
-            <>
+            <button
+              type="button"
+              aria-pressed={tab === 'transcript'}
+              onClick={() => choose('transcript')}
+            >
+              Transcript
+            </button>
+            {official?.available && (
+              <button
+                type="button"
+                aria-pressed={tab === 'summary'}
+                onClick={() => choose('summary')}
+              >
+                Summaries
+              </button>
+            )}
+            {online && content && content.source !== 'official-yutorah' && (
               <button
                 type="button"
                 aria-pressed={tab === 'sources'}
                 onClick={() => {
-                  setTab('sources');
+                  choose('sources');
                   setSourcesEnabled(true);
                 }}
               >
                 Sources
               </button>
-            </>
-          )}
-          <button
-            type="button"
-            disabled={!online}
-            onClick={() => {
-              setRetry((n) => n + 1);
-              setOfficialRetry((n) => n + 1);
-            }}
-          >
-            Refresh
-          </button>
-          {content && tab === 'transcript' && (
-            <button className="study-download" type="button" onClick={download}>
-              <Download size={14} /> Download
-            </button>
-          )}
-          {tab === 'notes' && displayedNotes?.markdown && (
-            <div className="study-notes-actions">
-              {online && (
-                <NotesDownload
-                  busy={exporting}
-                  onDownload={(format) => void downloadNotes(format)}
-                />
-              )}
+            )}
+          </div>
+        </div>
+        <div className="study-toolbar">
+          <p className="study-note-label">
+            {tab === 'notes' && displayedNotes?.markdown
+              ? 'Auto-generated from the transcript.'
+              : tab === 'transcript' && content?.source === 'official-yutorah'
+                ? 'From YUTorah, auto-generated.'
+                : tab === 'summary' && official
+                  ? 'From YUTorah, auto-generated.'
+                  : ''}
+          </p>
+          <div className="study-tools">
+            {tab === 'transcript' && content && online && (
+              <a
+                className="study-tool is-icon"
+                href={`/api/transcript-text?id=${shiurId}${content.version ? '&version=' + content.version : ''}${content.source === 'official-yutorah' ? '&source=official-yutorah' : ''}`}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Open complete text"
+                title="Open complete text"
+              >
+                <ExternalLink size={15} />
+              </a>
+            )}
+            {tab === 'transcript' && content && (
               <button
-                className="study-expand"
+                className="study-tool"
+                type="button"
+                onClick={download}
+                aria-label="Download"
+                title="Download transcript"
+              >
+                <Download size={15} />
+                <span>Download</span>
+              </button>
+            )}
+            {tab === 'notes' && displayedNotes?.markdown && online && (
+              <NotesDownload
+                busy={exporting}
+                onDownload={(format) => void downloadNotes(format)}
+              />
+            )}
+            {tab === 'notes' && displayedNotes?.markdown && (
+              <button
+                className="study-tool"
                 type="button"
                 onClick={() => setExpanded(true)}
                 aria-label="Expand notes"
                 title="Expand notes"
               >
-                <Maximize2 size={14} /> <span>Expand</span>
+                <Maximize2 size={15} />
+                <span>Expand</span>
               </button>
-            </div>
-          )}
+            )}
+            <button
+              className="study-tool is-icon"
+              type="button"
+              disabled={!online}
+              aria-label="Refresh"
+              title="Refresh"
+              onClick={() => {
+                setRetry((n) => n + 1);
+                setOfficialRetry((n) => n + 1);
+              }}
+            >
+              <RotateCw size={15} />
+            </button>
+          </div>
         </div>
         {!online && (
           <p className="study-note-label">
@@ -496,11 +535,6 @@ export function TranscriptReader({
             {exportError}
           </p>
         )}
-        {content?.source === 'official-yutorah' && tab === 'transcript' && (
-          <p className="study-note-label">
-            Transcript from YUTorah. Automatically generated; accuracy may vary.
-          </p>
-        )}
         {refreshError && tab === 'transcript' && (
           <output className="study-state">
             {refreshError} Your loaded transcript is still available.
@@ -508,10 +542,6 @@ export function TranscriptReader({
         )}
         {tab === 'summary' && official ? (
           <section className="official-summaries">
-            <p className="study-note-label">
-              Summaries from YUTorah. Automatically generated; accuracy may
-              vary.
-            </p>
             {official.summary && <p dir="auto">{official.summary}</p>}
             {official.chapters.map((c, i) => (
               <section key={i}>
@@ -598,17 +628,21 @@ export function TranscriptReader({
               <DialogDescription dir="auto">
                 {content?.title || `Shiur ${shiurId}`}
               </DialogDescription>
+              <p className="study-note-label">
+                Auto-generated from the transcript.
+              </p>
             </div>
-            <div className="study-tabs study-notes-actions">
+            <div className="study-tools">
               <NotesDownload
                 busy={exporting}
                 onDownload={(format) => void downloadNotes(format)}
               />
               <DialogClose
-                className="study-expand"
+                className="study-tool"
                 aria-label="Close expanded notes"
               >
-                <Minimize2 size={14} /> Close
+                <Minimize2 size={15} />
+                <span>Close</span>
               </DialogClose>
             </div>
           </header>
