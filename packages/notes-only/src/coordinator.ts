@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { NotesQueue, NoteJob, Stage } from './queue.js';
 import type { NotesPipeline } from './pipeline.js';
 import { classify, backoff, MAX_AI_CONCURRENCY } from './control.js';
-import { monitorEventLoopDelay } from 'node:perf_hooks';
+import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 export const SOURCE_RESERVATION = 8 * 1024 * 1024;
 export const OUTBOX_RESERVATION = 272 * 1024;
 export type PoolSettings = {
@@ -384,6 +384,7 @@ export async function runCoordinator(input: {
   await pipeline.recoverExpired();
   const eventLoop = monitorEventLoopDelay({ resolution: 20 });
   eventLoop.enable();
+  let lastClock = { wall: Date.now(), monotonic: performance.now() };
   try {
     while (!signal.aborted) {
       const now = Date.now();
@@ -401,9 +402,12 @@ export async function runCoordinator(input: {
         nextRecovery = now + 1000;
       }
       queue.recheckMissing();
-      if (now >= nextMetrics) {
+      if (performance.now() >= nextMetrics) {
         const memory = await (input.memory ?? availableMemoryMiB)();
         const disk = await (input.disk ?? (() => diskHeadroom(input.root)))();
+        const clock = { wall: Date.now(), monotonic: performance.now() };
+        const wallGapMs = clock.wall - lastClock.wall;
+        const elapsedGapMs = clock.monotonic - lastClock.monotonic;
         log({
           type: 'metrics',
           ...metrics(queue, started),
@@ -413,13 +417,22 @@ export async function runCoordinator(input: {
           eventLoopP95Ms: Number.isFinite(eventLoop.mean)
             ? Math.round(eventLoop.percentile(95) / 1e6)
             : 0,
+          eventLoopMaxMs: Number.isFinite(eventLoop.max)
+            ? Math.round(eventLoop.max / 1e6)
+            : 0,
+          runtimeClock: {
+            wallGapMs: Math.round(wallGapMs),
+            elapsedGapMs: Math.round(elapsedGapMs),
+            adjustmentMs: Math.round(wallGapMs - elapsedGapMs),
+          },
           admissionWaitingMs: Object.fromEntries(
             [...waiting].map(([reason, at]) => [reason, now - at]),
           ),
           runtime: input.runtimeMetrics?.(),
         });
         eventLoop.reset();
-        nextMetrics = now + 30_000;
+        lastClock = clock;
+        nextMetrics = clock.monotonic + 30_000;
       }
       if (input.maintenance && !maintenance && now >= nextMaintenance) {
         maintenance = input

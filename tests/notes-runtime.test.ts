@@ -843,3 +843,297 @@ void test('a silent provider request aborts and deletes its owned session before
     0,
   );
 });
+
+void test('a forward wall-clock adjustment does not time out a newly active session', async (t) => {
+  const errors: unknown[] = [];
+  const monitor = new SharedSessionMonitor(async () => [], undefined, {
+    pollMs: 5,
+    reconcileMs: 10,
+    retryMs: 5,
+    idleMs: 1000,
+    stallMs: 200,
+  });
+  const release = await monitor.watch('sesClockForward', {
+    fail: (e) => errors.push(e),
+    output: () => {},
+  });
+  const wall = Date.now();
+  t.mock.method(Date, 'now', () => wall + 360000);
+  try {
+    await delay(100);
+    assert.deepEqual(
+      errors,
+      [],
+      'a clock adjustment is not elapsed inference silence',
+    );
+  } finally {
+    await release();
+  }
+});
+
+void test('a backward wall-clock adjustment cannot keep a silent session alive indefinitely', async (t) => {
+  const errors: string[] = [];
+  const monitor = new SharedSessionMonitor(async () => [], undefined, {
+    pollMs: 5,
+    reconcileMs: 10,
+    retryMs: 5,
+    idleMs: 1000,
+    stallMs: 40,
+  });
+  const release = await monitor.watch('sesClockBackward', {
+    fail: (e) => errors.push((e as Error).message),
+    output: () => {},
+  });
+  const wall = Date.now();
+  t.mock.method(Date, 'now', () => wall - 360000);
+  try {
+    await delay(120);
+    assert.deepEqual(
+      errors,
+      ['timeout'],
+      'real elapsed silence must remain bounded when the clock moves backward',
+    );
+  } finally {
+    await release();
+  }
+});
+
+void test('silence expiry reconciles output missed by the stream before cancelling a session', async () => {
+  let text = '';
+  const errors: string[] = [];
+  const monitor = new SharedSessionMonitor(
+    async (path) =>
+      path === '/permission'
+        ? []
+        : [
+            {
+              info: { role: 'assistant', id: 'msg1' },
+              parts: [{ type: 'reasoning', text }],
+            },
+          ],
+    undefined,
+    {
+      pollMs: 10000,
+      reconcileMs: 10000,
+      retryMs: 5,
+      idleMs: 1000,
+      stallMs: 60,
+    },
+  );
+  const release = await monitor.watch('sesMissed', {
+    fail: (e) => errors.push((e as Error).message),
+    output: () => {},
+  });
+  await delay(10);
+  text = 'output generated while the event consumer was delayed';
+  try {
+    await delay(75);
+    assert.deepEqual(
+      errors,
+      [],
+      'fresh persisted progress must be reconciled before declaring silence',
+    );
+    await delay(100);
+    assert.deepEqual(
+      errors,
+      ['timeout'],
+      'unchanged persisted output must still have a bounded deadline',
+    );
+  } finally {
+    await release();
+  }
+});
+
+void test('a delayed timer after a process pause gives queued output a bounded chance to resume', async () => {
+  let text = '';
+  const errors: string[] = [];
+  const monitor = new SharedSessionMonitor(
+    async (path) =>
+      path === '/permission'
+        ? []
+        : [
+            {
+              info: { role: 'assistant', id: 'msg1' },
+              parts: [{ type: 'reasoning', text }],
+            },
+          ],
+    undefined,
+    {
+      pollMs: 10000,
+      reconcileMs: 10000,
+      retryMs: 5,
+      idleMs: 1000,
+      stallMs: 80,
+      resumeGraceMs: 60,
+    },
+  );
+  const release = await monitor.watch('sesPaused', {
+    fail: (e) => errors.push((e as Error).message),
+    output: () => {},
+  });
+  try {
+    await delay(10);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1100);
+    setTimeout(() => {
+      text = 'output queued during the pause';
+    }, 0);
+    await delay(30);
+    assert.deepEqual(
+      errors,
+      [],
+      'a delayed watchdog must let queued server output catch up',
+    );
+    await delay(200);
+    assert.deepEqual(
+      errors,
+      ['timeout'],
+      'a pause cannot grant an unlimited extension to a genuinely silent request',
+    );
+  } finally {
+    await release();
+  }
+});
+
+void test('a completed verified history recovers a lost prompt response without repeating inference', async (t) => {
+  const { queue, job } = await setup(t);
+  let sent = false,
+    aborted = false,
+    deleted = false,
+    prompts = 0;
+  const api: ServerAPI = async (path, method = 'GET', body, signal) => {
+    if (path === '/session' && method === 'POST')
+      return { id: 'sesSaved', title: (body as { title: string }).title };
+    if (path === '/permission') return [];
+    if (path === '/session/status') return {};
+    if (path.endsWith('/message') && method === 'POST') {
+      sent = true;
+      prompts++;
+      return new Promise((_, reject) =>
+        signal!.addEventListener('abort', () => reject(new Error('aborted')), {
+          once: true,
+        }),
+      );
+    }
+    if (path.endsWith('/message'))
+      return sent ? [user('sesSaved'), assistant('sesSaved')] : [];
+    if (path.endsWith('/abort')) {
+      aborted = true;
+      return true;
+    }
+    if (method === 'DELETE') {
+      deleted = true;
+      return true;
+    }
+    assert.fail(path);
+  };
+  const adapter = new ServerSessionAdapter(api, queue, 'owned', 300);
+  adapter.monitor.settings.pollMs = 5;
+  adapter.monitor.settings.reconcileMs = 10;
+  const result = await adapter.request(
+    job,
+    'lost-response',
+    'full source',
+    new AbortController().signal,
+  );
+  assert.match(result.value, /Complete prose/);
+  assert.equal(prompts, 1);
+  assert.equal(aborted && deleted, true);
+});
+
+void test('history recovery retains identity, price, completion and tool checks', async (t) => {
+  for (const [variant, expected] of [
+    ['paid', 'paid_route'],
+    ['identity', 'unconfirmed_identity'],
+    ['tool', 'off_task'],
+    ['truncated', 'incomplete_output'],
+  ]) {
+    const { queue, job } = await setup(t);
+    let sent = false,
+      deleted = false;
+    const reply = assistant('sesRecover');
+    if (variant === 'paid') reply.info.cost = 1;
+    if (variant === 'identity') reply.info.modelID = 'another-model';
+    if (variant === 'tool') reply.parts!.push({ type: 'tool' });
+    if (variant === 'truncated') reply.info.finish = 'length';
+    const api: ServerAPI = async (path, method = 'GET', body, signal) => {
+      if (path === '/session' && method === 'POST')
+        return { id: 'sesRecover', title: (body as { title: string }).title };
+      if (path === '/permission') return [];
+      if (path === '/session/status') return {};
+      if (path.endsWith('/message') && method === 'POST') {
+        sent = true;
+        return new Promise((_, reject) =>
+          signal!.addEventListener(
+            'abort',
+            () => reject(new Error('aborted')),
+            { once: true },
+          ),
+        );
+      }
+      if (path.endsWith('/message'))
+        return sent ? [user('sesRecover'), reply] : [];
+      if (path.endsWith('/abort')) return true;
+      if (method === 'DELETE') {
+        deleted = true;
+        return true;
+      }
+      assert.fail(path);
+    };
+    const adapter = new ServerSessionAdapter(api, queue, 'owned', 1000);
+    adapter.monitor.settings.pollMs = 5;
+    await assert.rejects(
+      adapter.request(
+        job,
+        variant!,
+        'full source',
+        new AbortController().signal,
+      ),
+      (e: { code?: string }) => e.code === expected,
+      variant,
+    );
+    assert.equal(deleted, true, variant);
+  }
+});
+
+void test('a hung final history check is bounded and still confirms owned session cleanup', async (t) => {
+  const { queue, job } = await setup(t);
+  let reads = 0,
+    deleted = false;
+  const api: ServerAPI = async (path, method = 'GET', body, signal) => {
+    if (path === '/session' && method === 'POST')
+      return { id: 'sesRecheck', title: (body as { title: string }).title };
+    if (path === '/permission') return [];
+    if (path === '/session/status') return {};
+    if (path.endsWith('/message')) {
+      if (method === 'GET' && reads++ === 0) return [];
+      return new Promise((_, reject) =>
+        signal!.addEventListener('abort', () => reject(signal!.reason), {
+          once: true,
+        }),
+      );
+    }
+    if (path.endsWith('/abort')) return true;
+    if (method === 'DELETE') {
+      deleted = true;
+      return true;
+    }
+    assert.fail(path);
+  };
+  const adapter = new ServerSessionAdapter(api, queue, 'owned', 5000);
+  adapter.monitor.settings.stallMs = 30;
+  adapter.monitor.settings.recheckMs = 20;
+  const start = performance.now();
+  await assert.rejects(
+    adapter.request(
+      job,
+      'hung-recheck',
+      'full source',
+      new AbortController().signal,
+    ),
+  );
+  assert.ok(
+    performance.now() - start < 1000,
+    'a failed readback cannot indefinitely reserve a worker',
+  );
+  assert.equal(deleted, true);
+});

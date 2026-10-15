@@ -1,4 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
+import { performance } from 'node:perf_hooks';
 import { PipelineFailure } from '../../notes-only/src/control.js';
 import type { RuntimeMessage } from './evidence.js';
 import type { ServerAPI } from './server.js';
@@ -6,7 +7,11 @@ import type { ServerAPI } from './server.js';
 export type EventStream = (
   signal: AbortSignal,
 ) => Promise<ReadableStream<Uint8Array>>;
-type Watcher = { fail: (error: unknown) => void; output: () => void };
+type Watcher = {
+  fail: (error: unknown) => void;
+  output: () => void;
+  complete?: (messages: RuntimeMessage[]) => void;
+};
 type RuntimeEvent = {
   type?: string;
   properties?: {
@@ -43,12 +48,21 @@ export class SharedSessionMonitor {
       sizes: Map<string, number>;
       historyBytes: number;
       failed: boolean;
+      completed: boolean;
+      lastTick: number;
+      resumeUntil: number;
+      controller: AbortController;
+      checking?: Promise<void>;
       timer: ReturnType<typeof setInterval>;
     }
   >();
   private connections = 0;
   private permissionReads = 0;
   private historyReads = 0;
+  private silenceChecks = 0;
+  private rescuedProgress = 0;
+  private completedHistories = 0;
+  private resumeGraces = 0;
   status() {
     return {
       connected: this.connected,
@@ -56,6 +70,10 @@ export class SharedSessionMonitor {
       connections: this.connections,
       permissionReads: this.permissionReads,
       historyReads: this.historyReads,
+      silenceChecks: this.silenceChecks,
+      rescuedProgress: this.rescuedProgress,
+      completedHistories: this.completedHistories,
+      resumeGraces: this.resumeGraces,
     };
   }
   constructor(
@@ -67,6 +85,8 @@ export class SharedSessionMonitor {
       retryMs: number;
       idleMs: number;
       stallMs?: number;
+      recheckMs?: number;
+      resumeGraceMs?: number;
     } = {
       pollMs: 2000,
       reconcileMs: 30000,
@@ -81,17 +101,16 @@ export class SharedSessionMonitor {
     this.assistants.set(id, new Set());
     const stallMs = this.settings.stallMs ?? 180_000;
     const progress = {
-      at: Date.now(),
+      at: performance.now(),
       sizes: new Map<string, number>(),
       historyBytes: 0,
       failed: false,
+      completed: false,
+      lastTick: performance.now(),
+      resumeUntil: 0,
+      controller: new AbortController(),
       timer: setInterval(
-        () => {
-          if (!progress.failed && Date.now() - progress.at >= stallMs) {
-            progress.failed = true;
-            watcher.fail(new PipelineFailure('timeout'));
-          }
-        },
+        () => this.checkSilence(id, watcher),
         Math.min(1000, Math.max(1, stallMs / 4)),
       ),
     };
@@ -107,6 +126,8 @@ export class SharedSessionMonitor {
     await this.ready;
     return async () => {
       clearInterval(progress.timer);
+      progress.controller.abort();
+      await this.progress.get(id)?.checking;
       this.progress.delete(id);
       this.watchers.delete(id);
       this.assistants.delete(id);
@@ -121,6 +142,68 @@ export class SharedSessionMonitor {
         await this.stopping;
       }
     };
+  }
+
+  private checkSilence(id: string, watcher: Watcher) {
+    const progress = this.progress.get(id);
+    const stallMs = this.settings.stallMs ?? 180_000;
+    const now = performance.now();
+    if (progress) {
+      const gap = now - progress.lastTick;
+      progress.lastTick = now;
+      if (gap > Math.max(1000, Math.min(1000, stallMs / 4) * 4)) {
+        progress.resumeUntil = now + (this.settings.resumeGraceMs ?? 5000);
+        this.resumeGraces++;
+        this.nextPoll = 0;
+      }
+    }
+    if (
+      !progress ||
+      progress.failed ||
+      progress.completed ||
+      progress.checking ||
+      now < progress.resumeUntil ||
+      now - progress.at < stallMs
+    )
+      return;
+    const observedAt = progress.at;
+    this.silenceChecks++;
+    // Timers can run before queued stream events after a process pause. Read
+    // persisted progress before cancellation, with a separate bounded deadline.
+    progress.checking = (async () => {
+      try {
+        await this.reconcile(
+          id,
+          watcher,
+          AbortSignal.any([
+            progress.controller.signal,
+            AbortSignal.timeout(this.settings.recheckMs ?? 5000),
+          ]),
+        );
+        if (
+          this.progress.get(id) !== progress ||
+          progress.failed ||
+          progress.completed ||
+          performance.now() < progress.resumeUntil
+        )
+          return;
+        if (progress.at > observedAt) this.rescuedProgress++;
+        else if (performance.now() - progress.at >= stallMs) {
+          progress.failed = true;
+          watcher.fail(new PipelineFailure('timeout'));
+        }
+      } catch (error) {
+        if (
+          !progress.controller.signal.aborted &&
+          this.progress.get(id) === progress
+        ) {
+          progress.failed = true;
+          watcher.fail(error);
+        }
+      }
+    })().finally(() => {
+      progress.checking = undefined;
+    });
   }
 
   private async connect(signal: AbortSignal) {
@@ -164,8 +247,61 @@ export class SharedSessionMonitor {
     if (!progress || progress.failed || bytes <= 0) return;
     if (!delta && bytes <= (progress.sizes.get(key) ?? 0)) return;
     if (!delta) progress.sizes.set(key, bytes);
-    progress.at = Date.now();
+    progress.at = performance.now();
     this.watchers.get(id)?.output();
+  }
+
+  private async reconcile(id: string, watcher: Watcher, signal: AbortSignal) {
+    this.historyReads++;
+    const messages = (await this.api(
+      `/session/${id}/message`,
+      'GET',
+      undefined,
+      signal,
+    )) as RuntimeMessage[];
+    if (signal.aborted || this.watchers.get(id) !== watcher) return;
+    if (
+      messages.some((m) =>
+        m.parts?.some((p) => ['tool', 'subtask', 'agent'].includes(p.type)),
+      )
+    )
+      throw new PipelineFailure('off_task');
+    const assistants = messages.filter((m) => m.info?.role === 'assistant');
+    for (const m of assistants)
+      if (m.info.id) this.assistants.get(id)?.add(m.info.id);
+    const bytes = assistants.reduce(
+      (sum, m) =>
+        sum +
+        (m.parts ?? []).reduce(
+          (n, p) =>
+            n +
+            (['text', 'reasoning'].includes(p.type)
+              ? (p.text?.length ?? 0)
+              : 0),
+          0,
+        ),
+      0,
+    );
+    const progress = this.progress.get(id);
+    // Repeated snapshots are not progress and cannot extend a silent request.
+    if (progress && bytes > progress.historyBytes) {
+      progress.historyBytes = bytes;
+      this.output(id, 'history', bytes);
+    }
+    const last = assistants.at(-1)?.info;
+    if (
+      progress &&
+      !progress.failed &&
+      !progress.completed &&
+      watcher.complete &&
+      last?.time?.completed &&
+      last.finish
+    ) {
+      progress.completed = true;
+      this.completedHistories++;
+      // The adapter independently validates identity, cost, completion and tools.
+      watcher.complete(messages);
+    }
   }
 
   private event(event: RuntimeEvent) {
@@ -214,9 +350,9 @@ export class SharedSessionMonitor {
 
   private async poll(signal: AbortSignal) {
     while (!signal.aborted) {
-      if (Date.now() >= this.nextPoll) {
+      if (performance.now() >= this.nextPoll) {
         this.nextPoll =
-          Date.now() +
+          performance.now() +
           (this.connected ? this.settings.reconcileMs : this.settings.pollMs);
         const watchers = [...this.watchers];
         try {
@@ -248,46 +384,7 @@ export class SharedSessionMonitor {
         for (const [id, w] of watchers) {
           if (signal.aborted || this.watchers.get(id) !== w) continue;
           try {
-            this.historyReads++;
-            const messages = (await this.api(
-              `/session/${id}/message`,
-              'GET',
-              undefined,
-              signal,
-            )) as RuntimeMessage[];
-            // Re-reading the same partial history is not new output. Only growing
-            // assistant text/reasoning extends the per-request silence deadline.
-            const bytes = messages.reduce(
-              (sum, m) =>
-                sum +
-                (m.info?.role === 'assistant'
-                  ? (m.parts ?? []).reduce(
-                      (n, p) =>
-                        n +
-                        (['text', 'reasoning'].includes(p.type)
-                          ? (p.text?.length ?? 0)
-                          : 0),
-                      0,
-                    )
-                  : 0),
-              0,
-            );
-            const progress = this.progress.get(id);
-            if (progress && bytes > progress.historyBytes) {
-              progress.historyBytes = bytes;
-              this.output(id, 'history', bytes);
-            }
-            for (const m of messages)
-              if (m.info?.role === 'assistant' && m.info.id)
-                this.assistants.get(id)?.add(m.info.id);
-            if (
-              messages.some((m) =>
-                m.parts?.some((p) =>
-                  ['tool', 'subtask', 'agent'].includes(p.type),
-                ),
-              )
-            )
-              w.fail(new PipelineFailure('off_task'));
+            await this.reconcile(id, w, signal);
           } catch (error) {
             if (!signal.aborted && this.watchers.get(id) === w) w.fail(error);
           }

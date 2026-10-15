@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
+import { performance } from 'node:perf_hooks';
 import {
   OwnedProcess,
   runProcess,
@@ -201,7 +202,7 @@ export class ServerSessionAdapter {
       throw new PipelineFailure('concurrency_limit');
     const title = `${this.owner}:${job.id}:${job.lease_token}:${requestID}`;
     // Once creation is sent, always learn its ID before honoring cancellation.
-    const createAt = Date.now();
+    const createAt = performance.now();
     this.creating++;
     let session: Session;
     try {
@@ -209,7 +210,11 @@ export class ServerSessionAdapter {
     } catch {
       throw new PipelineFailure('session_uncertain', 'muse', 0, true);
     }
-    this.queue.observe(requestID, 'session_create', Date.now() - createAt);
+    this.queue.observe(
+      requestID,
+      'session_create',
+      performance.now() - createAt,
+    );
     if (
       !session ||
       !/^ses[A-Za-z0-9_-]+$/.test(session.id ?? '') ||
@@ -230,17 +235,36 @@ export class ServerSessionAdapter {
     let monitorError: unknown;
     let sentAt = 0;
     let outputObserved = false;
+    let recoverHistory!: (messages: RuntimeMessage[]) => void;
+    const recoveredHistory = new Promise<RuntimeMessage[]>((resolve) => {
+      recoverHistory = resolve;
+    });
     const release = await this.monitor.watch(id, {
       fail: (error) => {
         monitorError ??= error;
+        if (
+          sentAt &&
+          error instanceof PipelineFailure &&
+          error.code === 'timeout'
+        )
+          this.queue.observe(
+            requestID,
+            'watchdog_timeout',
+            performance.now() - sentAt,
+          );
         requestAbort.abort();
       },
       output: () => {
         if (sentAt && !outputObserved) {
           outputObserved = true;
-          this.queue.observe(requestID, 'first_output', Date.now() - sentAt);
+          this.queue.observe(
+            requestID,
+            'first_output',
+            performance.now() - sentAt,
+          );
         }
       },
+      complete: recoverHistory,
     });
     let result:
       | {
@@ -252,9 +276,14 @@ export class ServerSessionAdapter {
     let requestError: unknown;
     try {
       requestSignal.throwIfAborted();
-      sentAt = Date.now();
-      this.queue.observe(requestID, 'request_sent');
-      const response = (await this.api(
+      sentAt = performance.now();
+      this.queue.observe(
+        requestID,
+        'request_sent',
+        0,
+        JSON.stringify({ wallAt: Date.now(), monotonicAt: sentAt }),
+      );
+      const posted = this.api(
         `/session/${id}/message`,
         'POST',
         {
@@ -264,14 +293,34 @@ export class ServerSessionAdapter {
           parts: [{ type: 'text', text: prompt }],
         },
         requestSignal,
-      )) as RuntimeMessage;
-      this.queue.observe(requestID, 'response_completed', Date.now() - sentAt);
+      ).then((response) => ({ response: response as RuntimeMessage }));
+      const received = await Promise.race([
+        posted,
+        recoveredHistory.then((messages) => ({ messages })),
+      ]);
+      requestSignal.throwIfAborted();
+      this.queue.observe(
+        requestID,
+        'response_completed',
+        performance.now() - sentAt,
+      );
       if (monitorError) throw monitorError;
-      const messages = (await this.api(
-        `/session/${id}/message`,
-      )) as RuntimeMessage[];
+      const messages =
+        'messages' in received
+          ? received.messages
+          : ((await this.api(`/session/${id}/message`)) as RuntimeMessage[]);
+      if ('messages' in received)
+        this.queue.observe(
+          requestID,
+          'history_recovered',
+          performance.now() - sentAt,
+        );
       await capture?.(messages);
       const evidence = messageEvidence(messages, id);
+      const response =
+        'response' in received
+          ? received.response
+          : messages.filter((m) => m.info?.role === 'assistant').at(-1)!;
       const text = (response.parts ?? [])
         .filter((p) => p.type === 'text')
         .map((p) => p.text)
@@ -292,10 +341,14 @@ export class ServerSessionAdapter {
     }
     requestAbort.abort();
     await release();
-    const cleanupAt = Date.now();
+    const cleanupAt = performance.now();
     try {
       await this.cancelAndDelete(id);
-      this.queue.observe(requestID, 'session_cleanup', Date.now() - cleanupAt);
+      this.queue.observe(
+        requestID,
+        'session_cleanup',
+        performance.now() - cleanupAt,
+      );
     } catch {
       requestError = new PipelineFailure('session_uncertain', 'muse', 0, true);
     }
