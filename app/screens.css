@@ -3078,6 +3078,11 @@
   }
   .detail-sheet {
     max-height: 94dvh !important;
+    overscroll-behavior-y: contain;
+    transform: translateY(var(--swipe-offset, 0px));
+  }
+  .detail-sheet[data-swiping] {
+    transition: none;
   }
   [data-slot='sheet-content'].detail-sheet {
     --detail-x: 20px;

@@ -115,6 +115,7 @@ import { FilterSelect, ShiurCard, ShiurRow, StatePanel } from './ui';
 import { useLibrary, timeLabel } from '@/lib/library';
 import { PLAYBACK_SPEEDS } from '@/lib/playback-speed';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useSwipeDismiss } from '@/hooks/use-swipe-dismiss';
 import type { HomeData, Shiur, Directory, SearchResult } from '@/lib/yutorah';
 import { mediaKind, normalize } from '@/lib/yutorah';
 const AdvancedSearch = lazy(() =>
@@ -363,6 +364,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
 
   const searchAbort = useRef<AbortController | null>(null);
   const detailAbort = useRef<AbortController | null>(null);
+  const closeDetail = useCallback(() => {
+    detailAbort.current?.abort();
+    setDetail(null);
+  }, []);
+  const detailSwipeRef = useSwipeDismiss(isMobile, closeDetail);
   const initialized = useRef(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notify = useCallback(
@@ -2598,13 +2604,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       <Sheet
         open={!!detail}
         onOpenChange={(open) => {
-          if (!open) {
-            detailAbort.current?.abort();
-            setDetail(null);
-          }
+          if (!open) closeDetail();
         }}
       >
         <SheetContent
+          ref={detailSwipeRef}
           className="detail-sheet"
           side={isMobile ? 'bottom' : 'right'}
         >
