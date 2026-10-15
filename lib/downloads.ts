@@ -10,6 +10,7 @@ import {
   offlineAudioPath,
 } from './download-contract';
 import { ensureOfflineReady } from './offline-client';
+import { checkConnection } from './connectivity';
 import {
   saveOfflineContent,
   removeOfflineContent,
@@ -190,7 +191,8 @@ function subscribe(fn: () => void) {
   };
 }
 function onVisible() {
-  if (!document.hidden && !active) void loadDownloads();
+  // Reconnecting must clear the offline shell flag before refreshing materials.
+  if (!document.hidden && !active) void checkConnection().then(loadDownloads);
 }
 export function useDownloads() {
   return useSyncExternalStore(
