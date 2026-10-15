@@ -448,6 +448,7 @@ export function SourcesPanel({
               <label className="source-dialog-field">
                 Format
                 <select
+                  aria-label="Format"
                   value={format}
                   onChange={(e) => setFormat(e.target.value as SheetFormat)}
                 >
@@ -460,6 +461,7 @@ export function SourcesPanel({
               <label className="source-dialog-field">
                 Language
                 <select
+                  aria-label="Language"
                   value={draft.language}
                   onChange={(e) => {
                     setAllowMissing(false);
@@ -495,6 +497,7 @@ export function SourcesPanel({
                 <label className="source-dialog-field">
                   Text length
                   <select
+                    aria-label="Text length"
                     value={draft.extent}
                     onChange={(e) =>
                       patch({ extent: e.target.value as typeof draft.extent })
