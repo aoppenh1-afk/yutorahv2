@@ -450,3 +450,47 @@ void test('workflow runs the actual script with pinned actions and safely passes
   assert.doesNotMatch(workflow, /pull_request_target/);
   assert.equal((workflow.match(/uses: [^\n]+@[a-f0-9]{40}/g) || []).length, 2);
 });
+
+void test('prepared sheets obey the shared cache cap without evicting runner checkpoints or leases', async () => {
+  const { db, sqlite } = database();
+  const expires = Date.now() + 86400000;
+  const insert = sqlite.prepare(
+    'INSERT INTO sources_runs(id,payload,lease,expires) VALUES(?,?,?,?)',
+  );
+  for (let n = 0; n < 300; n++)
+    insert.run('prepared:creator-v4:' + n, '{}', 0, expires + n);
+  insert.run('preparation:creator-v4:inventory', '{"page":400}', 0, expires);
+  insert.run('preparation:runner-lock', '{}', expires, expires);
+  insert.run('prepared:creator-v4:active', '{}', expires, expires);
+  await pruneSourceCache(db);
+  assert.equal(
+    Number(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS n FROM sources_runs WHERE id LIKE 'prepared:%' AND lease=0",
+        )
+        .get()!.n,
+    ),
+    256,
+  );
+  assert.ok(
+    sqlite
+      .prepare(
+        "SELECT id FROM sources_runs WHERE id='preparation:creator-v4:inventory'",
+      )
+      .get(),
+  );
+  assert.ok(
+    sqlite
+      .prepare("SELECT id FROM sources_runs WHERE id='preparation:runner-lock'")
+      .get(),
+  );
+  assert.ok(
+    sqlite
+      .prepare(
+        "SELECT id FROM sources_runs WHERE id='prepared:creator-v4:active'",
+      )
+      .get(),
+  );
+  sqlite.close();
+});

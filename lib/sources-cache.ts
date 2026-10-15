@@ -37,7 +37,7 @@ export async function pruneSourceCache(db: SearchDatabase) {
     .run();
   await db
     .prepare(`DELETE FROM sources_runs WHERE id IN (
-    SELECT id FROM (SELECT id,SUM(length(payload)*4) OVER(ORDER BY expires DESC,id) AS bytes,ROW_NUMBER() OVER(ORDER BY expires DESC,id) AS ordinal FROM sources_runs WHERE lease<? AND id NOT LIKE 'prepared:%' AND id NOT LIKE 'preparation:%' AND (id LIKE 'text:%' OR payload LIKE '%"done":true%')) capacity WHERE bytes>33554432 OR ordinal>256 LIMIT 64
+    SELECT id FROM (SELECT id,SUM(length(payload)*4) OVER(ORDER BY expires DESC,id) AS bytes,ROW_NUMBER() OVER(ORDER BY expires DESC,id) AS ordinal FROM sources_runs WHERE lease<? AND id NOT LIKE 'preparation:%' AND (id LIKE 'prepared:%' OR id LIKE 'text:%' OR payload LIKE '%"done":true%')) capacity WHERE bytes>33554432 OR ordinal>256 LIMIT 64
   )`)
     .bind(now)
     .run();
