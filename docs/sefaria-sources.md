@@ -193,8 +193,9 @@ repository variable overriding `https://yutorah.vercel.app`.
 After merging the workflow to the default branch and deploying the source
 creator, run it manually with **Only verify database configuration** selected.
 That checks the connection and table with a read-only query. Then run normally,
-optionally supplying comma-separated shiur IDs to prepare first. The scheduled
-job allows 20 minutes and 60 shiur attempts per run. GitHub scheduling may be
+optionally supplying comma-separated shiur IDs to prepare first. Enable the
+repository variable `SOURCES_PREPARATION_ENABLED=true` only after these checks.
+The scheduled job allows 20 minutes and 60 shiur attempts per run. GitHub scheduling may be
 delayed. The website still handles an uncached shiur on demand.
 
 Every run checks the newest catalog page and advances a separate archive cursor.
@@ -220,7 +221,13 @@ npm run sources:prepare -- --ids 929649 --catalog-pages 0
 ```
 
 Disable the workflow in GitHub Actions to stop scheduled preparation. Existing
-verified sheets remain available. No new database migration is required.
+verified sheets remain available. Prepared sheets share the existing 32 MiB
+cache cap with completed detector results and source texts; coordination rows
+and active leases are preserved. The scheduled runner checks database size
+before each upstream request and stops at `SOURCES_MAX_DATABASE_BYTES`, which
+defaults to 500,000,000 bytes in Actions. Adjust that repository variable only
+after verifying allocated storage and headroom. No new database migration is
+required.
 
 ## Endpoints and files
 
