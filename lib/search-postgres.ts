@@ -3,6 +3,11 @@ import type { SearchDatabase, SearchStatement } from './search-storage';
 import { performanceSample } from './performance-metrics';
 
 const identifiers = new Set([
+  'search_note_snapshots',
+  'search_note_documents',
+  'search_note_members',
+  'search_notes_state',
+  'search_notes_guards',
   'sources_runs',
   'search_runs',
   'search_pass_guards',
