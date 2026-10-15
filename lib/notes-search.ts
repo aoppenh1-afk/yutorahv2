@@ -1,5 +1,5 @@
 import type { SearchDatabase } from './search-storage';
-import type { Shiur } from './yutorah';
+import { decodeSearchDocument } from './notes-search-document';
 import type { NotesSearchResult } from './notes-search-types';
 import { searchText, matchExcerpt } from './search-discovery';
 
@@ -108,15 +108,20 @@ export async function searchNotes(
     )
     .all<{ payload: string; text: string; notes_hash: string }>();
   return {
-    items: results.map((row) => {
-      const shiur = JSON.parse(row.payload) as Shiur;
-      return {
-        shiur,
-        notesHash: row.notes_hash,
-        excerpt: matchExcerpt(row.text, query, 280),
-        href: `/?shiur=${shiur.id}`,
-      };
-    }),
+    items: await Promise.all(
+      results.map(async (row) => {
+        const { shiur, text } = await decodeSearchDocument(
+          row.payload,
+          row.text,
+        );
+        return {
+          shiur,
+          notesHash: row.notes_hash,
+          excerpt: matchExcerpt(text, query, 280),
+          href: `/?shiur=${shiur.id}`,
+        };
+      }),
+    ),
     total,
     nextPage: page * pageSize < total ? page + 1 : null,
     snapshot: snapshot.id,
