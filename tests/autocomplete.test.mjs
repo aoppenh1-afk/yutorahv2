@@ -136,6 +136,26 @@ void test('learned title words recover incomplete and misspelled titles and keep
   assert.equal((await findShiurSuggestions(db, 'קפה שבת'))[0].id, 11);
 });
 
+void test('title suggestions retrieve English and Hebrew concept alternatives through the actual FTS index', async (t) => {
+  const { db, sqlite } = database();
+  t.after(() => sqlite.close());
+  await db.batch(
+    indexTitleStatements(db, [
+      { id: 101, title: 'Bechira Chofshis' },
+      { id: 102, title: 'Writing a Will' },
+      { id: 103, title: 'חשמל בשבת' },
+      { id: 104, title: 'Electricity on Yom Tov' },
+    ]),
+  );
+  assert.equal((await findShiurSuggestions(db, 'free will'))[0].id, 101);
+  assert.deepEqual(
+    (await findShiurSuggestions(db, 'electricity shabbat')).map(
+      (item) => item.id,
+    ),
+    [103],
+  );
+});
+
 void test('Sukkas keeps its category first and title queries reserve all five shiur slots', async (t) => {
   const { db, sqlite } = database();
   t.after(() => sqlite.close());

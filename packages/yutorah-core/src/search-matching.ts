@@ -1,5 +1,7 @@
 import { searchConcepts } from './search-concepts.js';
 import { englishWordForms } from './search-language.js';
+import { torahWordGroups, teacherNameGroups } from './search-vocabulary.js';
+import { sameTransliteration } from './search-spelling.js';
 
 /** Shared by metadata/transcript retrieval, suggestions, ranking, and highlights. */
 export function searchText(value: string): string {
@@ -70,7 +72,27 @@ const aliasGroups = [
   ['rambam', 'maimonides', 'רמבם'],
   ['migo', 'מיגו'],
   ['eruv', 'eiruv', 'עירוב'],
-].map((group) => ({ canonical: group[0], words: group.map(searchText) }));
+  ...torahWordGroups,
+].reduce<{ canonical: string; words: string[] }[]>((groups, group) => {
+  const words = [...new Set(group.map(searchText))];
+  const overlapping = groups.filter((known) =>
+    known.words.some((word) => words.includes(word)),
+  );
+  const first = overlapping[0];
+  if (!first) groups.push({ canonical: group[0], words });
+  else {
+    first.words = [
+      ...new Set([
+        ...first.words,
+        ...words,
+        ...overlapping.flatMap((entry) => entry.words),
+      ]),
+    ];
+    for (const duplicate of overlapping.slice(1))
+      groups.splice(groups.indexOf(duplicate), 1);
+  }
+  return groups;
+}, []);
 
 const aliases = new Map(
   aliasGroups.flatMap((group) =>
@@ -104,6 +126,17 @@ const hebrewPrefixes = [
   'מה',
   'כש',
 ];
+// A prefixed token in a compound form must not make that prefix a second,
+// competing reading of an established standalone word, such as ובשבת.
+for (const word of hebrewWords)
+  if (
+    !aliases.has(word) &&
+    hebrewPrefixes.some(
+      (prefix) =>
+        word.startsWith(prefix) && aliases.has(word.slice(prefix.length)),
+    )
+  )
+    hebrewWords.delete(word);
 
 /** Exact known words win; prefixes are removed only with one known reading. */
 function lexicalBase(word: string): string {
@@ -129,7 +162,10 @@ function conceptKey(term: string): string {
   return searchText(term).split(' ').map(lexicalBase).join(' ');
 }
 
+const aliasCache = new Map<string, string[]>();
 export function searchAliases(word: string): string[] {
+  const cached = aliasCache.get(word);
+  if (cached) return cached;
   const normalized = searchText(word);
   const base = lexicalBase(normalized);
   const family = englishWordForms(base);
@@ -137,7 +173,11 @@ export function searchAliases(word: string): string[] {
   for (const form of forms.filter((word) => hebrewWords.has(word)))
     for (const prefix of ['ו', 'ה', 'ב', 'ל', 'וב', 'ול', 'וה'])
       forms.push(prefix + form);
-  return [...new Set(forms)];
+  const result = [...new Set(forms)];
+  if (aliasCache.size >= 5000)
+    aliasCache.delete(aliasCache.keys().next().value!);
+  aliasCache.set(word, result);
+  return result;
 }
 
 const connectingWords = new Set(
@@ -169,6 +209,13 @@ const knownSubjectWords = new Set(
 const compoundForms = [...conceptForms.keys()]
   .filter((form) => form.includes(' '))
   .sort((a, b) => b.length - a.length);
+const compoundsByFirstWord = new Map<string, string[][]>();
+for (const form of compoundForms) {
+  const words = form.split(' ').map(lexicalBase);
+  const entries = compoundsByFirstWord.get(words[0]) ?? [];
+  entries.push(words);
+  compoundsByFirstWord.set(words[0], entries);
+}
 const compoundPattern = compoundForms
   .map((form) => form.split(' ').join('[\\s-]+'))
   .join('|');
@@ -196,17 +243,16 @@ export function searchTerms(query: string): string[] {
   const words = searchText(query).split(' ').filter(Boolean);
   const terms: string[] = [];
   for (let i = 0; i < words.length;) {
-    const compound = compoundForms.find((form) =>
-      form
-        .split(' ')
-        .every(
-          (word, j) =>
-            words[i + j] && lexicalBase(words[i + j]) === lexicalBase(word),
+    const compound = compoundsByFirstWord
+      .get(lexicalBase(words[i]))
+      ?.find((candidate) =>
+        candidate.every(
+          (word, j) => words[i + j] && lexicalBase(words[i + j]) === word,
         ),
-    );
+      );
     if (compound) {
-      terms.push(words.slice(i, i + compound.split(' ').length).join(' '));
-      i += compound.split(' ').length;
+      terms.push(words.slice(i, i + compound.length).join(' '));
+      i += compound.length;
     } else {
       terms.push(words[i++]);
     }
@@ -565,6 +611,21 @@ export function wordMatch(query: string, word: string, minPrefix = 3): number {
   return score;
 }
 
+const nameEquivalents = new Map(
+  teacherNameGroups.flatMap((group) =>
+    group.map(searchText).map((word, _, words) => [word, words] as const),
+  ),
+);
+export function teacherWordMatch(
+  query: string,
+  word: string,
+  minPrefix = 3,
+): number {
+  if (query === word) return 1;
+  if (nameEquivalents.get(query)?.includes(word)) return 0.94;
+  return wordMatch(query, word, minPrefix);
+}
+
 function wordMatchScore(
   query: string,
   word: string,
@@ -582,6 +643,7 @@ function wordMatchScore(
     return 0.8;
   if (knownSubjectWords.has(queryBase) && knownSubjectWords.has(wordBase))
     return 0;
+  if (sameTransliteration(query, word)) return 0.72;
   // Three-letter input can be a four-letter word with a missing/transposed letter.
   // Do not fuzz between short words ("daf" must not become "dav").
   const budget =
@@ -683,10 +745,62 @@ export function textMatchScore(
   term: string,
   minPrefix = 3,
 ): number {
-  return textMatchEvidence(text, term, minPrefix).reduce(
-    (best, hit) => Math.max(best, hit.score),
-    0,
-  );
+  return createTextMatcher(term, minPrefix).score(text);
+}
+
+type MatchEvidence = { score: number; start: number; end: number };
+const termMatchers = new Map<string, ReturnType<typeof compileTextMatcher>>();
+
+/** Compile expansions once per subject, shared across fields and documents. */
+export function createTextMatcher(term: string, minPrefix = 3) {
+  const key = `${minPrefix}\0${term}`;
+  let compiled = termMatchers.get(key);
+  if (!compiled) {
+    compiled = compileTextMatcher(term, minPrefix);
+    if (termMatchers.size >= 256)
+      termMatchers.delete(termMatchers.keys().next().value!);
+    termMatchers.set(key, compiled);
+  }
+  return compiled;
+}
+
+function compileTextMatcher(term: string, minPrefix: number) {
+  const forms = searchText(term)
+    ? relatedSearchTerms(term).map(searchWords)
+    : [];
+  const scan = (text: string | MatchText, collect: boolean) => {
+    const words = (typeof text === 'string' ? prepareMatchText(text) : text)
+      .words;
+    const hits: MatchEvidence[] = [];
+    let best = 0;
+    for (const [index, tokens] of forms.entries()) {
+      for (let start = 0; start + tokens.length <= words.length; start++) {
+        let score = 1;
+        for (let j = 0; j < tokens.length; j++) {
+          score = Math.min(
+            score,
+            wordMatch(tokens[j], words[start + j].word, minPrefix),
+          );
+          if (!score) break;
+        }
+        if (!score || (index > 0 && tokens.length > 1 && score < 0.8)) continue;
+        score *= index === 0 ? 1 : 0.6;
+        if (collect)
+          hits.push({
+            score,
+            start: words[start].index,
+            end: words[start + tokens.length - 1].index + 1,
+          });
+        best = Math.max(best, score);
+        if (!collect && best === 1) return { best, hits };
+      }
+    }
+    return { best, hits };
+  };
+  return {
+    score: (text: string | MatchText) => scan(text, false).best,
+    evidence: (text: string | MatchText) => scan(text, true).hits,
+  };
 }
 
 /** Subject matches and word positions, shared by coverage and proximity ranking. */
@@ -695,31 +809,7 @@ export function textMatchEvidence(
   term: string,
   minPrefix = 3,
 ): { score: number; start: number; end: number }[] {
-  if (!searchText(term)) return [];
-  const words = (typeof text === 'string' ? prepareMatchText(text) : text)
-    .words;
-  return relatedSearchTerms(term).flatMap((form, index) => {
-    const tokens = searchWords(form);
-    // A compound concept must occur together: unrelated mentions of "lashon"
-    // and "Har Gerizim" do not make a lesson about lashon hara.
-    return words.flatMap((word, start) => {
-      const score = Math.min(
-        ...tokens.map((token, j) =>
-          words[start + j]
-            ? wordMatch(token, words[start + j].word, minPrefix)
-            : 0,
-        ),
-      );
-      if (!score || (index > 0 && tokens.length > 1 && score < 0.8)) return [];
-      return [
-        {
-          score: score * (index === 0 ? 1 : 0.6),
-          start: word.index,
-          end: words[start + tokens.length - 1].index + 1,
-        },
-      ];
-    });
-  });
+  return createTextMatcher(term, minPrefix).evidence(text);
 }
 
 /** Positions in the original display string, including accents and Hebrew marks. */
@@ -802,6 +892,30 @@ export function searchVocabulary(names: string[] = []): string[] {
   ].filter(
     (word) => word.length >= 3 && word.length <= 64 && !/\p{N}/u.test(word),
   );
+}
+
+/** A run needs only this query's spelling candidates, rather than a serialized
+ * copy of every teacher/topic/series word. Preserve the caller's frequency order
+ * for equal confidence and keep exact words ahead of nearby spellings.
+ */
+export function queryVocabulary(
+  query: string,
+  vocabulary: string[],
+  perWord = 32,
+): string[] {
+  const tokens = [
+    ...new Set(searchText(query).split(' ').filter(Boolean)),
+  ].slice(0, 32);
+  const words = new Set<string>();
+  for (const token of tokens) {
+    const ranked = vocabulary
+      .map((word, index) => ({ word, index, score: wordMatch(token, word) }))
+      .filter((candidate) => candidate.score > 0)
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, perWord);
+    for (const candidate of ranked) words.add(candidate.word);
+  }
+  return [...words];
 }
 
 /** One-edit prefix wildcards recover partial misspellings even when the word
@@ -917,9 +1031,12 @@ function compileLibrarySearchQuery(
         )
         // The caller orders equal-distance archive words by title frequency.
         .sort((a, b) => b.score - a.score)
-        .slice(0, mode === 'minimal' ? 1 : 4);
+        .slice(0, token.length === 3 ? 8 : mode === 'minimal' ? 1 : 4);
       for (const { word } of completions)
-        for (const alias of searchAliases(word)) variants.add(alias);
+        for (const alias of mode === 'full'
+          ? searchAliases(word)
+          : [word, ...(aliases.get(lexicalBase(word))?.words ?? [])])
+          variants.add(alias);
     }
     const clauses = [token];
     if (token.length >= 3 && !/\p{N}/u.test(token)) clauses.push(`${token}*`);

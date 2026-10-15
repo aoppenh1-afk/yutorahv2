@@ -3,6 +3,11 @@
 Updated October 1, 2026. The public Vercel website uses managed PostgreSQL;
 Cloudflare/Sites and local development use D1. No model credentials are required.
 
+The October 15 [search expansion and compaction](search-upgrade.md) adds reviewed
+vocabulary, indexed transliteration candidates, faster matching, revised ranking,
+and lossless PostgreSQL term-list compaction. Apply its owner migration before
+deploying the new search runtime.
+
 ## Learning from the title index
 
 `lib/title-index.ts` builds a persistent vocabulary from actual archive titles.

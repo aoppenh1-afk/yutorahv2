@@ -34,7 +34,12 @@ for (const expected of source.tables) {
     .split(',')
     .map((x) => (x === 'id' ? x : `${x} COLLATE "C"`))
     .join(',');
-  const sql = `COPY (SELECT ${expected.columns.join(',')} FROM yutorah_search.${expected.table} ORDER BY ${order}) TO STDOUT`;
+  const columns = expected.columns.map((column) =>
+    expected.table === 'search_title_catalog' && column === 'terms'
+      ? 'COALESCE(terms,yutorah_search.title_terms(title)) AS terms'
+      : column,
+  );
+  const sql = `COPY (SELECT ${columns.join(',')} FROM yutorah_search.${expected.table} ORDER BY ${order}) TO STDOUT`;
   const child = spawn(
     'psql',
     [

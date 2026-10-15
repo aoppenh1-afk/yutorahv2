@@ -1,18 +1,74 @@
-// Run against a built app: TEST_ORIGIN=http://localhost:3015 node --test tests/mobile-sheet.test.mjs
+// Run after npm run build; TEST_ORIGIN optionally targets an existing test server.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
 
-const origin = process.env.TEST_ORIGIN || 'http://localhost:3015';
+const origin = process.env.TEST_ORIGIN || 'http://127.0.0.1:3015';
 let browser;
+let server;
+let state;
+let serverOutput = '';
 before(async () => {
+  if (!process.env.TEST_ORIGIN) {
+    state = await mkdtemp(join(tmpdir(), 'yutorah-mobile-sheet-'));
+    server = spawn(
+      process.execPath,
+      [
+        'node_modules/wrangler/bin/wrangler.js',
+        'dev',
+        '--config',
+        'dist/server/wrangler.json',
+        '--port',
+        '3015',
+        '--persist-to',
+        state,
+        '--inspector-port',
+        '0',
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    const collect = (chunk) => {
+      serverOutput = (serverOutput + chunk).slice(-5000);
+    };
+    server.stdout.on('data', collect);
+    server.stderr.on('data', collect);
+    server.on('error', collect);
+  }
+  for (let attempt = 0; ; attempt++) {
+    try {
+      if ((await fetch(origin, { signal: AbortSignal.timeout(3000) })).ok)
+        break;
+    } catch {}
+    if (attempt >= 40 || (server && server.exitCode !== null))
+      throw new Error(
+        'Mobile sheet test server could not start. Run npm run build first. ' +
+          serverOutput,
+      );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
   browser = await chromium.launch(
     process.env.PLAYWRIGHT_CHANNEL
       ? { channel: process.env.PLAYWRIGHT_CHANNEL }
       : {},
   );
 });
-after(async () => browser?.close());
+after(async () => {
+  try {
+    await browser?.close();
+  } finally {
+    if (server?.exitCode === null) {
+      const exited = once(server, 'exit');
+      server.kill();
+      await exited;
+    }
+    if (state) await rm(state, { recursive: true, force: true });
+  }
+});
 
 async function openSheet(t, width = 390) {
   const context = await browser.newContext({
