@@ -26,6 +26,25 @@ const textLoads = new WeakMap<
   Map<string, Promise<SourceText>>
 >();
 
+/** Leave room for concurrent bounded requests and PostgreSQL index maintenance. */
+export async function assertSourceStorageCapacity(db: SearchDatabase) {
+  if (db.dialect !== 'postgres') return;
+  const capacity = await db
+    .prepare(`SELECT pg_database_size(current_database()) AS bytes,
+      pg_size_bytes(NULLIF(NULLIF(current_setting('neon.max_cluster_size',true),'-1'),'')) AS maximum`)
+    .first<{ bytes: number | string; maximum: number | string | null }>();
+  if (!capacity || !Number.isFinite(Number(capacity.bytes)))
+    throw new Error('Source storage capacity could not be checked.');
+  if (
+    capacity.maximum !== null &&
+    Number(capacity.maximum) > 0 &&
+    Number(capacity.bytes) + 16 * 1024 * 1024 >= Number(capacity.maximum)
+  )
+    throw new SourcesLeaseError(
+      'Source storage is near capacity. Retry after storage is expanded.',
+    );
+}
+
 export async function pruneSourceCache(db: SearchDatabase) {
   const now = Date.now();
   if ((pruned.get(db) || 0) > now) return;
@@ -158,6 +177,7 @@ async function loadSourceText(
 ): Promise<SourceText> {
   const cached = await readCachedSourceText(db, ref, extent);
   if (cached) return cached;
+  await assertSourceStorageCapacity(db);
   const key = `text:v2:${extent}:${ref}`;
   const now = Date.now();
   await db

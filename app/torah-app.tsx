@@ -10,12 +10,18 @@ import {
   type Filters,
   noFilters,
   resolvedSearchFilters,
-  copySearchLink,
 } from '@/lib/search-filters';
 import { SelectableResult } from './selectable-result';
 import { SearchBox } from './search-box';
+import {
+  copySearchLink,
+  QueryPreview,
+  SearchPresets,
+  SearchTools,
+} from './search-tools';
 import { MobileSearchSummary } from './mobile-search-summary';
 import { SearchQueryNotice } from './search-query-notice';
+import type { TranscriptHit } from './transcript-search';
 import { ScreenBoundary } from './screen-boundary';
 import {
   PlaybackProvider,
@@ -61,6 +67,7 @@ import {
   X,
   Download,
   ExternalLink,
+  AudioLines,
   Link2,
   SlidersHorizontal,
   Loader2,
@@ -113,17 +120,11 @@ import { mediaKind, normalize } from '@/lib/yutorah';
 const AdvancedSearch = lazy(() =>
   import('./advanced-search').then((m) => ({ default: m.AdvancedSearch })),
 );
-const InsideShiurSearch = lazy(() => import('./inside-shiur-search'));
 const DownloadsPage = lazy(() =>
   import('./downloads-page').then((m) => ({ default: m.DownloadsPage })),
 );
-const SearchScope = lazy(() => import('./search-scope'));
-const SearchTools = lazy(() => import('./saved-search-tools'));
-const QueryPreview = lazy(() =>
-  import('./search-tools').then((m) => ({ default: m.QueryPreview })),
-);
-const SearchPresets = lazy(() =>
-  import('./search-tools').then((m) => ({ default: m.SearchPresets })),
+const TranscriptSearch = lazy(() =>
+  import('./transcript-search').then((m) => ({ default: m.TranscriptSearch })),
 );
 const loadShiurDetail = () => import('./shiur-detail');
 const ShiurDetail = lazy(() =>
@@ -152,13 +153,6 @@ const CollectionPage = lazy(() =>
 const DafWorkspace = lazy(() =>
   import('./library-browser').then((m) => ({ default: m.DafWorkspace })),
 );
-
-function searchScopeFromURL() {
-  const scope = new URLSearchParams(window.location.search).get('searchIn');
-  return ['inside', 'notes', 'audio'].includes(scope || '')
-    ? 'inside'
-    : 'shiurim';
-}
 
 type View =
   | 'browse'
@@ -341,10 +335,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   const [topicGroup, setTopicGroup] = useState('all');
   const [grid, setGrid] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState(false);
-  const [searchScope, setSearchScope] = useState<'shiurim' | 'inside'>(
+  const [searchScope, setSearchScope] = useState<'shiurim' | 'audio'>(
     'shiurim',
   );
-  const notesResultSnapshot = useRef('');
   const [withinResults, setWithinResults] = useState('');
   const [learningFilter, setLearningFilter] = useState('all');
   const [libraryQuery, setLibraryQuery] = useState('');
@@ -487,12 +480,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       const url = new URL(window.location.href);
       url.search = '';
       if (nextView !== 'discover') url.searchParams.set('view', nextView);
-      const mode = new URLSearchParams(window.location.search).get('searchIn');
-      if (
-        nextView === 'search' &&
-        ['inside', 'audio', 'notes'].includes(mode || '')
-      )
-        url.searchParams.set('searchIn', 'inside');
       if (query) url.searchParams.set('q', query);
       Object.entries(nextFilters).forEach(([k, v]) => {
         if (v) url.searchParams.set(k, v);
@@ -517,10 +504,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       setQ(query);
       setSubmitted(query);
       setFilters(nextFilters);
-      const scope = searchScopeFromURL();
-      setSearchScope(scope);
       if (page === 1) {
-        notesResultSnapshot.current = '';
         setAdvancedFilters(false);
         setSelecting(false);
         setSelectedIds(new Set());
@@ -529,13 +513,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         setResultOrder('library');
       }
       if (push && page === 1) changeURL('search', query, nextFilters);
-      if (scope === 'inside') {
-        setSearchLoading(false);
-        return;
-      }
       const p = new URLSearchParams({ q: query, page: String(page) });
-      if (page > 1 && nextFilters.notesOnly && notesResultSnapshot.current)
-        p.set('notesSnapshot', notesResultSnapshot.current);
       Object.entries(nextFilters).forEach(([k, v]) => {
         if (v) p.set(k, v);
       });
@@ -545,13 +523,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           controller.signal,
         );
         if (controller.signal.aborted) return;
-        notesResultSnapshot.current = result.notesSnapshot || '';
         setResultOrder(result.plan.sort || 'relevance');
         while (result.complete === false && !controller.signal.aborted) {
           setResults(result);
           p.set('run', result.run!);
-          if (result.notesSnapshot)
-            p.set('notesSnapshot', result.notesSnapshot);
           await pollDelay(result.retryAfterMs || 1500, controller.signal);
           result = await requestJson<SearchResult>(
             '/api/search?' + p,
@@ -613,7 +588,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       setSelectedPlaylist('');
       changeURL(next);
       if (next === 'search') {
-        setSearchScope(searchScopeFromURL());
         setTimeout(() => document.getElementById('main-search')?.focus(), 0);
       }
       window.scrollTo({ top: 0, behavior: 'instant' });
@@ -723,7 +697,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         return;
       }
       const v = params.get('view') as View;
-      setSearchScope(searchScopeFromURL());
       const query = params.get('q') || '';
       const fs = { ...noFilters };
       Object.keys(fs).forEach((k) => {
@@ -767,13 +740,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         (v === 'search' && (query || Object.values(fs).some(Boolean)))
       )
         void runSearch(query, fs, 1, false);
-      else if (v === 'search') {
-        setQ(query);
-        setSubmitted(query);
-        setFilters(fs);
-        setResults(null);
-        setView(v);
-      } else if (v && v in labels) setView(v);
+      else if (v && v in labels) setView(v);
       else setView('discover');
       if (params.get('shiur'))
         void openById(
@@ -1006,6 +973,38 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       window.history.replaceState({}, '', url);
     }
   };
+  const openTranscriptHit = (hit: TranscriptHit) => {
+    const seconds = Math.max(0, hit.startMs / 1000);
+    const url = new URL(window.location.href);
+    url.searchParams.set('shiur', hit.shiurId);
+    url.searchParams.set('t', String(Math.floor(seconds)));
+    window.history.pushState({}, '', url);
+    if (hit.mediaUrl) {
+      const shiur: Shiur = {
+        id: Number(hit.shiurId),
+        title: hit.title,
+        teacher: hit.teacher,
+        teacherId: 0,
+        image: '',
+        audio: hit.mediaUrl,
+        url: `https://yutorah.org/lectures/details?shiurID=${hit.shiurId}`,
+        duration: 0,
+        date: '',
+        topics: [],
+        category: '',
+        language: '',
+        series: '',
+        seriesId: 0,
+        description: '',
+        format: 'mp3',
+        materials: [],
+      };
+      player.start(shiur, seconds);
+      void showDetail(shiur);
+    } else {
+      void openById(hit.shiurId, seconds, true);
+    }
+  };
   const filterChange = (key: keyof Filters, value: string) =>
     void runSearch(submitted, {
       ...filters,
@@ -1036,15 +1035,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     }));
     notify(learned ? 'Marked as not learned.' : 'Marked as learned.');
   };
-  const rows = (
-    items: Shiur[],
-    history = false,
-    options?: {
-      excerpts?: ReadonlyMap<number, React.ReactNode>;
-      onDetails?: (shiur: Shiur) => void;
-      onPlay?: (shiur: Shiur) => void;
-    },
-  ) => (
+  const rows = (items: Shiur[], history = false) => (
     <PagedItems key={view + withinResults + libraryQuery} items={items}>
       {(visible) =>
         visible.map((s) => (
@@ -1065,9 +1056,8 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             <ShiurRow
               shiur={s}
               query={view === 'search' ? results?.plan.term : undefined}
-              onPlay={options?.onPlay || play}
-              onDetails={options?.onDetails || showDetail}
-              excerpt={options?.excerpts?.get(s.id)}
+              onPlay={play}
+              onDetails={showDetail}
               onTeacher={(s) => openCatalog('teacher', s.teacherId)}
               onSave={save}
               onQueue={enqueue}
@@ -1119,7 +1109,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   );
   const searchBar = (
     <SearchBox
-      inside={view === 'search' && searchScope === 'inside'}
       value={q}
       onChange={setQ}
       directory={directory}
@@ -1778,12 +1767,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           )}
           {view === 'search' && (
             <section
-              className={
-                'search-view ' +
-                (results || (searchScope === 'inside' && submitted.trim())
-                  ? 'has-results'
-                  : '')
-              }
+              className={'search-view ' + (results ? 'has-results' : '')}
             >
               <div className="view-heading">
                 <div className="eyebrow">The YUTorah library</div>
@@ -1794,34 +1778,30 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 </p>
               </div>
               {searchBar}
-              <ScreenBoundary>
-                <SearchScope
-                  value={searchScope}
-                  count={results?.total}
-                  onChange={(scope) => {
-                    searchAbort.current?.abort();
-                    setSearchLoading(false);
-                    setSearchScope(scope);
-                    if (
-                      scope === 'shiurim' &&
-                      (!results || results.complete === false)
-                    )
-                      void runSearch(submitted, filters, 1, false);
-                  }}
-                />
-              </ScreenBoundary>
-              {searchScope === 'inside' ? (
+              <div className="search-scope" aria-label="What to search">
+                <button
+                  aria-pressed={searchScope === 'shiurim'}
+                  onClick={() => setSearchScope('shiurim')}
+                >
+                  <Library size={16} />
+                  Shiurim
+                  {results && searchScope === 'shiurim' && (
+                    <span>{results.total.toLocaleString()}</span>
+                  )}
+                </button>
+                <button
+                  aria-pressed={searchScope === 'audio'}
+                  onClick={() => setSearchScope('audio')}
+                >
+                  <AudioLines size={16} />
+                  Inside the audio
+                </button>
+              </div>
+              {searchScope === 'audio' ? (
                 <ScreenBoundary>
-                  <InsideShiurSearch
-                    query={submitted}
-                    onSelect={(s) => void showDetail(s)}
-                    renderRows={(items, excerpts, onDetails) =>
-                      rows(items, false, {
-                        excerpts,
-                        onDetails,
-                        onPlay: (s) => (s.audio ? play(s) : onDetails(s)),
-                      })
-                    }
+                  <TranscriptSearch
+                    query={results?.plan.term ?? submitted}
+                    onSelect={openTranscriptHit}
                   />
                 </ScreenBoundary>
               ) : (
@@ -1905,27 +1885,23 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                           Clear filters <X size={13} />
                         </button>
                       )}
-                      <ScreenBoundary>
-                        <SearchTools
-                          query={q}
-                          filters={filters}
-                          directory={directory}
-                          library={library}
-                          update={update}
-                          onSearch={(query, fs) => void runSearch(query, fs)}
-                          notify={notify}
-                        />
-                      </ScreenBoundary>
+                      <SearchTools
+                        query={q}
+                        filters={filters}
+                        directory={directory}
+                        library={library}
+                        update={update}
+                        onSearch={(query, fs) => void runSearch(query, fs)}
+                        notify={notify}
+                      />
                     </div>
                     {!results && (
-                      <ScreenBoundary>
-                        <QueryPreview
-                          query={q}
-                          directory={directory}
-                          literal={filters.literal === '1'}
-                          resolved={filters.resolved === '1'}
-                        />
-                      </ScreenBoundary>
+                      <QueryPreview
+                        query={q}
+                        directory={directory}
+                        literal={filters.literal === '1'}
+                        resolved={filters.resolved === '1'}
+                      />
                     )}
                     {advancedFilters && (
                       <ScreenBoundary>
@@ -1964,7 +1940,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                             exclude: `Exclude: ${value}`,
                             scope: 'Title only',
                             literal: 'Exact wording',
-                            notesOnly: 'Written notes available',
                             venue: `Venue: ${results?.facets.venues?.find((e) => String(e.id) === value)?.name || value}`,
                             collection: `Collection: ${results?.facets.collections?.find((e) => String(e.id) === value)?.name || value}`,
                             publication: `Publication: ${results?.facets.publications?.find((e) => String(e.id) === value)?.name || value}`,
@@ -2370,13 +2345,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                         className="mobile-search-browse"
                         aria-label="Browse the library"
                       >
-                        <ScreenBoundary>
-                          <SearchPresets
-                            query={q}
-                            filters={filters}
-                            onSearch={(query, fs) => void runSearch(query, fs)}
-                          />
-                        </ScreenBoundary>
+                        <SearchPresets
+                          query={q}
+                          filters={filters}
+                          onSearch={(query, fs) => void runSearch(query, fs)}
+                        />
                         <h2>Browse the library</h2>
                         {[
                           {
@@ -2438,15 +2411,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                         </div>
                         <div>
                           <h2>Or start with</h2>
-                          <ScreenBoundary>
-                            <SearchPresets
-                              query={q}
-                              filters={filters}
-                              onSearch={(query, fs) =>
-                                void runSearch(query, fs)
-                              }
-                            />
-                          </ScreenBoundary>
+                          <SearchPresets
+                            query={q}
+                            filters={filters}
+                            onSearch={(query, fs) => void runSearch(query, fs)}
+                          />
                         </div>
                         <button
                           className="text-button"

@@ -18,7 +18,7 @@ import {
   type QuoteReview,
   type QuoteResolution,
 } from './source-quotes';
-import { cachedSourceText } from './sources-cache';
+import { cachedSourceText, assertSourceStorageCapacity } from './sources-cache';
 
 // Increment when detection/acceptance changes. Old accepted results must not bypass new checks.
 export const sourceCreatorPolicy = 'creator-v4';
@@ -118,6 +118,7 @@ export async function advanceSourceCreator(
       warnings: input.warnings || [],
       transcriptComplete: input.transcript?.complete !== false,
     };
+  await assertSourceStorageCapacity(db);
   const cachedState = await read<CreatorState>(db, key);
   let state: CreatorState = cachedState || {
     ...emptyWindow(),

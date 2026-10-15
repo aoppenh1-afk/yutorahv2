@@ -26,7 +26,11 @@ import {
 } from '../lib/search-postgres';
 import { migrateSourcesSchema } from '../scripts/migrate-search-schema';
 import { sourceRequest, sourceRetryDelay } from '../lib/source-request';
-import { cachedSourceText, sourceSnapshot } from '../lib/sources-cache';
+import {
+  cachedSourceText,
+  sourceSnapshot,
+  assertSourceStorageCapacity,
+} from '../lib/sources-cache';
 import { SourcesLeaseError } from '../lib/sources';
 import { sourceEditions } from '../lib/source-sheet';
 import { preparePublishedSources } from '../lib/prepare-published-sources';
@@ -1017,6 +1021,7 @@ void test(
       const db = postgresSearchDatabase(pool, schema);
       await migrateSourcesSchema(db);
       await migrateSourcesSchema(db);
+      await assertSourceStorageCapacity(db);
       const mock = sefariaMock(
         (body) =>
           bodyResults(body, [{ mention: 'Genesis 1:1', ref: 'Genesis 1:1' }]),

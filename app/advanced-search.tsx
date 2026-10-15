@@ -268,14 +268,6 @@ export function AdvancedSearch({
               </select>
             </label>
           </details>
-          <label className="notes-availability-filter">
-            <input
-              type="checkbox"
-              checked={draft.notesOnly === '1'}
-              onChange={(e) => change('notesOnly', e.target.checked ? '1' : '')}
-            />
-            <span>Written notes available</span>
-          </label>
         </fieldset>
         <fieldset className="builder-section">
           <legend>Time & format</legend>

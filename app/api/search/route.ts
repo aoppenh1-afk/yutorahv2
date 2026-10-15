@@ -4,7 +4,6 @@ import {
   SearchBusyError,
 } from '@/lib/complete-search';
 import { searchDatabase } from '@/lib/search-db';
-import { NotesSearchError } from '@/lib/notes-search';
 export async function GET(request: Request) {
   const started = performance.now();
   const p = new URL(request.url).searchParams;
@@ -70,8 +69,6 @@ export async function GET(request: Request) {
       searchDatabase(),
       q,
       {
-        notesOnly: p.get('notesOnly') === '1',
-        notesSnapshot: p.get('notesSnapshot') || '',
         sort: [
           'relevance',
           'popular',
@@ -133,11 +130,6 @@ export async function GET(request: Request) {
       },
     });
   } catch (e) {
-    if (e instanceof NotesSearchError)
-      return Response.json(
-        { error: e.message },
-        { status: e.status, headers: { 'Cache-Control': 'no-store' } },
-      );
     if (e instanceof SearchBusyError)
       return Response.json(
         { error: e.message },

@@ -28,6 +28,13 @@ notes links still work. Disabling both hides Sources after settings load and
 prevents source API reads. No Sefaria API key or language-model credentials are
 required.
 
+On Neon, uncached interactive sheet generation and source-text cache misses also
+check the allocated database limit before writing. They leave at least 16 MiB
+of headroom for concurrent bounded requests and index maintenance. Previously
+prepared sheets and cached source texts remain readable when new work stops.
+This protects the shared database while notes-search capacity is unresolved;
+it does not enable the scheduled preparation job.
+
 ## Sheet interface
 
 Sources opens directly to a source sheet in the site's monochrome study reader.

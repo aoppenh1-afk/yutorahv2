@@ -82,6 +82,62 @@ function metadata(ref: string): RefMetadata {
     end_labels: labels,
   };
 }
+
+void test('new source sheets stop before database capacity is exhausted while prepared sheets stay readable', async () => {
+  const base = database();
+  const constrained: SearchDatabase = {
+    ...base,
+    dialect: 'postgres',
+    prepare(sql) {
+      if (sql.includes('pg_database_size'))
+        return {
+          bind() {
+            return this;
+          },
+          async first<T>() {
+            return { bytes: 530000000, maximum: 536870912 } as T;
+          },
+          async all<T>() {
+            return { results: [] as T[] };
+          },
+          async run() {
+            throw new Error('Capacity checks must be read-only.');
+          },
+        };
+      return base.prepare(sql);
+    },
+  };
+  await assert.rejects(
+    () =>
+      advanceSourceCreator(constrained, input('Genesis 1:1'), mock().fetcher),
+    /capacity/i,
+  );
+  await assert.rejects(
+    () => cachedSourceText(constrained, 'Genesis 1:1', mock().fetcher),
+    /capacity/i,
+  );
+  assert.equal(
+    (
+      await base
+        .prepare('SELECT count(*) AS n FROM sources_runs')
+        .first<{ n: number }>()
+    )?.n,
+    0,
+  );
+  const ready = await finish(base, input('Genesis 1:1'), mock().fetcher);
+  const cached = await advanceSourceCreator(
+    constrained,
+    input('Genesis 1:1'),
+    mock().fetcher,
+  );
+  assert.equal(cached.inputVersion, ready.inputVersion);
+  assert.equal(cached.status, 'ready');
+  const text = await cachedSourceText(base, 'Genesis 1:1', mock().fetcher);
+  assert.deepEqual(
+    await cachedSourceText(constrained, 'Genesis 1:1', mock().fetcher),
+    text,
+  );
+});
 const quote = 'בראשית ברא אלהים את השמים ואת הארץ והארץ היתה תהו ובהו';
 function mock(
   options: {

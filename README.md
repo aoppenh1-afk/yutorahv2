@@ -43,12 +43,6 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
 
 ## What works
 
-- Search audio transcripts and generated notes together in Inside the Shiur,
-  with matching excerpts grouped by shiur. Open any result for full details and
-  listening or reading. Refine metadata results to shiurim with written notes.
-  This revision requires the notes-index migration and initial sync before
-  activation. [Behavior, rollout, and validation](docs/notes-discovery.md).
-
 - Search autocomplete shows up to five matching shiur titles while typing,
   alongside teacher, topic, and series suggestions. Strong directory matches
   come first. Selecting a title opens its shiur; Enter still submits a full search.

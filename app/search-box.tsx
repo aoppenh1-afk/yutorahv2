@@ -28,7 +28,6 @@ export function SearchBox({
   onSelect,
   onSelectShiur,
   directory,
-  inside = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -36,7 +35,6 @@ export function SearchBox({
   onSelect: (suggestion: SearchSuggestion) => void;
   onSelectShiur: (suggestion: ShiurSuggestion) => void;
   directory: Directory | null;
-  inside?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -44,17 +42,14 @@ export function SearchBox({
   const input = useRef<HTMLInputElement>(null);
   const deferred = useDeferredValue(value);
   const directorySuggestions = useMemo(
-    () => (inside ? [] : suggestSearch(deferred, directory)),
-    [deferred, directory, inside],
+    () => suggestSearch(deferred, directory),
+    [deferred, directory],
   );
   const history = value.trim() ? [] : recent;
-  const shiurim = useShiurSuggestions(value, open && !inside);
+  const shiurim = useShiurSuggestions(value, open);
   const suggestions = useMemo(
-    () =>
-      inside
-        ? []
-        : combineSearchSuggestions(directorySuggestions, shiurim.items),
-    [directorySuggestions, shiurim.items, inside],
+    () => combineSearchSuggestions(directorySuggestions, shiurim.items),
+    [directorySuggestions, shiurim.items],
   );
   const count = suggestions.length + history.length;
   const showSuggestions = open && (count > 0 || shiurim.status !== 'idle');
@@ -129,172 +124,114 @@ export function SearchBox({
       }}
     >
       <div className="search-field">
-        <form
-          className="main-search"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (open && activeIndex >= 0) choose(activeIndex);
-            else submit(value);
+      <form
+        className="main-search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (open && activeIndex >= 0) choose(activeIndex);
+          else submit(value);
+        }}
+      >
+        <Search size={22} aria-hidden="true" />
+        <input
+          ref={input}
+          id="main-search"
+          role="combobox"
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            setOpen(true);
+            setSelectedKey(null);
           }}
-        >
-          <Search size={22} aria-hidden="true" />
-          <input
-            ref={input}
-            id="main-search"
-            role="combobox"
-            value={value}
-            onChange={(e) => {
-              onChange(e.target.value);
-              setOpen(true);
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
+            if (e.key === 'Escape') {
+              setOpen(false);
               setSelectedKey(null);
-            }}
-            onFocus={() => setOpen(true)}
-            onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing) return;
-              if (e.key === 'Escape') {
-                setOpen(false);
-                setSelectedKey(null);
-              }
-              if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && count) {
-                e.preventDefault();
-                setOpen(true);
-                const next =
-                  e.key === 'ArrowDown'
-                    ? (activeIndex + 1) % count
-                    : activeIndex <= 0
-                      ? count - 1
-                      : activeIndex - 1;
-                setSelectedKey(optionKey(next));
-              }
-            }}
-            placeholder={
-              inside
-                ? 'Word or phrase inside a shiur'
-                : 'Shiur, topic, teacher, or series'
             }
-            aria-label={inside ? 'Search inside the shiur' : 'Search YUTorah'}
-            aria-autocomplete="list"
-            aria-expanded={showSuggestions}
-            aria-controls={showSuggestions ? 'search-suggestions' : undefined}
-            aria-describedby="search-matching-hint"
-            aria-activedescendant={
-              open && activeIndex >= 0
-                ? `search-option-${activeIndex}`
-                : undefined
+            if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && count) {
+              e.preventDefault();
+              setOpen(true);
+              const next =
+                e.key === 'ArrowDown'
+                  ? (activeIndex + 1) % count
+                  : activeIndex <= 0
+                    ? count - 1
+                    : activeIndex - 1;
+              setSelectedKey(optionKey(next));
             }
-            autoComplete="off"
-            enterKeyHint="search"
-            maxLength={300}
-          />
-          {value && (
-            <button
-              type="button"
-              className="clear-search"
-              aria-label="Clear search"
-              onClick={() => {
-                onChange('');
-                setSelectedKey(null);
-                setOpen(true);
-                input.current?.focus();
-              }}
-            >
-              <X size={17} />
-            </button>
-          )}
-          <kbd>⌘ K</kbd>
-          <button type="submit" aria-label="Search">
-            <ArrowRight size={21} />
+          }}
+          placeholder="Shiur, topic, teacher, or series"
+          aria-label="Search YUTorah"
+          aria-autocomplete="list"
+          aria-expanded={showSuggestions}
+          aria-controls={showSuggestions ? 'search-suggestions' : undefined}
+          aria-describedby="search-matching-hint"
+          aria-activedescendant={
+            open && activeIndex >= 0
+              ? `search-option-${activeIndex}`
+              : undefined
+          }
+          autoComplete="off"
+          enterKeyHint="search"
+          maxLength={300}
+        />
+        {value && (
+          <button
+            type="button"
+            className="clear-search"
+            aria-label="Clear search"
+            onClick={() => {
+              onChange('');
+              setSelectedKey(null);
+              setOpen(true);
+              input.current?.focus();
+            }}
+          >
+            <X size={17} />
           </button>
-        </form>
-        {showSuggestions && (
-          <div className="search-suggestion-panel">
-            <div className="suggestion-heading">
-              <span>
-                {value.trim() ? 'From the YUTorah library' : 'Recent searches'}
-              </span>
-              {!value.trim() && history.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRecent([]);
-                    try {
-                      localStorage.removeItem(recentKey);
-                    } catch {}
-                  }}
-                >
-                  Clear history
-                </button>
-              )}
-            </div>
-            <div
-              id="search-suggestions"
-              role="listbox"
-              aria-label="Search suggestions"
-            >
-              {suggestions.map((s, i) => {
-                const Icon =
-                  s.kind === 'teacher'
-                    ? Users
-                    : s.kind === 'series'
-                      ? Library
-                      : BookOpen;
-                return (
-                  <div
-                    key={`${s.kind}-${s.id}`}
-                    id={`search-option-${i}`}
-                    role="option"
-                    tabIndex={-1}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        choose(i);
-                      }
-                    }}
-                    aria-selected={activeIndex === i}
-                    className={
-                      'search-option ' + (activeIndex === i ? 'selected' : '')
-                    }
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => choose(i)}
-                    onMouseEnter={() => {
-                      setSelectedKey(optionKey(i));
-                    }}
-                  >
-                    <span className="suggestion-icon">
-                      <Icon size={18} />
-                    </span>
-                    <span className="suggestion-name">
-                      <strong dir="auto">
-                        {highlightParts(s.name, value).map((part, index) =>
-                          part.match ? (
-                            <mark key={index}>{part.text}</mark>
-                          ) : (
-                            part.text
-                          ),
-                        )}
-                      </strong>
-                      <small>
-                        {s.kind === 'shiur'
-                          ? 'Open shiur'
-                          : s.kind === 'topic'
-                            ? `Topic · ${s.context}`
-                            : s.context}
-                      </small>
-                    </span>
-                    {s.kind === 'shiur' ? (
-                      <span className="suggestion-kind">Shiur</span>
-                    ) : (
-                      <span className="suggestion-count">
-                        {s.count.toLocaleString()} <span>shiurim</span>
-                      </span>
-                    )}
-                    <ArrowRight size={15} />
-                  </div>
-                );
-              })}
-              {history.map((q, i) => (
+        )}
+        <kbd>⌘ K</kbd>
+        <button type="submit" aria-label="Search">
+          <ArrowRight size={21} />
+        </button>
+      </form>
+      {showSuggestions && (
+        <div className="search-suggestion-panel">
+          <div className="suggestion-heading">
+            <span>
+              {value.trim() ? 'From the YUTorah library' : 'Recent searches'}
+            </span>
+            {!value.trim() && history.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRecent([]);
+                  try {
+                    localStorage.removeItem(recentKey);
+                  } catch {}
+                }}
+              >
+                Clear history
+              </button>
+            )}
+          </div>
+          <div
+            id="search-suggestions"
+            role="listbox"
+            aria-label="Search suggestions"
+          >
+            {suggestions.map((s, i) => {
+              const Icon =
+                s.kind === 'teacher'
+                  ? Users
+                  : s.kind === 'series'
+                    ? Library
+                    : BookOpen;
+              return (
                 <div
-                  key={q}
+                  key={`${s.kind}-${s.id}`}
                   id={`search-option-${i}`}
                   role="option"
                   tabIndex={-1}
@@ -315,47 +252,100 @@ export function SearchBox({
                   }}
                 >
                   <span className="suggestion-icon">
-                    <History size={18} />
+                    <Icon size={18} />
                   </span>
                   <span className="suggestion-name">
-                    <strong>{q}</strong>
+                    <strong dir="auto">
+                      {highlightParts(s.name, value).map((part, index) =>
+                        part.match ? (
+                          <mark key={index}>{part.text}</mark>
+                        ) : (
+                          part.text
+                        ),
+                      )}
+                    </strong>
+                    <small>
+                      {s.kind === 'shiur'
+                        ? 'Open shiur'
+                        : s.kind === 'topic'
+                          ? `Topic · ${s.context}`
+                          : s.context}
+                    </small>
                   </span>
+                  {s.kind === 'shiur' ? (
+                    <span className="suggestion-kind">Shiur</span>
+                  ) : (
+                    <span className="suggestion-count">
+                      {s.count.toLocaleString()} <span>shiurim</span>
+                    </span>
+                  )}
                   <ArrowRight size={15} />
                 </div>
-              ))}
-            </div>
-            <div className="suggestion-status" role="status">
-              {shiurim.status === 'loading'
-                ? 'Searching shiurim…'
-                : shiurim.status === 'error'
-                  ? 'Shiur suggestions are unavailable. Press Enter to search.'
-                  : shiurim.status === 'ready' && !count
-                    ? 'No matching titles. Press Enter to search the library.'
-                    : shiurim.items.length
-                      ? `${shiurim.items.length} matching shiurim`
-                      : ''}
-            </div>
-            {value.trim() && (
-              <button
-                type="button"
-                className="suggestion-all-results"
-                onClick={() => submit(value)}
+              );
+            })}
+            {history.map((q, i) => (
+              <div
+                key={q}
+                id={`search-option-${i}`}
+                role="option"
+                tabIndex={-1}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    choose(i);
+                  }
+                }}
+                aria-selected={activeIndex === i}
+                className={
+                  'search-option ' + (activeIndex === i ? 'selected' : '')
+                }
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => choose(i)}
+                onMouseEnter={() => {
+                  setSelectedKey(optionKey(i));
+                }}
               >
-                Search all results <ArrowRight size={15} />
-              </button>
-            )}
-            <div className="suggestion-footer">
-              <span>↑ ↓ to explore</span>
-              <span>Enter to select</span>
-              <span>Esc to close</span>
-            </div>
+                <span className="suggestion-icon">
+                  <History size={18} />
+                </span>
+                <span className="suggestion-name">
+                  <strong>{q}</strong>
+                </span>
+                <ArrowRight size={15} />
+              </div>
+            ))}
           </div>
-        )}
+          <div className="suggestion-status" role="status">
+            {shiurim.status === 'loading'
+              ? 'Searching shiurim…'
+              : shiurim.status === 'error'
+                ? 'Shiur suggestions are unavailable. Press Enter to search.'
+                : shiurim.status === 'ready' && !count
+                  ? 'No matching titles. Press Enter to search the library.'
+                  : shiurim.items.length
+                    ? `${shiurim.items.length} matching shiurim`
+                    : ''}
+          </div>
+          {value.trim() && (
+            <button
+              type="button"
+              className="suggestion-all-results"
+              onClick={() => submit(value)}
+            >
+              Search all results <ArrowRight size={15} />
+            </button>
+          )}
+          <div className="suggestion-footer">
+            <span>↑ ↓ to explore</span>
+            <span>Enter to select</span>
+            <span>Esc to close</span>
+          </div>
+        </div>
+      )}
       </div>
       <p id="search-matching-hint" className="search-matching-hint">
-        {inside
-          ? 'Search words or a phrase in audio transcripts and written notes.'
-          : 'Ask in your own words, or search a topic, teacher, or series. Typos and partial words work too.'}
+        Ask in your own words, or search a topic, teacher, or series. Typos and
+        partial words work too.
       </p>
     </search>
   );
