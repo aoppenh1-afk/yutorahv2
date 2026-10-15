@@ -103,6 +103,8 @@ Request observations separate admission waits (including reasons), runtime check
 
 `--follow` applies during bounded quality rollouts as well as production. A cohort waits for transient memory, disk, or upstream admission limits within its existing runtime deadline, and still stops at its selected-job/publication bound. It no longer exits into an empty supervisor restart cycle merely because an admission check temporarily prevents dispatch.
 
+Resumed cohort progress also derives prior member IDs from the verified earlier cohort manifests. Repaired earlier members remain completed but cannot count again toward a later cohort. This upgrades retained progress without resetting its start time, modifying previous verification evidence, or weakening the final distinct-note check.
+
 See [the actual VM report](notes-only-vm.md) for installation evidence and pending gates.
 
 ## Regenerating all notes with teacher priority
