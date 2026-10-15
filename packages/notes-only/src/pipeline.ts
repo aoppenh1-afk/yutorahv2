@@ -187,12 +187,42 @@ export class NotesPipeline {
     });
   }
   async generating(job: NoteJob, signal: AbortSignal) {
-    const { root, queue, identity } = this.config;
+    const { root, queue, identity, store } = this.config;
     await this.config.reconcileRuntime(job);
     signal.throwIfAborted();
     if (!queue.owns(job)) throw new PipelineFailure('lease_lost');
     if (!job.source_path || !job.source_hash)
       throw new PipelineFailure('invalid_transcript', 'yutorah');
+    // Ready sources can outlive another writer's publication, particularly after
+    // a timeout. Recheck before spending inference on a regeneration/repair retry.
+    if (
+      job.generation_attempts > 1 &&
+      (job.redo_reason || this.config.regenerationStartedAt)
+    ) {
+      if (!queue.available('tidb'))
+        throw new PipelineFailure('publication_unknown', 'tidb', 30_000);
+      let published: SavedNote | null;
+      try {
+        published = await store.get(job.id);
+      } catch (error) {
+        const e = classify(error, 'tidb');
+        throw new PipelineFailure(
+          e.code,
+          'tidb',
+          e.retryAfterMs || 30_000,
+          e.pause,
+        );
+      }
+      if (
+        published &&
+        (await this.canAdoptConcurrentPublication(job, published))
+      ) {
+        signal.throwIfAborted();
+        await this.completeExisting(job, published);
+        queue.event('publication', 'retry_publication_adopted', job.id);
+        return 'completed';
+      }
+    }
     const bytes = await readFile(statePath(root, job.source_path));
     if (digest(bytes) !== job.source_hash)
       throw new PipelineFailure('source_changed', 'yutorah');
@@ -324,7 +354,7 @@ export class NotesPipeline {
       published.sourceHash !== note.sourceHash ||
       published.generatorVersion !== note.generatorVersion
     ) {
-      if (await this.canAdoptLanguageReplacement(job, published)) {
+      if (await this.canAdoptConcurrentPublication(job, published)) {
         await this.completeExisting(job, published);
         queue.event('publication', 'validated_replacement_adopted', job.id);
         return 'completed';
@@ -463,25 +493,29 @@ export class NotesPipeline {
         });
     }
   }
-  /** A concurrent repair may win the CAS; adoption requires the exact source/profile and all contract checks. */
-  private async canAdoptLanguageReplacement(job: NoteJob, note: SavedNote) {
+  /** A concurrent publication may win; require exact source/profile, freshness and all contract checks. */
+  private async canAdoptConcurrentPublication(job: NoteJob, note: SavedNote) {
     if (
-      !job.redo_reason ||
       !this.config.identity.approved ||
       note.shiurId !== job.id ||
       note.sourceHash !== job.source_hash ||
       note.generatorVersion !== this.config.identity.profile
     )
       return false;
-    const finding = this.config.queue.db
-      .prepare(
-        'SELECT MAX(queued_at) AS at FROM language_findings WHERE job_id=? AND queued_at IS NOT NULL AND replaced_at IS NULL',
-      )
-      .get(job.id);
+    const finding = job.redo_reason
+      ? this.config.queue.db
+          .prepare(
+            'SELECT MAX(queued_at) AS at FROM language_findings WHERE job_id=? AND queued_at IS NOT NULL AND replaced_at IS NULL',
+          )
+          .get(job.id)
+      : null;
+    const boundary = job.redo_reason
+      ? Number(finding?.at ?? 0)
+      : (this.config.regenerationStartedAt ?? 0);
     if (
-      !finding?.at ||
+      !boundary ||
       !Number.isSafeInteger(note.createdAtMs) ||
-      note.createdAtMs < Number(finding.at) ||
+      note.createdAtMs < boundary ||
       note.createdAtMs < (this.config.regenerationStartedAt ?? 0)
     )
       return false;
@@ -503,7 +537,7 @@ export class NotesPipeline {
       const published = await this.config.store.get(job.id);
       if (
         !published ||
-        !(await this.canAdoptLanguageReplacement(job, published))
+        !(await this.canAdoptConcurrentPublication(job, published))
       )
         return 'requires_review';
       await this.completeExisting(job, published);

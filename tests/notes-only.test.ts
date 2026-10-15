@@ -864,6 +864,166 @@ void test('a newer valid same-source publication resolves an authorized language
   );
 });
 
+void test('a regeneration retry adopts a verified current-epoch publication instead of generating it again', async (t) => {
+  const f = await fixture(t);
+  await ready(f);
+  const first = f.queue.claim('generating')!;
+  f.queue.finish(first, { status: 'ready', error: 'timeout', next_at: 0 });
+  const published = await packNote({
+    shiurId: '1',
+    sourceHash: first.source_hash!,
+    generatorVersion: identity.profile,
+    language: 'hebrewEnglish',
+    markdown,
+  });
+  f.notes.set('1', published);
+  const pipeline = new NotesPipeline({
+    ...f.pipeline.config,
+    regenerationStartedAt: Date.now() - 60000,
+  });
+  assert.equal(
+    await pipeline.generating(f.queue.claim('generating')!, signal),
+    'completed',
+  );
+  assert.equal(
+    f.calls,
+    0,
+    'retry spent inference despite an already verified fresh publication',
+  );
+  assert.equal(
+    f.queue.db.prepare("SELECT notes_hash FROM jobs WHERE id='1'").get()
+      ?.notes_hash,
+    published.notesHash,
+  );
+});
+
+void test('concurrent current-epoch regeneration publications complete without false conflicts and retain the alternative', async (t) => {
+  const f = await fixture(t);
+  await ready(f);
+  await f.pipeline.generating(f.queue.claim('generating')!, signal);
+  const job = f.queue.claim('publishing')!;
+  const published = await packNote({
+    shiurId: '1',
+    sourceHash: job.source_hash!,
+    generatorVersion: identity.profile,
+    language: 'hebrewEnglish',
+    markdown: markdown + ' A concurrent valid explanation.',
+  });
+  const pipeline = new NotesPipeline({
+    ...f.pipeline.config,
+    regenerationStartedAt: Date.now() - 60000,
+    store: { get: async () => published, publish: async () => published },
+  });
+  assert.equal(await pipeline.publishing(job, signal), 'completed');
+  assert.equal(
+    (await loadArtifact(f.root, job.artifact_path!)).note.notesHash,
+    job.notes_hash,
+  );
+  assert.equal(
+    f.queue.db.prepare("SELECT notes_hash FROM jobs WHERE id='1'").get()
+      ?.notes_hash,
+    published.notesHash,
+  );
+});
+
+void test('regeneration adoption rejects stale, wrong-source, wrong-profile, invalid and unqualified publications', async (t) => {
+  for (const variant of [
+    'stale',
+    'source',
+    'profile',
+    'hebrew',
+    'unqualified',
+    'no_epoch',
+  ]) {
+    const f = await fixture(t);
+    await ready(f);
+    await f.pipeline.generating(f.queue.claim('generating')!, signal);
+    const job = f.queue.claim('publishing')!;
+    const epoch = Date.now() - 60000;
+    const published = await packNote({
+      shiurId: '1',
+      sourceHash: variant === 'source' ? 'b'.repeat(64) : job.source_hash!,
+      generatorVersion: variant === 'profile' ? 'old' : identity.profile,
+      language: 'hebrewEnglish',
+      markdown:
+        variant === 'hebrew' ? hebrewDraft : markdown + ' Another version.',
+    });
+    if (variant === 'stale') published.createdAtMs = epoch - 1;
+    const pipeline = new NotesPipeline({
+      ...f.pipeline.config,
+      regenerationStartedAt: variant === 'no_epoch' ? undefined : epoch,
+      identity: { ...identity, approved: variant !== 'unqualified' },
+      store: { get: async () => published, publish: async () => published },
+    });
+    assert.equal(await pipeline.publishing(job, signal), 'conflict', variant);
+    assert.equal(
+      f.queue.db.prepare("SELECT notes_hash FROM jobs WHERE id='1'").get()
+        ?.notes_hash,
+      job.notes_hash,
+    );
+  }
+});
+
+void test('a regeneration retry waits for publication verification during a TiDB outage without repeating inference', async (t) => {
+  const f = await fixture(t);
+  await ready(f);
+  f.queue.finish(f.queue.claim('generating')!, { status: 'ready' });
+  const pipeline = new NotesPipeline({
+    ...f.pipeline.config,
+    regenerationStartedAt: Date.now() - 60000,
+    store: {
+      ...f.pipeline.config.store,
+      get: async () => {
+        throw new Error('outage');
+      },
+    },
+  });
+  await assert.rejects(
+    pipeline.generating(f.queue.claim('generating')!, signal),
+    (e: { upstream?: string; retryAfterMs?: number }) =>
+      e.upstream === 'tidb' && e.retryAfterMs === 30000,
+  );
+  assert.equal(f.calls, 0);
+});
+
+void test('saved regeneration conflicts can adopt verified fresh public notes without priority promotion or inference', async (t) => {
+  const f = await fixture(t);
+  await ready(f);
+  await f.pipeline.generating(f.queue.claim('generating')!, signal);
+  const job = f.queue.claim('publishing')!;
+  const published = await packNote({
+    shiurId: '1',
+    sourceHash: job.source_hash!,
+    generatorVersion: identity.profile,
+    language: 'hebrewEnglish',
+    markdown: markdown + ' Another valid version.',
+  });
+  const config = {
+    ...f.pipeline.config,
+    store: { get: async () => published, publish: async () => published },
+  };
+  assert.equal(
+    await new NotesPipeline(config).publishing(job, signal),
+    'conflict',
+  );
+  await writeFile(join(f.root, 'paused'), '');
+  const result = await recheckSavedNotes({
+    root: f.root,
+    queue: f.queue,
+    pipeline: new NotesPipeline({
+      ...config,
+      regenerationStartedAt: Date.now() - 60000,
+    }),
+    signal,
+  });
+  assert.equal(result.adopted, 1);
+  assert.equal(f.calls, 1);
+  assert.equal(
+    (await loadArtifact(f.root, job.artifact_path!)).note.notesHash,
+    job.notes_hash,
+  );
+});
+
 void test('competing repairs with a wrong identity, older age, invalid language or contract remain explicit conflicts', async (t) => {
   for (const variant of [
     'other_source',

@@ -30,9 +30,9 @@ export async function recheckSavedNotes(input: {
     );
   const jobs = queue.db
     .prepare(
-      "SELECT * FROM jobs WHERE priority>=3 AND (status='conflict' AND error='published_hash_conflict' OR status='needs_review' AND error='incomplete_output' AND artifact_path IS NULL) ORDER BY rowid",
+      "SELECT * FROM jobs WHERE ((priority>=3 OR ?) AND status='conflict' AND error='published_hash_conflict') OR (priority>=3 AND status='needs_review' AND error='incomplete_output' AND artifact_path IS NULL) ORDER BY rowid",
     )
-    .all() as NoteJob[];
+    .all(Number(!!pipeline.config.regenerationStartedAt)) as NoteJob[];
   const directory = join(root, 'audits', 'saved-recheck-' + Date.now());
   await mkdir(directory, { recursive: true, mode: 0o700 });
   queue.db.prepare('VACUUM INTO ?').run(join(directory, 'queue.sqlite'));
