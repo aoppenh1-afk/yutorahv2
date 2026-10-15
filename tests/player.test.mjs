@@ -1761,6 +1761,20 @@ void test('player controls stop playback and the phone dialog stays inside the b
               },
             });
           });
+          await context.route('**/api/source-creator/features', (route) =>
+            route.fulfill({ json: { links: true, sheets: true } }),
+          );
+          await context.route('**/api/source-creator?*', (route) =>
+            route.fulfill({
+              json: {
+                transcriptId: 'official-900001-fixture',
+                status: 'ready',
+                transcriptComplete: true,
+                sources: [],
+                reviews: [],
+              },
+            }),
+          );
           await page.clock.install();
           await page
             .getByRole('button', { name: 'Expand player controls' })
@@ -1791,7 +1805,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             await region
               .getByRole('button', { name: 'Sources', exact: true })
               .count(),
-            0,
+            1,
           );
           assert.match(
             await region
@@ -2273,7 +2287,10 @@ void test('player controls stop playback and the phone dialog stays inside the b
             }));
             let sourceCalls = 0,
               textCalls = 0;
-            await context.route('**/api/sources?**', (route) => {
+            await context.route('**/api/source-creator/features', (route) =>
+              route.fulfill({ json: { links: true, sheets: true } }),
+            );
+            await context.route('**/api/source-creator?**', (route) => {
               sourceCalls++;
               return route.fulfill(
                 sourceCalls === 1
@@ -2288,6 +2305,8 @@ void test('player controls stop playback and the phone dialog stays inside the b
                         status: 'ready',
                         progress: 100,
                         sources,
+                        reviews: [],
+                        transcriptComplete: true,
                         omitted: 1,
                         limited: false,
                         omissionCounts: { missing_amud: 1 },
@@ -2303,7 +2322,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
                     },
               );
             });
-            await context.route('**/api/source-text?**', (route) => {
+            await context.route('**/api/source-creator/text?**', (route) => {
               textCalls++;
               const params = new URL(route.request().url()).searchParams;
               const ref = params.get('ref');
@@ -2351,60 +2370,57 @@ void test('player controls stop playback and the phone dialog stays inside the b
             await page
               .getByRole('button', { name: 'Sources', exact: true })
               .click();
-            await page
-              .getByRole('button', { name: 'Preview source sheet' })
-              .waitFor();
+            const sheet = page.getByRole('region', {
+              name: 'Source sheet',
+              exact: true,
+            });
+            await sheet.getByText('3 sources', { exact: true }).waitFor();
             assert.equal(
               sourceCalls,
               2,
               'temporary failure recovers automatically',
             );
-            await page.getByText('Why references were omitted (1)').click();
-            assert.ok(
-              await page.getByText('Missing an explicit amud: 1').isVisible(),
-            );
-            await page
-              .getByRole('button', { name: 'Preview source sheet' })
+            await sheet
+              .getByRole('button', { name: 'Source sheet options' })
               .click();
-            const sheet = page.getByRole('region', {
-              name: 'Source sheet preview',
+            await page.getByRole('menuitem', { name: 'Edit sources' }).click();
+            await sheet
+              .getByLabel('Include Exodus 1:1', { exact: true })
+              .uncheck();
+            await sheet
+              .getByRole('button', { name: 'Move Shabbat 2b up', exact: true })
+              .click();
+            await sheet
+              .getByRole('button', { name: 'Done', exact: true })
+              .click();
+            assert.equal(await sheet.locator('article').count(), 2);
+            await sheet
+              .getByRole('button', { name: 'Download', exact: true })
+              .click();
+            const dialog = page.getByRole('dialog', {
+              name: 'Download source sheet',
             });
-            await sheet
-              .getByRole('button', { name: 'Download sheet' })
-              .waitFor();
-            await page.waitForFunction(
-              () =>
-                !document.querySelector('.source-sheet-tools button').disabled,
-            );
-            await sheet
+            await dialog
+              .getByLabel('Format', { exact: true })
+              .selectOption('html');
+            await dialog
               .getByLabel('Language', { exact: true })
               .selectOption('en');
-            assert.equal(await sheet.getByText('מקור לדוגמה').count(), 0);
-            await sheet.getByText('Choose sources (3 of 3)').click();
-            await sheet.getByLabel('Exodus 1:1', { exact: true }).uncheck();
-            await sheet
-              .getByLabel('Source text', { exact: true })
+            await dialog.getByText('More options', { exact: true }).click();
+            await dialog
+              .getByLabel('Text length', { exact: true })
               .selectOption('full');
-            await sheet
-              .getByLabel('Order', { exact: true })
-              .selectOption('category');
-            await page.waitForFunction(
-              () =>
-                !document.querySelector('.source-sheet-tools button').disabled,
-            );
-            assert.equal(await sheet.locator('article').count(), 2);
-            assert.ok(
-              (await sheet.locator('article').first().innerText()).includes(
-                'Shabbat 2b',
-              ),
-            );
-            assert.equal(
-              await sheet.getByText('English line 12', { exact: true }).count(),
-              2,
-            );
+            await page.waitForFunction(() => {
+              const button = [
+                ...document.querySelectorAll('[role="dialog"] button'),
+              ].find((el) => el.textContent.trim() === 'Download');
+              return button && !button.disabled;
+            });
             const [download] = await Promise.all([
               page.waitForEvent('download'),
-              sheet.getByRole('button', { name: 'Download sheet' }).click(),
+              dialog
+                .getByRole('button', { name: 'Download', exact: true })
+                .click(),
             ]);
             const html = await readFile(await download.path(), 'utf8');
             assert.ok(html.includes('English line 12'));
@@ -2414,8 +2430,12 @@ void test('player controls stop playback and the phone dialog stays inside the b
             assert.ok(html.indexOf('Shabbat 2b') < html.indexOf('Genesis 1:1'));
             const before = textCalls;
             await sheet
+              .getByRole('button', { name: 'Download', exact: true })
+              .click();
+            await dialog
               .getByLabel('Language', { exact: true })
               .selectOption('he');
+            await page.keyboard.press('Escape');
             assert.equal(
               textCalls,
               before,
@@ -2427,11 +2447,21 @@ void test('player controls stop playback and the phone dialog stays inside the b
             );
             assert.equal(await sheet.getByText('מקור לדוגמה').count(), 2);
             await sheet
-              .getByRole('button', { name: 'Clear selection' })
+              .getByRole('button', { name: 'Source sheet options' })
+              .click();
+            await page.getByRole('menuitem', { name: 'Edit sources' }).click();
+            await sheet
+              .getByLabel('Include Genesis 1:1', { exact: true })
+              .uncheck();
+            await sheet
+              .getByLabel('Include Shabbat 2b', { exact: true })
+              .uncheck();
+            await sheet
+              .getByRole('button', { name: 'Done', exact: true })
               .click();
             assert.ok(
               await sheet
-                .getByRole('button', { name: 'Download sheet' })
+                .getByRole('button', { name: 'Download', exact: true })
                 .isDisabled(),
             );
             assert.equal(await sheet.locator('article').count(), 0);

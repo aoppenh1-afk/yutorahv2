@@ -5,7 +5,12 @@ import {
   validateSourceTranscript,
   type SourceTranscript,
 } from './sources';
-import { sourceText, type SefariaFetch, type SourceText } from './sefaria';
+import {
+  sourceText,
+  sourceTextExcerpt,
+  type SefariaFetch,
+  type SourceText,
+} from './sefaria';
 
 type CacheRow = { payload: string; expires: number };
 const snapshots = new WeakMap<
@@ -16,6 +21,29 @@ const snapshots = new WeakMap<
   }
 >();
 const pruned = new WeakMap<SearchDatabase, number>();
+const textLoads = new WeakMap<
+  SearchDatabase,
+  Map<string, Promise<SourceText>>
+>();
+
+/** Leave room for concurrent bounded requests and PostgreSQL index maintenance. */
+export async function assertSourceStorageCapacity(db: SearchDatabase) {
+  if (db.dialect !== 'postgres') return;
+  const capacity = await db
+    .prepare(`SELECT pg_database_size(current_database()) AS bytes,
+      pg_size_bytes(NULLIF(NULLIF(current_setting('neon.max_cluster_size',true),'-1'),'')) AS maximum`)
+    .first<{ bytes: number | string; maximum: number | string | null }>();
+  if (!capacity || !Number.isFinite(Number(capacity.bytes)))
+    throw new Error('Source storage capacity could not be checked.');
+  if (
+    capacity.maximum !== null &&
+    Number(capacity.maximum) > 0 &&
+    Number(capacity.bytes) + 16 * 1024 * 1024 >= Number(capacity.maximum)
+  )
+    throw new SourcesLeaseError(
+      'Source storage is near capacity. Retry after storage is expanded.',
+    );
+}
 
 export async function pruneSourceCache(db: SearchDatabase) {
   const now = Date.now();
@@ -28,7 +56,7 @@ export async function pruneSourceCache(db: SearchDatabase) {
     .run();
   await db
     .prepare(`DELETE FROM sources_runs WHERE id IN (
-    SELECT id FROM (SELECT id,SUM(length(payload)*4) OVER(ORDER BY expires DESC,id) AS bytes,ROW_NUMBER() OVER(ORDER BY expires DESC,id) AS ordinal FROM sources_runs WHERE lease<? AND (id LIKE 'text:%' OR payload LIKE '%"done":true%')) capacity WHERE bytes>33554432 OR ordinal>256 LIMIT 64
+    SELECT id FROM (SELECT id,SUM(length(payload)*4) OVER(ORDER BY expires DESC,id) AS bytes,ROW_NUMBER() OVER(ORDER BY expires DESC,id) AS ordinal FROM sources_runs WHERE lease<? AND id NOT LIKE 'preparation:%' AND (id LIKE 'prepared:%' OR id LIKE 'text:%' OR payload LIKE '%"done":true%')) capacity WHERE bytes>33554432 OR ordinal>256 LIMIT 64
   )`)
     .bind(now)
     .run();
@@ -75,13 +103,12 @@ export async function sourceSnapshot(
   return pending;
 }
 
-/** Only called after the handler verifies this exact canonical ref is cited. Errors never enter the cache. */
-export async function cachedSourceText(
+/** Every saved text was fetched for this exact ref; a warm hit needs no upstream validation. */
+export async function readCachedSourceText(
   db: SearchDatabase,
   ref: string,
-  fetcher: SefariaFetch = fetch,
   extent: 'excerpt' | 'full' = 'excerpt',
-): Promise<SourceText> {
+): Promise<SourceText | null> {
   const key = `text:v2:${extent}:${ref}`;
   const now = Date.now();
   const row = await db
@@ -90,7 +117,69 @@ export async function cachedSourceText(
     )
     .bind(key, now)
     .first<CacheRow>();
-  if (row && row.payload !== '{}') return JSON.parse(row.payload) as SourceText;
+  const decode = (row: CacheRow | null) => {
+    if (!row || row.payload === '{}') return null;
+    try {
+      const text = JSON.parse(row.payload) as SourceText;
+      return text?.ref === ref && Array.isArray(text.editions) ? text : null;
+    } catch {
+      return null;
+    }
+  };
+  const cached = decode(row);
+  if (cached) return cached;
+  if (extent === 'excerpt') {
+    const full = await db
+      .prepare(
+        'SELECT payload,expires FROM sources_runs WHERE id = ? AND expires > ?',
+      )
+      .bind(`text:v2:full:${ref}`, now)
+      .first<CacheRow>();
+    const text = decode(full);
+    if (text) return sourceTextExcerpt(text);
+  }
+  return null;
+}
+
+/** Call only for a validated canonical reference. Errors never enter the cache. */
+export async function cachedSourceText(
+  db: SearchDatabase,
+  ref: string,
+  fetcher: SefariaFetch = fetch,
+  extent: 'excerpt' | 'full' = 'excerpt',
+): Promise<SourceText> {
+  let pending = textLoads.get(db);
+  if (!pending) {
+    pending = new Map();
+    textLoads.set(db, pending);
+  }
+  const full = extent === 'excerpt' ? pending.get(`full:${ref}`) : undefined;
+  if (full) return sourceTextExcerpt(await full);
+  const key = `${extent}:${ref}`;
+  let work = pending.get(key);
+  if (!work) {
+    if (pending.size >= 16)
+      throw new SourcesLeaseError('Source text is busy. Please retry.');
+    const current = pending;
+    work = loadSourceText(db, ref, fetcher, extent).finally(() =>
+      current.delete(key),
+    );
+    pending.set(key, work);
+  }
+  return work;
+}
+
+async function loadSourceText(
+  db: SearchDatabase,
+  ref: string,
+  fetcher: SefariaFetch,
+  extent: 'excerpt' | 'full',
+): Promise<SourceText> {
+  const cached = await readCachedSourceText(db, ref, extent);
+  if (cached) return cached;
+  await assertSourceStorageCapacity(db);
+  const key = `text:v2:${extent}:${ref}`;
+  const now = Date.now();
   await db
     .prepare(
       'INSERT INTO sources_runs (id,payload,lease,expires) VALUES (?, ?, 0, ?) ON CONFLICT(id) DO NOTHING',

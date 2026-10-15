@@ -30,7 +30,6 @@ import {
   usePlaybackState,
 } from './playback';
 import { PagedItems } from './paged-items';
-import { DownloadsPage } from './downloads-page';
 import { useDownloadCount } from '@/lib/downloads';
 import { useOnline } from '@/lib/connectivity';
 import { useViewPerformance } from './performance-monitor';
@@ -120,6 +119,9 @@ import type { HomeData, Shiur, Directory, SearchResult } from '@/lib/yutorah';
 import { mediaKind, normalize } from '@/lib/yutorah';
 const AdvancedSearch = lazy(() =>
   import('./advanced-search').then((m) => ({ default: m.AdvancedSearch })),
+);
+const DownloadsPage = lazy(() =>
+  import('./downloads-page').then((m) => ({ default: m.DownloadsPage })),
 );
 const TranscriptSearch = lazy(() =>
   import('./transcript-search').then((m) => ({ default: m.TranscriptSearch })),
@@ -2428,14 +2430,16 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             </section>
           )}
           {view === 'downloads' && (
-            <DownloadsPage
-              library={library}
-              player={player}
-              onPlay={play}
-              onDetails={showDetail}
-              onBrowse={() => navigate('search')}
-              notify={notify}
-            />
+            <ScreenBoundary>
+              <DownloadsPage
+                library={library}
+                player={player}
+                onPlay={play}
+                onDetails={showDetail}
+                onBrowse={() => navigate('search')}
+                notify={notify}
+              />
+            </ScreenBoundary>
           )}
           {['saved', 'history', 'playlists'].includes(view) && (
             <ScreenBoundary>
@@ -2596,28 +2600,28 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           {detail && (
             <ScreenBoundary>
               <ShiurDetail
-              shiur={detail}
-              library={library}
-              saved={savedIds.has(detail.id)}
-              learned={learnedIds.has(detail.id)}
-              online={online}
-              loading={detailLoading}
-              error={detailError}
-              related={detailRelated}
-              relatedLoading={relatedLoading}
-              relatedError={relatedError}
-              notify={notify}
-              onRetry={() => void showDetail(detail)}
-              onRelatedRetry={() => setRelatedRetry((n) => n + 1)}
-              onOpen={openCatalog}
-              onDetails={(s) => void showDetail(s)}
-              onFollow={follow}
-              onSave={save}
-              onQueue={enqueue}
-              onPlaylist={addToPlaylist}
-              onShare={share}
-              onToggleLearned={toggleLearned}
-              onReport={(s) => setFeedback({ shiur: s })}
+                shiur={detail}
+                library={library}
+                saved={savedIds.has(detail.id)}
+                learned={learnedIds.has(detail.id)}
+                online={online}
+                loading={detailLoading}
+                error={detailError}
+                related={detailRelated}
+                relatedLoading={relatedLoading}
+                relatedError={relatedError}
+                notify={notify}
+                onRetry={() => void showDetail(detail)}
+                onRelatedRetry={() => setRelatedRetry((n) => n + 1)}
+                onOpen={openCatalog}
+                onDetails={(s) => void showDetail(s)}
+                onFollow={follow}
+                onSave={save}
+                onQueue={enqueue}
+                onPlaylist={addToPlaylist}
+                onShare={share}
+                onToggleLearned={toggleLearned}
+                onReport={(s) => setFeedback({ shiur: s })}
               />
             </ScreenBoundary>
           )}

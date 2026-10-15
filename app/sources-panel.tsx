@@ -1,523 +1,697 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import { Menu } from '@base-ui/react/menu';
 import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  ChevronDown,
   Download,
-  ExternalLink,
-  FileText,
+  Ellipsis,
   Loader2,
-  Printer,
 } from 'lucide-react';
-import { timeLabel } from '@/lib/library';
-import type {
-  SourcesResult,
-  TranscriptSource,
-  OmissionReason,
-} from '@/lib/sources';
-import type { SourceText } from '@/lib/sefaria';
 import {
-  renderSourceSheet,
-  sourceEditions,
-  type SheetLanguage,
-} from '@/lib/source-sheet';
-import { sourceRequest } from '@/lib/source-request';
-const omissionLabels: Record<OmissionReason, string> = {
-  unresolved: 'Not resolved by Sefaria',
-  ambiguous: 'Ambiguous reference',
-  inferred: 'Requires an inferred location',
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import type { useSourceCreator } from '@/hooks/use-source-creator';
+import { useSourceSheet, type SheetFormat } from '@/hooks/use-source-sheet';
+import type { TranscriptSource } from '@/lib/sources';
+import { orderedSheetSources } from '@/lib/source-draft';
+import { sourceEditions } from '@/lib/source-sheet';
+import { timeLabel } from '@/lib/library';
+
+const noSources: TranscriptSource[] = [];
+type Creator = ReturnType<typeof useSourceCreator>;
+const reasons: Record<string, string> = {
+  unresolved: 'Could not identify the source',
+  ambiguous: 'More than one possible source',
+  missing_section: 'The section was not specified',
+  inferred: 'The location would have to be assumed',
   missing_location: 'Missing a numbered location',
-  missing_amud: 'Missing an explicit amud',
-  missing_comment: 'Missing an individual comment',
-  incomplete_range: 'Incomplete range endpoints',
-  partial_commentary: 'Only part of a commentary citation was recognized',
-  invalid_match: 'Citation could not be verified',
-  limit: 'Sources limit reached',
+  missing_amud: 'Missing the page side',
+  missing_comment: 'Missing the comment number',
+  incomplete_range: 'Incomplete range',
+  partial_commentary: 'The commentary was not fully identified',
+  invalid_match: 'Could not verify the citation',
+  limit: 'Processing limit reached',
+  ambiguous_quote: 'The passage appears in multiple locations',
+  unmatched_quote: 'No matching passage found',
+  unverified_quote: 'Could not verify the passage',
+  search_limit: 'Too many matches to identify one source',
 };
-
-export { useTranscriptSources } from '@/hooks/use-transcript-sources';
-
 export function SourcesPanel({
   shiurId,
   title,
   teacher,
-  result,
-  error,
-  onRetry,
+  creator,
   onSeek,
-  recovering = false,
 }: {
   shiurId: number;
   title: string;
   teacher: string;
-  result: SourcesResult | null;
-  error: string;
-  onRetry: () => void;
+  creator: Creator;
   onSeek: (seconds: number) => void;
-  recovering?: boolean;
 }) {
-  const [sheet, setSheet] = useState(false);
+  const { result, features, available } = creator;
+  const sheet = useSourceSheet({
+    shiurId,
+    title,
+    teacher,
+    sources: result?.sources || noSources,
+    enabled: features.sheets,
+    includeLinks: features.links,
+    partial: result?.status !== 'ready',
+    limited: result?.limited || false,
+  });
+  const { draft, setDraft, selected, sources } = sheet;
+  const [dialog, setDialog] = useState<
+    'download' | 'add' | 'review' | 'settings' | null
+  >(null);
+  const [editing, setEditing] = useState(false);
+  const [format, setFormat] = useState<SheetFormat>('pdf');
+  const [allowMissing, setAllowMissing] = useState(false);
+  const [reference, setReference] = useState('');
+  const patch = (change: Partial<typeof draft>) =>
+    setDraft((previous) => ({ ...previous, ...change }));
+  const display = editing
+    ? orderedSheetSources(sources, { ...draft, excluded: [] })
+    : selected;
+  const reviews = (result?.reviews || []).filter(
+    (r) => !draft.dismissed.includes(r.id),
+  );
+  const checking = !creator.error && (!result || result.status === 'pending');
+  const move = (index: number, direction: number) => {
+    const order = display.map((source) => source.ref);
+    [order[index], order[index + direction]] = [
+      order[index + direction],
+      order[index],
+    ];
+    patch({ order });
+  };
+  const add = async (event: React.SubmitEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (await sheet.add(reference)) {
+      setReference('');
+      setDialog(null);
+    }
+  };
+  const startDownload = async () => {
+    if (await sheet.download(format, allowMissing)) setDialog(null);
+  };
   return (
-    <div className="study-sources">
-      <p className="study-note-label">
-        Sources mentioned in the transcript, linked through Sefaria. A daf,
-        chapter, siman, or commentary page can be linked without a more specific
-        location. Nearby spoken details are joined when the work is clear.
-        Timestamps mark the start of the transcript segment. Uncited quotations
-        and ambiguous references are omitted.
-      </p>
-      {error ? (
-        <output className="study-state">
-          {error}{' '}
-          <button type="button" onClick={onRetry}>
-            Retry sources
+    <section className="source-sheet" aria-label="Source sheet">
+      <div className="source-sheet-toolbar">
+        <output className="source-sheet-status">
+          {features.sheets && (
+            <span>
+              {selected.length} {selected.length === 1 ? 'source' : 'sources'}
+            </span>
+          )}
+          {checking && features.sheets && (
+            <>
+              <Loader2 size={13} className="spin" aria-hidden="true" />
+              <span className="sr-only">Checking sources</span>
+            </>
+          )}
+        </output>
+        <div className="study-tools">
+          {editing ? (
+            <button className="study-tool" onClick={() => setEditing(false)}>
+              <Check size={14} />
+              Done
+            </button>
+          ) : (
+            features.sheets && (
+              <label className="source-english-toggle">
+                <input
+                  type="checkbox"
+                  checked={draft.language !== 'he'}
+                  onChange={(e) =>
+                    patch({ language: e.target.checked ? 'both' : 'he' })
+                  }
+                />
+                English
+              </label>
+            )
+          )}
+          <button
+            className="study-tool"
+            disabled={!features.sheets || !selected.length}
+            onClick={() => {
+              setAllowMissing(false);
+              setDialog('download');
+            }}
+          >
+            <Download size={15} />
+            <span>Download</span>
+            <ChevronDown size={12} className="study-tool-caret" />
           </button>
-        </output>
-      ) : (
-        (!result || result.status === 'pending') && (
-          <output className="feed-loading">
-            <Loader2 size={14} className="spin" /> Checking cited sources with
-            Sefaria…{result ? ` ${result.progress}%` : ''}
-          </output>
-        )
-      )}
-      {recovering && !error && (
-        <output className="study-state">
-          Connection interrupted. Retrying automatically…
-        </output>
-      )}
-      {result?.sources.length ? (
-        <>
-          <ol className="sources-list" aria-label="Cited sources">
-            {result.sources.map((source) => (
-              <li key={source.ref}>
-                <div className="source-citation">
-                  <a href={source.url} target="_blank" rel="noreferrer">
-                    {source.ref}
-                    <ExternalLink size={13} />
-                  </a>
-                  <span className="source-category">{source.category}</span>
-                </div>
-                <p className="source-mention" dir="auto">
-                  “{source.occurrences[0].mention}”
-                </p>
-                <div className="source-times">
-                  {Array.from(
-                    new Set(source.occurrences.map((o) => o.startMs)),
-                  ).map((ms) => (
-                    <button
-                      className="study-time"
-                      type="button"
-                      key={ms}
-                      onClick={() => onSeek(ms / 1000)}
-                      aria-label={`Play ${source.ref} from ${timeLabel(ms / 1000)}`}
-                    >
-                      {timeLabel(ms / 1000)}
-                    </button>
-                  ))}
-                </div>
-              </li>
-            ))}
-          </ol>
-          {result.status === 'ready' && (
-            <button
-              className="source-sheet-toggle"
-              type="button"
-              aria-expanded={sheet}
-              onClick={() => setSheet((value) => !value)}
+          <Menu.Root>
+            <Menu.Trigger
+              className="study-tool is-icon"
+              aria-label="Source sheet options"
             >
-              <FileText size={15} />
-              {sheet ? 'Hide source sheet preview' : 'Preview source sheet'}
+              <Ellipsis size={18} />
+            </Menu.Trigger>
+            <Menu.Portal>
+              <Menu.Positioner
+                sideOffset={6}
+                align="end"
+                className="action-menu-positioner"
+              >
+                <Menu.Popup
+                  className="action-menu source-sheet-menu"
+                  aria-label="Source sheet options"
+                >
+                  <Menu.Item
+                    disabled={!features.sheets || !sources.length}
+                    onClick={() => setEditing((value) => !value)}
+                  >
+                    {editing ? 'Finish editing' : 'Edit sources'}
+                  </Menu.Item>
+                  <Menu.Item
+                    disabled={!features.sheets}
+                    onClick={() => setDialog('add')}
+                  >
+                    Add source
+                  </Menu.Item>
+                  {!!reviews.length && (
+                    <Menu.Item onClick={() => setDialog('review')}>
+                      Review possible sources ({reviews.length})
+                    </Menu.Item>
+                  )}
+                  <Menu.Item onClick={creator.retry}>Refresh sources</Menu.Item>
+                  <Menu.Item onClick={() => setDialog('settings')}>
+                    Settings
+                  </Menu.Item>
+                </Menu.Popup>
+              </Menu.Positioner>
+            </Menu.Portal>
+          </Menu.Root>
+        </div>
+      </div>
+      {creator.error && (
+        <output className="source-sheet-message">
+          {creator.error} <button onClick={creator.retry}>Retry</button>
+        </output>
+      )}
+      {creator.recovering && (
+        <output className="source-sheet-message">
+          Connection interrupted. Retrying…
+        </output>
+      )}
+      {!features.sheets ? (
+        <div className="source-sheet-empty">
+          <p>
+            {creator.configured
+              ? 'Source sheets are turned off.'
+              : 'Loading sources…'}
+          </p>
+          {available.sheets && (
+            <button
+              className="study-tool"
+              onClick={() => creator.setOutput('sheets', true)}
+            >
+              Show source sheet
             </button>
           )}
-        </>
+        </div>
       ) : (
-        result?.status === 'ready' && (
-          <p className="study-state">
-            No identifiable citations were found. A source may have been
-            mentioned without enough detail, or Sefaria may not have recognized
-            it.
-          </p>
-        )
-      )}
-      {result?.limited && (
-        <p className="study-state">
-          Some sources or repeated timestamps were omitted because this
-          transcript reached processing limits.
-        </p>
-      )}
-      {!!result?.omitted && (
-        <details className="source-omissions">
-          <summary>Why references were omitted ({result.omitted})</summary>
-          <ul>
-            {Object.entries(result.omissionCounts).map(([reason, count]) => (
-              <li key={reason}>
-                {omissionLabels[reason as OmissionReason]}: {count}
-              </li>
-            ))}
-          </ul>
-          <p className="study-note-label">
-            Examples from the transcript. These are excluded from sources and
-            source sheets.
-          </p>
-          <ol>
-            {result.omissions.map((omission, i) => (
-              <li key={`${omission.offset}-${omission.reason}-${i}`}>
-                <span>{omissionLabels[omission.reason]}</span>
-                {omission.mention && <q dir="auto">{omission.mention}</q>}
-                <button
-                  className="study-time"
-                  type="button"
-                  onClick={() => onSeek(omission.startMs / 1000)}
-                >
-                  {timeLabel(omission.startMs / 1000)}
-                </button>
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
-      {sheet && result?.status === 'ready' && (
-        <SourceSheetPreview
-          shiurId={shiurId}
-          title={title}
-          teacher={teacher}
-          sources={result.sources}
-          limited={result.limited}
-          transcriptId={result.transcriptId}
-          onSeek={onSeek}
-        />
-      )}
-      <p className="sefaria-credit">
-        <a href="https://www.sefaria.org" target="_blank" rel="noreferrer">
-          Powered by Sefaria
-        </a>
-      </p>
-    </div>
-  );
-}
-
-function SourceSheetPreview({
-  shiurId,
-  transcriptId,
-  title,
-  teacher,
-  sources,
-  limited,
-  onSeek,
-}: {
-  shiurId: number;
-  transcriptId: string;
-  title: string;
-  teacher: string;
-  sources: TranscriptSource[];
-  limited: boolean;
-  onSeek: (seconds: number) => void;
-}) {
-  const [cache, setCache] = useState<Record<string, SourceText>>({});
-  const cacheRef = useRef(cache);
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
-  const [retry, setRetry] = useState(0);
-  const [language, setLanguage] = useState<SheetLanguage>('both');
-  const [extent, setExtent] = useState<'excerpt' | 'full'>('excerpt');
-  const [order, setOrder] = useState('time');
-  const [selected, setSelected] = useState(
-    () => new Set(sources.map((s) => s.ref)),
-  );
-  const chosen = sources.filter((s) => selected.has(s.ref));
-  if (order === 'category')
-    chosen.sort(
-      (a, b) =>
-        a.category.localeCompare(b.category) || a.ref.localeCompare(b.ref),
-    );
-  const refs = chosen.map((s) => s.ref).join('\0');
-  const texts = Object.fromEntries(
-    chosen
-      .map((s) => [s.ref, cache[`${extent}:${s.ref}`]])
-      .filter(([, text]) => text),
-  ) as Record<string, SourceText>;
-  useEffect(() => {
-    const abort = new AbortController();
-    setLoading(true);
-    setFailed(false);
-    const remaining = refs
-      ? refs.split('\0').filter((ref) => !cacheRef.current[`${extent}:${ref}`])
-      : [];
-    const read = async () => {
-      while (remaining.length && !abort.signal.aborted) {
-        const ref = remaining.shift()!;
-        try {
-          const response = await sourceRequest(
-            `/api/source-text?id=${shiurId}&revision=${encodeURIComponent(transcriptId)}&extent=${extent}&ref=${encodeURIComponent(ref)}`,
-            abort.signal,
-          );
-          const text = (await response.json()) as SourceText;
-          if (text.ref !== ref) throw new Error('Different source');
-          if (!abort.signal.aborted) {
-            cacheRef.current = {
-              ...cacheRef.current,
-              [`${extent}:${ref}`]: text,
-            };
-            setCache(cacheRef.current);
-          }
-        } catch {
-          if (!abort.signal.aborted) setFailed(true);
-        }
-      }
-    };
-    void Promise.all([read(), read(), read()]).then(() => {
-      if (!abort.signal.aborted) setLoading(false);
-    });
-    return () => abort.abort();
-  }, [shiurId, transcriptId, refs, extent, retry]);
-  const documentHtml = () =>
-    renderSourceSheet({
-      shiurId,
-      title,
-      teacher,
-      origin: window.location.origin,
-      sources: chosen,
-      texts,
-      limited,
-      language,
-      extent,
-    });
-  const download = () => {
-    const url = URL.createObjectURL(
-      new Blob([documentHtml()], { type: 'text/html;charset=utf-8' }),
-    );
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `shiur-${shiurId}-source-sheet.html`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-  const print = () => {
-    const frame = document.createElement('iframe');
-    frame.title = 'Print source sheet';
-    frame.className = 'source-print-frame';
-    const cleanup = () => frame.remove();
-    const timeout = setTimeout(cleanup, 120000);
-    frame.onload = () => {
-      const target = frame.contentWindow;
-      if (!target) {
-        clearTimeout(timeout);
-        cleanup();
-        return;
-      }
-      target.addEventListener(
-        'afterprint',
-        () => {
-          clearTimeout(timeout);
-          cleanup();
-        },
-        { once: true },
-      );
-      try {
-        target.focus();
-        target.print();
-      } catch {
-        clearTimeout(timeout);
-        cleanup();
-      }
-    };
-    frame.srcdoc = documentHtml();
-    document.body.append(frame);
-  };
-  return (
-    <section className="source-sheet-preview" aria-label="Source sheet preview">
-      <div className="source-sheet-tools">
-        <span>Source sheet preview · {chosen.length} selected</span>
-        <button
-          type="button"
-          disabled={loading || !chosen.length}
-          onClick={download}
-        >
-          <Download size={14} />
-          Download sheet
-        </button>
-        <button
-          type="button"
-          disabled={loading || !chosen.length}
-          onClick={print}
-        >
-          <Printer size={14} />
-          Print / Save PDF
-        </button>
-      </div>
-      <fieldset className="source-sheet-options">
-        <legend>Customize sheet</legend>
-        <label>
-          Language
-          <select
-            aria-label="Language"
-            value={language}
-            onChange={(e) => setLanguage(e.target.value as SheetLanguage)}
-          >
-            <option value="both">Hebrew / original and English</option>
-            <option value="he">Hebrew / original</option>
-            <option value="en">English</option>
-          </select>
-        </label>
-        <label>
-          Source text
-          <select
-            aria-label="Source text"
-            value={extent}
-            onChange={(e) => setExtent(e.target.value as 'excerpt' | 'full')}
-          >
-            <option value="excerpt">Short excerpts</option>
-            <option value="full">Complete cited text</option>
-          </select>
-        </label>
-        <label>
-          Order
-          <select
-            aria-label="Order"
-            value={order}
-            onChange={(e) => setOrder(e.target.value)}
-          >
-            <option value="time">First mention</option>
-            <option value="category">Category</option>
-          </select>
-        </label>
-        <details>
-          <summary>
-            Choose sources ({chosen.length} of {sources.length})
-          </summary>
-          <div className="source-selection-actions">
-            <button
-              type="button"
-              onClick={() => setSelected(new Set(sources.map((s) => s.ref)))}
-            >
-              Select all
-            </button>
-            <button type="button" onClick={() => setSelected(new Set())}>
-              Clear selection
-            </button>
-          </div>
-          {sources.map((source) => (
-            <label key={source.ref} className="source-selection">
-              <input
-                type="checkbox"
-                checked={selected.has(source.ref)}
-                onChange={(e) =>
-                  setSelected((old) => {
-                    const next = new Set(old);
-                    if (e.target.checked) next.add(source.ref);
-                    else next.delete(source.ref);
-                    return next;
-                  })
-                }
-              />
-              {source.ref}
-            </label>
-          ))}
-        </details>
-      </fieldset>
-      <header>
-        <p className="source-sheet-eyebrow">YUTorah Study · Cited sources</p>
-        <h4>{title}</h4>
-        <p>{teacher}</p>
-        <p className="study-note-label">
-          Automatically assembled from explicit transcript citations. Check
-          against the recording.
-        </p>
-      </header>
-      {loading && (
-        <output className="feed-loading">
-          <Loader2 size={14} className="spin" />
-          Loading selected source text from Sefaria…
-        </output>
-      )}
-      {failed && (
-        <output className="study-state">
-          Some source text is unavailable. Its citation links remain in the
-          sheet.{' '}
-          <button type="button" onClick={() => setRetry((n) => n + 1)}>
-            Retry missing source text
-          </button>
-        </output>
-      )}
-      {!chosen.length && (
-        <p className="study-state">
-          Choose at least one source to download or print.
-        </p>
-      )}
-      {chosen.map((source, index) => (
-        <article key={source.ref}>
-          <p className="source-sheet-eyebrow">
-            {index + 1} ·{' '}
-            {texts[source.ref]?.categories.join(' / ') || source.category}
-          </p>
-          <h5>
-            <a href={source.url} target="_blank" rel="noreferrer">
-              {source.ref}
-              <ExternalLink size={13} />
-            </a>
-          </h5>
-          <p className="source-he-ref" dir="rtl">
-            {source.heRef}
-          </p>
-          <div className="source-times">
-            Mentioned at{' '}
-            {Array.from(new Set(source.occurrences.map((o) => o.startMs))).map(
-              (ms) => (
-                <button
-                  key={ms}
-                  type="button"
-                  className="study-time"
-                  onClick={() => onSeek(ms / 1000)}
-                >
-                  {timeLabel(ms / 1000)}
-                </button>
-              ),
-            )}
-          </div>
-          {sourceEditions(texts[source.ref], language).map((edition, i) => (
-            <div key={edition.title + i}>
-              <div className="source-edition-text" dir={edition.direction}>
-                {edition.text.map((line, j) => (
-                  <p key={j}>{line}</p>
-                ))}
-              </div>
-              {edition.truncated && (
-                <p className="study-note-label">
-                  {extent === 'excerpt'
-                    ? 'Excerpt'
-                    : 'Long text shortened for this sheet'}
-                  ; open Sefaria for the complete cited text.
-                </p>
-              )}
-              <p className="source-attribution">
-                {edition.title} · {edition.language} · {edition.license}
-                {edition.versionSource && (
-                  <>
-                    {' '}
-                    ·{' '}
-                    <a
-                      href={edition.versionSource}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Edition source
-                    </a>
-                  </>
-                )}{' '}
-                ·{' '}
-                <a href={source.url} target="_blank" rel="noreferrer">
-                  Sefaria
-                </a>
-              </p>
-            </div>
-          ))}
-          {!loading && !sourceEditions(texts[source.ref], language).length && (
-            <p className="study-state">
-              Text in the selected language is unavailable. Read this source on
-              Sefaria.
+        <>
+          {draft.title !== title && draft.title && (
+            <h3 className="source-sheet-title" dir="auto">
+              {draft.title}
+            </h3>
+          )}
+          {draft.introduction && (
+            <p className="source-sheet-introduction" dir="auto">
+              {draft.introduction}
             </p>
           )}
-        </article>
-      ))}
+          {!display.length && (
+            <div className="source-sheet-empty">
+              <p>
+                {checking
+                  ? 'Finding sources…'
+                  : sources.length
+                    ? 'All sources are excluded.'
+                    : 'No verified sources yet.'}
+              </p>
+              {!checking && (
+                <button
+                  className="study-tool"
+                  onClick={() =>
+                    reviews.length
+                      ? setDialog('review')
+                      : sources.length
+                        ? setEditing(true)
+                        : setDialog('add')
+                  }
+                >
+                  {reviews.length
+                    ? 'Review possible sources'
+                    : sources.length
+                      ? 'Choose sources'
+                      : 'Add source'}
+                </button>
+              )}
+            </div>
+          )}
+          <ol className="source-sheet-list">
+            {display.map((source, index) => {
+              const included = !draft.excluded.includes(source.ref);
+              const editions = sourceEditions(
+                sheet.texts[source.ref],
+                draft.language,
+              );
+              const label =
+                draft.language === 'en'
+                  ? source.ref
+                  : source.heRef || source.ref;
+              const origin = source.occurrences.some(
+                (o) => o.origin === 'transcript' || !o.origin,
+              )
+                ? ''
+                : source.occurrences.some((o) => o.origin === 'notes')
+                  ? 'From notes'
+                  : 'Added by you';
+              return (
+                <li
+                  key={source.ref}
+                  className={!included ? 'is-excluded' : undefined}
+                >
+                  <article>
+                    {editing && (
+                      <div className="source-edit-row">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={included}
+                            aria-label={`Include ${source.ref}`}
+                            onChange={(e) =>
+                              patch({
+                                excluded: e.target.checked
+                                  ? draft.excluded.filter(
+                                      (ref) => ref !== source.ref,
+                                    )
+                                  : [...draft.excluded, source.ref],
+                              })
+                            }
+                          />
+                          Include
+                        </label>
+                        <div>
+                          <button
+                            aria-label={`Move ${source.ref} up`}
+                            disabled={index === 0}
+                            onClick={() => move(index, -1)}
+                          >
+                            <ArrowUp size={15} />
+                          </button>
+                          <button
+                            aria-label={`Move ${source.ref} down`}
+                            disabled={index === display.length - 1}
+                            onClick={() => move(index, 1)}
+                          >
+                            <ArrowDown size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <div
+                      className="source-sheet-heading"
+                      dir={draft.language === 'en' ? 'ltr' : 'rtl'}
+                    >
+                      <h4>
+                        {features.links ? (
+                          <a
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={source.ref}
+                          >
+                            {label}
+                          </a>
+                        ) : (
+                          label
+                        )}
+                      </h4>
+                      <SourceTime source={source} onSeek={onSeek} />
+                    </div>
+                    {origin && <p className="source-sheet-origin">{origin}</p>}
+                    {included &&
+                      editions.map((edition, i) => (
+                        <div key={edition.title + i}>
+                          <div
+                            className="source-sheet-text"
+                            dir={edition.direction}
+                          >
+                            {edition.text.map((line, j) => (
+                              <p key={j}>{line}</p>
+                            ))}
+                          </div>
+                          <p className="source-sheet-credit">
+                            {edition.title} · {edition.license}
+                            {edition.truncated ? ' · Excerpt' : ''}
+                          </p>
+                        </div>
+                      ))}
+                    {included && !editions.length && (
+                      <p className="source-sheet-message">
+                        {sheet.loading
+                          ? 'Loading text…'
+                          : draft.language === 'en'
+                            ? 'English text is unavailable.'
+                            : 'Hebrew text is unavailable.'}
+                        {!sheet.loading && (
+                          <button onClick={sheet.retryText}>Retry</button>
+                        )}
+                      </p>
+                    )}
+                    {editing ? (
+                      <label className="source-sheet-note">
+                        Note
+                        <textarea
+                          rows={2}
+                          maxLength={4000}
+                          aria-label={`Note for ${source.ref}`}
+                          value={draft.comments[source.ref] || ''}
+                          onChange={(e) =>
+                            patch({
+                              comments: {
+                                ...draft.comments,
+                                [source.ref]: e.target.value,
+                              },
+                            })
+                          }
+                        />
+                      </label>
+                    ) : (
+                      draft.comments[source.ref] && (
+                        <p className="source-sheet-note-text" dir="auto">
+                          {draft.comments[source.ref]}
+                        </p>
+                      )
+                    )}
+                  </article>
+                </li>
+              );
+            })}
+          </ol>
+          {!!selected.length && (
+            <p className="source-sheet-footer">
+              Texts from{' '}
+              {features.links ? (
+                <a
+                  href="https://www.sefaria.org"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Sefaria
+                </a>
+              ) : (
+                'Sefaria'
+              )}
+            </p>
+          )}
+        </>
+      )}
+      {sheet.storageError && (
+        <output className="source-sheet-message">{sheet.storageError}</output>
+      )}
+      <Dialog
+        open={dialog !== null}
+        onOpenChange={(open) => {
+          if (!open && !sheet.busy) setDialog(null);
+        }}
+      >
+        <DialogContent className="source-sheet-dialog">
+          <DialogTitle>
+            {dialog === 'download'
+              ? 'Download source sheet'
+              : dialog === 'add'
+                ? 'Add source'
+                : dialog === 'review'
+                  ? 'Possible sources'
+                  : 'Source settings'}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            {dialog === 'download'
+              ? 'Choose the format and language for your sheet.'
+              : 'Manage the sources for this shiur.'}
+          </DialogDescription>
+          {dialog === 'download' && (
+            <>
+              <label className="source-dialog-field">
+                Format
+                <select
+                  aria-label="Format"
+                  value={format}
+                  onChange={(e) => setFormat(e.target.value as SheetFormat)}
+                >
+                  <option value="pdf">PDF</option>
+                  <option value="docx">Word</option>
+                  <option value="html">HTML</option>
+                  <option value="print">Print</option>
+                </select>
+              </label>
+              <label className="source-dialog-field">
+                Language
+                <select
+                  aria-label="Language"
+                  value={draft.language}
+                  onChange={(e) => {
+                    setAllowMissing(false);
+                    patch({
+                      language: e.target.value as typeof draft.language,
+                    });
+                  }}
+                >
+                  <option value="he">Hebrew</option>
+                  <option value="both">Hebrew and English</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+              <details className="source-download-options">
+                <summary>More options</summary>
+                <label className="source-dialog-field">
+                  Title
+                  <input
+                    value={draft.title}
+                    maxLength={300}
+                    onChange={(e) => patch({ title: e.target.value })}
+                  />
+                </label>
+                <label className="source-dialog-field">
+                  Introduction
+                  <textarea
+                    rows={2}
+                    maxLength={4000}
+                    value={draft.introduction}
+                    onChange={(e) => patch({ introduction: e.target.value })}
+                  />
+                </label>
+                <label className="source-dialog-field">
+                  Text length
+                  <select
+                    aria-label="Text length"
+                    value={draft.extent}
+                    onChange={(e) =>
+                      patch({ extent: e.target.value as typeof draft.extent })
+                    }
+                  >
+                    <option value="excerpt">Excerpts</option>
+                    <option value="full">Complete cited text</option>
+                  </select>
+                </label>
+              </details>
+              {checking && (
+                <p className="source-dialog-hint">
+                  Checking continues. This download includes the sources found
+                  so far.
+                </p>
+              )}
+              {sheet.loading ? (
+                <output className="source-dialog-hint">
+                  Loading source text…
+                </output>
+              ) : (
+                sheet.missing > 0 && (
+                  <label className="source-dialog-check">
+                    <input
+                      type="checkbox"
+                      checked={allowMissing}
+                      onChange={(e) => setAllowMissing(e.target.checked)}
+                    />
+                    Include {sheet.missing}{' '}
+                    {sheet.missing === 1 ? 'source' : 'sources'} with missing
+                    text as citations only
+                  </label>
+                )
+              )}
+              {sheet.exportError && (
+                <p className="source-dialog-error" role="alert">
+                  {sheet.exportError}
+                </p>
+              )}
+              <button
+                className="source-dialog-submit"
+                disabled={
+                  !!sheet.busy ||
+                  sheet.loading ||
+                  !selected.length ||
+                  (!!sheet.missing && !allowMissing)
+                }
+                onClick={() => void startDownload()}
+              >
+                {sheet.busy && <Loader2 size={15} className="spin" />}
+                {sheet.busy
+                  ? 'Preparing…'
+                  : format === 'print'
+                    ? 'Print'
+                    : 'Download'}
+              </button>
+            </>
+          )}
+          {dialog === 'add' && (
+            <form
+              className="source-add-form"
+              onSubmit={(event) => void add(event)}
+            >
+              <label className="source-dialog-field">
+                Source reference
+                <input
+                  autoComplete="off"
+                  value={reference}
+                  maxLength={250}
+                  placeholder="e.g. Shulchan Arukh, Orach Chayim 4:4"
+                  onChange={(e) => setReference(e.target.value)}
+                />
+              </label>
+              {sheet.addError && (
+                <p role="alert" className="source-dialog-error">
+                  {sheet.addError}
+                </p>
+              )}
+              <button
+                className="source-dialog-submit"
+                type="submit"
+                disabled={sheet.adding || !reference.trim()}
+              >
+                {sheet.adding ? 'Checking…' : 'Add source'}
+              </button>
+            </form>
+          )}
+          {dialog === 'review' && (
+            <>
+              <p className="source-dialog-hint">
+                These matches need confirmation before they can appear in the
+                sheet.
+              </p>
+              <ol className="source-review-list">
+                {reviews.map((review) => (
+                  <li key={review.id}>
+                    <p>{reasons[review.reason] || 'Needs verification'}</p>
+                    <q dir="auto">{review.mention}</q>
+                    {review.origin === 'transcript' && (
+                      <button
+                        className="study-time"
+                        onClick={() => onSeek(review.startMs / 1000)}
+                      >
+                        {timeLabel(review.startMs / 1000)}
+                      </button>
+                    )}
+                    {review.candidates?.map((ref) => (
+                      <button
+                        key={ref}
+                        onClick={() => {
+                          setReference(ref);
+                          setDialog('add');
+                        }}
+                      >
+                        {ref}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() =>
+                        patch({
+                          dismissed: [...draft.dismissed, review.id].slice(
+                            -250,
+                          ),
+                        })
+                      }
+                    >
+                      Dismiss
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+          {dialog === 'settings' && (
+            <>
+              <label className="source-dialog-check">
+                <input
+                  type="checkbox"
+                  checked={features.links}
+                  disabled={!available.links}
+                  onChange={(e) => creator.setOutput('links', e.target.checked)}
+                />
+                Sefaria links
+              </label>
+              <label className="source-dialog-check">
+                <input
+                  type="checkbox"
+                  checked={features.sheets}
+                  disabled={!available.sheets}
+                  onChange={(e) =>
+                    creator.setOutput('sheets', e.target.checked)
+                  }
+                />
+                Source sheets
+              </label>
+              <p className="source-dialog-hint">
+                Your sheet edits and these settings are saved on this device.
+              </p>
+              {result?.warnings.map((warning) => (
+                <p className="source-dialog-hint" key={warning}>
+                  {warning}
+                </p>
+              ))}
+              {result?.limited && (
+                <p className="source-dialog-hint">
+                  Processing limits were reached. Some sources may be missing.
+                </p>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </section>
   );
+}
+function SourceTime({
+  source,
+  onSeek,
+}: {
+  source: TranscriptSource;
+  onSeek: (seconds: number) => void;
+}) {
+  const first = source.occurrences.find(
+    (o) => !o.origin || o.origin === 'transcript',
+  );
+  return first ? (
+    <button
+      type="button"
+      className="study-time"
+      dir="ltr"
+      title={`Play ${source.ref}`}
+      onClick={() => onSeek(first.startMs / 1000)}
+    >
+      {timeLabel(first.startMs / 1000)}
+    </button>
+  ) : null;
 }

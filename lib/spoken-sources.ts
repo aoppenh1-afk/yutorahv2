@@ -403,6 +403,28 @@ function sideAddress(
 
 /** All indexes here are UTF-16, as in String.slice. Windows cannot pass another named source. */
 export function spokenCitations(text: string): SpokenCitation[] {
+  // Official VTT often vocalizes Hebrew names and addresses. Match unvocalized text,
+  // then restore exact original UTF-16 spans so links preserve the transcript.
+  const positions: number[] = [];
+  const characters: string[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (/[\u0591-\u05bd\u05bf-\u05c7\u200e\u200f]/u.test(text[i])) continue;
+    positions.push(i);
+    characters.push(text[i]);
+  }
+  const at = (index: number) => positions[index] ?? text.length;
+  return parseSpokenCitations(characters.join('')).map((citation) => ({
+    ...citation,
+    start: at(citation.start),
+    end: at(citation.end),
+    ranges: citation.ranges.map((range) => ({
+      start: at(range.start),
+      end: at(range.end),
+    })),
+  }));
+}
+
+function parseSpokenCitations(text: string): SpokenCitation[] {
   const allAnchors = patterns
     .flatMap(({ name, pattern }) =>
       Array.from(text.matchAll(pattern), (match) => ({

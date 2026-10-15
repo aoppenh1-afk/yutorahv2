@@ -26,7 +26,11 @@ import {
 } from '../lib/search-postgres';
 import { migrateSourcesSchema } from '../scripts/migrate-search-schema';
 import { sourceRequest, sourceRetryDelay } from '../lib/source-request';
-import { cachedSourceText, sourceSnapshot } from '../lib/sources-cache';
+import {
+  cachedSourceText,
+  sourceSnapshot,
+  assertSourceStorageCapacity,
+} from '../lib/sources-cache';
 import { SourcesLeaseError } from '../lib/sources';
 import { sourceEditions } from '../lib/source-sheet';
 import { preparePublishedSources } from '../lib/prepare-published-sources';
@@ -934,6 +938,7 @@ void test('download/print document escapes text and includes categories, Sefaria
   );
   const html = renderSourceSheet({
     shiurId: 42,
+    language: 'both',
     title: '<script>alert(1)</script>',
     teacher: 'A & B',
     origin: 'https://example.org',
@@ -1016,6 +1021,7 @@ void test(
       const db = postgresSearchDatabase(pool, schema);
       await migrateSourcesSchema(db);
       await migrateSourcesSchema(db);
+      await assertSourceStorageCapacity(db);
       const mock = sefariaMock(
         (body) =>
           bodyResults(body, [{ mention: 'Genesis 1:1', ref: 'Genesis 1:1' }]),
@@ -1410,6 +1416,10 @@ void test('sheet language choices affect both preview editions and the exported 
     ],
   };
   assert.equal(sourceEditions(text, 'both').length, 2);
+  assert.deepEqual(
+    sourceEditions(text).map((edition) => edition.language),
+    ['he'],
+  );
   assert.equal(sourceEditions(text, 'he')[0].language, 'he');
   const mock = sefariaMock((body) =>
     bodyResults(body, [{ mention: 'Genesis 1:1', ref: 'Genesis 1:1' }]),
