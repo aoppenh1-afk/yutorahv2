@@ -97,7 +97,20 @@ export default defineConfig(async () => {
       },
       plugins: [
         vinext(),
-        nitro({ preset: process.env.NITRO_PRESET || 'vercel' }),
+        nitro({
+          preset: process.env.NITRO_PRESET || 'vercel',
+          // Vinext adds its default serverExternalPackages to Nitro's forced
+          // dependency trace, including installed build/test tools that the
+          // server never imports. Keep those tools out of every deployment.
+          traceDeps: [
+            '!playwright',
+            '!playwright-core',
+            '!postcss',
+            '!ts-morph',
+            '!typescript',
+            '!webpack',
+          ],
+        }),
       ],
     };
   }
