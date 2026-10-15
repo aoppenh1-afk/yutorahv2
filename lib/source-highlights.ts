@@ -15,11 +15,12 @@ export function indexSourceHighlights(sources: TranscriptSource[]) {
   const grouped = new Map<number, Span[]>();
   for (const source of sources)
     for (const occurrence of source.occurrences)
-      for (const span of occurrence.spans) {
-        const spans = grouped.get(span.segmentIndex) ?? [];
-        spans.push({ ...span, ref: source.ref, url: source.url });
-        grouped.set(span.segmentIndex, spans);
-      }
+      if (!occurrence.origin || occurrence.origin === 'transcript')
+        for (const span of occurrence.spans) {
+          const spans = grouped.get(span.segmentIndex) ?? [];
+          spans.push({ ...span, ref: source.ref, url: source.url });
+          grouped.set(span.segmentIndex, spans);
+        }
   for (const [index, spans] of grouped)
     grouped.set(index, nonOverlapping(spans));
   return grouped;

@@ -21,7 +21,16 @@ export type SourceOccurrence = {
   startMs: number;
   endMs: number;
   mention: string;
-  spans: Array<{ segmentIndex: number; startChar: number; endChar: number }>;
+  spans: Array<{
+    segmentIndex: number;
+    startChar: number;
+    endChar: number;
+    text?: string;
+  }>;
+  origin?: 'transcript' | 'notes' | 'manual';
+  method?: 'citation' | 'quotation';
+  noteSpans?: Array<{ startChar: number; endChar: number }>;
+  verification?: string;
 };
 export type TranscriptSource = {
   ref: string;
@@ -39,6 +48,7 @@ export type SourcesResult = {
   omissionCounts: Partial<Record<OmissionReason, number>>;
   omissions: SourceOmission[];
   limited: boolean;
+  waiting?: boolean;
 };
 export type OmissionReason =
   | 'unresolved'
@@ -80,7 +90,7 @@ type State = {
   done: boolean;
 };
 type Row = { payload: string; lease: number; expires: number };
-const policyVersion = 6;
+const policyVersion = 7;
 const chunkSize = 12000;
 const overlap = 512;
 const cacheDuration = 30 * 24 * 60 * 60 * 1000;
@@ -248,6 +258,7 @@ export async function advanceSources(
     omissionCounts: state.omissionCounts,
     omissions: state.omissions,
     limited: state.limited,
+    waiting: !!state.task,
   });
   const cached = existing
     ? (JSON.parse(existing.payload) as State)

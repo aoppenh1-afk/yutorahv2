@@ -53,6 +53,7 @@ export async function sourceRequest(
         const body = await response.json().catch(() => null);
         throw new PermanentSourceError(
           body?.error || 'Sources are temporarily unavailable. Please retry.',
+          response.status,
         );
       }
     } catch (error) {
@@ -66,4 +67,11 @@ export async function sourceRequest(
     );
   }
 }
-class PermanentSourceError extends Error {}
+class PermanentSourceError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}

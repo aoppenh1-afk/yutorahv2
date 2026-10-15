@@ -54,6 +54,7 @@ export type SourceText = {
   categories: string[];
   editions: SourceEdition[];
 };
+export type SourceVersion = { language: 'english' | 'hebrew'; title: string };
 
 async function request(
   path: string,
@@ -235,14 +236,58 @@ function publicUrl(value: unknown): string | null {
   }
 }
 
-/** Text is separate from extraction, so the links tab never downloads whole dapim. */
+/** Exact library search shares the bounded reader, timeout, and Retry-After handling. */
+export async function searchPassage(
+  query: string,
+  fetcher: SefariaFetch = fetch,
+) {
+  const { data } = await request('/api/search/text/_search', fetcher, {
+    method: 'POST',
+    body: JSON.stringify({
+      size: 60,
+      track_total_hits: true,
+      _source: ['ref', 'heRef', 'exact', 'path', 'lang', 'version'],
+      query: { match_phrase: { exact: { query, slop: 0 } } },
+    }),
+  });
+  return data;
+}
+
+/** Apply the same excerpt limits to cached full texts and fresh responses. */
+export function sourceTextExcerpt(text: SourceText): SourceText {
+  return {
+    ...text,
+    editions: text.editions.map((edition) => {
+      const lines: string[] = [];
+      let characters = 0;
+      let truncated = edition.truncated;
+      for (const line of edition.text) {
+        if (lines.length >= 8 || characters >= 12000) {
+          truncated = true;
+          break;
+        }
+        const room = 12000 - characters;
+        lines.push(line.slice(0, room));
+        characters += Math.min(line.length, room);
+        if (line.length > room) truncated = true;
+      }
+      return { ...edition, text: lines, truncated };
+    }),
+  };
+}
+
+/** Text retrieval is separate from citation extraction. */
 export async function sourceText(
   ref: string,
   fetcher: SefariaFetch = fetch,
   extent: 'excerpt' | 'full' = 'excerpt',
+  version?: SourceVersion,
 ): Promise<SourceText> {
+  const selection = version
+    ? `version=${encodeURIComponent(`${version.language}|${version.title}`)}`
+    : 'version=primary&version=english';
   const { data } = await request(
-    `/api/v3/texts/${encodeURIComponent(ref)}?version=primary&version=english&return_format=text_only`,
+    `/api/v3/texts/${encodeURIComponent(ref)}?${selection}&fill_in_missing_segments=0&return_format=text_only`,
     fetcher,
   );
   // v3 can silently expand a broad ref to its first section. Never accept that.

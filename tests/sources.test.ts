@@ -934,6 +934,7 @@ void test('download/print document escapes text and includes categories, Sefaria
   );
   const html = renderSourceSheet({
     shiurId: 42,
+    language: 'both',
     title: '<script>alert(1)</script>',
     teacher: 'A & B',
     origin: 'https://example.org',
@@ -1410,6 +1411,10 @@ void test('sheet language choices affect both preview editions and the exported 
     ],
   };
   assert.equal(sourceEditions(text, 'both').length, 2);
+  assert.deepEqual(
+    sourceEditions(text).map((edition) => edition.language),
+    ['he'],
+  );
   assert.equal(sourceEditions(text, 'he')[0].language, 'he');
   const mock = sefariaMock((body) =>
     bodyResults(body, [{ mention: 'Genesis 1:1', ref: 'Genesis 1:1' }]),

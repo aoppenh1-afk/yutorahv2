@@ -295,7 +295,9 @@ export function ShiurDetail({
                 {active && (
                   <PlaybackPosition>
                     {(clock) => (
-                      <Menu.Item onClick={() => void onShare(shiur, clock.time)}>
+                      <Menu.Item
+                        onClick={() => void onShare(shiur, clock.time)}
+                      >
                         <Link2 size={16} /> Copy link at {timeLabel(clock.time)}
                       </Menu.Item>
                     )}
@@ -345,12 +347,7 @@ export function ShiurDetail({
         />
       )}
       {videoSource && !youtubeId && /\.mp4(?:\?|$)/i.test(videoSource) && (
-        <video
-          className="video-embed"
-          src={videoSource}
-          controls
-          playsInline
-        />
+        <video className="video-embed" src={videoSource} controls playsInline />
       )}
       {shiur.description && (
         <DetailDescription key={shiur.id} text={shiur.description} />
@@ -375,7 +372,10 @@ export function ShiurDetail({
       {kind !== 'text' && (
         <ScreenBoundary>
           <TranscriptReader
+            key={shiur.id}
             shiurId={shiur.id}
+            title={shiur.title}
+            teacher={shiur.teacher}
             onSeek={(seconds) => player.start(shiur, seconds)}
           />
         </ScreenBoundary>
@@ -427,9 +427,7 @@ export function ShiurDetail({
                 <strong dir="auto">{s.title}</strong>
                 <small>
                   {s.teacher} ·{' '}
-                  {s.duration
-                    ? Math.round(s.duration / 60) + ' min'
-                    : s.format}
+                  {s.duration ? Math.round(s.duration / 60) + ' min' : s.format}
                 </small>
                 <small className="related-reason">{reason}</small>
               </span>
