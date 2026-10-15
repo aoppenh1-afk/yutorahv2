@@ -38,7 +38,7 @@
     "pretest:maintenance": "node scripts/setup-test-database.mjs",
     "notes:only": "node scripts/notes.mjs",
     "notes:package": "node scripts/package-notes-pipeline.mjs",
-    "test:notes-only": "tsx --test tests/notes-only.test.ts tests/notes-runtime.test.ts tests/notes-rollout.test.ts tests/opencode-acp.test.ts tests/opencode-temp.test.ts tests/tidb-notes.test.ts",
+    "test:notes-only": "tsx --test tests/notes-only.test.ts tests/notes-language.test.ts tests/notes-throughput.test.ts tests/notes-runtime.test.ts tests/notes-rollout.test.ts tests/opencode-acp.test.ts tests/opencode-temp.test.ts tests/tidb-notes.test.ts",
     "test:notes-export": "tsx --test tests/notes-export.test.ts",
     "test:notifications": "tsx --test tests/account-notifications.test.ts tests/teacher-notification-preferences.test.ts",
     "notifications:deploy": "node scripts/deploy-notifications.mjs",

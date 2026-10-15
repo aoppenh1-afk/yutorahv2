@@ -102,7 +102,7 @@ export function validateQualification(e: Qualification) {
   if (
     !Number.isSafeInteger(e.concurrency) ||
     e.concurrency < 1 ||
-    e.concurrency > 10 ||
+    e.concurrency > 6 ||
     !(e.memoryPeakBytes > 0)
   )
     throw new Error('Measured concurrency and memory evidence required.');

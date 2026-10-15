@@ -19,6 +19,7 @@ export type CohortProgress = {
   profile: string;
   size: number;
   startedAt: number;
+  excludedIds?: string[];
 };
 
 /** Start boundaries survive restarts and keep successive cohorts disjoint. */
@@ -34,6 +35,28 @@ export async function pendingCohort(
         .get(profile, n),
   );
   if (!size) return null;
+  const excludedIds: string[] = [];
+  for (const row of queue.db
+    .prepare(
+      'SELECT size,manifest FROM cohorts WHERE profile=? AND size<? ORDER BY size',
+    )
+    .all(profile, size)) {
+    const manifest = JSON.parse(await readFile(String(row.manifest), 'utf8'));
+    if (
+      manifest.profile !== profile ||
+      manifest.size !== Number(row.size) ||
+      !Array.isArray(manifest.verified) ||
+      manifest.verified.length !== Number(row.size) ||
+      manifest.verified.some(
+        (entry: { id?: string }) =>
+          typeof entry.id !== 'string' || !/^\d{1,12}$/.test(entry.id),
+      )
+    )
+      throw new Error('Invalid retained cohort membership.');
+    excludedIds.push(
+      ...manifest.verified.map((entry: { id: string }) => entry.id),
+    );
+  }
   const directory = join(root, 'cohorts', profile);
   const path = join(directory, 'rollout-current.json');
   const previous = await readFile(path, 'utf8')
@@ -45,7 +68,10 @@ export async function pendingCohort(
   if (previous?.profile === profile && previous.size === size) {
     if (!Number.isSafeInteger(previous.startedAt) || previous.startedAt <= 0)
       throw new Error('Invalid retained rollout boundary.');
-    return previous as CohortProgress;
+    const resumed = { ...previous, excludedIds } as CohortProgress;
+    if (JSON.stringify(previous.excludedIds) !== JSON.stringify(excludedIds))
+      await durableWrite(path, JSON.stringify(resumed));
+    return resumed;
   }
   const latest = queue.db
     .prepare('SELECT MAX(completed_at) AS at FROM jobs')
@@ -54,6 +80,7 @@ export async function pendingCohort(
     profile,
     size,
     startedAt: Math.max(Date.now(), Number(latest?.at ?? 0) + 1),
+    excludedIds,
   };
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await durableWrite(path, JSON.stringify(progress));
@@ -61,11 +88,14 @@ export async function pendingCohort(
 }
 
 export function cohortJobs(queue: NotesQueue, progress: CohortProgress) {
-  const jobs = queue.db
-    .prepare(
-      "SELECT id,status,source_hash,notes_hash,profile,route FROM jobs WHERE status='completed' AND profile=? AND route='server-high' AND completed_at>=? ORDER BY completed_at,id",
-    )
-    .all(progress.profile, progress.startedAt) as CohortJob[];
+  const excluded = new Set(progress.excludedIds ?? []);
+  const jobs = (
+    queue.db
+      .prepare(
+        "SELECT id,status,source_hash,notes_hash,profile,route FROM jobs WHERE status='completed' AND profile=? AND route='server-high' AND completed_at>=? ORDER BY completed_at,id",
+      )
+      .all(progress.profile, progress.startedAt) as CohortJob[]
+  ).filter((job) => !excluded.has(job.id));
   if (jobs.length > progress.size)
     throw new Error('Candidate cohort exceeded its publication bound.');
   return jobs;
