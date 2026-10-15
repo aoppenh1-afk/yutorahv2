@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
+import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { notesCredential } from '../lib/tidb-notes';
 import { TiDBNotesStore } from '../lib/tidb-notes-store';
@@ -13,17 +14,38 @@ import { normalize, upstream } from '../lib/yutorah';
 import type { RawShiur } from '../lib/api-types';
 import { checkSearchSchema } from './check-search-schema';
 
-export async function syncNotesSearch(args = process.argv.slice(2)) {
-  const allowed = new Set(['--follow', '--batch']);
-  for (let i = 0; i < args.length; i++) {
-    if (!allowed.has(args[i]))
-      throw new Error('Use --follow or --batch NUMBER.');
-    if (args[i] === '--batch') i++;
-  }
-  const position = args.indexOf('--batch');
-  const batch = position >= 0 ? Number(args[position + 1]) : 10;
+export function notesSyncOptions(args: string[]) {
+  const { values } = parseArgs({
+    args,
+    options: {
+      follow: { type: 'boolean', default: false },
+      check: { type: 'boolean', default: false },
+      batch: { type: 'string', default: '10' },
+      'max-pages': { type: 'string', default: '1000' },
+      'max-minutes': { type: 'string', default: '20' },
+    },
+  });
+  const batch = Number(values.batch);
+  const maxPages = Number(values['max-pages']);
+  const maxMinutes = Number(values['max-minutes']);
   if (!Number.isInteger(batch) || batch < 1 || batch > 20)
     throw new RangeError('Choose --batch between 1 and 20.');
+  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 1000)
+    throw new RangeError('Choose --max-pages between 1 and 1000.');
+  if (!Number.isFinite(maxMinutes) || maxMinutes < 1 || maxMinutes > 20)
+    throw new RangeError('Choose --max-minutes between 1 and 20.');
+  return {
+    batch,
+    maxPages,
+    maxMinutes,
+    follow: values.follow,
+    check: values.check,
+  };
+}
+
+export async function syncNotesSearch(args = process.argv.slice(2)) {
+  const options = notesSyncOptions(args);
+  const { batch } = options;
   const credential = notesCredential();
   if (!credential)
     throw new Error('Configure the read-only TIDB_NOTES_* connection.');
@@ -50,10 +72,25 @@ export async function syncNotesSearch(args = process.argv.slice(2)) {
   process.once('SIGTERM', stop);
   try {
     await checkSearchSchema(db);
+    if (options.check) {
+      await source.headersAfter(0, 1);
+      console.log(
+        'Notes search schema and read-only source connection verified.',
+      );
+      return;
+    }
     do {
+      const deadline = Date.now() + options.maxMinutes * 60_000;
+      let pages = 0;
       try {
         let complete = false;
-        while (!complete && !abort.signal.aborted) {
+        while (
+          !complete &&
+          !abort.signal.aborted &&
+          pages < options.maxPages &&
+          Date.now() < deadline
+        ) {
+          pages++;
           const progress = await syncNotesPage(
             db,
             source,
@@ -76,13 +113,17 @@ export async function syncNotesSearch(args = process.argv.slice(2)) {
           if (progress.busy)
             await delay(1000, undefined, { signal: abort.signal });
         }
+        if (!complete && !abort.signal.aborted)
+          console.log(
+            JSON.stringify({ event: 'notes_search_checkpoint', pages }),
+          );
         if (complete) {
           for (let sweep = 0; sweep < 100 && !abort.signal.aborted; sweep++)
             if (!(await cleanNotesIndex(db)).meta.changes) break;
         }
       } catch (error) {
         if (abort.signal.aborted) break;
-        if (!args.includes('--follow')) throw error;
+        if (!options.follow) throw error;
         console.error(
           JSON.stringify({
             event: 'notes_search_sync_failed',
@@ -90,7 +131,7 @@ export async function syncNotesSearch(args = process.argv.slice(2)) {
           }),
         );
       }
-      if (!args.includes('--follow') || abort.signal.aborted) break;
+      if (!options.follow || abort.signal.aborted) break;
       await delay(900_000, undefined, { signal: abort.signal });
     } while (!abort.signal.aborted);
   } catch (error) {
