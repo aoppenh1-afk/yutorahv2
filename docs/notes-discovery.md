@@ -155,8 +155,8 @@ URL filters, and filter removal.
 
 Inside the Shiur, saved-search/preview controls, and Downloads load on demand.
 The initial Home JavaScript cap remains 300,000 gzip bytes. The all-chunk cap
-increases from 425,000 to 430,000 for the new deferred interface and its module
-boundaries. Exporter, individual-chunk, and CSS caps remain unchanged.
+remains 425,000 bytes. Shared framework and UI chunks reduce compression overhead
+while keeping export, individual-chunk, and CSS caps unchanged.
 
 The initial notes-discovery validation passed 20 database/notes checks, four
 mobile-sheet checks, and 31 download/offline checks, with zero skips. The unified

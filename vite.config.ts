@@ -10,8 +10,8 @@ const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
 
 const { d1, r2 } = hostingConfig;
 
-// Share the icons' SVG data and module boilerplate across screens instead of
-// paying for many separately compressed, tiny icon chunks.
+// Compress shared framework, UI and icon modules together across screens.
+// Keep React DOM separate so consolidation respects the individual-chunk cap.
 const environments = {
   client: {
     build: {
@@ -19,6 +19,18 @@ const environments = {
         output: {
           codeSplitting: {
             groups: [
+              {
+                name: 'react-dom',
+                test: /[/\\]node_modules[/\\]react-dom[/\\]/,
+              },
+              {
+                name: 'vinext-client',
+                test: /[/\\]node_modules[/\\]vinext[/\\]/,
+              },
+              {
+                name: 'ui-primitives',
+                test: /[/\\]node_modules[/\\](?:@base-ui|@floating-ui)[/\\]/,
+              },
               {
                 name: 'icons',
                 test: /[/\\]node_modules[/\\]lucide-react[/\\]/,
