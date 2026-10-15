@@ -306,7 +306,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
           await page.locator('audio').evaluate((audio) => {
             // Only the explicit canplay below may end simulated buffering.
             // Queued native recovery events otherwise race this assertion in CI.
-            for (const type of ['canplay', 'playing'])
+            for (const type of ['canplay', 'playing', 'seeked', 'timeupdate'])
               audio.addEventListener(
                 type,
                 (event) => {
@@ -334,6 +334,54 @@ void test('player controls stop playback and the phone dialog stays inside the b
         }
       },
     );
+    for (const recovery of ['seeked', 'timeupdate']) {
+      await t.test(
+        `buffering recovery through ${recovery} restores Pause without canplay or playing`,
+        async () => {
+          const { context, page } = await openPlayer({
+            width: 390,
+            height: 844,
+          });
+          try {
+            await page.locator('audio').evaluate((audio) => {
+              for (const type of ['canplay', 'playing', 'seeked', 'timeupdate'])
+                audio.addEventListener(
+                  type,
+                  (event) => {
+                    if (event.isTrusted) event.stopImmediatePropagation();
+                  },
+                  { capture: true },
+                );
+              audio.dispatchEvent(new Event('waiting'));
+            });
+            await page.waitForFunction(() =>
+              document.querySelector('.player .spin'),
+            );
+            assert.equal(
+              await page.locator('audio').evaluate((audio) => audio.paused),
+              false,
+            );
+            await page
+              .locator('audio')
+              .evaluate(
+                (audio, type) => audio.dispatchEvent(new Event(type)),
+                recovery,
+              );
+            await page
+              .getByRole('button', { name: 'Pause', exact: true })
+              .waitFor({ timeout: 2000 });
+            await page
+              .getByRole('button', { name: 'Pause', exact: true })
+              .click();
+            await page.waitForFunction(
+              () => document.querySelector('audio').paused,
+            );
+          } finally {
+            await context.close();
+          }
+        },
+      );
+    }
     await t.test(
       'active mobile shiur keeps its title and play button colors',
       async () => {

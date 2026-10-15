@@ -603,6 +603,12 @@ export function useAudio(
       navigator.mediaSession.playbackState = 'none';
     };
   }, [active, next, persist, seek, stop]);
+  const finishBuffering = () => {
+    const el = audio.current;
+    if (!activeRef.current || !el || el.seeking || el.readyState < 3) return;
+    setPlaying(!el.paused);
+    setLoading(false);
+  };
   const handlers = {
     onLoadedMetadata: () => {
       if (!activeRef.current) return;
@@ -628,12 +634,15 @@ export function useAudio(
     onTimeUpdate: () => {
       if (!activeRef.current) return;
       const el = audio.current!;
+      // WebKit can resume a seek without another canplay or playing event.
+      finishBuffering();
       setTime(el.currentTime);
       if (Date.now() - lastSave.current >= 5000) {
         lastSave.current = Date.now();
         persist(true);
       }
     },
+    onSeeked: finishBuffering,
     onPlaying: () => {
       if (!activeRef.current) {
         audio.current?.pause();
