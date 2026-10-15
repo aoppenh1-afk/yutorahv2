@@ -654,7 +654,11 @@ export function useAudio(
       setLoading(true);
       setPlaying(false);
     },
-    onCanPlay: () => setLoading(false),
+    onCanPlay: () => {
+      setLoading(false);
+      // A seek may finish buffering without another playing event in WebKit.
+      setPlaying(!audio.current!.paused);
+    },
     onError: () => {
       if (!activeRef.current) return;
       setPlaying(false);

@@ -299,6 +299,32 @@ async function closeAndVerify(page, minSeconds = 42) {
 void test('player controls stop playback and the phone dialog stays inside the built viewport', async (t) => {
   try {
     await t.test(
+      'buffering recovery restores Pause without another playing event',
+      async () => {
+        const { context, page } = await openPlayer({ width: 390, height: 844 });
+        try {
+          await page.locator('audio').evaluate((audio) => {
+            audio.dispatchEvent(new Event('waiting'));
+          });
+          await page.waitForFunction(() =>
+            document.querySelector('.player .spin'),
+          );
+          await page.locator('audio').evaluate((audio) => {
+            audio.dispatchEvent(new Event('canplay'));
+          });
+          await page
+            .getByRole('button', { name: 'Pause', exact: true })
+            .waitFor();
+          assert.equal(
+            await page.locator('audio').evaluate((audio) => audio.paused),
+            false,
+          );
+        } finally {
+          await context.close();
+        }
+      },
+    );
+    await t.test(
       'active mobile shiur keeps its title and play button colors',
       async () => {
         const { context, page } = await openPlayer(
