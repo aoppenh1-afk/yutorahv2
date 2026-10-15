@@ -15,8 +15,9 @@ type RuntimeEvent = {
     field?: string;
     delta?: string;
     messageID?: string;
-    info?: { id?: string; role?: string };
+    info?: { id?: string; role?: string; sessionID?: string };
     part?: {
+      id?: string;
       type?: string;
       text?: string;
       sessionID?: string;
@@ -35,6 +36,16 @@ export class SharedSessionMonitor {
   private connected = false;
   private nextPoll = 0;
   private assistants = new Map<string, Set<string>>();
+  private progress = new Map<
+    string,
+    {
+      at: number;
+      sizes: Map<string, number>;
+      historyBytes: number;
+      failed: boolean;
+      timer: ReturnType<typeof setInterval>;
+    }
+  >();
   private connections = 0;
   private permissionReads = 0;
   private historyReads = 0;
@@ -50,7 +61,13 @@ export class SharedSessionMonitor {
   constructor(
     readonly api: ServerAPI,
     readonly stream?: EventStream,
-    readonly settings = {
+    readonly settings: {
+      pollMs: number;
+      reconcileMs: number;
+      retryMs: number;
+      idleMs: number;
+      stallMs?: number;
+    } = {
       pollMs: 2000,
       reconcileMs: 30000,
       retryMs: 1000,
@@ -62,6 +79,23 @@ export class SharedSessionMonitor {
     await this.stopping;
     this.watchers.set(id, watcher);
     this.assistants.set(id, new Set());
+    const stallMs = this.settings.stallMs ?? 180_000;
+    const progress = {
+      at: Date.now(),
+      sizes: new Map<string, number>(),
+      historyBytes: 0,
+      failed: false,
+      timer: setInterval(
+        () => {
+          if (!progress.failed && Date.now() - progress.at >= stallMs) {
+            progress.failed = true;
+            watcher.fail(new PipelineFailure('timeout'));
+          }
+        },
+        Math.min(1000, Math.max(1, stallMs / 4)),
+      ),
+    };
+    this.progress.set(id, progress);
     if (!this.controller) {
       const controller = (this.controller = new AbortController());
       // Register the event listener before sending the first prompt.
@@ -72,6 +106,8 @@ export class SharedSessionMonitor {
     }
     await this.ready;
     return async () => {
+      clearInterval(progress.timer);
+      this.progress.delete(id);
       this.watchers.delete(id);
       this.assistants.delete(id);
       if (!this.watchers.size && this.controller) {
@@ -123,9 +159,18 @@ export class SharedSessionMonitor {
     }
   }
 
+  private output(id: string, key: string, bytes: number, delta = false) {
+    const progress = this.progress.get(id);
+    if (!progress || progress.failed || bytes <= 0) return;
+    if (!delta && bytes <= (progress.sizes.get(key) ?? 0)) return;
+    if (!delta) progress.sizes.set(key, bytes);
+    progress.at = Date.now();
+    this.watchers.get(id)?.output();
+  }
+
   private event(event: RuntimeEvent) {
     const p = event.properties;
-    const id = p?.sessionID ?? p?.part?.sessionID;
+    const id = p?.sessionID ?? p?.part?.sessionID ?? p?.info?.sessionID;
     const watcher = id ? this.watchers.get(id) : undefined;
     if (!watcher) return;
     if (
@@ -157,10 +202,14 @@ export class SharedSessionMonitor {
         ['text', 'reasoning'].includes(p.part.type ?? '') &&
         p.part.text
       )
-        watcher.output();
+        this.output(
+          id!,
+          p.part.id ?? `${p.part.messageID}:${p.part.type}`,
+          p.part.text.length,
+        );
     }
     if (event.type === 'message.part.delta' && assistant && p?.delta)
-      watcher.output();
+      this.output(id!, '', p.delta.length, true);
   }
 
   private async poll(signal: AbortSignal) {
@@ -206,6 +255,28 @@ export class SharedSessionMonitor {
               undefined,
               signal,
             )) as RuntimeMessage[];
+            // Re-reading the same partial history is not new output. Only growing
+            // assistant text/reasoning extends the per-request silence deadline.
+            const bytes = messages.reduce(
+              (sum, m) =>
+                sum +
+                (m.info?.role === 'assistant'
+                  ? (m.parts ?? []).reduce(
+                      (n, p) =>
+                        n +
+                        (['text', 'reasoning'].includes(p.type)
+                          ? (p.text?.length ?? 0)
+                          : 0),
+                      0,
+                    )
+                  : 0),
+              0,
+            );
+            const progress = this.progress.get(id);
+            if (progress && bytes > progress.historyBytes) {
+              progress.historyBytes = bytes;
+              this.output(id, 'history', bytes);
+            }
             for (const m of messages)
               if (m.info?.role === 'assistant' && m.info.id)
                 this.assistants.get(id)?.add(m.info.id);

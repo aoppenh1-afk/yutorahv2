@@ -1376,3 +1376,32 @@ void test('unexpired generation from a previous coordinator consumes admission c
   assert.equal(f.calls, 0);
   assert.equal(f.queue.owns(previous), true);
 });
+
+void test('a catalog timeout cannot starve transcript fetchers with discovered work', async (t) => {
+  const f = await fixture(t);
+  f.queue.enqueue([{ id: '1' }]);
+  const result = await runCoordinator({
+    root: f.root,
+    queue: f.queue,
+    pipeline: f.pipeline,
+    signal: AbortSignal.timeout(700),
+    limit: 1,
+    follow: true,
+    inventoryDuringBoundedRun: true,
+    settings: {
+      ...defaults,
+      fetchSpacingMs: 0,
+      inventoryPaceMs: 10000,
+      minFreeMemoryMiB: 0,
+    },
+    memory: async () => 10000,
+    disk: async () => 10 * 1024 ** 3,
+    inventory: async () => {
+      throw Object.assign(new Error('catalog timeout'), {
+        name: 'TimeoutError',
+      });
+    },
+  });
+  assert.equal(result.jobs[0]?.status, 'completed');
+  assert.equal(f.queue.available('yutorah'), true);
+});

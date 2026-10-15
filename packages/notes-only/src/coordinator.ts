@@ -451,12 +451,14 @@ export async function runCoordinator(input: {
             () => {},
             (error) => {
               const e = classify(error, 'yutorah');
-              queue.cooldown(
-                'yutorah',
-                e.retryAfterMs || 30_000,
-                e.code,
-                e.pause,
+              // A failed catalog page must not stop VTT preparation. Only explicit
+              // upstream throttling/authentication applies across both endpoints.
+              nextInventory = Math.max(
+                nextInventory,
+                Date.now() + (e.retryAfterMs || 30_000),
               );
+              if (e.pause || e.retryAfterMs)
+                queue.cooldown('yutorah', e.retryAfterMs, e.code, e.pause);
               log({ stage: 'inventory', error: e.code });
             },
           )

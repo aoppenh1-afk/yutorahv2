@@ -697,3 +697,149 @@ void test('local JSON transport waits for delayed headers, enforces cancellation
     /loopback/,
   );
 });
+
+void test('silent provider sessions time out despite healthy SSE heartbeats and unchanged reconciliation history', async () => {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const errors: string[] = [];
+  const monitor = new SharedSessionMonitor(
+    async (path) =>
+      path === '/permission'
+        ? []
+        : [
+            {
+              info: { role: 'assistant', id: 'msg1' },
+              parts: [{ type: 'reasoning', text: 'initial reasoning' }],
+            },
+          ],
+    async () =>
+      new ReadableStream({
+        start(c) {
+          controller = c;
+        },
+      }),
+    { pollMs: 5, reconcileMs: 10, retryMs: 5, idleMs: 1000, stallMs: 60 },
+  );
+  const release = await monitor.watch('sesStalled', {
+    fail: (error) => errors.push((error as Error).message),
+    output: () => {},
+  });
+  const heartbeat = setInterval(
+    () =>
+      controller.enqueue(
+        new TextEncoder().encode('data: {"type":"server.heartbeat"}\n\n'),
+      ),
+    5,
+  );
+  try {
+    await delay(180);
+    assert.deepEqual(
+      errors,
+      ['timeout'],
+      'unchanged reasoning must not keep a worker occupied',
+    );
+  } finally {
+    clearInterval(heartbeat);
+    await release();
+  }
+});
+
+void test('growing assistant output keeps a long request alive beyond the silence deadline', async () => {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const errors: unknown[] = [];
+  const monitor = new SharedSessionMonitor(
+    async () => [],
+    async () =>
+      new ReadableStream({
+        start(c) {
+          controller = c;
+        },
+      }),
+    { pollMs: 5, reconcileMs: 10, retryMs: 5, idleMs: 1000, stallMs: 80 },
+  );
+  const release = await monitor.watch('sesGrowing', {
+    fail: (e) => errors.push(e),
+    output: () => {},
+  });
+  const send = (event: unknown) =>
+    controller.enqueue(
+      new TextEncoder().encode('data: ' + JSON.stringify(event) + '\n\n'),
+    );
+  send({
+    type: 'message.updated',
+    properties: {
+      info: { sessionID: 'sesGrowing', id: 'msg1', role: 'assistant' },
+    },
+  });
+  const progress = setInterval(
+    () =>
+      send({
+        type: 'message.part.delta',
+        properties: {
+          sessionID: 'sesGrowing',
+          messageID: 'msg1',
+          delta: 'more output',
+        },
+      }),
+    15,
+  );
+  try {
+    await delay(220);
+    assert.deepEqual(errors, []);
+  } finally {
+    clearInterval(progress);
+    await release();
+  }
+});
+
+void test('a silent provider request aborts and deletes its owned session before releasing the worker', async (t) => {
+  const { queue, job } = await setup(t);
+  let aborted = false;
+  let deleted = false;
+  const api: ServerAPI = async (path, method = 'GET', body, signal) => {
+    if (path === '/session' && method === 'POST')
+      return { id: 'sesSilent', title: (body as { title: string }).title };
+    if (path === '/permission') return [];
+    if (path === '/session/status')
+      return aborted ? {} : { sesSilent: { type: 'busy' } };
+    if (path.endsWith('/message') && method === 'POST')
+      return new Promise((_, reject) =>
+        signal!.addEventListener('abort', () => reject(new Error('aborted')), {
+          once: true,
+        }),
+      );
+    if (path.endsWith('/message')) return [];
+    if (path.endsWith('/abort')) {
+      aborted = true;
+      return true;
+    }
+    if (method === 'DELETE') {
+      assert.equal(aborted, true);
+      deleted = true;
+      return true;
+    }
+    assert.fail(path);
+  };
+  const adapter = new ServerSessionAdapter(api, queue, 'owned', 5000);
+  adapter.monitor.settings.stallMs = 40;
+  const started = Date.now();
+  await assert.rejects(
+    adapter.request(
+      job,
+      'silent',
+      'full transcript',
+      new AbortController().signal,
+    ),
+    /timeout/,
+  );
+  assert.ok(
+    Date.now() - started < 1000,
+    'silence must be detected before the full request deadline',
+  );
+  assert.equal(deleted, true);
+  assert.equal(
+    queue.db
+      .prepare("SELECT COUNT(*) n FROM sessions WHERE state!='deleted'")
+      .get()?.n,
+    0,
+  );
+});
