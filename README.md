@@ -13,10 +13,15 @@ Existing transcript/archive readers remain for previously published content. The
 Completed transcripts remain available independently of the notes worker. Hosts that use the HTTP reader can instead configure
 `TRANSCRIPT_API_URL` and `TRANSCRIPT_API_TOKEN` as described in the operations guide.
 
-Completed transcripts also have a **Sources** tab with conservative Sefaria
-links and timestamped mentions. Its optional source-sheet preview adds source
-text, categories, edition attribution, HTML download, and print/PDF. See the
-[implementation, precision policy, API research, and deployment migration](docs/sefaria-sources.md).
+The **Sources** tab checks official or archived transcripts and published notes.
+It verifies spoken references and distinctive readings against Sefaria, with
+separate switches for links and source sheets under Settings. The sheet opens in
+Hebrew with an optional English toggle. Download formats and customization are
+behind Download; selection, ordering, notes, and manual corrections are in the
+options menu. See [configuration, verification policy, and limitations](docs/sefaria-sources.md).
+The `Prepare mekoros` GitHub Actions workflow can prepare sheets every 30 minutes
+using `SOURCES_DATABASE_URL`, without running an AI model or using the notes VM.
+See [runner setup and activation](docs/sefaria-sources.md#prepare-sheets-on-github-actions).
 
 Requires Node 22.13 or newer.
 

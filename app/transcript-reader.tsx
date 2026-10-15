@@ -30,7 +30,8 @@ import { useOnline } from '@/lib/connectivity';
 import { timeLabel } from '@/lib/library';
 import type { ContentStatus } from '../packages/transcription/src/public-content';
 import { indexSourceHighlights } from '@/lib/source-highlights';
-import { useTranscriptSources } from '@/hooks/use-transcript-sources';
+import { useSourceCreator } from '@/hooks/use-source-creator';
+import { remarkSourceLinks } from '@/lib/source-note-links';
 import {
   remarkNotesDirection,
   stripNotesDirectionControls,
@@ -60,14 +61,19 @@ type HostedStudyNote = {
   status: string;
   markdown: string | null;
   sourceHash?: string;
+  notesHash?: string;
 };
 const hostedNotesCache = new BoundedCache<HostedStudyNote>(64, 4 * 1024 * 1024);
 export function TranscriptReader({
   shiurId,
   onSeek,
+  title,
+  teacher,
 }: {
   shiurId: number;
   onSeek: (seconds: number) => void;
+  title?: string;
+  teacher?: string;
 }) {
   const online = useOnline();
   const [content, setContent] = useState<Content | null>(null);
@@ -103,7 +109,6 @@ export function TranscriptReader({
       });
     return () => abort.abort();
   }, [shiurId, officialRetry, online]);
-  const [sourcesEnabled, setSourcesEnabled] = useState(false);
   const [state, setState] = useState('Loading transcript…');
   const [retry, setRetry] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -161,18 +166,22 @@ export function TranscriptReader({
     content?.source === 'official-yutorah' || !content?.notes?.markdown
       ? hostedNote
       : content.notes;
+  const displayedNotesVersion =
+    displayedNotes === hostedNote ? hostedNote?.notesHash : content?.version;
   useEffect(() => {
     if (tabChosen.current || tab !== 'notes' || loading || !content) return;
     if (!hostedNote || hostedNote.status === 'loading') return;
     if (!displayedNotes?.markdown) setTab('transcript');
   }, [tab, loading, content, hostedNote, displayedNotes]);
   const last = useRef<{ id: number; content: Content } | null>(null);
-  const sources = useTranscriptSources(
+  const sources = useSourceCreator({
     shiurId,
-    content?.transcriptId,
-    online && sourcesEnabled && content?.source !== 'official-yutorah',
-    content?.version,
-  );
+    transcriptId: content?.transcriptId,
+    version: content?.version,
+    source: content?.source,
+    enabled: online && !loading,
+    onRevisionChange: () => setRetry((n) => n + 1),
+  });
   useEffect(() => {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -185,7 +194,6 @@ export function TranscriptReader({
       setContent(null);
       tabChosen.current = false;
       setTab('notes');
-      setSourcesEnabled(false);
     }
     setLoading(!current);
     setRefreshError('');
@@ -265,9 +273,6 @@ export function TranscriptReader({
           readerVersions.set(shiurId + ':' + data.version, data, 60 * 60_000);
         last.current = { id: shiurId, content: data };
         setContent(data);
-        if (data.source === 'official-yutorah') {
-          setSourcesEnabled(false);
-        }
         setState('');
         setRefreshError('');
         pendingNotes =
@@ -324,7 +329,20 @@ export function TranscriptReader({
       <ScreenBoundary>
         <Markdown
           skipHtml
-          remarkPlugins={[remarkNotesDirection]}
+          remarkPlugins={[
+            [
+              remarkSourceLinks,
+              {
+                sources:
+                  sources.features.links &&
+                  displayedNotesVersion &&
+                  displayedNotesVersion === sources.result?.notesVersion
+                    ? sources.result.sources
+                    : [],
+              },
+            ],
+            remarkNotesDirection,
+          ]}
           allowedElements={[
             'h1',
             'h2',
@@ -415,88 +433,92 @@ export function TranscriptReader({
                 Summaries
               </button>
             )}
-            {online && content && content.source !== 'official-yutorah' && (
+            {online &&
+              (sources.available.links ||
+                sources.available.sheets ||
+                !sources.configured ||
+                sources.error) && (
+                <button
+                  type="button"
+                  aria-pressed={tab === 'sources'}
+                  onClick={() => choose('sources')}
+                >
+                  Sources
+                </button>
+              )}
+          </div>
+        </div>
+        {tab !== 'sources' && (
+          <div className="study-toolbar">
+            <p className="study-note-label">
+              {tab === 'notes' && displayedNotes?.markdown
+                ? 'Auto-generated from the transcript.'
+                : tab === 'transcript' && content?.source === 'official-yutorah'
+                  ? 'From YUTorah, auto-generated.'
+                  : tab === 'summary' && official
+                    ? 'From YUTorah, auto-generated.'
+                    : ''}
+            </p>
+            <div className="study-tools">
+              {tab === 'transcript' && content && online && (
+                <a
+                  className="study-tool is-icon"
+                  href={`/api/transcript-text?id=${shiurId}${content.version ? '&version=' + content.version : ''}${content.source === 'official-yutorah' ? '&source=official-yutorah' : ''}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="Open complete text"
+                  title="Open complete text"
+                >
+                  <ExternalLink size={15} />
+                </a>
+              )}
+              {tab === 'transcript' && content && (
+                <button
+                  className="study-tool"
+                  type="button"
+                  onClick={download}
+                  aria-label="Download"
+                  title="Download transcript"
+                >
+                  <Download size={15} />
+                  <span>Download</span>
+                </button>
+              )}
+              {tab === 'notes' && displayedNotes?.markdown && online && (
+                <NotesDownload
+                  busy={exporting}
+                  onDownload={(format) => void downloadNotes(format)}
+                />
+              )}
+              {tab === 'notes' && displayedNotes?.markdown && (
+                <button
+                  className="study-tool"
+                  type="button"
+                  onClick={() => setExpanded(true)}
+                  aria-label="Expand notes"
+                  title="Expand notes"
+                >
+                  <Maximize2 size={15} />
+                  <span>Expand</span>
+                </button>
+              )}
               <button
+                className="study-tool is-icon"
                 type="button"
-                aria-pressed={tab === 'sources'}
+                disabled={!online}
+                aria-label="Refresh"
+                title="Refresh"
                 onClick={() => {
-                  choose('sources');
-                  setSourcesEnabled(true);
+                  setRetry((n) => n + 1);
+                  setOfficialRetry((n) => n + 1);
+                  sources.retry();
                 }}
               >
-                Sources
+                <RotateCw size={15} />
               </button>
-            )}
+            </div>
           </div>
-        </div>
-        <div className="study-toolbar">
-          <p className="study-note-label">
-            {tab === 'notes' && displayedNotes?.markdown
-              ? 'Auto-generated from the transcript.'
-              : tab === 'transcript' && content?.source === 'official-yutorah'
-                ? 'From YUTorah, auto-generated.'
-                : tab === 'summary' && official
-                  ? 'From YUTorah, auto-generated.'
-                  : ''}
-          </p>
-          <div className="study-tools">
-            {tab === 'transcript' && content && online && (
-              <a
-                className="study-tool is-icon"
-                href={`/api/transcript-text?id=${shiurId}${content.version ? '&version=' + content.version : ''}${content.source === 'official-yutorah' ? '&source=official-yutorah' : ''}`}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Open complete text"
-                title="Open complete text"
-              >
-                <ExternalLink size={15} />
-              </a>
-            )}
-            {tab === 'transcript' && content && (
-              <button
-                className="study-tool"
-                type="button"
-                onClick={download}
-                aria-label="Download"
-                title="Download transcript"
-              >
-                <Download size={15} />
-                <span>Download</span>
-              </button>
-            )}
-            {tab === 'notes' && displayedNotes?.markdown && online && (
-              <NotesDownload
-                busy={exporting}
-                onDownload={(format) => void downloadNotes(format)}
-              />
-            )}
-            {tab === 'notes' && displayedNotes?.markdown && (
-              <button
-                className="study-tool"
-                type="button"
-                onClick={() => setExpanded(true)}
-                aria-label="Expand notes"
-                title="Expand notes"
-              >
-                <Maximize2 size={15} />
-                <span>Expand</span>
-              </button>
-            )}
-            <button
-              className="study-tool is-icon"
-              type="button"
-              disabled={!online}
-              aria-label="Refresh"
-              title="Refresh"
-              onClick={() => {
-                setRetry((n) => n + 1);
-                setOfficialRetry((n) => n + 1);
-              }}
-            >
-              <RotateCw size={15} />
-            </button>
-          </div>
-        </div>
+        )}
         {!online && (
           <p className="study-note-label">
             Reading saved content offline. Reconnect and refresh to check for
@@ -541,7 +563,18 @@ export function TranscriptReader({
             {refreshError} Your loaded transcript is still available.
           </output>
         )}
-        {tab === 'summary' && official ? (
+        {tab === 'sources' ? (
+          <ScreenBoundary>
+            <SourcesPanel
+              key={shiurId}
+              shiurId={shiurId}
+              title={title || content?.title || `Shiur ${shiurId}`}
+              teacher={teacher || content?.teacher || 'YUTorah'}
+              creator={sources}
+              onSeek={onSeek}
+            />
+          </ScreenBoundary>
+        ) : tab === 'summary' && official ? (
           <section className="official-summaries">
             {official.summary && <p dir="auto">{official.summary}</p>}
             {official.chapters.map((c, i) => (
@@ -583,20 +616,6 @@ export function TranscriptReader({
             shiurId={shiurId}
             onSeek={onSeek}
           />
-        ) : content && tab === 'sources' ? (
-          <ScreenBoundary>
-            <SourcesPanel
-              key={content.transcriptId}
-              shiurId={shiurId}
-              title={content.title}
-              teacher={content.teacher}
-              result={sources.result}
-              error={sources.error}
-              recovering={sources.recovering}
-              onRetry={sources.retry}
-              onSeek={onSeek}
-            />
-          </ScreenBoundary>
         ) : displayedNotes?.markdown ? (
           notesContent
         ) : (
@@ -666,18 +685,19 @@ function TranscriptSegments({
   onSeek,
 }: {
   content: Content;
-  sources: ReturnType<typeof useTranscriptSources>;
+  sources: ReturnType<typeof useSourceCreator>;
   shiurId: number;
   onSeek: (seconds: number) => void;
 }) {
   const highlights = useMemo(
     () =>
       indexSourceHighlights(
-        sources.result?.transcriptId === content.transcriptId
+        sources.features.links &&
+          sources.result?.transcriptId === content.transcriptId
           ? sources.result.sources
           : [],
       ),
-    [sources.result, content.transcriptId],
+    [sources.result, sources.features.links, content.transcriptId],
   );
   const [selected, setSelected] = useState(0);
   const [follow, setFollow] = useState(true);
@@ -699,7 +719,11 @@ function TranscriptSegments({
         .slice(page * 100, (page + 1) * 100)
         .map((segment, offset) => {
           const index = page * 100 + offset;
-          const spans = highlights.get(index) ?? [];
+          const spans = (highlights.get(index) ?? []).filter(
+            (span) =>
+              !span.text ||
+              segment.text.slice(span.startChar, span.endChar) === span.text,
+          );
           let position = 0;
           const text = spans.flatMap((span) => {
             const before = segment.text.slice(position, span.startChar);

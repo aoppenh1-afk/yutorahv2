@@ -1,0 +1,45 @@
+name: Prepare mekoros
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: 'Optional comma-separated shiur IDs to prepare first'
+        type: string
+        default: ''
+      check:
+        description: 'Only verify database configuration'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: prepare-mekoros
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SOURCES_SITE_URL: ${{ vars.SOURCES_SITE_URL || 'https://yutorah.vercel.app' }}
+      SOURCES_DATABASE_URL: ${{ secrets.SOURCES_DATABASE_URL }}
+      SOURCE_IDS: ${{ inputs.ids || '' }}
+      SOURCE_CHECK: ${{ inputs.check || false }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Check database configuration
+        run: |
+          test -n "$SOURCES_DATABASE_URL" || { echo 'Add the SOURCES_DATABASE_URL repository secret using the website search database connection.'; exit 1; }
+      - run: npm ci
+      - name: Prepare sheets directly on the GitHub runner
+        run: |
+          if [ "$SOURCE_CHECK" = 'true' ]; then
+            npm run sources:prepare -- --check
+          else
+            npm run sources:prepare -- --url "$SOURCES_SITE_URL" --ids "$SOURCE_IDS" --max-minutes 20 --max-jobs 60 --catalog-pages 2
+          fi
