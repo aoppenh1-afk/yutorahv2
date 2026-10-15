@@ -103,7 +103,11 @@ npm run search:schema:check
 # search_note_* and search_notes_* tables. The schema owner also works here.
 npm run notes:search:sync
 
-# After the first scan completes, keep an operator process running:
+# Read-only preflight, then a bounded, resumable refresh:
+npm run notes:search:sync -- --check
+npm run notes:search:sync -- --batch 20 --max-pages 500 --max-minutes 10
+
+# For a continuously supervised operator process:
 npm run notes:search:sync -- --follow
 ```
 
@@ -112,6 +116,19 @@ variable is absent. It refuses to infer a writer from `SEARCH_DATABASE_URL`.
 The website role receives SELECT on the new public index tables. Its index-write
 privileges are revoked by migration `006_notes_search.sql`.
 No new browser credentials or model calls are needed.
+
+The `Refresh written notes search` Actions workflow runs hourly only when the
+repository variable `NOTES_SEARCH_SYNC_ENABLED` is `true`. Configure the dedicated
+`NOTES_SEARCH_DATABASE_URL` writer and read-only `TIDB_NOTES_*` secrets, run its
+manual read-only check, and validate a full inventory before enabling it. Each
+run checkpoints after at most 500 pages or ten minutes. The writer can modify
+only the derived notes-index tables and cannot change the schema or title data.
+
+Excerpt text is stored losslessly as gzip/base64 with an explicit version in
+its metadata envelope. The normalized full-text column remains indexed. Readers
+accept both compressed and legacy plain rows, decompress only the requested
+page, and enforce a 1 MiB output bound. This reduces the duplicated note text
+without changing authoritative TiDB notes, matching, ranking, or pagination.
 
 For D1, apply `drizzle/0008_notes_search.sql` through the existing Wrangler
 migration workflow. The operator uses the existing server-only

@@ -26,6 +26,10 @@ import {
 import { completeSearch } from '../lib/complete-search';
 import { normalize } from '../lib/yutorah';
 import { noFilters, resolvedSearchFilters } from '../lib/search-filters';
+import {
+  encodeSearchDocument,
+  decodeSearchDocument,
+} from '../lib/notes-search-document';
 import { notesSyncOptions } from '../scripts/sync-notes-search';
 import { migrateNotesSearchSchema } from '../scripts/migrate-search-schema';
 
@@ -182,6 +186,15 @@ async function discoveryContract(db: SearchDatabase) {
     'An incomplete first scan must stay private',
   );
   const firstSnapshot = await fill(db, initial.store, 1);
+  // A prior release's plain excerpt can coexist with compressed new documents.
+  await db
+    .prepare('UPDATE search_note_documents SET payload=?,text=? WHERE id=?')
+    .bind(
+      JSON.stringify(await metadata('2')),
+      'Prayer, teshuva and kindness.',
+      2,
+    )
+    .run();
   const terms = await searchNotes(db, 'prayer teshuva');
   assert.equal(terms.total, 2);
   assert.equal(terms.items.length, 2);
@@ -646,4 +659,41 @@ void test('scheduled notes indexing bounds work and exposes a read-only prefligh
     ['--unknown'],
   ])
     assert.throws(() => notesSyncOptions(args));
+});
+
+void test('compressed excerpts preserve Unicode, legacy inventories and decompression bounds', async () => {
+  const shiur = JSON.parse(JSON.stringify(await metadata('7')));
+  const text = 'שָׁלוֹם. Prayer and teshuva.\n'.repeat(1000);
+  const encoded = await encodeSearchDocument(shiur, text);
+  assert.ok(encoded.text.length < Buffer.byteLength(text) / 2);
+  assert.deepEqual(await decodeSearchDocument(encoded.payload, encoded.text), {
+    shiur,
+    text,
+  });
+  assert.deepEqual(await decodeSearchDocument(JSON.stringify(shiur), text), {
+    shiur,
+    text,
+  });
+  await assert.rejects(decodeSearchDocument(encoded.payload, 'not base64!'));
+  await assert.rejects(
+    decodeSearchDocument(
+      JSON.stringify({ encoding: 'unknown', shiur }),
+      encoded.text,
+    ),
+  );
+  await assert.rejects(
+    encodeSearchDocument(shiur, 'a'.repeat(1024 * 1024 + 1)),
+  );
+  const oversized = await new Response(
+    new Blob(['a'.repeat(1024 * 1024 + 1)])
+      .stream()
+      .pipeThrough(new CompressionStream('gzip')),
+  ).arrayBuffer();
+  await assert.rejects(
+    decodeSearchDocument(
+      encoded.payload,
+      Buffer.from(oversized).toString('base64'),
+    ),
+    /byte limit/,
+  );
 });

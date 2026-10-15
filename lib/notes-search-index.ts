@@ -1,5 +1,6 @@
 import type { SearchDatabase, SearchStatement } from './search-storage';
 import type { Shiur } from './yutorah';
+import { encodeSearchDocument } from './notes-search-document';
 import { notesBlocks } from './notes-document';
 import { stripNotesDirectionControls } from './notes-direction';
 import { searchText } from './search-matching';
@@ -17,7 +18,7 @@ const leaseMs = 180_000;
 const databaseClock = "CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)";
 const keyFor = (id: string, hash: string) => `${id}:${hash}:1`;
 
-/** Keep original readable text for excerpts, and the shared normalized words for FTS. */
+/** Keep lossless compressed excerpts and the shared normalized words for FTS. */
 export async function noteSearchDocument(note: SavedNote, shiur: Shiur) {
   if (shiur.id !== Number(note.shiurId) || !shiur.title.trim())
     throw new Error('The note metadata does not match its shiur.');
@@ -36,13 +37,14 @@ export async function noteSearchDocument(note: SavedNote, shiur: Shiur) {
     throw new Error(
       'This note cannot be indexed within the supported document size.',
     );
+  const stored = await encodeSearchDocument(shiur, text);
   return {
     key: keyFor(note.shiurId, note.notesHash),
     id: shiur.id,
     hash: note.notesHash,
-    text,
+    text: stored.text,
     normalized,
-    payload,
+    payload: stored.payload,
   };
 }
 
