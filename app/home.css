@@ -1709,9 +1709,23 @@
 
 @media (max-width: 767px) {
   .listening-home .discover-heading {
+    position: relative;
     flex-direction: column;
     align-items: flex-start;
     margin-top: 4px;
+  }
+  .listening-home .discover-heading-tools {
+    position: absolute;
+    top: -6px;
+    right: 0;
+  }
+  .discover-preferences {
+    width: 40px;
+    min-height: 40px;
+    padding: 0;
+  }
+  .discover-preferences span {
+    display: none;
   }
   .listening-home .discover-heading h1 {
     font-size: 34px;

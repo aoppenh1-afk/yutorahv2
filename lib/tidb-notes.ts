@@ -17,17 +17,23 @@ const unavailable = () =>
     },
   );
 const pending = new Map<string, Promise<HostedNote | null>>();
-export async function hostedNotes(
-  id: string,
-  etag?: string,
-): Promise<Response> {
+export function notesCredential() {
   const credential = {
     host: process.env.TIDB_NOTES_HOST ?? '',
     username: process.env.TIDB_NOTES_USERNAME ?? '',
     password: process.env.TIDB_NOTES_PASSWORD ?? '',
     database: process.env.TIDB_NOTES_DATABASE ?? 'yutorah_notes',
   };
-  if (!credential.host || !credential.username || !credential.password)
+  return credential.host && credential.username && credential.password
+    ? credential
+    : null;
+}
+export async function hostedNotes(
+  id: string,
+  etag?: string,
+): Promise<Response> {
+  const credential = notesCredential();
+  if (!credential)
     return Response.json(
       { status: 'not_configured', markdown: null },
       { headers: { 'Cache-Control': 'no-store' } },

@@ -20,6 +20,12 @@ async function walk(directory) {
 }
 await walk(join(root, '_next'));
 assert.ok(files.size, 'A production client build is required.');
+// The bulk notes worker is a separate build that bundles its own PDF renderer
+// and starts only when a reader downloads a whole collection or series.
+const workers = [...files].filter(([path]) =>
+  /\/notes-bundle\.worker-[^/]+\.js$/.test(path),
+);
+for (const [path] of workers) files.delete(path);
 const js = [...files].filter(([path]) => path.endsWith('.js'));
 const css = [...files].filter(([path]) => path.endsWith('.css'));
 const graph = new Set();
@@ -77,6 +83,7 @@ const measurements = {
   initialHomeJs: sum([...files].filter(([path]) => graph.has(path))),
   totalJs: sum(js.filter(([path]) => !exportOnly.has(path))),
   notesExportJs: sum(js.filter(([path]) => exportOnly.has(path))),
+  notesBundleWorkerJs: sum(workers),
   totalCss: sum(css),
   largestJsChunk: Math.max(
     ...js
@@ -95,6 +102,7 @@ const budgets = {
   // The initial-page and individual-chunk budgets remain unchanged.
   totalJs: 420_000,
   notesExportJs: 600_000,
+  notesBundleWorkerJs: 500_000,
   totalCss: 50_000,
   largestJsChunk: 80_000,
   applicationChunk: 40_000,

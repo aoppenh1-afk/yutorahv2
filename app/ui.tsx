@@ -8,6 +8,7 @@ import { useOnline } from '@/lib/connectivity';
 import { Popover } from '@base-ui/react/popover';
 import {
   Bookmark,
+  CircleCheck,
   ExternalLink,
   FileText,
   Headphones,
@@ -201,20 +202,25 @@ export function FilterSelect({
   value,
   onChange,
   options,
+  className = '',
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
+  className?: string;
 }) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v || 'all')}>
-      <SelectTrigger className="filter-select" aria-label={label}>
+      <SelectTrigger
+        className={'filter-select ' + className}
+        aria-label={label}
+      >
         <SelectValue>
           {options.find((o) => o.value === value)?.label || label}
         </SelectValue>
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent alignItemWithTrigger={false} align="start" sideOffset={6}>
         {options.map((o) => (
           <SelectItem key={o.value} value={o.value}>
             {o.label}
@@ -611,6 +617,56 @@ export function ShiurCard({
   );
 }
 
+type ActionMenuItem = {
+  icon: React.ReactNode;
+  text: string;
+  action: () => void;
+  disabled?: boolean;
+};
+export function ActionMenu({
+  label,
+  items,
+  className = 'icon-button',
+}: {
+  label: string;
+  items: (ActionMenuItem | false | undefined)[];
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger className={className} aria-label={label}>
+        <MoreHorizontal size={19} />
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner
+          sideOffset={6}
+          align="end"
+          className="action-menu-positioner"
+        >
+          <Popover.Popup className="action-menu">
+            {items.map(
+              (item) =>
+                item && (
+                  <button
+                    key={item.text}
+                    disabled={item.disabled}
+                    onClick={() => {
+                      setOpen(false);
+                      item.action();
+                    }}
+                  >
+                    {item.icon}
+                    {item.text}
+                  </button>
+                ),
+            )}
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
 export function ShiurRow({
   shiur: s,
   onPlay,
@@ -750,15 +806,31 @@ export function ShiurRow({
         >
           <Bookmark size={18} fill={saved ? 'currentColor' : 'none'} />
         </button>
-        {kind === 'audio' && (
-          <button
-            className="icon-button"
-            onClick={() => onQueue(s)}
-            aria-label={'Add to queue: ' + s.title}
-          >
-            <ListPlus size={19} />
-          </button>
-        )}
+        <ActionMenu
+          label={'More options: ' + s.title}
+          items={[
+            {
+              icon: <BookOpen size={16} />,
+              text: 'Shiur details & notes',
+              action: () => onDetails(s),
+            },
+            kind === 'audio' && {
+              icon: <ListPlus size={16} />,
+              text: 'Add to queue',
+              action: () => onQueue(s),
+            },
+            onPlaylist && {
+              icon: <ListMusic size={16} />,
+              text: 'Add to playlist',
+              action: onPlaylist,
+            },
+            onLearned && {
+              icon: <CircleCheck size={16} />,
+              text: learned ? 'Mark as not learned' : 'Mark as learned',
+              action: onLearned,
+            },
+          ]}
+        />
         <button
           className="row-play"
           onClick={() => (kind === 'audio' ? onPlay(s) : onDetails(s))}
@@ -1114,6 +1186,13 @@ function MobileShiurRow({
         </div>
         <div className="mobile-row-controls">
           <button
+            className="mobile-row-more"
+            aria-label={'More options: ' + s.title}
+            onClick={() => setActions(true)}
+          >
+            <MoreHorizontal size={20} />
+          </button>
+          <button
             className="mobile-row-play"
             onClick={() => (kind === 'audio' ? onPlay(s) : onDetails(s))}
             aria-label={
@@ -1128,13 +1207,6 @@ function MobileShiurRow({
             ) : (
               <Play size={17} fill="currentColor" />
             )}
-          </button>
-          <button
-            className="mobile-row-more"
-            aria-label={'More options: ' + s.title}
-            onClick={() => setActions(true)}
-          >
-            <MoreHorizontal size={21} />
           </button>
         </div>
       </article>

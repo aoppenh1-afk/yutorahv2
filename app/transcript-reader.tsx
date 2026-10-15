@@ -23,6 +23,7 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { NotesDownload, type NotesFormat } from './notes-download';
+import { saveDownload } from '@/lib/save-download';
 import { BoundedCache } from '@/lib/bounded-cache';
 import { fetchStudy } from '@/lib/offline-content';
 import { useOnline } from '@/lib/connectivity';
@@ -656,17 +657,6 @@ export function TranscriptReader({
       </Dialog>
     </>
   );
-}
-
-function saveDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function TranscriptSegments({

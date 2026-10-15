@@ -1,4 +1,4 @@
-import { connect } from '@tidbcloud/serverless';
+import { connect, type Row } from '@tidbcloud/serverless';
 
 export const notesLimits = { raw: 1024 * 1024, compressed: 256 * 1024 };
 export type NotesCredential = {
@@ -107,6 +107,21 @@ export async function unpackNote(note: SavedNote) {
     throw new Error('Notes checksum mismatch.');
   return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
+const noteColumns =
+  'shiur_id, source_sha256, notes_sha256, generator_version, language, raw_bytes, created_at_ms, notes_gzip';
+function savedNote(row: Row): SavedNote {
+  if (Array.isArray(row)) throw new Error('Unexpected database row format.');
+  return {
+    shiurId: String(row.shiur_id),
+    sourceHash: hex(row.source_sha256),
+    notesHash: hex(row.notes_sha256),
+    generatorVersion: row.generator_version,
+    language: row.language,
+    rawBytes: Number(row.raw_bytes),
+    createdAtMs: Number(row.created_at_ms),
+    gzip: row.notes_gzip,
+  };
+}
 export class TiDBNotesStore {
   private db;
   constructor(credential: NotesCredential) {
@@ -128,22 +143,28 @@ export class TiDBNotesStore {
   async get(id: string): Promise<SavedNote | null> {
     if (!/^[1-9]\d{0,11}$/.test(id)) throw new Error('Invalid shiur.');
     const rows = await this.db.execute(
-      'SELECT shiur_id, source_sha256, notes_sha256, generator_version, language, raw_bytes, created_at_ms, notes_gzip FROM shiur_notes WHERE shiur_id = ?',
+      `SELECT ${noteColumns} FROM shiur_notes WHERE shiur_id = ?`,
       [id],
     );
     const row = rows[0];
-    if (!row) return null;
-    if (Array.isArray(row)) throw new Error('Unexpected database row format.');
-    return {
-      shiurId: String(row.shiur_id),
-      sourceHash: hex(row.source_sha256),
-      notesHash: hex(row.notes_sha256),
-      generatorVersion: row.generator_version,
-      language: row.language,
-      rawBytes: Number(row.raw_bytes),
-      createdAtMs: Number(row.created_at_ms),
-      gzip: row.notes_gzip,
-    };
+    return row ? savedNote(row) : null;
+  }
+  async getMany(ids: string[]): Promise<SavedNote[]> {
+    if (!ids.length) return [];
+    if (ids.length > 100 || !ids.every((id) => /^[1-9]\d{0,11}$/.test(id)))
+      throw new Error('Invalid shiur.');
+    const rows = await this.db.execute(
+      `SELECT ${noteColumns} FROM shiur_notes WHERE shiur_id IN (${ids.map(() => '?').join(', ')})`,
+      ids,
+    );
+    return rows.map(savedNote);
+  }
+  async oldestShiurId(): Promise<number> {
+    const rows = await this.db.execute(
+      'SELECT MIN(shiur_id) AS oldest FROM shiur_notes',
+    );
+    const row = rows[0];
+    return row && !Array.isArray(row) ? Number(row.oldest) || 0 : 0;
   }
   /** A zero-row probe checks replacement rights without changing a published note. */
   async verifyReplacementPermission() {

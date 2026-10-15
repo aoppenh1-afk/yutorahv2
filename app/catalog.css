@@ -122,6 +122,10 @@
 }
 .catalog-card .follow-button {
   align-self: flex-start;
+  margin-left: 70px;
+}
+.catalog-card:has(.catalog-card-icon) .follow-button {
+  margin-left: 54px;
 }
 .catalog-card-icon {
   display: grid;
@@ -209,9 +213,56 @@
 }
 .catalog-actions {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
   margin-top: 22px;
+}
+.catalog-actions .follow-button {
+  min-height: 42px;
+  padding: 0 18px;
+  font-size: 13.5px;
+}
+.catalog-icon-action {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  transition: border-color 0.2s var(--ease);
+}
+.catalog-icon-action:hover,
+.catalog-icon-action[data-popup-open] {
+  border-color: var(--ink);
+}
+.notes-bundle-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 14px;
+  padding: 9px 8px 9px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.notes-bundle-status > svg {
+  flex: none;
+  color: var(--brand);
+}
+.notes-bundle-status.is-error > span {
+  color: var(--ink);
+}
+.notes-bundle-status .text-button {
+  flex: none;
+  padding: 4px 8px;
+  font-size: 13px;
 }
 .catalog-view select {
   font-size: 13px;
@@ -276,7 +327,13 @@
   border-radius: 10px;
   background: var(--surface-2);
 }
-.daf-scan > button {
+.daf-scan-tools {
+  position: sticky;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
 }
 .daf-scan img {
@@ -305,26 +362,15 @@
   font-weight: 400;
 }
 .daf-recordings .shiur-row {
-  padding: 18px 0;
+  padding: 16px 0;
 }
 .daf-recordings .shiur-row:not(.mobile-shiur-row) {
-  grid-template-columns: 72px minmax(0, 1fr);
-  align-items: start;
-  row-gap: 12px;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  gap: 14px;
 }
-.daf-recordings .row-actions {
-  grid-column: 2;
-  flex-wrap: wrap;
-  margin-left: 0;
-}
-.daf-recordings .row-content {
-  padding-right: 60px;
-}
-.daf-recordings .row-play {
-  position: absolute;
-  top: 18px;
-  right: 0;
-  margin-left: 0;
+.daf-recordings .shiur-row:not(.mobile-shiur-row) .row-cover {
+  width: 56px;
+  height: 56px;
 }
 .daf-recordings .row-meta {
   font-size: 11px;
@@ -562,30 +608,92 @@
     flex-direction: column;
     gap: 12px;
   }
+  .catalog-toolbar.catalog-toolbar-inline {
+    flex-direction: row;
+    gap: 10px;
+  }
+  .catalog-toolbar-inline .catalog-search {
+    flex: 1;
+    min-width: 0;
+  }
+  .catalog-toolbar-inline .filter-select {
+    flex: none;
+  }
   .catalog-grid {
     grid-template-columns: 1fr;
     gap: 12px;
   }
   .catalog-card {
-    padding: 16px;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+  }
+  .catalog-card-main {
+    align-items: center;
+  }
+  .catalog-card-main > svg {
+    display: none;
+  }
+  .catalog-card .follow-button,
+  .catalog-card:has(.catalog-card-icon) .follow-button {
+    flex: none;
+    align-self: center;
+    margin-left: 0;
+  }
+  .catalog-back {
+    margin-bottom: 18px;
   }
   .catalog-profile {
-    gap: 16px;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0 16px;
+    margin-bottom: 24px;
   }
-  .catalog-profile > .avatar {
+  .catalog-profile:not(:has(> .avatar, > .catalog-cover-large)) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .catalog-profile > div {
+    display: contents;
+  }
+  .catalog-profile > .avatar,
+  .catalog-profile > .catalog-cover-large {
+    grid-row: 1 / span 3;
     width: 76px;
     height: 76px;
   }
-  .catalog-profile > div {
-    flex-basis: 65%;
-  }
   .catalog-profile > .catalog-cover-large {
-    width: 62px;
-    height: 76px;
+    width: 66px;
+  }
+  .catalog-profile .eyebrow {
+    margin-bottom: 4px;
   }
   .catalog-profile h1 {
-    font-size: 28px;
+    font-size: 26px;
+  }
+  .catalog-profile p {
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+  .catalog-profile .catalog-actions,
+  .catalog-profile .notes-bundle-status {
+    grid-column: 1 / -1;
+    order: 1;
+    margin-top: 20px;
+  }
+  .catalog-profile .notes-bundle-status {
+    margin-top: 12px;
+  }
+  .catalog-profile p.catalog-bio {
+    grid-column: 1 / -1;
+    order: 2;
+    margin-top: 18px;
+    line-height: 1.7;
+  }
+  .catalog-actions .primary-button {
+    flex: 1;
+    min-width: 0;
   }
   .catalog-bio {
     font-size: 13px !important;
@@ -600,9 +708,18 @@
     max-height: 70vh;
   }
   .daf-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 8px;
   }
-  .daf-controls select {
-    max-width: 52%;
+  .daf-controls > .filter-select {
+    width: 100%;
+    min-width: 0;
+  }
+  .daf-controls > .filter-select ~ .filter-select {
+    grid-column: 2 / span 2;
+  }
+  .daf-sides button {
+    flex: 1;
   }
 }

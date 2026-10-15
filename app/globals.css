@@ -1022,13 +1022,28 @@ input[type='search']::-webkit-search-cancel-button {
   background: rgba(0, 0, 0, 0.06) !important;
 }
 [data-slot='select-content'] {
+  width: max-content !important;
+  min-width: max(var(--anchor-width), 9rem) !important;
+  max-width: min(340px, var(--available-width)) !important;
+  padding: 6px;
   border-radius: 16px !important;
   border: 1px solid var(--line) !important;
+  background: var(--surface) !important;
   box-shadow: var(--shadow-2) !important;
 }
 [data-slot='select-item'] {
+  min-height: 36px;
+  padding: 8px 32px 8px 12px !important;
   border-radius: 10px !important;
+  color: var(--ink);
   font-size: 13.5px !important;
+}
+[data-slot='select-item'][data-highlighted] {
+  background: var(--brand-tint) !important;
+  color: var(--brand) !important;
+}
+[data-slot='select-item'][data-selected] {
+  font-weight: 600;
 }
 
 /* ─── Mobile shell ──────────────────────────────────────────── */

@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  FileDown,
   ListPlus,
   Loader2,
   Play,
@@ -25,8 +26,9 @@ import type { Follow } from '@/lib/learning';
 import { isLearned } from '@/lib/learning';
 import { noFilters, type Filters } from '@/lib/search-filters';
 import { dafTractates, type DafSelection } from '@/lib/daf';
-import { Avatar, StatePanel, tone } from './ui';
+import { ActionMenu, Avatar, FilterSelect, StatePanel, tone } from './ui';
 import { FollowButton } from './follow-button';
+import { NotesBundleStatus, useNotesBundle } from './notes-bundle-download';
 import { PagedItems } from './paged-items';
 import { TopicCard } from './topic-card';
 import { CatalogCover } from './catalog-cover';
@@ -48,6 +50,11 @@ export const catalogLabels: Record<CatalogKind, string> = {
   venue: 'Venues',
 };
 const kinds = Object.keys(catalogLabels) as CatalogKind[];
+const collectionSorts = [
+  { value: 'old', label: 'First to last' },
+  { value: 'new', label: 'Newest first' },
+  { value: 'title', label: 'Title A–Z' },
+];
 function useCatalog<T>(params: Record<string, string>) {
   const url = '/api/catalog?' + new URLSearchParams(params).toString();
   const cached = cachedCatalogResource<T>(url);
@@ -494,7 +501,8 @@ export function EntityPage({
       kind,
       id: String(id),
     }),
-    [tab, setTab] = useState('recent');
+    [tab, setTab] = useState('recent'),
+    bundle = useNotesBundle('series', id, result.data?.name || '');
   useEffect(() => setTab('recent'), [kind, id]);
   if (result.loading) return <Loading />;
   if (result.error || !result.data)
@@ -565,19 +573,32 @@ export function EntityPage({
               <Search size={16} /> Search{' '}
               {kind === 'teacher' ? 'this teacher' : 'this ' + kind}
             </button>
-            {
-              <FollowButton
-                follow={{
-                  kind: kind as Follow['kind'],
-                  id,
-                  name: d.name,
-                  image: d.image,
-                }}
-                library={props.library}
-                onFollow={props.follow}
+            <FollowButton
+              follow={{
+                kind: kind as Follow['kind'],
+                id,
+                name: d.name,
+                image: d.image,
+              }}
+              library={props.library}
+              onFollow={props.follow}
+            />
+            {kind === 'series' && (
+              <ActionMenu
+                label="More series actions"
+                className="catalog-icon-action"
+                items={[
+                  {
+                    icon: <FileDown size={17} />,
+                    text: 'Download all notes (PDF)',
+                    action: () => void bundle.start(),
+                    disabled: bundle.busy,
+                  },
+                ]}
               />
-            }
+            )}
           </div>
+          {kind === 'series' && <NotesBundleStatus bundle={bundle} />}
         </div>
       </header>
       <nav className="catalog-tabs" aria-label={'Explore ' + d.name}>
@@ -620,7 +641,8 @@ export function CollectionPage({ id, ...props }: Shared & { id: number }) {
       id: String(id),
     }),
     [sort, setSort] = useState('old'),
-    [query, setQuery] = useState('');
+    [query, setQuery] = useState(''),
+    bundle = useNotesBundle('collection', id, result.data?.name || '');
   useEffect(() => {
     setSort('old');
     setQuery('');
@@ -693,21 +715,33 @@ export function CollectionPage({ id, ...props }: Shared & { id: number }) {
                 {hasLearned ? 'Continue learning' : 'Start learning'}
               </button>
             )}
-            <button
-              className="outline-button"
-              onClick={() => props.onQueue(d.items)}
-            >
-              <ListPlus size={16} /> Queue collection
-            </button>
             <FollowButton
               follow={{ kind: 'collection', id, name: d.name, image: d.image }}
               library={props.library}
               onFollow={props.follow}
             />
+            <ActionMenu
+              label="More collection actions"
+              className="catalog-icon-action"
+              items={[
+                {
+                  icon: <FileDown size={17} />,
+                  text: 'Download all notes (PDF)',
+                  action: () => void bundle.start(),
+                  disabled: bundle.busy,
+                },
+                {
+                  icon: <ListPlus size={17} />,
+                  text: 'Add all to queue',
+                  action: () => props.onQueue(d.items),
+                },
+              ]}
+            />
           </div>
+          <NotesBundleStatus bundle={bundle} />
         </div>
       </header>
-      <div className="catalog-toolbar">
+      <div className="catalog-toolbar catalog-toolbar-inline">
         <label className="catalog-search">
           <Search size={17} />
           <input
@@ -718,15 +752,12 @@ export function CollectionPage({ id, ...props }: Shared & { id: number }) {
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
-        <select
-          aria-label="Collection order"
+        <FilterSelect
+          label="Collection order"
           value={sort}
-          onChange={(e) => setSort(e.target.value)}
-        >
-          <option value="old">First to last</option>
-          <option value="new">Newest first</option>
-          <option value="title">Title A–Z</option>
-        </select>
+          onChange={setSort}
+          options={collectionSorts}
+        />
       </div>
       {props.rows(items)}
       {!items.length && (
@@ -802,28 +833,21 @@ export function DafWorkspace({
         <p>The daf, its recordings, and related learning in one place.</p>
       </div>
       <div className="daf-controls">
-        <select
-          aria-label="Tractate"
+        <FilterSelect
+          label="Tractate"
           value={selection.tractate}
-          onChange={(e) =>
-            onChange({ tractate: e.target.value, page: 2, side: 'a' })
-          }
-        >
-          {dafTractates.map((t) => (
-            <option key={t.id}>{t.name}</option>
-          ))}
-        </select>
-        <select
-          aria-label="Daf page"
-          value={selection.page}
-          onChange={(e) =>
-            onChange({ ...selection, page: Number(e.target.value) })
-          }
-        >
-          {Array.from({ length: tractate.lastPage - 1 }, (_, i) => (
-            <option key={i + 2}>{i + 2}</option>
-          ))}
-        </select>
+          onChange={(name) => onChange({ tractate: name, page: 2, side: 'a' })}
+          options={dafTractates.map((t) => ({ value: t.name, label: t.name }))}
+        />
+        <FilterSelect
+          label="Daf page"
+          value={String(selection.page)}
+          onChange={(page) => onChange({ ...selection, page: Number(page) })}
+          options={Array.from({ length: tractate.lastPage - 1 }, (_, i) => ({
+            value: String(i + 2),
+            label: 'Daf ' + (i + 2),
+          }))}
+        />
         <div className="daf-sides">
           {(['a', 'b'] as const).map((side) => (
             <button
@@ -856,14 +880,6 @@ export function DafWorkspace({
         >
           <ChevronRight size={17} />
         </button>
-        <a
-          className="text-button"
-          href={`https://www.sefaria.org/${selection.tractate.replace(/ /g, '_')}.${selection.page}${selection.side}?lang=he-en`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          Sefaria <ExternalLink size={15} />
-        </a>
       </div>
       {result.loading ? (
         <Loading label="Loading the daf…" />
@@ -878,13 +894,23 @@ export function DafWorkspace({
         d && (
           <div className="daf-columns">
             <div className={'daf-scan ' + (zoom ? 'is-zoomed' : '')}>
-              <button
-                className="text-button"
-                aria-pressed={zoom}
-                onClick={() => setZoom(!zoom)}
-              >
-                {zoom ? 'Fit page' : 'Enlarge daf'}
-              </button>
+              <div className="daf-scan-tools">
+                <button
+                  className="text-button"
+                  aria-pressed={zoom}
+                  onClick={() => setZoom(!zoom)}
+                >
+                  {zoom ? 'Fit page' : 'Enlarge daf'}
+                </button>
+                <a
+                  className="text-button"
+                  href={`https://www.sefaria.org/${selection.tractate.replace(/ /g, '_')}.${selection.page}${selection.side}?lang=he-en`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open in Sefaria <ExternalLink size={14} />
+                </a>
+              </div>
               {imageFailed ? (
                 <StatePanel
                   title="The daf image could not load"
@@ -904,18 +930,18 @@ export function DafWorkspace({
                 <h2>
                   Shiurim on this daf <span>{items.length}</span>
                 </h2>
-                <select
-                  aria-label="Daf speaker"
-                  value={speaker}
-                  onChange={(e) => setSpeaker(e.target.value)}
-                >
-                  <option value="">All teachers</option>
-                  {teachers.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
+                <FilterSelect
+                  label="Daf speaker"
+                  value={speaker || 'all'}
+                  onChange={(v) => setSpeaker(v === 'all' ? '' : v)}
+                  options={[
+                    { value: 'all', label: 'All teachers' },
+                    ...teachers.map((t) => ({
+                      value: String(t.id),
+                      label: t.name,
+                    })),
+                  ]}
+                />
               </div>
               {props.rows(items)}
               {!items.length && (

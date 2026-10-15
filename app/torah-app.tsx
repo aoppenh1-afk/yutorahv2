@@ -1065,29 +1065,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               saved={savedIds.has(s.id)}
               learned={learnedIds.has(s.id)}
               progress={history ? historyById.get(s.id) : undefined}
-              extra={
-                <>
-                  <button
-                    className="icon-button learned-action"
-                    aria-label={
-                      (learnedIds.has(s.id)
-                        ? 'Mark as not learned: '
-                        : 'Mark as learned: ') + s.title
-                    }
-                    aria-pressed={learnedIds.has(s.id)}
-                    onClick={() => toggleLearned(s)}
-                  >
-                    <Check size={17} />
-                  </button>
-                  <button
-                    className="icon-button add-playlist-action"
-                    aria-label={'Add to playlist: ' + s.title}
-                    onClick={() => addToPlaylist(s)}
-                  >
-                    <Plus size={17} />
-                  </button>
-                </>
-              }
             />
           </SelectableResult>
         ))

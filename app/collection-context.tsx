@@ -45,6 +45,7 @@ export function CollectionContext({
   }, [selected, retry]);
   if (!memberships.length) return null;
   const index = data?.items.findIndex((s) => s.id === shiur.id) ?? -1;
+  const others = memberships.filter((c) => c.id !== selected);
   const go = (s: Shiur) =>
     onDetails({
       ...s,
@@ -55,20 +56,7 @@ export function CollectionContext({
     });
   return (
     <section className="detail-collection" aria-label="Collection">
-      {memberships.length > 1 && (
-        <select
-          aria-label="Shiur collection"
-          value={selected}
-          onChange={(e) => setSelected(Number(e.target.value))}
-        >
-          {memberships.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name || 'Collection ' + c.id}
-            </option>
-          ))}
-        </select>
-      )}
-      <div className="detail-collection-card">
+      <div className="detail-collection-main">
         <button
           className="detail-collection-open"
           onClick={() => onOpen(selected)}
@@ -110,6 +98,21 @@ export function CollectionContext({
           </nav>
         )}
       </div>
+      {others.length > 0 && (
+        <div className="detail-collection-also">
+          <span>Also in</span>
+          {others.map((c) => (
+            <button
+              key={c.id}
+              dir="auto"
+              title={'Show lesson position in ' + (c.name || 'this collection')}
+              onClick={() => setSelected(c.id)}
+            >
+              {c.name || 'Collection ' + c.id}
+            </button>
+          ))}
+        </div>
+      )}
       {error && (
         <p className="inline-error">
           {error} <button onClick={() => setRetry((n) => n + 1)}>Retry</button>
