@@ -26,6 +26,7 @@ import {
 import { completeSearch } from '../lib/complete-search';
 import { normalize } from '../lib/yutorah';
 import { noFilters, resolvedSearchFilters } from '../lib/search-filters';
+import { notesSyncOptions } from '../scripts/sync-notes-search';
 import { migrateNotesSearchSchema } from '../scripts/migrate-search-schema';
 
 function sqliteDatabase() {
@@ -244,7 +245,11 @@ async function discoveryContract(db: SearchDatabase) {
   );
   if (db.dialect !== 'postgres') {
     await db.prepare('VACUUM').run();
-    assert.equal((await searchNotes(db, 'kashrus')).total, 1, 'External-content FTS keeps stable row identities during SQLite maintenance');
+    assert.equal(
+      (await searchNotes(db, 'kashrus')).total,
+      1,
+      'External-content FTS keeps stable row identities during SQLite maintenance',
+    );
   }
   assert.equal(
     (await db
@@ -616,3 +621,29 @@ void test(
     }
   },
 );
+
+void test('scheduled notes indexing bounds work and exposes a read-only preflight', () => {
+  assert.deepEqual(
+    notesSyncOptions([
+      '--check',
+      '--batch',
+      '20',
+      '--max-pages',
+      '500',
+      '--max-minutes',
+      '10',
+    ]),
+    { batch: 20, maxPages: 500, maxMinutes: 10, follow: false, check: true },
+  );
+  for (const args of [
+    ['--batch', '21'],
+    ['--batch', '0'],
+    ['--max-pages', '1001'],
+    ['--max-pages', '1.5'],
+    ['--max-minutes', '21'],
+    ['--max-minutes', 'NaN'],
+    ['--max-pages'],
+    ['--unknown'],
+  ])
+    assert.throws(() => notesSyncOptions(args));
+});
