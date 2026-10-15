@@ -1765,10 +1765,15 @@ void test('player controls stop playback and the phone dialog stays inside the b
             route.fulfill({ json: { links: true, sheets: true } }),
           );
           await context.route('**/api/source-creator?*', (route) =>
-            route.fulfill({ json: {
-              transcriptId: 'official-900001-fixture', status: 'ready',
-              transcriptComplete: true, sources: [], reviews: [],
-            } }),
+            route.fulfill({
+              json: {
+                transcriptId: 'official-900001-fixture',
+                status: 'ready',
+                transcriptComplete: true,
+                sources: [],
+                reviews: [],
+              },
+            }),
           );
           await page.clock.install();
           await page
