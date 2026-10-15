@@ -1,0 +1,44 @@
+name: Refresh written notes search
+on:
+  schedule:
+    - cron: '19 * * * *'
+  workflow_dispatch:
+    inputs:
+      check:
+        description: 'Only verify schema and read-only source access'
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: notes-search-index
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: github.event_name == 'workflow_dispatch' || vars.NOTES_SEARCH_SYNC_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NOTES_SEARCH_DATABASE_URL: ${{ secrets.NOTES_SEARCH_DATABASE_URL }}
+      TIDB_NOTES_HOST: ${{ secrets.TIDB_NOTES_HOST }}
+      TIDB_NOTES_USERNAME: ${{ secrets.TIDB_NOTES_USERNAME }}
+      TIDB_NOTES_PASSWORD: ${{ secrets.TIDB_NOTES_PASSWORD }}
+      TIDB_NOTES_DATABASE: ${{ secrets.TIDB_NOTES_DATABASE }}
+      NOTES_SEARCH_MAX_DATABASE_BYTES: ${{ vars.NOTES_SEARCH_MAX_DATABASE_BYTES || '510000000' }}
+      NOTES_SEARCH_CHECK: ${{ inputs.check || false }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Check writer configuration
+        run: test -n "$NOTES_SEARCH_DATABASE_URL" || { echo 'Configure the dedicated notes-index writer connection.'; exit 1; }
+      - run: npm ci
+      - name: Refresh a bounded inventory
+        run: |
+          if [ "$NOTES_SEARCH_CHECK" = 'true' ]; then
+            npm run notes:search:sync -- --check
+          else
+            npm run notes:search:sync -- --batch 5 --max-pages 1000 --max-minutes 10
+          fi

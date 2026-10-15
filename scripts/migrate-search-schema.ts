@@ -122,6 +122,25 @@ export async function migrateFencingSchema(db: SearchDatabase) {
     .run();
 }
 
+export async function migrateNotesSearchSchema(db: SearchDatabase) {
+  const statements = readFileSync(
+    resolve('drizzle/0008_notes_search.sql'),
+    'utf8',
+  )
+    .split('--> statement-breakpoint')
+    .map((sql) => sql.trim())
+    .filter(Boolean);
+  for (const sql of statements)
+    await db
+      .prepare(
+        sql.replace(
+          /^CREATE (VIRTUAL TABLE|TABLE|INDEX|TRIGGER) /,
+          'CREATE $1 IF NOT EXISTS ',
+        ),
+      )
+      .run();
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
@@ -144,6 +163,7 @@ if (
     await migrateTitleSchema(db);
     await migrateEfficiencySchema(db);
     await migrateFencingSchema(db);
+    await migrateNotesSearchSchema(db);
     const { checkSearchSchema } = await import('./check-search-schema');
     await checkSearchSchema(db);
   }

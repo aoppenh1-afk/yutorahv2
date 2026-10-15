@@ -23,10 +23,12 @@ export type Filters = Record<
   | 'group'
   | 'uploadedAfter'
   | 'uploadedBefore'
-  | 'dateBasis',
+  | 'dateBasis'
+  | 'notesOnly',
   string
 >;
 export const noFilters: Filters = {
+  notesOnly: '',
   teacher: '',
   series: '',
   topic: '',
@@ -56,6 +58,7 @@ export function resolvedSearchFilters(plan: SearchPlan): Filters {
   const entity = (key: string, id: number | undefined) =>
     plan.entityIds?.[key]?.join(',') || (id ? String(id) : '');
   return {
+    notesOnly: plan.notesOnly ? '1' : '',
     teacher: entity('teacher', plan.teacherId),
     series: entity('series', plan.seriesId),
     topic: entity('topic', plan.topicId),
@@ -80,4 +83,23 @@ export function resolvedSearchFilters(plan: SearchPlan): Filters {
     uploadedAfter: plan.uploadedAfter || '',
     uploadedBefore: plan.uploadedBefore || '',
   };
+}
+
+export async function copySearchLink(
+  query: string,
+  filters: Filters,
+  notify: (text: string) => void,
+) {
+  const url = new URL(window.location.origin);
+  url.searchParams.set('view', 'search');
+  if (query) url.searchParams.set('q', query);
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) url.searchParams.set(key, value);
+  });
+  try {
+    await navigator.clipboard.writeText(url.href);
+    notify('Search link copied with all filters.');
+  } catch {
+    notify('Your browser could not copy the link.');
+  }
 }

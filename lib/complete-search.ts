@@ -29,6 +29,7 @@ import {
 
 import { BoundedCache } from './bounded-cache';
 import { performanceSample } from './performance-metrics';
+import { notesSnapshot } from './notes-search';
 import {
   readArchiveSearch,
   emptyFacets,
@@ -663,6 +664,12 @@ async function searchPass(
   const complete = run.next > pages;
   const predicates = ['run = ?'];
   const args: (string | number)[] = [run.id];
+  if (plan.notesOnly) {
+    predicates.push(
+      'EXISTS (SELECT 1 FROM search_note_members nm WHERE nm.snapshot=? AND nm.id=search_hits.id)',
+    );
+    args.push(plan.notesSnapshot!);
+  }
   const add = (sql: string, value: string | number) => {
     predicates.push(sql);
     args.push(value);
@@ -781,6 +788,7 @@ async function searchPass(
   }
   return {
     items: data.results.map((r) => JSON.parse(r.payload) as Shiur),
+    notesSnapshot: plan.notesSnapshot,
     total: counts!.matches,
     sourceTotal: run.total,
     scanned: counts!.scanned,
@@ -816,6 +824,10 @@ export async function completeSearch(
   page = 1,
   runId = '',
 ): Promise<SearchResult> {
+  if (options.notesOnly) {
+    const snapshot = await notesSnapshot(db, options.notesSnapshot);
+    options = { ...options, notesSnapshot: snapshot.id };
+  }
   let state = local.get(db);
   if (!state) {
     state = {

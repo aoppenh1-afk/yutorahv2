@@ -632,6 +632,8 @@ export function enrichShiur(shiur: Shiur, directory: Directory): Shiur {
   return result;
 }
 export type SearchPlan = {
+  notesOnly?: boolean;
+  notesSnapshot?: string;
   term: string;
   original: string;
   max: number;
@@ -845,11 +847,14 @@ export function parseSearch(
     );
   if (max) labels.push(`Under ${max} minutes`);
   if (language) labels.push(language === 'HE' ? 'Hebrew' : 'English');
+  if (options.notesOnly) labels.push('Written notes available');
   if (teacherName) labels.push(teacherName);
   if (seriesName) labels.push(seriesName);
   return {
     term: term.replace(/\s+/g, ' ').trim(),
     original: query,
+    notesOnly: !!options.notesOnly,
+    notesSnapshot: options.notesSnapshot,
     sort,
     min,
     after,
@@ -934,6 +939,7 @@ export function mediaKind(s: Shiur) {
   return 'audio';
 }
 export type SearchResult = {
+  notesSnapshot?: string;
   items: Shiur[];
   total: number;
   nextPage: number | null;

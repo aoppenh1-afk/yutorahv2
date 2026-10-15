@@ -679,6 +679,7 @@ export function ShiurRow({
   learned = false,
   extra,
   query = '',
+  excerpt,
   onPlaylist,
   onLearned,
   active = false,
@@ -694,6 +695,7 @@ export function ShiurRow({
   learned?: boolean;
   extra?: React.ReactNode;
   query?: string;
+  excerpt?: React.ReactNode;
   onPlaylist?: () => void;
   onLearned?: () => void;
   active?: boolean;
@@ -713,13 +715,17 @@ export function ShiurRow({
         progress={progress}
         learned={learned}
         query={query}
+        excerpt={excerpt}
         onPlaylist={onPlaylist}
         onLearned={onLearned}
         active={active}
       />
     );
   return (
-    <article className={'shiur-row' + (active ? ' is-playing' : '')}>
+    <article
+      className={'shiur-row' + (active ? ' is-playing' : '')}
+      data-shiur-id={s.id}
+    >
       <button
         className={'row-cover ' + tone(s.teacherId)}
         onClick={() => (kind === 'audio' ? onPlay(s) : onDetails(s))}
@@ -790,11 +796,12 @@ export function ShiurRow({
             </small>
           </div>
         )}
-        {s.description && (
-          <p className="row-description">
-            {query ? matchExcerpt(s.description, query) : s.description}
-          </p>
-        )}
+        {excerpt ||
+          (s.description && (
+            <p className="row-description">
+              {query ? matchExcerpt(s.description, query) : s.description}
+            </p>
+          ))}
       </div>
       <div className="row-actions">
         {extra}
@@ -1113,6 +1120,7 @@ function MobileShiurRow({
   progress,
   learned,
   query = '',
+  excerpt,
   active,
 }: {
   shiur: Shiur;
@@ -1127,6 +1135,7 @@ function MobileShiurRow({
   progress?: { seconds: number; duration: number };
   learned?: boolean;
   query?: string;
+  excerpt?: React.ReactNode;
   active?: boolean;
 }) {
   const [actions, setActions] = useState(false);
@@ -1139,6 +1148,7 @@ function MobileShiurRow({
     <>
       <article
         className={'mobile-shiur-row shiur-row ' + (active ? 'is-playing' : '')}
+        data-shiur-id={s.id}
       >
         <button
           className={'mobile-row-art listening-tone-' + (s.teacherId % 4)}
@@ -1178,11 +1188,12 @@ function MobileShiurRow({
               aria-label={'Listening progress for ' + s.title}
             />
           )}{' '}
-          {query && s.description && (
-            <p className="mobile-row-excerpt">
-              {matchExcerpt(s.description, query)}
-            </p>
-          )}
+          {excerpt ||
+            (query && s.description && (
+              <p className="mobile-row-excerpt">
+                {matchExcerpt(s.description, query)}
+              </p>
+            ))}
         </div>
         <div className="mobile-row-controls">
           <button
