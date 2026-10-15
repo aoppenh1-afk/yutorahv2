@@ -1,6 +1,16 @@
-# Notes coordinator VM report — October 14, 2026
+# Notes coordinator VM report
 
-## Server rollout and full regeneration — current installation
+## Throughput hardening — October 15, 2026 (current installation)
+
+Installed bundle: `1cf77bd71435a0c2f84a6b8f657bcc9da309e9908cd090895f93c9b33a86e877`. Production remains **server High with 3 fetchers / 4 AI generation sessions / 1 publisher**. The user requested a hard maximum of six AI sessions; every configuration and session-creation admission surface now enforces it. The 3 GiB memory floor and active reservations remain. The existing content profile, full-source contract, regeneration epoch, teacher priorities, published rows, and recorded review/observation waivers were preserved.
+
+The update adds shared authenticated event monitoring with bounded reconciliation/fallback, coalesced runtime verification, corrected durable token accounting, deterministic `presentation-2` formatting, separate quarantine budgets including retained evidence, live-state indexes, and request/repair/resource telemetry. It also fixes an independently reproduced premature HTTP header timeout by giving local JSON requests one explicit cancellation deadline. Research, adoption/defer decisions, and measured limits are recorded in [the throughput implementation report](notes-throughput-implementation.md).
+
+An isolated twelve-source four-session trial exposed host memory falling to 1,612.6 MiB and four six-minute transport failures. Six sources passed and two were gracefully cancelled during diagnosis; no trial notes were published. A delayed-server reproduction identified a shorter transport header timeout independent of the configured inference deadline. After the transport fix, both repeated canary sources passed first response, in 81.726 and 102.416 seconds, with a minimum sampled 5,770 MiB available memory. This is not a sustained throughput or fidelity measurement. Six-session production was not qualified or selected.
+
+Verification: **70 pipeline/runtime/publication tests passed**, **11 deployment/transcript tests passed**, with one opt-in live catalog test skipped. Lint, TypeScript, package generation and installation/reinstallation/runtime rollback checks passed. The first installed build produced seven new publications and six passed additional independent TiDB readback. The final recovery fix was then installed, preserving all **1,198 completed checkpoints and hashes**, unchanged credentials, and SQLite integrity. The live pinned-runtime/zero-price check passed. Production resumed at four sessions. Final rollback assets are `STATE/upgrades/install-20261015T053902-663502`; private baseline, trial, timeout reproduction, and installed-index evidence are under `outputs/notes-throughput`.
+
+## Server rollout and full regeneration — October 14, 2026
 
 The current installed bundle is `2e7ff54a7f339827bcb5a3b0ff65a017e96737dd3dadb1abadd5ce25db9b2e56`. The selected and observed running route is **Muse Spark Contributor Free, High effort, through one persistent authenticated OpenCode 1.18.33 server**, with **3 transcript fetchers / 4 generation sessions / 1 continuous publisher**. Four actual simultaneous server sessions were observed, with no ACP generation process. The running server, schema, model, small model, High variant, and current zero prices passed verification. About 7.5 GiB available memory remained during the first concurrent run.
 

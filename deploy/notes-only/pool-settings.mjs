@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 const settings = await readFile(process.argv[2], 'utf8').then(JSON.parse);
 const controls = [
   ['fetchers', '--fetchers', 1, 16],
-  ['generators', '--concurrency', 1, 10],
+  ['generators', '--concurrency', 1, 6],
   ['publishers', '--publishers', 1, 8],
 ];
 for (const [name, , min, max] of controls) {

@@ -4,6 +4,16 @@ The only processing pipeline is the Node/SQLite notes coordinator. It consumes c
 
 Generation uses the user-supplied `packages/notes-only/skills/written-shiur-notes/SKILL.md` unchanged. Its output is a compact written shiur in connected English prose with Hebrew terminology. The complete source is supplied on every generation and bounded repair; output is never shortened by truncating the source. The full contract and runtime configuration contribute to the profile hash. Changing the contract does not regenerate previously published shiurim.
 
+## Output language guard
+
+The `english-prose-1` validator rejects entirely or overwhelmingly Hebrew explanations for English or mixed transcripts. It checks the body separately from Markdown headings and ignores URLs. Hebrew-only notes may pass only when the complete transcript supplies Hebrew-language evidence. Ordinary English explanations can retain Hebrew titles, terms, and quotations. The guard runs during generation and its single repair, before artifact acceptance, before publication, and during crash-artifact recovery. A previous route or manual approval cannot bypass publication validation.
+
+For reproducibility, the heuristic flags Hebrew bodies with no Latin letters, or at least 40 Hebrew letters and under 10% Latin letters. The source exception requires Hebrew letters and no Latin, or at least 40 Hebrew letters and at most 5% Latin letters (allowing occasional names). These are language checks, not assessments of source fidelity. Missing, changed, or unverifiable source evidence never grants the exception. The language policy is recorded with generator and validation evidence; the existing source contract and production qualification remain intact.
+
+While paused and holding the runner lock, `language-audit [--apply] [--inventory FILE] [--report FILE]` inventories all public notes plus saved pending drafts. It checks verified local artifacts first, falls back to TiDB for missing notes, and verifies each Hebrew candidate against its exact transcript hash. Missing sources can be retrieved from the official VTT endpoint without inference. The read-only scan writes a private report; `--apply` first checks current public candidate hashes, snapshots SQLite and the report, and records durable findings. A complete scan is required before applying. An optional inventory file contains `{ "rows": [...] }` from the metadata-only keyset scan.
+
+Affected jobs receive priority 3, above teacher priority 2 and normal backlog claims, with the old public hash retained for conditional replacement. Repeated application preserves work already queued. Unpublished bad drafts are preserved in immutable artifacts too. Normal preparation may be deferred with cached sources retained to make room for these repairs. Public notes stay visible until a valid replacement is verified, and successful publication resolves the recorded finding. The audit never starts model inference or resumes the paused supervisor.
+
 ## Install and operate
 
 Use Node 22.13+ (the actual VM uses its private Node 24.20.0), Git, flock, and pinned OpenCode 1.18.33. The shell's Node 20 remains untouched.
@@ -35,6 +45,8 @@ The lifecycle is `discovered → fetching → ready → generating → generated
 
 One coordinator owns the SQLite queue and inventory cursor. Its independent pools default to three fetchers, four generation workers, and one continuous publisher. The installed supervisor reads these counts from private `STATE/pools.json`, which survives upgrades. Publishers immediately consume saved notes; they do not wait for a periodic bulk flush. Starts are spaced by two seconds. Admission preserves at least 3 GiB of available memory, includes a conservative 512 MiB reservation per starting generation, and leaves a configurable disk reserve. Initial ready-buffer low/target/max values are 20/50/100. Source and outbox byte caps are each 1 GiB; the outbox also has a 1,000-item cap. In-flight reservations count against the bounds. The VM's actual headroom is checked before running. Use `help` for the current flags.
 
+AI generation has a hard ceiling of six across the CLI, coordinator, limiter, server session creation, persistent pool settings, and qualification runner. Fetchers and publishers use ordinary HTTP/database operations. The default remains four and the exact-profile qualification still bounds production concurrency. Rejected/conflicting notes have a separate quarantine budget (10,000 records / 1 GiB by default); their sources, artifacts, and private attempt evidence remain retained and counted separately. Disk admission applies to all retained work.
+
 Inventory resumes the existing paced catalog cursor, deduplicates IDs, and wraps to catch new publications. Explicitly enqueued jobs have bounded priority; every fourth claim services the oldest backlog. A trending list or catalog count is not evidence of usable transcript count. Plain numeric checkpoint files may be imported with `enqueue --file`; undocumented bitmap formats are not trusted.
 
 A failed TiDB lookup leaves publication eligibility unknown. Fetching may fill the source buffer, but generation cannot treat an outage as evidence of an absent row. Publication consumes the accepted artifact independently and uses insert/readback/hash checks. During an explicitly authorized regeneration it uses a hash-conditional UPDATE for rows that already exist, preserving the old row until the complete new artifact is ready. A lost insert acknowledgement reuses that artifact. No publication failure repeats inference.
@@ -47,18 +59,23 @@ The fallback reference route is `--route acp-high`. Server generation is `--rout
 
 Each request gets fresh context. Server sessions have explicit worker/job/attempt titles and a durable ownership ledger. ACP attempts own separate Git workspaces and process groups. Tools and permission requests are rejected. Cancellation aborts and confirms session termination before freeing the inference slot. Cleanup uncertainty pauses the route and retains recovery metadata. Only owned sessions are deleted. Server restart reconciles ownership before admitting replacement work.
 
+The pinned live schema gates one authenticated global event subscription shared by owned server sessions. It routes permissions/tools by session ID, reconciles full histories every 30 seconds while connected, and polls every two seconds when disconnected or unsupported. Reconnection immediately schedules reconciliation; final messages still provide complete identity/price/tool/usage evidence. First-output timing counts identified assistant messages, never echoed user prompts. Concurrent catalog refreshes share one verification promise. Completed requests release unused token reservations using the pinned runtime's additive input/output/reasoning/cache fields. Active and uncertain requests retain their reservations regardless of age; completed or interrupted usage remains charged for at least a minute after completion. Pre-dispatch estimates remain conservative.
+
+Local JSON requests use bounded Node HTTP transport with the configured abort deadline covering both headers and body. A separate Fetch/Undici five-minute header timeout must not truncate the twenty-minute inference window. Only the owned authenticated loopback address is allowed; redirects are not followed. Sanitized transport error codes are recorded without response/source bodies or credentials.
+
 OpenCode's bundled Bun runtime can leave extracted native `.so` libraries behind after exit. Both `TMPDIR` and `BUN_TMPDIR` point to a mode-700 `tmp` directory inside the owned server or ACP workspace. The server removes that directory after stopping, failed startup, and recovery of a previous process group. ACP cleanup removes it even when a session ledger must remain for recovery; recovery recreates scratch for its own cleanup commands. A running server retains its loaded library until shutdown, and repeated sessions share that one extraction. This prevents the per-launch library files from accumulating in shared `/tmp`.
 
-For local-only trials, pause production and hold its mutation lock:
+For local-only trials, pause production; the runner acquires its mutation lock itself:
 
 ```sh
-PATH=/home/box/.local/share/yutorah-notes/bin:$PATH flock -n \
-  /home/box/.local/share/yutorah-notes/process.lock \
+PATH=/home/box/.local/share/yutorah-notes/bin:$PATH \
   node --import tsx scripts/qualify-notes.ts --route server-high --concurrency 2 \
   --ids 1117682,1056185 --output PRIVATE_DIRECTORY
 ```
 
 The qualification runner never constructs a TiDB writer. The default qualification policy requires at least 100 varied matched human-reviewed sources, followed by verified publication cohorts of 100, 500, and 1,000 notes and a 24-hour operational observation. Submit exact-profile evidence with `qualification --file FILE`. Concurrency above the qualified setting is rejected.
+
+Trials above four require `--headroom-qualified`; none can exceed six. The runner refuses unpaused production, holds the production process lock throughout, uses the same 3 GiB / 512 MiB admission reserve, and records peak sessions and minimum available memory. Cached official VTT is hash-verified and reused when present, so matched trials can use identical complete sources. Each trial needs a separate output directory.
 
 On October 14, 2026, the user explicitly waived human reviews and the 24-hour observation. Approval evidence records `waivers.humanReview`, `waivers.observation24h`, `requestedBy: "user"`, the instruction, and its timestamp. Human acceptance remains zero and no elapsed observation is invented. Without that explicit waiver evidence, the original requirements remain enforced. Waivers do not disable model identity, High effort, zero-price verification, bounded repairs, resource admission, or hash-verified publication.
 
@@ -75,6 +92,8 @@ Backups consume the durable accepted-artifact journal. A repair query derives mi
 `rollback.sh` pauses the worker and restores the ACP High route while retaining the v2 schema and all newer committed artifacts. This is the supported runtime rollback. Pre-v2 executables do not understand the staged queue and must not open it. Old code and the consistent pre-upgrade SQLite snapshot remain private recovery assets; restoring that snapshot over newer work would forget publications and is not a supported rollback.
 
 `metrics` reports stage depths/bytes, sessions, p50/p95 stage latency, repair and retry classes, cooldowns, verified publications/hour, and an explicit observation window. Running logs include available memory and disk headroom. A short local pilot is not a sustained-throughput baseline or an ETA for the catalog.
+
+Request observations separate admission waits (including reasons), runtime checks, session creation, first output, response completion, and confirmed cleanup. Generation and repair requests remain distinct. Ready wait, artifact commit time, first-pass validation, repair codes, token categories, completed source-hours, eligible ready depth, publishable backlog, and rolling five-/sixty-minute publication rates are reported alongside whole-stage metrics. Running logs also include event-loop p95 delay, current admission waits, and shared-monitor connection/read counts. `presentation-2` normalizes only newlines, trailing whitespace, one surrounding Markdown fence, and heading spacing. Raw/normalized output and validation metadata remain private. This presentation revision does not reset regeneration, change the prose/model/High profile, or manufacture new qualification evidence. See [the implementation research](notes-throughput-implementation.md).
 
 See [the actual VM report](notes-only-vm.md) for installation evidence and pending gates.
 

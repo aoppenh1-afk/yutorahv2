@@ -10,7 +10,15 @@ import {
   importLegacy,
   loadArtifact,
   durableWrite,
+  pinSource,
+  saveArtifact,
 } from '../packages/notes-only/src/artifacts.js';
+import {
+  auditNotesLanguage,
+  queueLanguageRedo,
+  type LanguageFinding,
+} from '../packages/notes-only/src/language-audit.js';
+import { assessNotesLanguage } from '../packages/notes-only/src/language.js';
 import {
   defaults,
   runCoordinator,
@@ -86,6 +94,350 @@ async function ready(f: Awaited<ReturnType<typeof fixture>>, id = '1') {
   f.queue.enqueue([{ id }]);
   await f.pipeline.fetching(f.queue.claim('fetching')!, signal);
 }
+const hebrewDraft =
+  '# הגדרת הדין\n\n## ביאור\n\n' +
+  'תחילה יש לבאר את ההבדל בין שני המקרים ואת הטעם של כל שיטה. '.repeat(15);
+void test('audit uses the published source identity when identical note bytes exist under a different source', async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.root, 'paused'), '');
+  const english = await pinSource(f.root, '1', vtt);
+  const hebrew = await pinSource(
+    f.root,
+    '1',
+    'WEBVTT\n\n00:00.000 --> 00:10.000\n' +
+      'תחילה יש לבאר את הדין. '.repeat(30),
+  );
+  const published = await packNote({
+    shiurId: '1',
+    sourceHash: english.hash,
+    generatorVersion: identity.profile,
+    language: 'hebrewEnglish',
+    markdown: hebrewDraft,
+  });
+  const other = { ...published, sourceHash: hebrew.hash };
+  await saveArtifact(f.root, 'artifacts/1/other-source', other, {
+    ...identity,
+    review: 'published',
+    attempt: 'old',
+  });
+  f.queue.enqueue([{ id: '1' }]);
+  f.queue.db
+    .prepare(
+      "UPDATE jobs SET status='completed',notes_hash=?,artifact_path='artifacts/1/other-source'",
+    )
+    .run(other.notesHash);
+  const { gzip: _, ...metadata } = published;
+  let reads = 0;
+  const report = await auditNotesLanguage({
+    root: f.root,
+    queue: f.queue,
+    signal,
+    apply: false,
+    report: join(f.root, 'audit.json'),
+    inventory: [metadata],
+    store: {
+      get: async () => {
+        reads++;
+        return published;
+      },
+      listMetadata: async () => [],
+    },
+  });
+  assert.equal(reads, 1);
+  assert.equal(report.errors.length, 0);
+  assert.equal(report.findings[0].verdict, 'unexpected_hebrew');
+  assert.equal(report.findings[0].sourceHash, english.hash);
+});
+void test('the pipeline rejects an injected Hebrew generator before approval and publication', async (t) => {
+  const f = await fixture(t);
+  await ready(f);
+  const pipeline = new NotesPipeline({
+    ...f.pipeline.config,
+    generate: async () => hebrewDraft,
+  });
+  await assert.rejects(
+    pipeline.generating(f.queue.claim('generating')!, signal),
+    /unexpected_hebrew/,
+  );
+  assert.equal(f.notes.size, 0);
+  assert.equal(
+    f.queue.db.prepare("SELECT artifact_path FROM jobs WHERE id='1'").get()
+      ?.artifact_path,
+    null,
+  );
+});
+void test('publication rechecks legacy approved Hebrew artifacts against their source; genuine Hebrew sources are allowed', async (t) => {
+  for (const hebrewSource of [false, true]) {
+    const f = await fixture(t);
+    const source = await pinSource(
+      f.root,
+      '1',
+      hebrewSource
+        ? 'WEBVTT\n\n00:00.000 --> 00:10.000\n' +
+            'תחילה יש לבאר את הדין. '.repeat(30)
+        : vtt,
+    );
+    const note = await packNote({
+      shiurId: '1',
+      sourceHash: source.hash,
+      generatorVersion: identity.profile,
+      language: 'hebrewEnglish',
+      markdown: hebrewDraft,
+    });
+    const path = 'artifacts/1/legacy-approved';
+    await saveArtifact(f.root, path, note, {
+      ...identity,
+      review: 'approved_route',
+      attempt: 'legacy',
+    });
+    f.queue.enqueue([{ id: '1' }]);
+    f.queue.db
+      .prepare(
+        "UPDATE jobs SET status='generated',source_path=?,source_hash=?,artifact_path=?,notes_hash=?,profile=?",
+      )
+      .run(source.path, source.hash, path, note.notesHash, identity.profile);
+    const published = f.pipeline.publishing(
+      f.queue.claim('publishing')!,
+      signal,
+    );
+    if (hebrewSource) {
+      await published;
+      assert.equal(f.notes.get('1')?.notesHash, note.notesHash);
+    } else {
+      await assert.rejects(published, /unexpected_hebrew/);
+      assert.equal(f.notes.size, 0);
+    }
+  }
+});
+void test('recovery never adopts a Hebrew crash artifact from an English transcript', async (t) => {
+  const f = await fixture(t);
+  await ready(f);
+  const job = f.queue.claim('generating', { leaseMs: 1 })!;
+  const note = await packNote({
+    shiurId: '1',
+    sourceHash: job.source_hash!,
+    generatorVersion: identity.profile,
+    language: 'hebrewEnglish',
+    markdown: hebrewDraft,
+  });
+  const path = 'artifacts/1/crashed-hebrew';
+  await saveArtifact(f.root, path, note, {
+    ...identity,
+    review: 'approved_route',
+    attempt: job.lease_token,
+  });
+  f.queue.db
+    .prepare('INSERT INTO generation_artifacts VALUES(?,?,?,?,?,?)')
+    .run(
+      job.lease_token,
+      job.id,
+      job.source_hash,
+      identity.profile,
+      path,
+      Date.now(),
+    );
+  f.queue.db.prepare("UPDATE jobs SET lease_until=0 WHERE id='1'").run();
+  await f.pipeline.recoverExpired();
+  assert.equal(
+    f.queue.db.prepare("SELECT status FROM jobs WHERE id='1'").get()?.status,
+    'ready',
+  );
+  assert.equal(f.queue.claim('publishing'), null);
+});
+void test('targeted language redo is idempotent, outranks teachers and backlog, and replaces the exact old public hash', async (t) => {
+  const f = await fixture(t);
+  await ready(f);
+  await f.pipeline.generating(f.queue.claim('generating')!, signal);
+  await f.pipeline.publishing(f.queue.claim('publishing')!, signal);
+  const old = f.notes.get('1')!;
+  const row = f.queue.db.prepare("SELECT * FROM jobs WHERE id='1'").get()!;
+  const finding: LanguageFinding = {
+    id: '1',
+    notesHash: old.notesHash,
+    sourceHash: old.sourceHash,
+    scope: 'published',
+    verdict: 'unexpected_hebrew',
+    artifactPath: String(row.artifact_path),
+    source: {
+      path: String(row.source_path),
+      hash: old.sourceHash,
+      bytes: Number(row.source_bytes),
+    },
+    originalSource: true,
+    assessment: assessNotesLanguage(hebrewDraft, 'English source'),
+  };
+  assert.equal(queueLanguageRedo(f.queue, finding), true);
+  assert.equal(
+    f.notes.get('1')?.notesHash,
+    old.notesHash,
+    'public version survives the queue operation',
+  );
+  f.queue.enqueue([{ id: '2' }], 2);
+  f.queue.db
+    .prepare(
+      "UPDATE jobs SET status='ready',eligibility='eligible' WHERE id='2'",
+    )
+    .run();
+  assert.equal(
+    f.queue.claim('generating', { backlog: true }),
+    null,
+    'normal inference waits for urgent preparation',
+  );
+  const job = f.queue.claim('fetching', { backlog: true })!;
+  assert.equal(job.id, '1');
+  assert.equal(
+    await f.pipeline.fetching(job, signal),
+    'ready',
+    'same-profile publication cannot skip a forced redo',
+  );
+  assert.equal(queueLanguageRedo(f.queue, finding), false);
+  assert.equal(
+    f.queue.db.prepare("SELECT status FROM jobs WHERE id='1'").get()?.status,
+    'ready',
+  );
+  const generation = f.queue.claim('generating', { backlog: true })!;
+  assert.equal(generation.id, '1');
+  const replacement = new NotesPipeline({
+    ...f.pipeline.config,
+    generate: async () =>
+      markdown + ' This updated explanation preserves the distinction.',
+  });
+  await replacement.generating(generation, signal);
+  const publication = f.queue.claim('publishing')!;
+  assert.equal(publication.replace_hash, old.notesHash);
+  await replacement.publishing(publication, signal);
+  assert.equal(
+    f.queue.db.prepare("SELECT redo_reason FROM jobs WHERE id='1'").get()
+      ?.redo_reason,
+    null,
+  );
+  assert.equal(
+    f.queue.db
+      .prepare(
+        "SELECT replacement_hash FROM language_findings WHERE job_id='1'",
+      )
+      .get()?.replacement_hash,
+    f.notes.get('1')?.notesHash,
+  );
+  assert.notEqual(f.notes.get('1')?.notesHash, old.notesHash);
+});
+void test('a full normal ready buffer makes room for urgent language repairs without losing cached sources', async (t) => {
+  const f = await fixture(t);
+  await ready(f, '1');
+  await ready(f, '2');
+  f.queue.enqueue([{ id: '3' }], 3);
+  const abort = new AbortController();
+  await runCoordinator({
+    root: f.root,
+    pipeline: f.pipeline,
+    queue: f.queue,
+    signal: abort.signal,
+    settings: {
+      ...defaults,
+      generators: 1,
+      fetchers: 1,
+      publishers: 1,
+      readyLow: 0,
+      readyTarget: 1,
+      readyMax: 2,
+      fetchSpacingMs: 0,
+      diskReserveBytes: 0,
+      minFreeMemoryMiB: 0,
+    },
+    limit: 1,
+    memory: async () => 1e6,
+    disk: async () => 1e12,
+  });
+  assert.ok(f.notes.has('3'));
+  assert.equal(
+    f.queue.db
+      .prepare(
+        "SELECT source_path IS NOT NULL AS cached FROM jobs WHERE id='2'",
+      )
+      .get()?.cached,
+    1,
+  );
+});
+void test('the full audit exempts Hebrew sources, snapshots before applying, and records a durable targeted flag', async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.root, 'paused'), '');
+  for (const id of ['1', '2']) {
+    const source = await pinSource(
+      f.root,
+      id,
+      id === '1'
+        ? vtt
+        : 'WEBVTT\n\n00:00.000 --> 00:10.000\n' +
+            'תחילה יש לבאר את הדין. '.repeat(30),
+    );
+    const note = await packNote({
+      shiurId: id,
+      sourceHash: source.hash,
+      generatorVersion: identity.profile,
+      language: 'hebrewEnglish',
+      markdown: hebrewDraft,
+    });
+    const path = 'artifacts/' + id + '/published';
+    await saveArtifact(f.root, path, note, {
+      ...identity,
+      review: 'published',
+      attempt: 'old',
+    });
+    f.notes.set(id, note);
+    f.queue.enqueue([{ id }]);
+    f.queue.db
+      .prepare(
+        "UPDATE jobs SET status='completed',artifact_path=?,notes_hash=? WHERE id=?",
+      )
+      .run(path, note.notesHash, id);
+  }
+  const inventory = [...f.notes.values()].map(
+    ({ gzip: _, ...metadata }) => metadata,
+  );
+  const report = await auditNotesLanguage({
+    root: f.root,
+    queue: f.queue,
+    store: { get: f.pipeline.config.store.get, listMetadata: async () => [] },
+    inventory,
+    signal,
+    apply: true,
+    report: join(f.root, 'report.json'),
+  });
+  assert.equal(report.checked, 2);
+  assert.equal(report.queued, 1);
+  assert.equal(
+    report.findings.find((f) => f.id === '2')?.verdict,
+    'hebrew_source',
+  );
+  assert.equal(
+    f.queue.db.prepare("SELECT status FROM jobs WHERE id='2'").get()?.status,
+    'completed',
+  );
+  const snapshot = new DatabaseSync(join(report.archive!, 'queue.sqlite'), {
+    readOnly: true,
+  });
+  assert.equal(
+    snapshot.prepare("SELECT status FROM jobs WHERE id='1'").get()?.status,
+    'completed',
+  );
+  snapshot.close();
+  assert.equal(
+    f.queue.db.prepare("SELECT priority FROM jobs WHERE id='1'").get()
+      ?.priority,
+    3,
+  );
+  const again = await auditNotesLanguage({
+    root: f.root,
+    queue: f.queue,
+    store: { get: f.pipeline.config.store.get, listMetadata: async () => [] },
+    inventory,
+    signal,
+    apply: true,
+    report: join(f.root, 'report.json'),
+  });
+  assert.equal(again.queued, 0);
+  assert.equal(f.notes.size, 2);
+});
 void test('regeneration archives original completions, never reimports retired notes, and keeps old published content until fresh generation finishes', async (t) => {
   const f = await fixture(t);
   await ready(f);
@@ -454,6 +806,47 @@ void test('memory, disk, and outbox reservations stop generation without blockin
     });
     assert.equal(result.selected, 0);
     assert.equal(f.calls, 0);
+  }
+});
+
+void test('rejected evidence has its own budget: it cannot fill the publishable outbox, while a full quarantine still allows publication', async (t) => {
+  for (const quarantineFull of [false, true]) {
+    const f = await fixture(t);
+    await ready(f, '1');
+    await f.pipeline.generating(f.queue.claim('generating')!, signal);
+    await ready(f, '2');
+    f.queue.enqueue([{ id: '3' }]);
+    const rejected = f.queue.claim('fetching')!;
+    f.queue.finish(rejected, {
+      status: 'needs_review',
+      error: 'incomplete_output',
+    });
+    const evidence = join(f.root, 'attempts', '3', 'old-attempt');
+    await mkdir(evidence, { recursive: true });
+    await writeFile(join(evidence, 'raw.txt'), 'x'.repeat(2048));
+    await f.pipeline.auditQuarantine();
+    assert.equal(f.queue.usage().quarantineBytes, 2048);
+    await runCoordinator({
+      root: f.root,
+      queue: f.queue,
+      pipeline: f.pipeline,
+      settings: {
+        ...defaults,
+        outboxCount: 1,
+        quarantineCount: quarantineFull ? 1 : 10000,
+      },
+      signal,
+      memory: async () => 100000,
+      disk: async () => 100000000000,
+    });
+    assert.equal(
+      f.notes.has('1'),
+      true,
+      'publication must drain despite quarantine pressure',
+    );
+    assert.equal(f.notes.has('2'), !quarantineFull);
+    assert.equal(f.calls, quarantineFull ? 1 : 2);
+    assert.equal(f.queue.usage().quarantineCount, 1);
   }
 });
 void test('isolated upstream cooldowns, Retry-After dates, and shared repair budget', async (t) => {

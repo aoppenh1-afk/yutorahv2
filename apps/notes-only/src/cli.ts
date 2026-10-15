@@ -20,16 +20,20 @@ import {
 import {
   InferenceLimiter,
   PipelineFailure,
+  MAX_AI_CONCURRENCY,
 } from '../../../packages/notes-only/src/control.js';
 import {
   priorityInventoryPage,
   type PriorityTeacher,
 } from '../../../packages/notes-only/src/inventory.js';
 import { beginRegeneration } from '../../../packages/notes-only/src/regeneration.js';
+import { auditNotesLanguage } from '../../../packages/notes-only/src/language-audit.js';
+import { NOTES_LANGUAGE_POLICY } from '../../../packages/notes-only/src/language.js';
 import { backupArtifacts } from '../../../packages/notes-only/src/backup.js';
 import {
   notesProfile,
   generateNotes,
+  NOTES_NORMALIZER,
 } from '../../../packages/notes-only/src/notes.js';
 import {
   TiDBNotesStore,
@@ -81,6 +85,7 @@ async function main() {
   migrate                          Import verified legacy notes without changing completions
   regenerate --file TEACHERS --instruction TEXT  Archive checkpoints and start fresh notes
   replacement-check                Check UPDATE rights without changing a published note
+  language-audit [--apply]          Audit all published/draft notes while paused; prioritize language repairs
   retry --ids ID,ID                 Retry reviewed failures without an accepted artifact
   run --limit 3                    Bounded pilot, including fetching and publication
   run --all --follow --inventory   Continuous coordinated pools
@@ -96,9 +101,10 @@ async function main() {
   runtime-check                    Verify pinned server/schema/config/zero prices; no inference
   qualification --file FILE        Validate and record human-reviewed candidate evidence
 Common: --state DIR --credential FILE --opencode EXECUTABLE
-Generation: --route acp-high|server-high (default acp-high), --concurrency 1..10 (default 4)
+Generation: --route acp-high|server-high (default acp-high), --concurrency 1..6 (default 4; hard ceiling 6)
 Pools: --fetchers 3 --publishers 1 --ready-low 20 --ready-target 50 --ready-max 100
 Bounds: --source-mib 1024 --outbox-mib 1024 --outbox-count 1000 --disk-reserve-mib 2048
+Quarantine: --quarantine-count 10000 --quarantine-mib 1024 (separate from publishable outbox)
 Admission: --min-free-memory-mib 3072 --spacing-ms 2000 --requests-per-minute 30 --tokens-per-minute 2000000
 Deadlines: --request-timeout-ms 1200000 --max-runtime-ms 21600000
 Candidate outputs remain local until the exact profile passes its human and operational gates.
@@ -390,6 +396,7 @@ Candidate outputs remain local until the exact profile passes its human and oper
         'restore',
         'verify-cohort',
         'replacement-check',
+        'language-audit',
       ].includes(command)
     )
       throw new Error('Unknown command.');
@@ -477,6 +484,8 @@ Candidate outputs remain local until the exact profile passes its human and oper
       generator: JSON.stringify({
         ...profile,
         runtimeConfig: notesAgentConfig(),
+        normalizer: NOTES_NORMALIZER,
+        languagePolicy: NOTES_LANGUAGE_POLICY,
       }),
       route: route as 'acp-high' | 'server-high',
       approved: route === 'acp-high' || !!qualification,
@@ -551,7 +560,12 @@ Candidate outputs remain local until the exact profile passes its human and oper
       log({ command, verified: verified.length });
       return;
     }
-    const concurrency = integer('--concurrency', defaults.generators, 1, 10);
+    const concurrency = integer(
+      '--concurrency',
+      defaults.generators,
+      1,
+      MAX_AI_CONCURRENCY,
+    );
     if (
       route === 'server-high' &&
       qualification &&
@@ -642,6 +656,33 @@ Candidate outputs remain local until the exact profile passes its human and oper
           profile,
           source,
           signal: jobSignal,
+          onValidation: async (validation) => {
+            await durableWrite(
+              join(evidenceDir, validation.kind + '.normalized.md'),
+              validation.markdown,
+            );
+            await durableWrite(
+              join(evidenceDir, validation.kind + '.validation.json'),
+              JSON.stringify({
+                normalizer: validation.normalizer,
+                languagePolicy: NOTES_LANGUAGE_POLICY,
+                codes: validation.codes,
+                changed: validation.raw !== validation.markdown,
+              }),
+            );
+            if (validation.kind === 'generation')
+              queue.db
+                .prepare(
+                  'UPDATE generation_attempts SET first_pass=?,repair_codes=? WHERE token=?',
+                )
+                .run(
+                  Number(validation.codes.length === 0),
+                  JSON.stringify(validation.codes),
+                  job.lease_token,
+                );
+            for (const code of validation.codes)
+              queue.event('validation', validation.kind + ':' + code, job.id);
+          },
           request: async (prompt, kind) =>
             limiter.run(
               job,
@@ -650,7 +691,15 @@ Candidate outputs remain local until the exact profile passes its human and oper
               prompt,
               jobSignal,
               async (requestID) => {
-                await ownedServer.guard(); // The current pinned runtime catalog gates ACP as well as server requests.
+                if (route === 'acp-high') {
+                  const guardAt = Date.now();
+                  await ownedServer.guard(); // The current pinned runtime catalog gates ACP as well as server requests.
+                  queue.observe(
+                    requestID,
+                    'runtime_guard',
+                    Date.now() - guardAt,
+                  );
+                }
                 await durableWrite(
                   join(evidenceDir, requestID + '.prompt.txt'),
                   prompt,
@@ -693,11 +742,19 @@ Candidate outputs remain local until the exact profile passes its human and oper
                     jobSignal,
                     async (client, workspace) => {
                       await client.session(workspace, FREE_NOTES_MODEL);
-                      return client.verifiedPrompt(
+                      const sentAt = Date.now();
+                      queue.observe(requestID, 'request_sent');
+                      const response = await client.verifiedPrompt(
                         prompt,
                         ownedServer.config.deadlineMs,
                         capture,
                       );
+                      queue.observe(
+                        requestID,
+                        'response_completed',
+                        Date.now() - sentAt,
+                      );
+                      return response;
                     },
                   );
                   for (const id of sessionIds)
@@ -723,6 +780,27 @@ Candidate outputs remain local until the exact profile passes its human and oper
         return result.markdown;
       },
     });
+    if (command === 'language-audit') {
+      await readFile(join(root, 'paused'));
+      await pipeline.recoverExpired();
+      const inventoryFile = option('--inventory', '');
+      const inventory = inventoryFile
+        ? JSON.parse(await readFile(resolve(inventoryFile), 'utf8')).rows
+        : undefined;
+      await auditNotesLanguage({
+        root,
+        queue,
+        store,
+        signal,
+        inventory,
+        apply: args.includes('--apply'),
+        report: resolve(
+          option('--report', join(root, 'audits', 'notes-language.json')),
+        ),
+        log,
+      });
+      return;
+    }
     if (command === 'reclaim') {
       log({ reclaimed: await pipeline.reclaim() });
       return;
@@ -743,6 +821,13 @@ Candidate outputs remain local until the exact profile passes its human and oper
       sourceBytes: integer('--source-mib', 1024, 8, 102400) * 1024 ** 2,
       outboxBytes: integer('--outbox-mib', 1024, 1, 102400) * 1024 ** 2,
       outboxCount: integer('--outbox-count', 1000, 1, 100000),
+      quarantineCount: integer(
+        '--quarantine-count',
+        defaults.quarantineCount,
+        1,
+        1000000,
+      ),
+      quarantineBytes: integer('--quarantine-mib', 1024, 1, 102400) * 1024 ** 2,
       diskReserveBytes:
         integer('--disk-reserve-mib', 2048, 1, 102400) * 1024 ** 2,
       minFreeMemoryMiB: integer('--min-free-memory-mib', 3072, 0, 100000),
@@ -802,9 +887,11 @@ Candidate outputs remain local until the exact profile passes its human and oper
               await backupArtifacts(root, backupDestination, queue, audit);
               if (audit) queue.setCursor('lastBackupAudit', Date.now());
               await pipeline.reclaim();
+              await pipeline.auditQuarantine();
               queue.pruneTelemetry();
             },
             log,
+            runtimeMetrics: () => ownedServer.adapter.monitor.status(),
           });
     await mkdir(join(root, 'runs'), { recursive: true, mode: 0o700 });
     await durableWrite(

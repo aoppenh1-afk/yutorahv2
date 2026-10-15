@@ -82,6 +82,9 @@ const manifest = {
   effort: 'high',
   defaultRoute: 'acp-high',
   defaultPools: { fetchers: 3, generators: 4, publishers: 1 },
+  maxAiConcurrency: 6,
+  normalizer: 'presentation-2',
+  languagePolicy: 'english-prose-1',
   schema: 2,
 };
 await writeFile(

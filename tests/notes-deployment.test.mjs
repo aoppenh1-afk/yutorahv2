@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile as callback } from 'node:child_process';
+import { execFile as callback, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { promisify } from 'node:util';
 import {
   mkdtemp,
@@ -136,6 +137,7 @@ void test('invalid persistent pool settings fail before any worker starts', asyn
   const root = await mkdtemp(join(tmpdir(), 'notes-pools-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   for (const settings of [
+    { fetchers: 3, generators: 7, publishers: 1 },
     { fetchers: 3, generators: 11, publishers: 1 },
     { fetchers: 3, generators: '4', publishers: 1 },
   ]) {
@@ -146,4 +148,50 @@ void test('invalid persistent pool settings fail before any worker starts', asyn
       /Invalid pool setting/,
     );
   }
+});
+
+void test('qualification refuses seven sessions, unpaused production, and an occupied production lock before starting inference', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'notes-qualification-lock-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const output = join(root, 'trial');
+  const command = [
+    '--import',
+    'tsx',
+    'scripts/qualify-notes.ts',
+    '--production-state',
+    root,
+    '--output',
+    output,
+    '--opencode',
+    'must-not-launch',
+  ];
+  await assert.rejects(
+    execFile(process.execPath, [...command, '--concurrency', '7']),
+    /Invalid concurrency/,
+  );
+  await assert.rejects(execFile(process.execPath, command), /Pause production/);
+  await writeFile(join(root, 'paused'), '');
+  const holder = spawn(
+    'flock',
+    [
+      '-n',
+      join(root, 'process.lock'),
+      process.execPath,
+      '-e',
+      "process.stdout.write('held');process.stdin.resume()",
+    ],
+    { stdio: ['pipe', 'pipe', 'pipe'] },
+  );
+  t.after(() => {
+    holder.stdin.end();
+  });
+  await once(holder.stdout, 'data');
+  await assert.rejects(
+    execFile(process.execPath, command),
+    (error) => error.code === 75,
+  );
+  await assert.rejects(stat(output), { code: 'ENOENT' });
+  const exited = once(holder, 'exit');
+  holder.stdin.end();
+  await exited;
 });
