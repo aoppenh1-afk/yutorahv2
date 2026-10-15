@@ -1,9 +1,15 @@
 import { Pool, types, type QueryResult } from 'pg';
 import type { SearchDatabase, SearchStatement } from './search-storage';
 import { performanceSample } from './performance-metrics';
+import { routeSearchStorage } from './search-storage-routing';
 
 const identifiers = new Set([
   'sources_runs',
+  'search_note_snapshots',
+  'search_note_documents',
+  'search_note_members',
+  'search_notes_state',
+  'search_notes_guards',
   'search_runs',
   'search_pass_guards',
   'search_hits',
@@ -228,9 +234,17 @@ export function managedSearchDatabase() {
   if (!database) {
     if (!process.env.SEARCH_DATABASE_URL)
       throw new Error('Search storage is not configured.');
-    database = postgresSearchDatabase(
+    const library = postgresSearchDatabase(
       postgresSearchPool(process.env.SEARCH_DATABASE_URL),
     );
+    database = process.env.NOTES_SEARCH_DATABASE_URL
+      ? routeSearchStorage(
+          library,
+          postgresSearchDatabase(
+            postgresSearchPool(process.env.NOTES_SEARCH_DATABASE_URL),
+          ),
+        )
+      : library;
   }
   return database;
 }

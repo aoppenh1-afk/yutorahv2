@@ -135,6 +135,82 @@ both VM environment files, switching the website's two secrets back to suitable
 roles in the original project, and redeploying; rolling back a Vercel deployment
 alone does not switch the VM. Preserve any new writes before rollback.
 
+## Notes-search split on October 15
+
+The titles project reached its enforced `512MB` limit while holding a new notes-search
+index alongside the title dictionary. PostgreSQL rejected writes with SQLSTATE
+`53100`. Removing disposable filtered-search caches recovered about 26 MiB, but
+that left little room for new searches or notes.
+
+An additional Neon Free project, `yutorah-search-v2`
+(`wild-base-75533785`), now holds the notes-search documents, memberships,
+snapshots, synchronization cursor, and lease guards. The existing titles project
+keeps the title catalog, vocabulary, spelling keys, result caches, trending state,
+and source sheets. Authoritative notes remain in TiDB; transcripts retain their
+existing storage.
+
+Neon's [current Free plan](https://neon.com/docs/introduction/plans) advertises
+1 GB per project. Both the existing project and the newly provisioned project
+returned an enforced `neon.max_cluster_size` of `512MB`, so the migration budget
+uses that measured limit.
+
+The copy was checked against every notes-index row, including the unfinished
+snapshot and its synchronization state. All five table counts and ordered
+content digests matched. The destination contains 7,920 indexed notes and 7,920
+memberships. The authoritative TiDB store had 9,559 notes at verification time;
+the search index was already incomplete before this move and retains its resume
+cursor. No snapshot was marked completed by this migration.
+
+After verifying the copy again under source-table locks, the old indexer's write
+privileges were revoked and only the five relocated tables were truncated. Their
+empty schema and indexes remain in the titles project for compatibility. This
+recovered another 141.05 MiB. Subsequent measurements, including verification
+requests, were 345.34 MiB used in the titles project and 167.16 MiB in the notes
+project. That leaves roughly 167 MiB and 345 MiB free respectively.
+
+Production and Preview now have `NOTES_SEARCH_DATABASE_URL` set to the new
+`yutorah_notes_reader` connection. That role can read notes-search content and
+cannot insert, update, or delete it. The local ignored `.env.notes-index.local`
+uses the destination's separate `yutorah_notes_indexer` writer. The writer's
+insert, update, and delete permissions were verified inside a rolled-back
+transaction. The temporary development connection exposing owner credentials
+was disconnected after setup.
+
+The accompanying local code adds optional routing in `managedSearchDatabase()`.
+Notes queries and their schema checks use the new connection; title search,
+learning, and source processing stay together on their existing connection.
+Mixed queries and transaction batches are rejected before execution. Without
+the optional connection, the application retains the original single-database
+behavior. The routing and capacity-error changes must be committed and pushed
+before a future release, including before merging the notes-search feature.
+This task did not redeploy the website. The production commit, `1791b57`, reads
+published notes from TiDB and does not yet query these notes-search tables.
+
+Post-migration production checks returned HTTP 200 for teacher `80182` search
+and published notes for shiur `1191751`. Source checking returned HTTP 202 and
+advanced from four to five windows, with intermittent upstream retries. Title,
+vocabulary, and spelling counts remained 434,082, 1,561,925, and 83,218.
+
+Focused routing, search, and source tests, TypeScript, and targeted lint passed.
+The broader content suite includes tunnel tests that fail on this host because
+passwordless `sudo` is unavailable. Database-backed routing, read permissions,
+schema checks, and writer permissions were also checked against both projects.
+
+Backups and private verification records are outside the repository under
+`~/.local/share/yutorah-backups/search-capacity-20261015/`. They include the
+fresh `notes-data.dump`, original schema, a notes-only restore list,
+before/after digests, previous writer configuration, and grants. A complete
+earlier search-schema backup was also restored successfully into a temporary
+local PostgreSQL instance before the preceding cache cleanup.
+
+Rollback requires restoring the notes data into the old empty tables first,
+using `notes-only.list` so existing schema-migration history is not inserted
+again. Restore the old writer grants and configuration, verify the row digests,
+then remove the optional website connection and deploy the fallback routing.
+Keep the destination copy intact until those checks pass. Merely removing the
+environment variable or rolling back a deployment does not restore the old
+index data.
+
 ## Investigation before migration
 
 The queue is deliberately paused. This investigation does not remove live

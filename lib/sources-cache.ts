@@ -26,11 +26,12 @@ const textLoads = new WeakMap<
   Map<string, Promise<SourceText>>
 >();
 
-/** Leave room for concurrent bounded requests and PostgreSQL index maintenance. */
+/** Neon limits the whole project, including template and maintenance databases.
+ * Leave room for concurrent bounded requests and PostgreSQL index maintenance. */
 export async function assertSourceStorageCapacity(db: SearchDatabase) {
   if (db.dialect !== 'postgres') return;
   const capacity = await db
-    .prepare(`SELECT pg_database_size(current_database()) AS bytes,
+    .prepare(`SELECT (SELECT sum(pg_database_size(oid)) FROM pg_database) AS bytes,
       pg_size_bytes(NULLIF(NULLIF(current_setting('neon.max_cluster_size',true),'-1'),'')) AS maximum`)
     .first<{ bytes: number | string; maximum: number | string | null }>();
   if (!capacity || !Number.isFinite(Number(capacity.bytes)))

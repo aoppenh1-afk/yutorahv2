@@ -37,6 +37,7 @@ import { sourceTextResponse } from '../lib/source-text-handler';
 import type { SearchDatabase, SearchStatement } from '../lib/search-storage';
 import type { RefMetadata, SourceText } from '../lib/sefaria';
 import type { TranscriptSource } from '../lib/sources';
+import { SourcesLeaseError } from '../lib/sources';
 import { POST as verifyReferenceRequest } from '../app/api/source-creator/verify/route';
 
 function database(): SearchDatabase {
@@ -95,7 +96,12 @@ void test('new source sheets stop before database capacity is exhausted while pr
             return this;
           },
           async first<T>() {
-            return { bytes: 530000000, maximum: 536870912 } as T;
+            // Neon counts the other databases too. The application database alone
+            // still appears to have more than the required 16 MiB of headroom.
+            return {
+              bytes: sql.includes('current_database()') ? 512966656 : 536420752,
+              maximum: 536870912,
+            } as T;
           },
           async all<T>() {
             return { results: [] as T[] };
@@ -139,6 +145,34 @@ void test('new source sheets stop before database capacity is exhausted while pr
   );
 });
 const quote = 'בראשית ברא אלהים את השמים ואת הארץ והארץ היתה תהו ובהו';
+void test('source storage exhaustion reports capacity instead of an interrupted check', async () => {
+  for (const failure of [
+    Object.assign(new Error('private database details'), { code: '53100' }),
+    new SourcesLeaseError(
+      'Source storage is near capacity. Retry after storage is expanded.',
+    ),
+  ]) {
+    const response = await sourceCreatorResponse(
+      new Request('https://example.test/api/source-creator?id=42'),
+      {
+        db: {
+          ...database(),
+          prepare() {
+            throw failure;
+          },
+        },
+        features: { links: true, sheets: true },
+        transcript: async () => Response.json(input('Genesis 1:1').transcript),
+        notes: async () => Response.json({}, { status: 404 }),
+      },
+    );
+    assert.equal(response.status, 503);
+    assert.ok(response.headers.has('Retry-After'));
+    const body = await response.json();
+    assert.match(body.error, /storage.*(full|capacity)/i);
+    assert.doesNotMatch(body.error, /private database details/);
+  }
+});
 function mock(
   options: {
     refs?: string[];

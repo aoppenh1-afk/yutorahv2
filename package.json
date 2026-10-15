@@ -49,7 +49,7 @@
     "account-library:deploy": "node scripts/deploy-account-library.mjs",
     "test:parity": "tsx --test tests/feature-parity.test.ts tests/catalog-artwork.test.ts tests/catalog-loading.test.ts tests/catalog-loading-view.test.tsx tests/topic-groups.test.ts tests/teacher-profile.test.tsx tests/teacher-popularity-client.test.ts",
     "test:downloads": "tsx --test tests/audio-download.test.ts tests/offline-client.test.ts tests/offline-content.test.ts && node --test tests/offline-worker.test.mjs && node --test tests/downloads-browser.test.mjs",
-    "test:content": "tsx --test tests/transcript-archive.test.ts tests/transcript-database.test.ts tests/transcript-gateway.test.ts tests/official-transcript.test.ts tests/read-cache.test.ts tests/publication-budget.test.ts tests/publication.test.ts tests/search-server.test.ts tests/content-tunnel.test.ts tests/search-postgres.test.ts tests/search-schema.test.ts tests/search-compaction.test.ts",
+    "test:content": "tsx --test tests/transcript-archive.test.ts tests/transcript-database.test.ts tests/transcript-gateway.test.ts tests/official-transcript.test.ts tests/read-cache.test.ts tests/publication-budget.test.ts tests/publication.test.ts tests/search-server.test.ts tests/content-tunnel.test.ts tests/search-postgres.test.ts tests/search-schema.test.ts tests/search-storage-routing.test.ts tests/search-compaction.test.ts",
     "content:serve": "tsx apps/notes-only/src/content-cli.ts",
     "pretest:content": "node scripts/setup-test-database.mjs"
   },

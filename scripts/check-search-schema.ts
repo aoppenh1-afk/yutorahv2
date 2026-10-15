@@ -2,6 +2,32 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import type { SearchDatabase } from '../lib/search-storage';
 import { d1HttpDatabase } from '../lib/d1-http';
+import { routeSearchStorage } from '../lib/search-storage-routing';
+
+export async function checkNotesSearchSchema(
+  db: SearchDatabase,
+  postgresSchema = 'yutorah_search',
+) {
+  for (const sql of [
+    'SELECT id,created,completed,count FROM search_note_snapshots LIMIT 0',
+    'SELECT key,id,notes_hash,payload,text,normalized FROM search_note_documents LIMIT 0',
+    'SELECT snapshot,id,key FROM search_note_members LIMIT 0',
+    'SELECT name,snapshot,cursor,owner,lease,updated FROM search_notes_state LIMIT 0',
+  ])
+    await db.prepare(sql).all();
+  if (db.dialect === 'postgres') {
+    const index = await db
+      .prepare(
+        "SELECT indexname FROM pg_indexes WHERE schemaname=? AND tablename='search_note_documents' AND indexname='search_note_fulltext'",
+      )
+      .bind(postgresSchema)
+      .first();
+    if (!index)
+      throw new Error(
+        'Missing notes full-text index in the notes search database.',
+      );
+  }
+}
 
 /** Compatibility validation is deliberately read-only for the runtime role. */
 export async function checkSearchSchema(
@@ -55,10 +81,19 @@ if (
     const { postgresSearchPool, postgresSearchDatabase } =
       await import('../lib/search-postgres');
     const pool = postgresSearchPool(process.env.SEARCH_DATABASE_URL);
+    const notesPool = process.env.NOTES_SEARCH_DATABASE_URL
+      ? postgresSearchPool(process.env.NOTES_SEARCH_DATABASE_URL)
+      : undefined;
     try {
-      await checkSearchSchema(postgresSearchDatabase(pool));
+      const library = postgresSearchDatabase(pool);
+      const notes = notesPool && postgresSearchDatabase(notesPool);
+      await checkSearchSchema(
+        notes ? routeSearchStorage(library, notes) : library,
+      );
+      if (notes) await checkNotesSearchSchema(notes);
     } finally {
       await pool.end();
+      await notesPool?.end();
     }
   } else {
     await checkSearchSchema(

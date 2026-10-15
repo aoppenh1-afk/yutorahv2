@@ -2,7 +2,8 @@ import type { SearchDatabase } from './search-storage';
 import { advanceSourceCreator } from './source-creator';
 import { sourceFeatures, type SourceFeatures } from './source-features';
 import type { SourceInput } from './source-windows';
-import { SourcesLimitError } from './sources';
+import { SourcesLeaseError, SourcesLimitError } from './sources';
+import { isStorageCapacityError } from './database-errors';
 import { pruneSourceCache } from './sources-cache';
 import { SefariaUnavailableError, type SefariaFetch } from './sefaria';
 
@@ -159,8 +160,10 @@ export async function sourceCreatorResponse(
   } catch (error) {
     return reply(
       {
-        error:
-          error instanceof SourcesLimitError
+        error: isStorageCapacityError(error)
+          ? 'Source storage is full. Retry after storage is expanded.'
+          : error instanceof SourcesLimitError ||
+              error instanceof SourcesLeaseError
             ? error.message
             : 'Source checking was interrupted. Retry to continue from the last saved step.',
       },

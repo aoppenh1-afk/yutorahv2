@@ -4,6 +4,7 @@ import {
   SearchBusyError,
 } from '@/lib/complete-search';
 import { searchDatabase } from '@/lib/search-db';
+import { isStorageCapacityError } from '@/lib/database-errors';
 export async function GET(request: Request) {
   const started = performance.now();
   const p = new URL(request.url).searchParams;
@@ -130,6 +131,14 @@ export async function GET(request: Request) {
       },
     });
   } catch (e) {
+    if (isStorageCapacityError(e))
+      return Response.json(
+        { error: 'Search storage is full. Retry after storage is expanded.' },
+        {
+          status: 503,
+          headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' },
+        },
+      );
     if (e instanceof SearchBusyError)
       return Response.json(
         { error: e.message },
