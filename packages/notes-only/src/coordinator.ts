@@ -440,6 +440,8 @@ export async function runCoordinator(input: {
         !inventory &&
         now >= nextInventory &&
         admissions &&
+        // Once selection closes, drain this batch so the next one can admit ready work.
+        selected.size < limit &&
         (limit === Infinity || input.inventoryDuringBoundedRun) &&
         queue.available('yutorah')
       ) {

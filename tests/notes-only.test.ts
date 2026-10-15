@@ -95,6 +95,54 @@ async function ready(f: Awaited<ReturnType<typeof fixture>>, id = '1') {
   f.queue.enqueue([{ id }]);
   await f.pipeline.fetching(f.queue.claim('fetching')!, signal);
 }
+void test('a completed bounded batch exits despite continuously refilling inventory when every selected transcript is missing', async (t) => {
+  const f = await fixture(t);
+  f.queue.enqueue([{ id: '1' }, { id: '2' }]);
+  const pipeline = new NotesPipeline({
+    ...f.pipeline.config,
+    fetchTranscript: async () => null,
+  });
+  let inventories = 0;
+  const start = Date.now();
+  const result = await runCoordinator({
+    root: f.root,
+    queue: f.queue,
+    pipeline,
+    signal,
+    limit: 1,
+    follow: true,
+    inventoryDuringBoundedRun: true,
+    maxRuntimeMs: 1200,
+    settings: {
+      ...defaults,
+      generators: 1,
+      fetchers: 1,
+      publishers: 1,
+      fetchSpacingMs: 0,
+      inventoryPaceMs: 0,
+      minFreeMemoryMiB: 0,
+      diskReserveBytes: 0,
+    },
+    memory: async () => 1e6,
+    disk: async () => 1e12,
+    inventory: async () => {
+      inventories++;
+      await new Promise((resolve) => setTimeout(resolve, 180));
+    },
+  });
+  assert.equal(result.selected, 1);
+  assert.equal(result.finished, 1);
+  assert.equal(result.jobs[0]?.status, 'missing');
+  assert.equal(
+    inventories,
+    1,
+    'catalog discovery relaunched after the selected batch was already full',
+  );
+  assert.ok(
+    Date.now() - start < 700,
+    'finished batch waited for its runtime deadline',
+  );
+});
 const hebrewDraft =
   '# הגדרת הדין\n\n## ביאור\n\n' +
   'תחילה יש לבאר את ההבדל בין שני המקרים ואת הטעם של כל שיטה. '.repeat(15);
