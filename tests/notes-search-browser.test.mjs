@@ -310,15 +310,29 @@ for (const width of [320, 390, 1280]) {
       fullPage: true,
     });
     metadataCalls.length = 0;
+    // Results and scope controls load in independent Suspense boundaries.
+    // Hold the scope chunk until results render to reproduce the CI ordering.
+    let releaseScope = () => {};
+    if (width === 320) {
+      const scopeReady = new Promise((resolve) => {
+        releaseScope = resolve;
+      });
+      t.after(() => releaseScope());
+      await page.route('**/search-scope-*.js', async (route) => {
+        await scopeReady;
+        await route.continue().catch(() => {});
+      });
+    }
     await page.goto(origin + '/?view=search&q=prayer&searchIn=inside', {
       waitUntil: 'domcontentloaded',
     });
     const region = regionFor(page);
     await shown(page, 3);
-    assert.equal(await page.locator('.search-scope button').count(), 2);
+    releaseScope();
     await page
       .getByRole('button', { name: 'Inside the Shiur', exact: true })
       .waitFor();
+    assert.equal(await page.locator('.search-scope button').count(), 2);
     assert.equal(
       metadataCalls.length,
       0,
