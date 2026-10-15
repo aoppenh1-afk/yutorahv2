@@ -28,6 +28,7 @@ import {
 } from '../../../packages/notes-only/src/inventory.js';
 import { beginRegeneration } from '../../../packages/notes-only/src/regeneration.js';
 import { auditNotesLanguage } from '../../../packages/notes-only/src/language-audit.js';
+import { recheckSavedNotes } from '../../../packages/notes-only/src/recheck.js';
 import { NOTES_LANGUAGE_POLICY } from '../../../packages/notes-only/src/language.js';
 import { backupArtifacts } from '../../../packages/notes-only/src/backup.js';
 import {
@@ -86,6 +87,7 @@ async function main() {
   regenerate --file TEACHERS --instruction TEXT  Archive checkpoints and start fresh notes
   replacement-check                Check UPDATE rights without changing a published note
   language-audit [--apply]          Audit all published/draft notes while paused; prioritize language repairs
+  recheck-saved                     Recheck urgent saved conflicts and formatting-only failures while paused; no inference
   retry --ids ID,ID                 Retry reviewed failures without an accepted artifact
   run --limit 3                    Bounded pilot, including fetching and publication
   run --all --follow --inventory   Continuous coordinated pools
@@ -397,6 +399,7 @@ Candidate outputs remain local until the exact profile passes its human and oper
         'verify-cohort',
         'replacement-check',
         'language-audit',
+        'recheck-saved',
       ].includes(command)
     )
       throw new Error('Unknown command.');
@@ -780,6 +783,12 @@ Candidate outputs remain local until the exact profile passes its human and oper
         return result.markdown;
       },
     });
+    if (command === 'recheck-saved') {
+      await readFile(join(root, 'paused'));
+      await pipeline.recoverExpired();
+      log(await recheckSavedNotes({ root, queue, pipeline, signal }));
+      return;
+    }
     if (command === 'language-audit') {
       await readFile(join(root, 'paused'));
       await pipeline.recoverExpired();
@@ -870,7 +879,7 @@ Candidate outputs remain local until the exact profile passes its human and oper
               (args.includes('--all')
                 ? Infinity
                 : integer('--limit', 3, 1, 1000)),
-            follow: !progress && args.includes('--follow'),
+            follow: args.includes('--follow'),
             maxRuntimeMs: integer(
               '--max-runtime-ms',
               21600_000,

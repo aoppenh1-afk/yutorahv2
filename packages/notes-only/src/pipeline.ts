@@ -18,7 +18,12 @@ import {
   statePath,
 } from './artifacts.js';
 import { PipelineFailure, classify } from './control.js';
-import { NOTES_NORMALIZER } from './notes.js';
+import {
+  NOTES_NORMALIZER,
+  notesViolations,
+  normalizeNotes,
+  violationCode,
+} from './notes.js';
 import {
   assessNotesLanguage,
   hebrewNotesBody,
@@ -178,6 +183,7 @@ export class NotesPipeline {
       review: 'published',
       eligibility: 'published',
       error: null,
+      redo_reason: null,
     });
   }
   async generating(job: NoteJob, signal: AbortSignal) {
@@ -318,6 +324,11 @@ export class NotesPipeline {
       published.sourceHash !== note.sourceHash ||
       published.generatorVersion !== note.generatorVersion
     ) {
+      if (await this.canAdoptLanguageReplacement(job, published)) {
+        await this.completeExisting(job, published);
+        queue.event('publication', 'validated_replacement_adopted', job.id);
+        return 'completed';
+      }
       const path = join(
         'artifacts',
         job.id,
@@ -452,6 +463,180 @@ export class NotesPipeline {
         });
     }
   }
+  /** A concurrent repair may win the CAS; adoption requires the exact source/profile and all contract checks. */
+  private async canAdoptLanguageReplacement(job: NoteJob, note: SavedNote) {
+    if (
+      !job.redo_reason ||
+      !this.config.identity.approved ||
+      note.shiurId !== job.id ||
+      note.sourceHash !== job.source_hash ||
+      note.generatorVersion !== this.config.identity.profile
+    )
+      return false;
+    const finding = this.config.queue.db
+      .prepare(
+        'SELECT MAX(queued_at) AS at FROM language_findings WHERE job_id=? AND queued_at IS NOT NULL AND replaced_at IS NULL',
+      )
+      .get(job.id);
+    if (
+      !finding?.at ||
+      !Number.isSafeInteger(note.createdAtMs) ||
+      note.createdAtMs < Number(finding.at) ||
+      note.createdAtMs < (this.config.regenerationStartedAt ?? 0)
+    )
+      return false;
+    try {
+      const source = await this.validatedSource(job, note.sourceHash);
+      return notesViolations(await unpackNote(note), source).length === 0;
+    } catch (error) {
+      if ((error as PipelineFailure).code === 'language_source_unavailable')
+        return false;
+      throw error;
+    }
+  }
+  /** Recheck saved evidence under an exclusive paused runner; no model request or public write occurs here. */
+  async recheckSaved(job: NoteJob, signal: AbortSignal) {
+    const { queue, root, identity } = this.config;
+    signal.throwIfAborted();
+    if (!queue.owns(job)) throw new PipelineFailure('lease_lost');
+    if (job.error === 'published_hash_conflict') {
+      const published = await this.config.store.get(job.id);
+      if (
+        !published ||
+        !(await this.canAdoptLanguageReplacement(job, published))
+      )
+        return 'requires_review';
+      await this.completeExisting(job, published);
+      queue.event('revalidation', 'published_replacement_adopted', job.id);
+      return 'completed';
+    }
+    if (
+      job.error !== 'incomplete_output' ||
+      job.artifact_path ||
+      !identity.approved
+    )
+      return 'requires_review';
+    const attempt = queue.db
+      .prepare(
+        'SELECT token FROM generation_attempts WHERE job_id=? ORDER BY started_at DESC LIMIT 1',
+      )
+      .get(job.id);
+    if (!attempt || !/^[a-zA-Z0-9_-]{1,128}$/.test(String(attempt.token)))
+      return 'missing_evidence';
+    const token = String(attempt.token),
+      folder = join(root, 'attempts', job.id, token);
+    const recorded = JSON.parse(
+      await readFile(join(folder, 'identity.json'), 'utf8'),
+    );
+    if (
+      recorded.job !== job.id ||
+      recorded.token !== token ||
+      recorded.profile !== identity.profile ||
+      recorded.sourceHash !== job.source_hash ||
+      recorded.route !== identity.route
+    )
+      return 'identity_mismatch';
+    const request = queue.db
+      .prepare(
+        "SELECT id,kind,status,cost,evidence FROM requests WHERE job_id=? AND token=? AND kind IN ('generation','repair') ORDER BY started_at DESC,rowid DESC LIMIT 1",
+      )
+      .get(job.id, token);
+    if (
+      !request ||
+      request.status !== 'completed' ||
+      request.cost !== 0 ||
+      !request.evidence
+    )
+      return 'unverified_request';
+    const raw = await readFile(
+      join(folder, String(request.id) + '.raw.txt'),
+      'utf8',
+    );
+    const previous = await readFile(
+      join(folder, String(request.kind) + '.normalized.md'),
+      'utf8',
+    );
+    if (normalizeNotes(raw) !== previous) return 'evidence_mismatch';
+    const source = await this.validatedSource(job, job.source_hash!);
+    const failures = notesViolations(previous, source).map(violationCode);
+    if (
+      !failures.length ||
+      failures.some((code) => code !== 'hebrew_vocalization')
+    )
+      return 'requires_review';
+    const markdown = normalizeNotes(raw, source);
+    if (notesViolations(markdown, source).length) return 'requires_review';
+    signal.throwIfAborted();
+    if (!queue.owns(job)) throw new PipelineFailure('lease_lost');
+    const provenance = {
+      normalizer: NOTES_NORMALIZER,
+      attempt: token,
+      request: String(request.id),
+      beforeHash: digest(previous),
+      afterHash: digest(markdown),
+    };
+    const path = join(
+      'artifacts',
+      job.id,
+      job.source_hash!,
+      identity.profile,
+      'revalidated-' + job.lease_token,
+    );
+    const evidence = join(root, 'attempts', job.id, job.lease_token);
+    await mkdir(evidence, { recursive: true, mode: 0o700 });
+    await durableWrite(
+      join(evidence, 'revalidation.json'),
+      JSON.stringify({
+        ...provenance,
+        sourceHash: job.source_hash,
+        profile: identity.profile,
+      }),
+    );
+    const generator = JSON.stringify({
+      configuration: identity.generator,
+      revalidatedFrom: provenance,
+    });
+    const note = await packNote({
+      shiurId: job.id,
+      sourceHash: job.source_hash!,
+      generatorVersion: identity.profile,
+      language: 'hebrewEnglish',
+      markdown,
+    });
+    queue.db
+      .prepare('INSERT INTO generation_artifacts VALUES(?,?,?,?,?,?)')
+      .run(
+        job.lease_token,
+        job.id,
+        job.source_hash,
+        identity.profile,
+        path,
+        Date.now(),
+      );
+    const manifest = await saveArtifact(root, path, note, {
+      profile: identity.profile,
+      generator,
+      route: identity.route,
+      review: 'approved_route',
+      attempt: job.lease_token,
+    });
+    queue.accept(job, {
+      status: 'generated',
+      artifact_path: path,
+      artifact_bytes:
+        manifest.gzipBytes + Buffer.byteLength(JSON.stringify(manifest)),
+      notes_hash: note.notesHash,
+      profile: identity.profile,
+      generator,
+      route: identity.route,
+      review: 'approved_route',
+      eligibility: 'eligible',
+      error: null,
+      next_at: 0,
+    });
+    queue.event('revalidation', 'formatting_recovered', job.id);
+    return 'generated';
+  }
   async reclaim(now = Date.now()) {
     // Accepted notes are retained. Sources are reclaimable only after completion and the backup checkpoint.
     const rows = this.config.queue.db
@@ -498,6 +683,13 @@ export class NotesPipeline {
     sourceHash: string,
   ) {
     if (!hebrewNotesBody(markdown)) return;
+    if (
+      assessNotesLanguage(markdown, await this.validatedSource(job, sourceHash))
+        .unexpectedHebrew
+    )
+      throw new PipelineFailure('unexpected_hebrew');
+  }
+  private async validatedSource(job: NoteJob, sourceHash: string) {
     if (!job.source_path || job.source_hash !== sourceHash)
       throw new PipelineFailure('language_source_unavailable');
     const bytes = await readFile(
@@ -509,13 +701,9 @@ export class NotesPipeline {
     });
     if (digest(bytes) !== sourceHash)
       throw new PipelineFailure('source_changed', 'yutorah');
-    if (
-      assessNotesLanguage(
-        markdown,
-        transcriptText(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
-      ).unexpectedHebrew
-    )
-      throw new PipelineFailure('unexpected_hebrew');
+    return transcriptText(
+      new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+    );
   }
 }
 

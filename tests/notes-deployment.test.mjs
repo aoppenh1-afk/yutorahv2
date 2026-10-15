@@ -15,7 +15,83 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 const execFile = promisify(callback);
+void test('a following rollout waits through memory admission without empty supervisor restart cycles', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'notes-rollout-follow-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const pkg = join(root, 'package'),
+    state = join(root, 'state');
+  await mkdir(state);
+  await mkdir(pkg);
+  await execFile(process.execPath, ['scripts/package-notes-pipeline.mjs', pkg]);
+  const env = {
+    ...process.env,
+    NOTES_NODE: process.execPath,
+    YUTORAH_NOTES_STATE: state,
+  };
+  await execFile('bash', [join(pkg, 'install.sh')], { env });
+  const notesSkill = await readFile(
+    join(pkg, 'packages/notes-only/skills/written-shiur-notes/SKILL.md'),
+    'utf8',
+  );
+  const profile = createHash('sha256')
+    .update(
+      JSON.stringify({
+        model: 'opencode/muse-spark-1.3-contributor-free',
+        language: 'hebrewEnglish',
+        runtime: 'opencode:1.18.33:server:plan:high:v1',
+        notesSkill,
+        pipeline: 'written-shiur-1',
+      }),
+    )
+    .digest('hex');
+  const db = new DatabaseSync(join(state, 'queue.sqlite'));
+  db.prepare('INSERT INTO approvals VALUES(?,?,?)').run(
+    profile,
+    JSON.stringify({ phase: 'quality', concurrency: 4 }),
+    Date.now(),
+  );
+  db.exec(
+    "INSERT INTO jobs(id,title,teacher,status,eligibility,source_path,source_hash,source_bytes) VALUES('1','Pending','Teacher','ready','eligible','sources/cached.vtt','unused',100)",
+  );
+  db.close();
+  await writeFile(
+    join(state, 'writer.json'),
+    JSON.stringify({
+      host: 'gateway01.us-east-1.prod.aws.tidbcloud.com',
+      username: 'fixture',
+      password: 'fixture',
+      database: 'notes',
+    }),
+  );
+  const result = await execFile(
+    join(state, 'run.sh'),
+    [
+      'rollout',
+      '--route',
+      'server-high',
+      '--follow',
+      '--max-runtime-ms',
+      '600',
+      '--min-free-memory-mib',
+      '100000',
+      '--opencode',
+      'must-not-launch',
+    ],
+    { timeout: 10000 },
+  );
+  const records = result.stdout.trim().split('\n').map(JSON.parse);
+  const first = records.find((r) => r.type === 'metrics');
+  const final = records.find((r) => r.selected !== undefined);
+  assert.equal(final.selected, 0);
+  assert.ok(
+    final.metrics.observedMs >= 600,
+    '--follow was ignored during the quality rollout',
+  );
+  assert.ok(first);
+  assert.equal(final.metrics.activeProviderRequests, 0);
+});
 void test('emitted bundle installs idempotently, preserves WAL checkpoints and credentials, enforces locks, and rolls back the runtime without losing newer work', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'notes-install-'));
   t.after(() => rm(root, { recursive: true, force: true }));

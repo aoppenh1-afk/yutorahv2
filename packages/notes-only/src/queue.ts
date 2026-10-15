@@ -248,6 +248,17 @@ export class NotesQueue {
       ) === 1
     );
   }
+  /** Only the live kernel-lock-owning coordinator may refresh its unchanged token after an event-loop stall. */
+  heartbeat(job: NoteJob, leaseMs: number, now = Date.now()) {
+    if (this.renew(job, leaseMs, now)) return true;
+    const renewed = this.db
+      .prepare(`UPDATE jobs SET lease_until=? WHERE id=? AND lease_token=? AND lease_until<=?
+      AND status IN ('fetching','generating','publishing')`)
+      .run(now + leaseMs, job.id, job.lease_token, now);
+    if (Number(renewed.changes) !== 1) return false;
+    this.event('lease', 'renewed_after_stall', job.id);
+    return true;
+  }
   finish(job: NoteJob, changes: Partial<NoteJob>, now = Date.now()) {
     const allowed = new Set([
       'status',

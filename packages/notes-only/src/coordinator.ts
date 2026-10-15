@@ -249,7 +249,12 @@ export async function runCoordinator(input: {
   const finished = new Set<string>();
   const active = new Map<
     string,
-    { stage: Stage; abort: AbortController; promise: Promise<void> }
+    {
+      stage: Stage;
+      job: NoteJob;
+      abort: AbortController;
+      promise: Promise<void>;
+    }
   >();
   const counts: Record<Stage, number> = {
     fetching: 0,
@@ -292,7 +297,7 @@ export async function runCoordinator(input: {
     const jobSignal = AbortSignal.any([signal, abort.signal]);
     const timer = setInterval(
       () => {
-        if (!queue.renew(job, s.leaseMs)) abort.abort();
+        if (!queue.heartbeat(job, s.leaseMs)) abort.abort();
       },
       Math.max(100, Math.floor(s.leaseMs / 3)),
     );
@@ -373,7 +378,7 @@ export async function runCoordinator(input: {
         active.delete(job.id);
       }
     })();
-    active.set(job.id, { stage, abort, promise });
+    active.set(job.id, { stage, job, abort, promise });
   };
   // Reconciliation is bounded to expired leases. A status command never resets live work.
   await pipeline.recoverExpired();
@@ -387,6 +392,7 @@ export async function runCoordinator(input: {
         for (const expired of queue.expired()) {
           const running = active.get(expired.id);
           if (running) {
+            if (queue.heartbeat(running.job, s.leaseMs)) continue;
             running.abort.abort();
             await running.promise;
           }

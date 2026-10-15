@@ -19,9 +19,9 @@ export function notesProfile(
     id: createHash('sha256').update(JSON.stringify(value)).digest('hex'),
   };
 }
-/** Presentation normalization never transliterates, strips nikud, or rewrites wording. */
-export const NOTES_NORMALIZER = 'presentation-2';
-export function normalizeNotes(markdown: string) {
+/** Source-aware presentation changes preserve consonants, word order, and quotation text. */
+export const NOTES_NORMALIZER = 'presentation-3';
+export function normalizeNotes(markdown: string, source?: string) {
   let text = markdown
     .replace(/\r\n?/g, '\n')
     .replace(/[\t ]+$/gm, '')
@@ -33,7 +33,7 @@ export function normalizeNotes(markdown: string) {
     text = text.replace(/^```[^\n]*\n/, '').replace(/\n```$/, '');
   let fenced = false;
   const lines = text.split('\n');
-  return lines
+  const normalized = lines
     .flatMap((line, i) => {
       if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
       return !fenced && /^#{1,3} [^\n]+/.test(line) && lines[i + 1] !== ''
@@ -42,6 +42,20 @@ export function normalizeNotes(markdown: string) {
     })
     .join('\n')
     .trim();
+  if (source === undefined) return normalized;
+  // The contract requires unvocalized prose. Never modify a quoted passage to
+  // make an unsupported quotation appear acceptable to source validation.
+  return normalized
+    .split(/(["“״][^"”״\n]{1,240}["”״])/gu)
+    .map((part, i) =>
+      i % 2
+        ? part
+        : part.replace(
+            /[\u0591-\u05bd\u05bf\u05c1-\u05c2\u05c4-\u05c5\u05c7]/g,
+            '',
+          ),
+    )
+    .join('');
 }
 export function notesPrompt(
   profile: NotesProfile,
@@ -134,7 +148,7 @@ export async function generateNotes(input: {
   checkAbort(input.signal);
   if (!input.source.trim()) throw new Failure('incomplete_output');
   const validate = async (raw: string, kind: 'generation' | 'repair') => {
-    const markdown = normalizeNotes(raw);
+    const markdown = normalizeNotes(raw, input.source);
     const violations = notesViolations(markdown, input.source);
     await input.onValidation?.({
       kind,

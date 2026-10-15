@@ -19,6 +19,7 @@ import {
   type LanguageFinding,
 } from '../packages/notes-only/src/language-audit.js';
 import { assessNotesLanguage } from '../packages/notes-only/src/language.js';
+import { recheckSavedNotes } from '../packages/notes-only/src/recheck.js';
 import {
   defaults,
   runCoordinator,
@@ -689,6 +690,293 @@ void test('published hash conflicts remain explicit and preserve the accepted ar
     job.notes_hash,
   );
   assert.equal(f.queue.claim('publishing'), null);
+});
+
+void test('a coordinator event-loop stall does not cancel an unchanged owned generation lease', async (t) => {
+  const f = await fixture(t);
+  await ready(f);
+  let calls = 0,
+    aborted = false;
+  const pipeline = new NotesPipeline({
+    ...f.pipeline.config,
+    generate: async (_source, _job, jobSignal) => {
+      calls++;
+      jobSignal.addEventListener(
+        'abort',
+        () => {
+          aborted = true;
+        },
+        { once: true },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      jobSignal.throwIfAborted();
+      return markdown;
+    },
+  });
+  const result = await runCoordinator({
+    root: f.root,
+    queue: f.queue,
+    pipeline,
+    settings: {
+      ...defaults,
+      leaseMs: 300,
+      generators: 1,
+      fetchers: 1,
+      publishers: 1,
+      minFreeMemoryMiB: 0,
+      diskReserveBytes: 0,
+      fetchSpacingMs: 0,
+    },
+    signal,
+    limit: 1,
+    memory: async () => 1e6,
+    disk: async () => 1e12,
+  });
+  assert.equal(
+    aborted,
+    false,
+    'a stalled heartbeat cancelled the still-owned model request',
+  );
+  assert.equal(calls, 1);
+  assert.ok(result.jobs[0]);
+  assert.equal(result.jobs[0].status, 'completed');
+});
+
+void test('an owned heartbeat can recover a stall but never revive a fenced or completed claim', async (t) => {
+  const f = await fixture(t);
+  f.queue.enqueue([{ id: '1' }]);
+  const job = f.queue.claim('fetching', { leaseMs: 1 })!;
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(
+    f.queue.renew(job, 1000),
+    false,
+    'ordinary renewal remains strict',
+  );
+  assert.equal(f.queue.heartbeat(job, 1000), true);
+  f.queue.db.prepare("UPDATE jobs SET lease_until=0 WHERE id='1'").run();
+  const next = f.queue.fence(job)!;
+  assert.equal(
+    f.queue.heartbeat(job, 1000),
+    false,
+    'fenced worker cannot resurrect',
+  );
+  f.queue.finish(next, { status: 'ready' });
+  assert.equal(f.queue.heartbeat(next, 1000), false);
+});
+
+void test('a newer valid same-source publication resolves an authorized language redo and preserves its alternative draft', async (t) => {
+  const f = await fixture(t);
+  await ready(f);
+  await f.pipeline.generating(f.queue.claim('generating')!, signal);
+  const original = f.queue.db.prepare("SELECT * FROM jobs WHERE id='1'").get()!;
+  const oldHash = 'c'.repeat(64);
+  f.queue.db
+    .prepare(
+      "UPDATE jobs SET redo_reason='unexpected_hebrew',replace_hash=? WHERE id='1'",
+    )
+    .run(oldHash);
+  f.queue.db
+    .prepare(
+      "INSERT INTO language_findings(job_id,notes_hash,source_hash,policy,scope,verdict,assessment,detected_at,queued_at) VALUES('1',?,?,'english-prose-1','published','unexpected_hebrew','{}',?,?)",
+    )
+    .run(oldHash, original.source_hash, Date.now() - 1000, Date.now() - 1000);
+  const other = await packNote({
+    shiurId: '1',
+    sourceHash: String(original.source_hash),
+    generatorVersion: identity.profile,
+    language: 'hebrewEnglish',
+    markdown:
+      markdown +
+      ' A competing verified explanation preserves the same argument.',
+  });
+  const pipeline = new NotesPipeline({
+    ...f.pipeline.config,
+    store: { get: async () => other, publish: async () => other },
+  });
+  assert.equal(
+    await pipeline.publishing(f.queue.claim('publishing')!, signal),
+    'completed',
+  );
+  const current = f.queue.db.prepare("SELECT * FROM jobs WHERE id='1'").get()!;
+  assert.equal(current.notes_hash, other.notesHash);
+  assert.equal(current.redo_reason, null);
+  assert.equal(
+    (await loadArtifact(f.root, String(original.artifact_path))).note.notesHash,
+    original.notes_hash,
+  );
+  assert.equal(
+    f.queue.db
+      .prepare(
+        "SELECT replacement_hash FROM language_findings WHERE job_id='1'",
+      )
+      .get()?.replacement_hash,
+    other.notesHash,
+  );
+});
+
+void test('competing repairs with a wrong identity, older age, invalid language or contract remain explicit conflicts', async (t) => {
+  for (const variant of [
+    'other_source',
+    'other_profile',
+    'stale',
+    'hebrew',
+    'vocalized',
+    'no_finding',
+    'unqualified',
+  ]) {
+    const f = await fixture(t);
+    await ready(f);
+    await f.pipeline.generating(f.queue.claim('generating')!, signal);
+    const row = f.queue.db.prepare("SELECT * FROM jobs WHERE id='1'").get()!;
+    f.queue.db
+      .prepare(
+        "UPDATE jobs SET redo_reason='unexpected_hebrew',replace_hash=? WHERE id='1'",
+      )
+      .run('c'.repeat(64));
+    const at = Date.now() - 1000;
+    if (variant !== 'no_finding')
+      f.queue.db
+        .prepare(
+          "INSERT INTO language_findings(job_id,notes_hash,source_hash,policy,scope,verdict,assessment,detected_at,queued_at) VALUES('1',?,?,'english-prose-1','published','unexpected_hebrew','{}',?,?)",
+        )
+        .run('c'.repeat(64), row.source_hash, at, at);
+    const other = await packNote({
+      shiurId: '1',
+      sourceHash:
+        variant === 'other_source' ? 'b'.repeat(64) : String(row.source_hash),
+      generatorVersion: variant === 'other_profile' ? 'old' : identity.profile,
+      language: 'hebrewEnglish',
+      markdown:
+        variant === 'hebrew'
+          ? hebrewDraft
+          : variant === 'vocalized'
+            ? markdown + ' טְבִילָה'
+            : markdown + ' A competing explanation.',
+    });
+    if (variant === 'stale') other.createdAtMs = at - 1;
+    const pipeline = new NotesPipeline({
+      ...f.pipeline.config,
+      identity: { ...identity, approved: variant !== 'unqualified' },
+      store: { get: async () => other, publish: async () => other },
+    });
+    assert.equal(
+      await pipeline.publishing(f.queue.claim('publishing')!, signal),
+      'conflict',
+      variant,
+    );
+    assert.equal(
+      f.queue.db.prepare("SELECT notes_hash FROM jobs WHERE id='1'").get()
+        ?.notes_hash,
+      row.notes_hash,
+    );
+  }
+});
+
+void test('paused saved-note revalidation recovers only verified formatting failures without inference and is idempotent', async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.root, 'paused'), '');
+  const raw = markdown + ' We explain טְבִילָה and its consequence.';
+  for (const [id, variant] of [
+    ['1', 'valid'],
+    ['2', 'identity'],
+    ['3', 'request'],
+    ['4', 'evidence'],
+    ['5', 'hebrew'],
+    ['6', 'quoted'],
+  ] as const) {
+    await ready(f, id);
+    f.queue.db
+      .prepare(
+        "UPDATE jobs SET priority=3,redo_reason='unexpected_hebrew' WHERE id=?",
+      )
+      .run(id);
+    const rejected = new NotesPipeline({
+      ...f.pipeline.config,
+      generate: async (_source, job, _signal, dir) => {
+        const body =
+          variant === 'hebrew'
+            ? hebrewDraft
+            : variant === 'quoted'
+              ? markdown + ' We quote “טְבִילָה”.'
+              : raw;
+        const requestID = 'verified-' + id;
+        f.queue.db
+          .prepare(
+            "INSERT INTO requests(id,job_id,token,route,kind,started_at,ended_at,status,reserved_tokens,cost,evidence) VALUES(?,?,?,'acp-high','repair',?,?,'completed',0,0,'verified model identity')",
+          )
+          .run(requestID, job.id, job.lease_token, Date.now(), Date.now());
+        await writeFile(join(dir, requestID + '.raw.txt'), body);
+        await writeFile(join(dir, 'repair.normalized.md'), body);
+        if (variant === 'identity') {
+          const path = join(dir, 'identity.json');
+          const saved = JSON.parse(await readFile(path, 'utf8'));
+          saved.sourceHash = 'e'.repeat(64);
+          await writeFile(path, JSON.stringify(saved));
+        }
+        if (variant === 'request')
+          f.queue.db
+            .prepare("UPDATE requests SET status='cancelled' WHERE id=?")
+            .run(requestID);
+        if (variant === 'evidence')
+          await writeFile(
+            join(dir, requestID + '.raw.txt'),
+            body + ' Changed after verification.',
+          );
+        throw Object.assign(new Error('incomplete_output'), {
+          code: 'incomplete_output',
+        });
+      },
+    });
+    const job = f.queue.claim('generating')!;
+    await assert.rejects(rejected.generating(job, signal), /incomplete_output/);
+    f.queue.finish(job, { status: 'needs_review', error: 'incomplete_output' });
+  }
+  const requests = f.queue.db
+    .prepare('SELECT count(*) AS n FROM requests')
+    .get()?.n;
+  const attempts = f.queue.db
+    .prepare('SELECT sum(generation_attempts) AS n FROM jobs')
+    .get()?.n;
+  const report = await recheckSavedNotes({
+    root: f.root,
+    queue: f.queue,
+    pipeline: f.pipeline,
+    signal,
+  });
+  assert.equal(report.revalidated, 1);
+  assert.equal(report.remaining, 5);
+  const job = f.queue.db.prepare("SELECT * FROM jobs WHERE id='1'").get()!;
+  const saved = await loadArtifact(f.root, String(job.artifact_path));
+  assert.equal(
+    await unpackNote(saved.note),
+    raw.replace(/[\u0591-\u05bd\u05bf\u05c1-\u05c2\u05c4-\u05c5\u05c7]/g, ''),
+  );
+  assert.match(saved.manifest.generator, /revalidatedFrom/);
+  assert.equal(
+    f.queue.db.prepare('SELECT count(*) AS n FROM requests').get()?.n,
+    requests,
+  );
+  assert.equal(
+    f.queue.db.prepare('SELECT sum(generation_attempts) AS n FROM jobs').get()
+      ?.n,
+    attempts,
+  );
+  assert.equal(f.notes.size, 0, 'saved rechecks never publish remotely');
+  assert.equal(
+    (
+      await recheckSavedNotes({
+        root: f.root,
+        queue: f.queue,
+        pipeline: f.pipeline,
+        signal,
+      })
+    ).revalidated,
+    0,
+  );
+  await f.pipeline.publishing(f.queue.claim('publishing')!, signal);
+  assert.ok(f.notes.has('1'));
 });
 void test('unknown TiDB eligibility can stage a source but cannot reach inference; missing differs from transient failure', async (t) => {
   const f = await fixture(t);

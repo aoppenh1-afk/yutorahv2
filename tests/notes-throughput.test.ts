@@ -63,6 +63,42 @@ void test('presentation normalization avoids full repair and preserves Hebrew, q
   assert.equal(result.markdown, expected);
 });
 
+void test('source-aware normalization removes unwanted prose vowel marks while preserving quoted source text and consonants', async () => {
+  const raw =
+    '# טְבִילָה\n\n## The distinction\n\nWe explain טְבִילָה through the supported quotation “בְּרֵאשִׁית”. This distinction resolves the שאלה.';
+  const source =
+    'We discuss טבילה and the quotation בְּרֵאשִׁית and answer the שאלה.';
+  const expected =
+    '# טבילה\n\n## The distinction\n\nWe explain טבילה through the supported quotation “בְּרֵאשִׁית”. This distinction resolves the שאלה.';
+  assert.equal(normalizeNotes(raw, source), expected);
+  const marks = /[\u0591-\u05bd\u05bf\u05c1-\u05c2\u05c4-\u05c5\u05c7]/g;
+  assert.equal(expected.replace(marks, ''), raw.replace(marks, ''));
+  assert.equal(normalizeNotes(expected, source), expected);
+  let calls = 0;
+  const result = await generateNotes({
+    profile: notesProfile({
+      model: 'free',
+      runtime: 'test',
+      language: 'hebrewEnglish',
+      notesSkill: 'Connected English prose; unvocalized terms.',
+    }),
+    source,
+    signal: AbortSignal.timeout(1000),
+    request: async () => {
+      calls++;
+      return raw;
+    },
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.markdown, expected);
+});
+
+void test('normalization never rewrites a quoted vocalized passage to make an unsupported quotation pass', () => {
+  const raw =
+    '# שאלה\n\n## Argument\n\nWe preserve the quoted wording “בְּרֵאשִׁית” for source checking.';
+  assert.equal(normalizeNotes(raw, 'An unrelated transcript.'), raw);
+});
+
 void test('completed known usage releases the unused reservation for another full-source request', async (t) => {
   const { queue, job, limiter, evidence } = fixture(t);
   await limiter.run(
