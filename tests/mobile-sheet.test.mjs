@@ -105,14 +105,14 @@ async function openSheet(t, width = 390) {
   return { page, sheet, swipe };
 }
 
-test('mobile sheet dismisses on a downward swipe from the top', async (t) => {
+void test('mobile sheet dismisses on a downward swipe from the top', async (t) => {
   const { sheet, swipe } = await openSheet(t);
   const box = await sheet.boundingBox();
   await swipe(120, box.y + 90, 0, 140);
   await sheet.waitFor({ state: 'hidden' });
 });
 
-test('short, horizontal, and canceled mobile gestures keep the sheet open', async (t) => {
+void test('short, horizontal, and canceled mobile gestures keep the sheet open', async (t) => {
   const { sheet, swipe } = await openSheet(t);
   const box = await sheet.boundingBox();
   for (const [dx, dy, cancel] of [
@@ -132,7 +132,7 @@ test('short, horizontal, and canceled mobile gestures keep the sheet open', asyn
   await sheet.waitFor({ state: 'hidden' });
 });
 
-test('native content scrolling and returning to the top do not dismiss mid-gesture', async (t) => {
+void test('native content scrolling and returning to the top do not dismiss mid-gesture', async (t) => {
   const { page, sheet, swipe } = await openSheet(t);
   await sheet.getByRole('button', { name: 'Show more', exact: true }).click();
   await sheet.evaluate((el) => {
@@ -155,7 +155,7 @@ test('native content scrolling and returning to the top do not dismiss mid-gestu
   await sheet.waitFor({ state: 'hidden' });
 });
 
-test('desktop sheet ignores touch swipes and still closes with the button', async (t) => {
+void test('desktop sheet ignores touch swipes and still closes with the button', async (t) => {
   const { sheet, swipe } = await openSheet(t, 1280);
   const box = await sheet.boundingBox();
   await swipe(box.x + 120, box.y + 90, 0, 140);
