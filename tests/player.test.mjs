@@ -1196,7 +1196,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
           await page.getByText('61–120 of 1,000', { exact: true }).waitFor();
           assert.equal(await page.locator('.shiur-row').count(), 60);
           await page
-            .getByRole('button', { name: 'Open shiur details and notes' })
+            .getByRole('button', { name: 'Open shiur info' })
             .click();
           await page
             .getByRole('region', { name: 'Transcript, notes, and sources' })
@@ -1828,7 +1828,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .getByRole('button', { name: 'Expand player controls' })
             .click();
           await page
-            .getByRole('button', { name: 'Open shiur details and notes' })
+            .getByRole('button', { name: 'Open shiur info' })
             .click();
           const region = page.getByRole('region', {
             name: 'Transcript, notes, and sources',
@@ -1939,7 +1939,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .getByRole('button', { name: 'Expand player controls' })
             .click();
           await page
-            .getByRole('button', { name: 'Open shiur details and notes' })
+            .getByRole('button', { name: 'Open shiur info' })
             .click();
           const region = page.getByRole('region', {
             name: 'Transcript, notes, and sources',
@@ -2036,7 +2036,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .getByRole('button', { name: 'Expand player controls' })
             .click();
           await page
-            .getByRole('button', { name: 'Open shiur details and notes' })
+            .getByRole('button', { name: 'Open shiur info' })
             .click();
           await page.getByText('Transcript read 1', { exact: true }).waitFor();
           await page.evaluate(() => {
@@ -2173,7 +2173,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
               .getByRole('button', { name: 'Expand player controls' })
               .click();
             await page
-              .getByRole('button', { name: 'Open shiur details and notes' })
+              .getByRole('button', { name: 'Open shiur info' })
               .click();
             const sheet = page.getByRole('dialog', {
               name: 'Shiur details',
@@ -2413,7 +2413,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
                 .getByRole('button', { name: 'Expand player controls' })
                 .click();
             await page
-              .getByRole('button', { name: 'Open shiur details and notes' })
+              .getByRole('button', { name: 'Open shiur info' })
               .click();
             await page
               .getByRole('button', { name: 'Sources', exact: true })
@@ -2474,7 +2474,9 @@ void test('player controls stop playback and the phone dialog stays inside the b
             assert.ok(html.includes('English line 12'));
             assert.ok(!html.includes('מקור לדוגמה'));
             assert.ok(!html.includes('Exodus 1:1'));
-            assert.ok(html.includes('CC-BY'));
+            assert.ok(!html.includes('CC-BY'));
+            assert.ok(!html.includes('<footer'));
+            assert.equal(await sheet.locator('footer').count(), 0);
             assert.ok(html.indexOf('Shabbat 2b') < html.indexOf('Genesis 1:1'));
             const before = textCalls;
             await sheet

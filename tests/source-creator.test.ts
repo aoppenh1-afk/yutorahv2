@@ -1277,13 +1277,13 @@ void test('sheet drafts keep exclusions and custom order as new sources arrive; 
     /href="https:\/\/www.sefaria.org|Mentioned at|<script>|<img/,
   );
   assert.match(html, /&lt;script&gt;/);
-  assert.match(html, /Published notes/);
-  assert.match(html, /partial sheet/);
+  assert.doesNotMatch(html, /Published notes|CC-BY|An edition/);
+  assert.doesNotMatch(html, /partial sheet|<footer/);
   assert.match(md, /Custom title/);
   assert.match(md, /English passage/);
   assert.doesNotMatch(md, /Hebrew edition|\]\(https:\/\/www.sefaria.org/);
   const hebrew = { ...options, language: undefined };
-  assert.match(renderSourceSheet(hebrew), /Hebrew edition/);
+  assert.match(renderSourceSheet(hebrew), /תורה/);
   assert.doesNotMatch(renderSourceSheet(hebrew), /English passage/);
   assert.doesNotMatch(sourceSheetMarkdown(hebrew), /English passage/);
   assert.deepEqual(

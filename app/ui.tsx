@@ -1000,7 +1000,7 @@ export function Player({
               <button
                 className="icon-button player-notes"
                 onClick={() => onDetails(p.active!)}
-                aria-label="Open shiur details and notes"
+                aria-label="Open shiur info"
               >
                 <Info size={18} />
               </button>
@@ -1462,7 +1462,7 @@ function NowPlayingDialog({
               setExpanded(false);
               onDetails(s);
             }}
-            aria-label="Open shiur details and notes"
+            aria-label="Open shiur info"
           >
             <Info size={19} />
             Details

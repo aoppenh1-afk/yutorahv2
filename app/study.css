@@ -467,21 +467,6 @@
   font: inherit;
   line-height: inherit;
 }
-.source-sheet .source-sheet-credit {
-  margin: 4px 0 0;
-  font-size: 10px;
-  line-height: 1.6;
-  color: var(--ink-3);
-}
-.source-sheet .source-sheet-footer {
-  margin: 18px 0 0;
-  color: var(--ink-3);
-  font-size: 11px;
-}
-.source-sheet-footer a {
-  color: inherit;
-  text-underline-offset: 3px;
-}
 .source-sheet .source-sheet-title {
   margin: 14px 0;
   font: 600 20px/1.4 var(--display);
@@ -946,5 +931,35 @@
   .study-segment {
     gap: 10px;
     padding: 8px 4px;
+  }
+}
+
+.source-sheet-passages {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+.source-sheet-passages .source-sheet-text {
+  vertical-align: top;
+  margin: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+.source-sheet-passages .source-sheet-text + .source-sheet-text {
+  padding-left: 22px;
+}
+.source-sheet-passages .source-sheet-text[dir='rtl'] {
+  text-align: right;
+}
+@media (max-width: 540px) {
+  .source-sheet-passages,
+  .source-sheet-passages tbody,
+  .source-sheet-passages tr,
+  .source-sheet-passages td {
+    display: block;
+  }
+  .source-sheet-passages .source-sheet-text + .source-sheet-text {
+    padding-left: 0;
   }
 }

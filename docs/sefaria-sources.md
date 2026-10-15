@@ -22,7 +22,7 @@ SOURCES_SHEETS_ENABLED=false
 
 Set just one to `false` to keep the other. `0`, `off`, and `no` also disable an
 output. Server switches take precedence over browser preferences. With links off,
-sheets still load source text and retain edition attribution. Source headings in
+sheets still load source text. Source headings in
 the viewer and downloads remain plain text. With sheets off, transcript and
 notes links still work. Disabling both hides Sources after settings load and
 prevents source API reads. No Sefaria API key or language-model credentials are
@@ -44,8 +44,12 @@ original text. There is no separate references view.
 **Download** opens a compact dialog with format and language choices. PDF, Word,
 standalone HTML, and print are supported. Title, introduction, and excerpt/full
 text choices are collapsed under **More options**. Missing text requires an
-explicit choice to include citations only. All formats retain edition attribution
-and licenses, and exports made during checking are labeled partial.
+explicit choice to include citations only. Exports focus on source citations, selected passages, introductions, and personal
+notes. Transcript quotes, timestamps, category labels, edition footnotes, and
+repeated explanations are omitted. Bilingual HTML and print exports pair English
+on the left with Hebrew/original on the right, with full-width single-language
+text. The viewer stacks passages on narrow screens. Long sources continue across
+pages, and shortened or missing text remains labeled.
 
 The options menu contains **Edit sources**, **Add source**, **Review possible
 sources**, refresh, and settings. Editing reveals selection, ordering, and
@@ -289,3 +293,7 @@ search on 2026-10-15:
 [reference validation](https://developers.sefaria.org/reference/get-ref),
 [search](https://developers.sefaria.org/docs/search-api), and
 [Texts v3](https://developers.sefaria.org/reference/get-v3-texts).
+
+`npm run test:source-sheet` checks bilingual and single-language layouts, missing
+text, footnote removal, links, and multipage PDF pagination using Playwright.
+Set `PLAYWRIGHT_CHANNEL=chrome` to use an installed Google Chrome.

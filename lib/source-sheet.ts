@@ -1,15 +1,27 @@
 import type { TranscriptSource } from './sources';
-import type { SourceText } from './sefaria';
-import { timeLabel } from './library';
+import type { SourceEdition, SourceText } from './sefaria';
+
 export type SheetLanguage = 'both' | 'he' | 'en';
 export function sourceEditions(
   text: SourceText | undefined,
   language: SheetLanguage = 'he',
 ) {
-  return (text?.editions || []).filter((e) => {
-    const english = /^(en|eng|english)$/i.test(e.language);
-    return language === 'both' || (language === 'en' ? english : !english);
-  });
+  return (text?.editions || [])
+    .filter((e) => {
+      const english = /^(en|eng|english)$/i.test(e.language);
+      return language === 'both' || (language === 'en' ? english : !english);
+    })
+    .sort(
+      (a, b) => Number(a.direction === 'rtl') - Number(b.direction === 'rtl'),
+    );
+}
+
+/** Keep corresponding passages together, including editions with fewer paragraphs. */
+export function sourceTextRows(editions: SourceEdition[]) {
+  return Array.from(
+    { length: Math.max(0, ...editions.map((edition) => edition.text.length)) },
+    (_, index) => editions.map((edition) => edition.text[index] ?? ''),
+  );
 }
 
 const escape = (value: string) =>
@@ -20,7 +32,6 @@ const escape = (value: string) =>
         c
       ]!,
   );
-const time = (ms: number) => timeLabel(ms / 1000);
 
 /** One escaped, standalone document is used for download and browser print/PDF. */
 export type SourceSheetOptions = {
@@ -30,7 +41,7 @@ export type SourceSheetOptions = {
   origin: string;
   sources: TranscriptSource[];
   texts: Record<string, SourceText>;
-  limited: boolean;
+  limited?: boolean;
   language?: SheetLanguage;
   extent?: 'excerpt' | 'full';
   includeLinks?: boolean;
@@ -38,69 +49,70 @@ export type SourceSheetOptions = {
   comments?: Record<string, string>;
   incomplete?: boolean;
 };
-export function sourceProvenance(source: TranscriptSource) {
-  const origins = new Set(
-    source.occurrences.map((o) => o.origin || 'transcript'),
-  );
-  return [
-    origins.has('transcript') ? 'Transcript' : '',
-    origins.has('notes') ? 'Published notes' : '',
-    origins.has('manual') ? 'Added by you' : '',
-  ]
-    .filter(Boolean)
-    .join(' / ');
-}
 const publicLink = (url: string) => (/^https?:\/\//iu.test(url) ? url : '');
 export function renderSourceSheet(options: SourceSheetOptions) {
   const { sources, texts } = options;
   const shiurUrl = new URL(`/?shiur=${options.shiurId}`, options.origin).href;
+  const language = options.language ?? 'he';
   const link = (url: string, label: string) =>
     options.includeLinks !== false && publicLink(url)
       ? `<a href="${escape(url)}">${escape(label)}</a>`
       : escape(label);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(options.title)} — Source sheet</title><style>
-    @page{size:auto;margin:18mm}*{box-sizing:border-box}body{font:16px/1.75 Georgia,serif;color:#0b0b0c;background:#fff;max-width:850px;margin:36px auto;padding:0 24px}header{border-bottom:1px solid #dcdce0;padding-bottom:22px}h1{font-size:30px;line-height:1.25;margin:8px 0}h2{font-size:21px;margin:0}.eyebrow,.meta,.attribution{font:12px/1.6 Arial,sans-serif;color:#6b6b74}article{padding:24px 0;border-bottom:1px solid #e9e9ed;break-inside:avoid}a{color:inherit;text-underline-offset:3px;overflow-wrap:anywhere}blockquote{border-left:2px solid #dcdce0;margin:10px 0;padding-left:14px;font-size:14px}.source-text{white-space:pre-wrap;margin:14px 0}.source-text[dir=rtl]{font-size:21px;line-height:1.95}.attribution{margin:6px 0}footer{margin-top:24px} @media print{body{margin:0;max-width:none;padding:0}a{text-decoration:none;color:inherit}header{break-after:avoid}}
-    </style></head><body><header><div class="eyebrow">YUTorah Study · Source sheet</div><h1 dir="auto">${escape(options.title)}</h1><p dir="auto">${escape(options.teacher)}</p><p class="meta">${sources.length} selected source${sources.length === 1 ? '' : 's'} · <a href="${escape(shiurUrl)}">Open shiur</a></p><p class="meta">References checked against Sefaria. Sources from published notes and manual additions are labeled. Recording times mark segment starts.${options.incomplete ? ' This is a partial sheet; source checking is still in progress.' : ''}${options.limited ? ' Processing limits were reached; this sheet may omit sources.' : ''}</p>${options.introduction ? `<p class="source-text" dir="auto">${escape(options.introduction)}</p>` : ''}</header>
+    @page { size: auto; margin: 18mm; }
+    * { box-sizing: border-box; }
+    body { font: 11.5pt/1.6 Georgia, "Times New Roman", serif; color: #222; background: #fff; max-width: 760px; margin: 36px auto; padding: 0 24px; }
+    a { color: inherit; text-decoration: none; }
+    .sheet-header { text-align: center; padding-bottom: 20px; border-bottom: 1px solid #333; margin-bottom: 24px; }
+    .brand, .teacher, .meta { font-family: Arial, sans-serif; }
+    .brand { font-size: 8pt; letter-spacing: .14em; text-transform: uppercase; color: #666; }
+    h1 { font-size: 24pt; font-weight: normal; line-height: 1.2; margin: 10px 0; overflow-wrap: anywhere; }
+    .sheet-introduction, .source-comment { white-space: pre-wrap; text-align: start; }
+    .teacher { font-size: 10pt; margin: 0; }
+    article { margin: 0 0 24px; }
+    .source-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; margin: 0 0 12px; font-size: 12pt; line-height: 1.4; break-after: avoid; }
+    .source-heading a { overflow-wrap: anywhere; }
+    .source-number { font: 9pt Arial, sans-serif; color: #777; margin-right: 8px; }
+    .he-ref { font-family: "Times New Roman", serif; font-size: 13pt; font-weight: normal; text-align: right; }
+    .source-passages { width: 100%; table-layout: fixed; border-collapse: collapse; }
+    .source-passages tr { break-inside: avoid; }
+    .source-text { vertical-align: top; padding: 0; overflow-wrap: anywhere; white-space: pre-wrap; orphans: 3; widows: 3; }
+    .source-text + .source-text { padding-left: 22px; }
+    .source-text[dir=rtl] { font-family: "Times New Roman", serif; font-size: 14pt; line-height: 1.7; text-align: right; }
+    .source-text p { margin: 0 0 10px; }
+    .meta { color: #666; font-size: 8pt; margin: 4px 0 0; }
+    @media screen and (max-width: 540px) { body { padding: 0 16px; margin: 24px auto; } h1 { font-size: 20pt; } .source-passages, .source-passages tbody, .source-passages tr, .source-passages td { display: block; } .source-text + .source-text { padding-left: 0; } }
+    @media print { body { margin: 0; max-width: none; padding: 0; } .sheet-header { break-inside: avoid; break-after: avoid; } a { text-decoration: none; } }
+    </style></head><body><header class="sheet-header"><div class="brand">${link(shiurUrl, 'YUTorah · Source sheet')}</div><h1 dir="auto">${escape(options.title)}</h1>${options.teacher ? `<p class="teacher" dir="auto">${escape(options.teacher)}</p>` : ''}${options.introduction ? `<p class="sheet-introduction" dir="auto">${escape(options.introduction)}</p>` : ''}</header>
     ${sources
       .map((source, i) => {
-        const data = texts[source.ref];
-        const heading =
-          options.language === 'en' ? source.ref : source.heRef || source.ref;
-        return `<article><div class="eyebrow">${i + 1} · ${escape(data?.categories.join(' / ') || source.category)}</div><h2 dir="auto">${link(source.url, heading)}</h2>${options.language === 'both' ? `<div>${escape(source.ref)}</div>` : ''}<p class="meta">${escape(sourceProvenance(source))}</p>${
-          source.occurrences.some((o) => !o.origin || o.origin === 'transcript')
-            ? `<p class="meta">Mentioned at ${Array.from(
-                new Set(
-                  source.occurrences
-                    .filter((o) => !o.origin || o.origin === 'transcript')
-                    .map((o) => o.startMs),
-                ),
-              )
-                .map(
-                  (ms) =>
-                    `<a href="${escape(shiurUrl + '&t=' + Math.floor(ms / 1000))}">${time(ms)}</a>`,
-                )
-                .join(', ')}</p>`
-            : ''
-        }${options.comments?.[source.ref] ? `<p class="source-text" dir="auto">${escape(options.comments[source.ref])}</p>` : ''}
+        const editions = sourceEditions(texts[source.ref], language);
+        const shortened = editions.some((edition) => edition.truncated);
+        return `<article><h2 class="source-heading"><span><span class="source-number">${i + 1}.</span>${link(source.url, source.ref)}</span>${language !== 'en' && source.heRef ? `<span class="he-ref" dir="rtl">${link(source.url, source.heRef)}</span>` : ''}</h2>${options.comments?.[source.ref] ? `<p class="source-comment" dir="auto">${escape(options.comments[source.ref])}</p>` : ''}
       ${
-        sourceEditions(data, options.language).length
-          ? sourceEditions(data, options.language)
+        editions.length
+          ? `<table class="source-passages" role="presentation"><tbody>${sourceTextRows(
+              editions,
+            )
               .map(
-                (edition) =>
-                  `<div class="source-text" dir="${edition.direction}">${edition.text.map(escape).join('\n\n')}</div>${edition.truncated ? `<p class="meta">${options.extent === 'full' ? 'Long text shortened for this sheet' : 'Excerpt'}; the complete cited text is available on Sefaria.</p>` : ''}<p class="attribution">${escape(edition.title)} · ${escape(edition.language)} · ${escape(edition.license)}${edition.versionSource ? ` · ${link(edition.versionSource, 'Edition source')}` : ''} · ${link(source.url, 'Sefaria')}</p>`,
+                (row) =>
+                  `<tr>${row.map((text, index) => `<td class="source-text" dir="${editions[index].direction}" lang="${escape(editions[index].language)}">${text ? `<p>${escape(text)}</p>` : ''}</td>`).join('')}</tr>`,
               )
-              .join('')
-          : '<p class="meta">Text in the selected language is unavailable. This sheet contains the reference only.</p>'
-      }${options.includeLinks !== false ? `<p class="meta">${link(source.url, source.url)}</p>` : ''}</article>`;
+              .join(
+                '',
+              )}</tbody></table>${shortened ? `<p class="meta">${options.extent === 'full' ? 'Text shortened' : 'Excerpt'} · ${link(source.url, 'Full text on Sefaria')}</p>` : ''}`
+          : `<p class="meta">Text unavailable in this language. ${link(source.url, 'Read on Sefaria.')}</p>`
+      }</article>`;
       })
       .join('')}
-    <footer class="meta">Source text and metadata supplied by Sefaria. Each edition retains its attribution and license. Automatic source identification can miss references. Review this sheet against the shiur.</footer></body></html>`;
+    </body></html>`;
 }
 
 const markdownText = (text: string) =>
   text.replace(/([\\`*_{}[\]<>#!|])/g, '\\$1');
-/** PDF and Word use the same selected sources, languages, comments, and attribution as HTML. */
+/** Word and PDF retain the selected passages and personal notes without edition footnotes. */
 export function sourceSheetMarkdown(options: SourceSheetOptions) {
+  const language = options.language ?? 'he';
   const link = (url: string, text: string) =>
     options.includeLinks !== false && publicLink(url)
       ? `[${markdownText(text)}](${url.replaceAll('(', '%28').replaceAll(')', '%29')})`
@@ -108,42 +120,22 @@ export function sourceSheetMarkdown(options: SourceSheetOptions) {
   return [
     `# ${markdownText(options.title)}`,
     markdownText(options.teacher),
-    `${options.sources.length} selected sources. References checked against Sefaria.`,
-    options.incomplete
-      ? 'Partial sheet: source checking is still in progress.'
-      : '',
-    options.limited
-      ? 'Processing limits were reached; some sources may be missing.'
-      : '',
     markdownText(options.introduction || ''),
     ...options.sources.flatMap((source, index) => {
-      const data = options.texts[source.ref];
-      const times = [
-        ...new Set(
-          source.occurrences
-            .filter((o) => !o.origin || o.origin === 'transcript')
-            .map((o) => time(o.startMs)),
-        ),
-      ];
+      const editions = sourceEditions(options.texts[source.ref], language);
       return [
-        `## ${index + 1}. ${link(source.url, options.language === 'en' ? source.ref : source.heRef || source.ref)}`,
-        options.language === 'both' ? markdownText(source.ref) : '',
-        sourceProvenance(source) +
-          (times.length ? `, mentioned at ${times.join(', ')}` : ''),
+        `## ${index + 1}. ${link(source.url, language === 'en' ? source.ref : source.heRef || source.ref)}`,
+        language === 'both' ? markdownText(source.ref) : '',
         markdownText(options.comments?.[source.ref] || ''),
-        ...sourceEditions(data, options.language).flatMap((edition) => [
-          ...edition.text.map(markdownText),
-          edition.truncated
-            ? 'Excerpt; the complete cited text is available on Sefaria.'
-            : '',
-          `${markdownText(edition.title)} · ${markdownText(edition.language)} · ${markdownText(edition.license)} · ${link(source.url, 'Sefaria')}${edition.versionSource ? ` · ${link(edition.versionSource, 'Edition source')}` : ''}`,
-        ]),
-        !sourceEditions(data, options.language).length
+        ...editions.flatMap((edition) => edition.text.map(markdownText)),
+        editions.some((edition) => edition.truncated)
+          ? 'Excerpt; full text on Sefaria.'
+          : '',
+        !editions.length
           ? 'Text in the selected language is unavailable. Reference only.'
           : '',
       ];
     }),
-    'Source text and metadata supplied by Sefaria. Review automatic references against the recording.',
   ]
     .filter(Boolean)
     .join('\n\n');

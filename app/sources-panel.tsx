@@ -20,7 +20,7 @@ import type { useSourceCreator } from '@/hooks/use-source-creator';
 import { useSourceSheet, type SheetFormat } from '@/hooks/use-source-sheet';
 import type { TranscriptSource } from '@/lib/sources';
 import { orderedSheetSources } from '@/lib/source-draft';
-import { sourceEditions } from '@/lib/source-sheet';
+import { sourceEditions, sourceTextRows } from '@/lib/source-sheet';
 import { timeLabel } from '@/lib/library';
 
 const noSources: TranscriptSource[] = [];
@@ -342,23 +342,35 @@ export function SourcesPanel({
                       <SourceTime source={source} onSeek={onSeek} />
                     </div>
                     {origin && <p className="source-sheet-origin">{origin}</p>}
+                    {included && !!editions.length && (
+                      <table
+                        className="source-sheet-passages"
+                        role="presentation"
+                      >
+                        <tbody>
+                          {sourceTextRows(editions).map((row, j) => (
+                            <tr key={j}>
+                              {row.map((text, i) => (
+                                <td
+                                  key={i}
+                                  className="source-sheet-text"
+                                  dir={editions[i].direction}
+                                  lang={editions[i].language}
+                                >
+                                  {text && <p>{text}</p>}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
                     {included &&
-                      editions.map((edition, i) => (
-                        <div key={edition.title + i}>
-                          <div
-                            className="source-sheet-text"
-                            dir={edition.direction}
-                          >
-                            {edition.text.map((line, j) => (
-                              <p key={j}>{line}</p>
-                            ))}
-                          </div>
-                          <p className="source-sheet-credit">
-                            {edition.title} · {edition.license}
-                            {edition.truncated ? ' · Excerpt' : ''}
-                          </p>
-                        </div>
-                      ))}
+                      editions.some((edition) => edition.truncated) && (
+                        <p className="source-sheet-message">
+                          Excerpt · Full text on Sefaria
+                        </p>
+                      )}
                     {included && !editions.length && (
                       <p className="source-sheet-message">
                         {sheet.loading
@@ -401,22 +413,6 @@ export function SourcesPanel({
               );
             })}
           </ol>
-          {!!selected.length && (
-            <p className="source-sheet-footer">
-              Texts from{' '}
-              {features.links ? (
-                <a
-                  href="https://www.sefaria.org"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Sefaria
-                </a>
-              ) : (
-                'Sefaria'
-              )}
-            </p>
-          )}
         </>
       )}
       {sheet.storageError && (

@@ -20,6 +20,7 @@
     "test:player": "node --test tests/player.test.mjs",
     "test:mobile-sheet": "node --test tests/mobile-sheet.test.mjs",
     "test:sources": "tsx --test tests/sources.test.ts tests/source-creator.test.ts tests/source-preparation.test.ts",
+    "test:source-sheet": "tsx --test tests/source-sheet.test.ts",
     "sources:prepare": "tsx scripts/prepare-sources.ts",
     "sources:evaluate": "tsx scripts/evaluate-sources.ts",
     "test:live": "node --test tests/live-api.test.mjs",

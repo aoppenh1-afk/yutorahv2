@@ -927,7 +927,7 @@ void test('source text requires the same canonical ref, preserves edition attrib
   );
 });
 
-void test('download/print document escapes text and includes categories, Sefaria links, edition attribution, and timestamp deep links', async () => {
+void test('download/print document keeps source text without transcript metadata or edition footnotes', async () => {
   const mock = sefariaMock((body) =>
     bodyResults(body, [{ mention: 'Genesis 1:1', ref: 'Genesis 1:1' }]),
   );
@@ -943,7 +943,6 @@ void test('download/print document escapes text and includes categories, Sefaria
     teacher: 'A & B',
     origin: 'https://example.org',
     sources: result.sources,
-    limited: false,
     texts: {
       'Genesis 1:1': {
         ref: 'Genesis 1:1',
@@ -964,10 +963,16 @@ void test('download/print document escapes text and includes categories, Sefaria
   });
   assert.ok(!html.includes('<script>') && !html.includes('<img'));
   assert.match(html, /&lt;script&gt;/);
-  assert.match(html, /Tanakh \/ Torah/);
-  assert.match(html, /shiur=42&amp;t=0/);
+  assert.doesNotMatch(
+    html,
+    /Tanakh \/ Torah|Mentioned at|<blockquote|&amp;t=0/,
+  );
+  assert.doesNotMatch(
+    html,
+    /identified automatically|Source sheet preview|exhaustive bibliography/,
+  );
   assert.match(html, /https:\/\/www.sefaria.org\//);
-  assert.match(html, /Edition · en · PD/);
+  assert.doesNotMatch(html, /<footer|Text editions|Edition · en · PD/);
   assert.match(html, /Excerpt/);
   assert.match(html, /@media print/);
 });
@@ -1434,12 +1439,11 @@ void test('sheet language choices affect both preview editions and the exported 
     origin: 'https://example.org',
     sources,
     texts: { 'Genesis 1:1': text },
-    limited: false,
     language: 'en',
   });
   assert.ok(html.includes('English line'));
   assert.ok(!html.includes('Hebrew line'));
-  assert.ok(html.includes('English edition'));
+  assert.ok(!html.includes('English edition'));
   assert.ok(!html.includes('Hebrew edition'));
 });
 
