@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { NotesQueue, NoteJob } from './queue.js';
 
+export const MAX_AI_CONCURRENCY = 6;
+
 export class PipelineFailure extends Error {
   constructor(
     readonly code: string,
@@ -115,7 +117,14 @@ export class InferenceLimiter {
       tokensPerMinute: number;
       outputReservation: number;
     },
-  ) {}
+  ) {
+    if (
+      !Number.isSafeInteger(config.concurrency) ||
+      config.concurrency < 1 ||
+      config.concurrency > MAX_AI_CONCURRENCY
+    )
+      throw new Error('AI concurrency must be between 1 and 6.');
+  }
   async run<T>(
     job: NoteJob,
     route: string,
@@ -132,23 +141,39 @@ export class InferenceLimiter {
     )
       throw new PipelineFailure('input_budget', 'muse');
     let id: string;
+    const waitingAt = Date.now();
+    const waits = new Map<string, number>();
+    let lastCheck = waitingAt,
+      lastReason = '';
     for (;;) {
       signal.throwIfAborted();
       if (!this.queue.owns(job)) throw new PipelineFailure('lease_lost');
       if (!this.queue.available('muse'))
         throw new PipelineFailure('route_paused');
       const now = Date.now();
+      if (lastReason)
+        waits.set(lastReason, (waits.get(lastReason) ?? 0) + now - lastCheck);
+      lastCheck = now;
       const used = this.queue.db
-        .prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(CASE WHEN input_tokens IS NULL THEN reserved_tokens
-        ELSE MAX(reserved_tokens,input_tokens+output_tokens+reasoning_tokens+cache_read_tokens+cache_write_tokens) END),0) AS tokens
-        FROM requests WHERE started_at>?`)
-        .get(now - 60_000)!;
-      if (
-        this.active < this.config.concurrency &&
-        now >= this.nextStart &&
-        Number(used.count) < this.config.requestsPerMinute &&
-        Number(used.tokens) + reservation <= this.config.tokensPerMinute
-      ) {
+        .prepare(`SELECT COALESCE(SUM(started_at>?),0) AS count,
+        COALESCE(SUM(status='active'),0) AS active,
+        COALESCE(SUM(CASE WHEN status IN ('completed','observed') AND input_tokens IS NOT NULL
+          THEN input_tokens+output_tokens+reasoning_tokens+cache_read_tokens+cache_write_tokens
+          ELSE reserved_tokens END),0) AS tokens
+        FROM requests WHERE started_at>? OR ended_at>? OR status='active'`)
+        .get(now - 60_000, now - 60_000, now - 60_000)!;
+      lastReason =
+        this.active >= this.config.concurrency ||
+        Number(used.active) >= this.config.concurrency
+          ? 'concurrency'
+          : now < this.nextStart
+            ? 'spacing'
+            : Number(used.count) >= this.config.requestsPerMinute
+              ? 'requests'
+              : Number(used.tokens) + reservation > this.config.tokensPerMinute
+                ? 'tokens'
+                : '';
+      if (!lastReason) {
         id = randomUUID();
         this.active++;
         this.nextStart = now + this.config.spacingMs;
@@ -157,6 +182,13 @@ export class InferenceLimiter {
             "INSERT INTO requests(id,job_id,token,route,kind,started_at,status,reserved_tokens) VALUES(?,?,?,?,?,?,'active',?)",
           )
           .run(id, job.id, job.lease_token, route, kind, now, reservation);
+        this.queue.observe(id, 'prompt_bytes', Buffer.byteLength(prompt));
+        this.queue.observe(
+          id,
+          'admission_wait',
+          now - waitingAt,
+          JSON.stringify(Object.fromEntries(waits)),
+        );
         break;
       }
       await delay(100, undefined, { signal });
@@ -199,7 +231,11 @@ export class InferenceLimiter {
       const e = classify(error, 'muse');
       this.queue.db
         .prepare('UPDATE requests SET ended_at=?,status=? WHERE id=?')
-        .run(Date.now(), e.code, id);
+        .run(
+          Date.now(),
+          e.code === 'session_uncertain' ? 'active' : e.code,
+          id,
+        );
       if (e.pause || e.retryAfterMs)
         this.queue.cooldown('muse', e.retryAfterMs, e.code, e.pause);
       throw e;

@@ -10,6 +10,27 @@ const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
 
 const { d1, r2 } = hostingConfig;
 
+// Share the icons' SVG data and module boilerplate across screens instead of
+// paying for many separately compressed, tiny icon chunks.
+const environments = {
+  client: {
+    build: {
+      rolldownOptions: {
+        output: {
+          codeSplitting: {
+            groups: [
+              {
+                name: 'icons',
+                test: /[/\\]node_modules[/\\]lucide-react[/\\]/,
+              },
+            ],
+          },
+        },
+      },
+    },
+  },
+};
+
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
 
@@ -39,6 +60,7 @@ export default defineConfig(async () => {
   if (process.env.VERCEL || process.env.DEPLOY_TARGET === 'vercel') {
     const { nitro } = await import('nitro/vite');
     return {
+      environments,
       optimizeDeps: { include: ['@react-pdf/renderer', 'docx'] },
       css: { postcss: { plugins: [tailwindcss()] } },
       resolve: {
@@ -77,6 +99,7 @@ export default defineConfig(async () => {
   const { cloudflare } = await import('@cloudflare/vite-plugin');
 
   return {
+    environments,
     optimizeDeps: { include: ['@react-pdf/renderer', 'docx'] },
     css: { postcss: { plugins: [tailwindcss()] } },
     server: isCodexSeatbeltSandbox

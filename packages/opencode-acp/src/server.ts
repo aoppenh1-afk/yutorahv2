@@ -15,10 +15,15 @@ import {
   type RuntimeMessage,
   type Catalog,
 } from './evidence.js';
-import { PipelineFailure, classify } from '../../notes-only/src/control.js';
+import {
+  PipelineFailure,
+  classify,
+  MAX_AI_CONCURRENCY,
+} from '../../notes-only/src/control.js';
 import { durableWrite } from '../../notes-only/src/artifacts.js';
-import { streamBytes } from '../../../lib/tidb-notes-store.js';
 import type { NotesQueue, NoteJob } from '../../notes-only/src/queue.js';
+import { SharedSessionMonitor, type EventStream } from './monitor.js';
+import { loopbackJSON } from './transport.js';
 
 export type ServerAPI = (
   path: string,
@@ -27,8 +32,13 @@ export type ServerAPI = (
   signal?: AbortSignal,
 ) => Promise<unknown>;
 /** The adapter uses the pinned runtime's observed schema; it fails closed on drift. */
-type SchemaNode = { type?: string; properties?: Record<string, SchemaNode> };
+type SchemaNode = {
+  type?: string;
+  enum?: string[];
+  properties?: Record<string, SchemaNode>;
+};
 type SchemaDoc = {
+  components?: { schemas?: Record<string, SchemaNode> };
   paths?: Record<
     string,
     Record<
@@ -39,7 +49,6 @@ type SchemaDoc = {
 };
 type Session = { id: string; title: string };
 type Statuses = Record<string, { type: string }>;
-type Permission = { id: string; sessionID: string };
 type EffectiveConfig = {
   model: string;
   small_model: string;
@@ -76,12 +85,17 @@ export function verifySchema(doc: SchemaDoc) {
       throw new PipelineFailure('configuration', 'muse', 0, true);
 }
 export class ServerSessionAdapter {
+  readonly monitor: SharedSessionMonitor;
+  private creating = 0;
   constructor(
     readonly api: ServerAPI,
     readonly queue: NotesQueue,
     readonly owner: string,
     readonly deadlineMs: number,
-  ) {}
+    stream?: EventStream,
+  ) {
+    this.monitor = new SharedSessionMonitor(api, stream);
+  }
   async reconcile() {
     // Recover the create-session / ledger crash gap by the worker-specific title prefix.
     const sessions = (await this.api('/session')) as Session[];
@@ -104,6 +118,14 @@ export class ServerSessionAdapter {
       )
       .all())
       await this.cancelAndDelete(String(row.id));
+    this.creating = 0;
+    // Completed callbacks with uncertain cleanup retain their reservation until this
+    // owned-session reconciliation succeeds. Never release a request still starting.
+    this.queue.db
+      .prepare(
+        "UPDATE requests SET status='reconciled_interrupted',ended_at=? WHERE route='server-high' AND status='active' AND ended_at IS NOT NULL",
+      )
+      .run(Date.now());
   }
   async cancelAndDelete(id: string) {
     if (
@@ -170,10 +192,26 @@ export class ServerSessionAdapter {
     capture?: (messages: RuntimeMessage[]) => Promise<void>,
   ) {
     signal.throwIfAborted();
+    const live = Number(
+      this.queue.db
+        .prepare("SELECT COUNT(*) count FROM sessions WHERE state!='deleted'")
+        .get()?.count ?? 0,
+    );
+    if (live + this.creating >= MAX_AI_CONCURRENCY)
+      throw new PipelineFailure('concurrency_limit');
     const title = `${this.owner}:${job.id}:${job.lease_token}:${requestID}`;
     // Once creation is sent, always learn its ID before honoring cancellation.
-    const session = (await this.api('/session', 'POST', { title })) as Session;
+    const createAt = Date.now();
+    this.creating++;
+    let session: Session;
+    try {
+      session = (await this.api('/session', 'POST', { title })) as Session;
+    } catch {
+      throw new PipelineFailure('session_uncertain', 'muse', 0, true);
+    }
+    this.queue.observe(requestID, 'session_create', Date.now() - createAt);
     if (
+      !session ||
       !/^ses[A-Za-z0-9_-]+$/.test(session.id ?? '') ||
       session.title !== title
     )
@@ -182,44 +220,28 @@ export class ServerSessionAdapter {
     this.queue.db
       .prepare("INSERT INTO sessions VALUES(?,?,?,?,'active',?)")
       .run(id, job.id, job.lease_token, 'server', Date.now());
+    this.creating--;
     const requestAbort = new AbortController();
     const requestSignal = AbortSignal.any([
       signal,
       requestAbort.signal,
       AbortSignal.timeout(this.deadlineMs),
     ]);
-    let done = false;
     let monitorError: unknown;
-    const monitor = (async () => {
-      while (!done && !requestSignal.aborted) {
-        try {
-          const permissions = (await this.api('/permission')) as Permission[];
-          for (const permission of permissions)
-            if (permission.sessionID === id) {
-              await this.api(`/permission/${permission.id}/reply`, 'POST', {
-                reply: 'reject',
-              });
-              throw new PipelineFailure('off_task');
-            }
-          const messages = (await this.api(
-            `/session/${id}/message`,
-          )) as RuntimeMessage[];
-          if (
-            messages.some((m) =>
-              m.parts?.some((p) =>
-                ['tool', 'subtask', 'agent'].includes(p.type),
-              ),
-            )
-          )
-            throw new PipelineFailure('off_task');
-        } catch (error) {
-          monitorError = error;
-          requestAbort.abort();
-          return;
+    let sentAt = 0;
+    let outputObserved = false;
+    const release = await this.monitor.watch(id, {
+      fail: (error) => {
+        monitorError ??= error;
+        requestAbort.abort();
+      },
+      output: () => {
+        if (sentAt && !outputObserved) {
+          outputObserved = true;
+          this.queue.observe(requestID, 'first_output', Date.now() - sentAt);
         }
-        await delay(500, undefined, { signal: requestSignal }).catch(() => {});
-      }
-    })();
+      },
+    });
     let result:
       | {
           value: string;
@@ -229,6 +251,9 @@ export class ServerSessionAdapter {
       | undefined;
     let requestError: unknown;
     try {
+      requestSignal.throwIfAborted();
+      sentAt = Date.now();
+      this.queue.observe(requestID, 'request_sent');
       const response = (await this.api(
         `/session/${id}/message`,
         'POST',
@@ -240,6 +265,7 @@ export class ServerSessionAdapter {
         },
         requestSignal,
       )) as RuntimeMessage;
+      this.queue.observe(requestID, 'response_completed', Date.now() - sentAt);
       if (monitorError) throw monitorError;
       const messages = (await this.api(
         `/session/${id}/message`,
@@ -264,11 +290,12 @@ export class ServerSessionAdapter {
           .then((value) => capture(value as RuntimeMessage[]))
           .catch(() => {});
     }
-    done = true;
     requestAbort.abort();
-    await monitor;
+    await release();
+    const cleanupAt = Date.now();
     try {
       await this.cancelAndDelete(id);
+      this.queue.observe(requestID, 'session_cleanup', Date.now() - cleanupAt);
     } catch {
       requestError = new PipelineFailure('session_uncertain', 'muse', 0, true);
     }
@@ -284,6 +311,8 @@ export class OpenCodeServer {
   private password = '';
   private starting?: Promise<void>;
   private checkedAt = 0;
+  private checking?: Promise<void>;
+  private eventsVerified = false;
   readonly owner: string;
   readonly adapter: ServerSessionAdapter;
   readonly api: ServerAPI;
@@ -302,18 +331,11 @@ export class OpenCodeServer {
     this.api = async (path, method = 'GET', body, signal) => {
       if (!this.base)
         throw new PipelineFailure('session_uncertain', 'muse', 0, true);
-      let response: Response;
       try {
-        response = await fetch(this.base + path, {
+        return await loopbackJSON(this.base + path, {
           method,
-          redirect: 'error',
-          headers: {
-            Authorization:
-              'Basic ' +
-              Buffer.from('opencode:' + this.password).toString('base64'),
-            'Content-Type': 'application/json',
-          },
-          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          password: this.password,
+          body,
           signal: AbortSignal.any([
             signal ?? new AbortController().signal,
             AbortSignal.timeout(
@@ -325,28 +347,73 @@ export class OpenCodeServer {
         });
       } catch (error) {
         if (signal?.aborted) throw error;
+        if ((error as { status?: number }).status) throw error;
+        const raw = error as {
+          cause?: { code?: string };
+          code?: string;
+          name?: string;
+        };
+        const code = raw.cause?.code ?? raw.code ?? raw.name ?? 'unknown';
+        const operation = path
+          .split('/')
+          .map((value) =>
+            value !== 'session' && value.startsWith('ses')
+              ? ':session'
+              : value !== 'permission' && value.startsWith('per')
+                ? ':permission'
+                : value,
+          )
+          .join('/');
+        this.queue.event(
+          'runtime_transport',
+          method +
+            ' ' +
+            operation +
+            ':' +
+            (/^[A-Za-z_0-9]{1,40}$/.test(code) ? code : 'unknown'),
+          null,
+        );
         throw new PipelineFailure('server_unavailable');
       }
-      if (!response.ok) {
-        await response.body?.cancel();
-        throw Object.assign(new Error(`OpenCode HTTP ${response.status}`), {
-          status: response.status,
-          retryAfter: response.headers.get('Retry-After'),
-        });
-      }
-      const text = response.body
-        ? new TextDecoder('utf-8', { fatal: true }).decode(
-            await streamBytes(response.body, 16 * 1024 * 1024),
-          )
-        : '';
-      return text ? JSON.parse(text) : null;
     };
     this.adapter = new ServerSessionAdapter(
       this.api,
       queue,
       this.owner,
       config.deadlineMs,
+      (signal) => this.openEvents(signal),
     );
+  }
+  private async openEvents(signal: AbortSignal) {
+    if (!this.eventsVerified)
+      throw new Error(
+        'Pinned event schema unavailable; using reconciliation polling.',
+      );
+    const connection = new AbortController();
+    const timeout = setTimeout(() => connection.abort(), 5000);
+    try {
+      const response = await fetch(this.base + '/global/event', {
+        redirect: 'error',
+        headers: {
+          Authorization:
+            'Basic ' +
+            Buffer.from('opencode:' + this.password).toString('base64'),
+          Accept: 'text/event-stream',
+        },
+        signal: AbortSignal.any([signal, connection.signal]),
+      });
+      if (
+        !response.ok ||
+        !response.headers.get('content-type')?.includes('text/event-stream') ||
+        !response.body
+      ) {
+        await response.body?.cancel();
+        throw new Error('Runtime event stream unavailable.');
+      }
+      return response.body;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
   private async oldProcess() {
     const path = join(this.config.root, 'owner.json');
@@ -481,6 +548,21 @@ export class OpenCodeServer {
       throw new PipelineFailure('configuration', 'muse', 0, true);
     const schema = (await this.api('/doc')) as SchemaDoc;
     verifySchema(schema);
+    this.eventsVerified =
+      !!schema.paths?.['/global/event']?.get &&
+      [
+        ['EventPermissionAsked', 'permission.asked', 'id'],
+        ['EventMessagePartUpdated', 'message.part.updated', 'part'],
+        ['EventMessagePartDelta', 'message.part.delta', 'delta'],
+        ['EventMessageUpdated', 'message.updated', 'info'],
+      ].every(([name, type, field]) => {
+        const props = schema.components?.schemas?.[name]?.properties;
+        return (
+          props?.type?.enum?.includes(type) &&
+          props.properties?.properties?.sessionID?.type === 'string' &&
+          !!props.properties.properties[field]
+        );
+      });
     const config = (await this.api('/config')) as EffectiveConfig;
     const plan = config.agent?.plan;
     if (
@@ -518,8 +600,12 @@ export class OpenCodeServer {
   }
   async guard() {
     await this.start();
-    if (Date.now() - this.checkedAt >= this.config.catalogTtlMs)
-      await this.verify();
+    if (Date.now() - this.checkedAt >= this.config.catalogTtlMs) {
+      this.checking ??= this.verify().finally(() => {
+        this.checking = undefined;
+      });
+      await this.checking;
+    }
   }
   async request(
     job: NoteJob,
@@ -528,7 +614,9 @@ export class OpenCodeServer {
     signal: AbortSignal,
     capture?: (messages: RuntimeMessage[]) => Promise<void>,
   ) {
+    const guardAt = Date.now();
     await this.guard();
+    this.queue.observe(id, 'runtime_guard', Date.now() - guardAt);
     return this.adapter.request(job, id, prompt, signal, capture);
   }
   async close() {

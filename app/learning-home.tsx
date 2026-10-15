@@ -3,7 +3,7 @@
 import type { BrowseKind as CatalogKind } from '@/lib/catalog';
 import { ShiurViews } from './shiur-views';
 import { TeacherLink } from './teacher-link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BoundedCache } from '@/lib/bounded-cache';
 import { loadDiscovery, loadSavedDiscovery } from '@/lib/discovery-client';
@@ -11,10 +11,6 @@ import {
   readLocalDiscoveryCharts,
   preferDiscoveryChart,
 } from '@/lib/trending-local';
-const feedBatches = new BoundedCache<{ items: Shiur[]; partial: boolean }>(
-  64,
-  4 * 1024 * 1024,
-);
 import {
   ArrowRight,
   Bookmark,
@@ -52,7 +48,7 @@ import {
   useSeriesWithArt,
 } from './ui';
 import { noFilters, type Filters } from '@/lib/search-filters';
-import { MobileDiscover } from './mobile-discover';
+import { FeaturedTitle } from './featured-title';
 import type { Directory, HomeData, Shiur } from '@/lib/yutorah';
 import { mediaKind, selectHomeFeature } from '@/lib/yutorah';
 import type { LibraryState } from '@/lib/library';
@@ -62,14 +58,27 @@ import {
   type TrendingPeriod,
 } from '@/lib/trending';
 import {
+  followKinds,
   isLearned,
   recommend,
+  recommendationAnchor,
+  recommendationSources,
   mergeShiurim,
   type Follow,
 } from '@/lib/learning';
 
 import { FollowButton } from './follow-button';
 export { FollowButton } from './follow-button';
+
+const MobileDiscover = lazy(() =>
+  import('./mobile-discover').then((module) => ({
+    default: module.MobileDiscover,
+  })),
+);
+const feedBatches = new BoundedCache<{ items: Shiur[]; partial: boolean }>(
+  64,
+  4 * 1024 * 1024,
+);
 
 type Props = {
   home: HomeData | null;
@@ -138,8 +147,11 @@ export function LearningHome(props: Props) {
       : tab;
 
   const [minutes, setMinutes] = useState('all');
+  const recommendationView =
+    currentTab === 'for-you' || currentTab === 'recommended';
+  const filterMinutes =
+    recommendationView || minutes === 'all' ? 0 : Number(minutes);
   const [limit, setLimit] = useState(8);
-  const [browseMore, setBrowseMore] = useState(false);
   const [preferences, setPreferences] = useState(false);
   const [feedItems, setFeedItems] = useState<Shiur[]>([]);
   const [feedLoading, setFeedLoading] = useState(false);
@@ -153,8 +165,7 @@ export function LearningHome(props: Props) {
   discoveryChartsRef.current = discoveryCharts;
   const trendingMinutes = minutes === 'all' ? 0 : Number(minutes);
   const discoveryPeriod = currentTab === 'trending' ? trendingPeriod : 'week';
-  const discoveryMinutes =
-    currentTab === 'for-you' && isMobile ? 0 : trendingMinutes;
+  const discoveryMinutes = recommendationView ? 0 : trendingMinutes;
   const discoveryKey = `${discoveryPeriod}:${discoveryMinutes}`;
   const discovery = discoveryCharts[discoveryKey] ?? null;
   const [discoveryError, setDiscoveryError] = useState(false);
@@ -213,23 +224,13 @@ export function LearningHome(props: Props) {
       window.removeEventListener('scroll', want);
     };
   }, [trendingWanted, tab, followingPage, trendingPage, isMobile]);
-  const anchorId = (library.history[0]?.shiur || library.saved[0])?.id;
+  const anchorId = recommendationAnchor(library)?.id;
 
   const sources = useMemo(() => {
-    const chosen = [...library.following];
-    for (const h of library.history.slice(0, 4)) {
-      if (
-        h.shiur.teacherId > 0 &&
-        !chosen.some((f) => f.kind === 'teacher' && f.id === h.shiur.teacherId)
-      )
-        chosen.push({
-          kind: 'teacher',
-          id: h.shiur.teacherId,
-          name: h.shiur.teacher,
-        });
-    }
-    return chosen;
-  }, [library.following, library.history]);
+    return currentTab === 'following'
+      ? library.following
+      : recommendationSources(library);
+  }, [currentTab, library]);
   const sourceQuery = JSON.stringify(
     sources.map(({ kind, id }) => ({ kind, id })),
   );
@@ -245,13 +246,7 @@ export function LearningHome(props: Props) {
       let collected: Shiur[] = [];
       for (let start = 0; start < selected.length; start += 8) {
         const query = new URLSearchParams();
-        for (const kind of [
-          'teacher',
-          'topic',
-          'series',
-          'venue',
-          'collection',
-        ])
+        for (const kind of followKinds)
           query.set(
             kind,
             selected
@@ -265,9 +260,7 @@ export function LearningHome(props: Props) {
             refresh === 0 ? feedBatches.get(query.toString()) : undefined;
           const res = cached
             ? Response.json(cached)
-            : await fetch('/api/feed?' + query, {
-                signal: abort.signal,
-              });
+            : await fetch('/api/feed?' + query, { signal: abort.signal });
           if (!res.ok) throw new Error('Feed unavailable');
           const data = (await res.json()) as {
             items: Shiur[];
@@ -390,18 +383,27 @@ export function LearningHome(props: Props) {
           !library.history.length &&
           !library.saved.length &&
           !library.following.length &&
-          minutes === 'all' &&
+          !filterMinutes &&
           home?.featured.length
           ? home.featured
           : allItems,
         library,
         {
           followingOnly: currentTab === 'following',
-          minutes: minutes === 'all' ? undefined : Number(minutes),
+          minutes: filterMinutes || undefined,
           now: home?.fetchedAt ? Date.parse(home.fetchedAt) : 0,
         },
       ),
-    [allItems, home, library, currentTab, minutes],
+    [allItems, home, library, currentTab, filterMinutes],
+  );
+  const followingItems = useMemo(
+    () =>
+      recommend(allItems, library, {
+        followingOnly: true,
+        minutes: filterMinutes || undefined,
+        now: home?.fetchedAt ? Date.parse(home.fetchedAt) : 0,
+      }),
+    [allItems, library, filterMinutes, home?.fetchedAt],
   );
   const items =
     currentTab === 'featured'
@@ -456,28 +458,52 @@ export function LearningHome(props: Props) {
   const upNext = (home?.featured || [])
     .filter((s) => s.id !== pick?.id)
     .slice(0, 3);
+  const refreshRecommendations = (
+    <button
+      className="icon-button"
+      aria-label="Refresh recommendations"
+      onClick={refreshAll}
+      disabled={feedLoading || refreshing}
+    >
+      <RefreshCw
+        size={16}
+        className={feedLoading || refreshing ? 'spin' : ''}
+      />
+    </button>
+  );
   const sectionHeading = (
     title: string,
     description?: string,
     action?: () => void,
     label = 'View all',
+    refresh = false,
   ) => (
     <div className="discovery-section-heading">
       <div>
         <h2>{title}</h2>
         {description && <p>{description}</p>}
       </div>
-      {action && (
-        <button className="section-link" onClick={action}>
-          {label}
-          <ArrowRight size={15} />
-        </button>
+      {(action || refresh) && (
+        <div className="discovery-section-actions">
+          {action && (
+            <button className="section-link" onClick={action}>
+              {label}
+              <ArrowRight size={15} />
+            </button>
+          )}
+          {refresh && refreshRecommendations}
+        </div>
       )}
     </div>
   );
-  const cards = (entries: typeof ranked, count = limit, row = false) => (
+  const cards = (
+    entries: typeof ranked,
+    count = limit,
+    row = false,
+    reasons = false,
+  ) => (
     <div className={'discovery-card-grid' + (row ? ' is-row' : '')}>
-      {entries.slice(0, count).map(({ shiur: s }) => (
+      {entries.slice(0, count).map(({ shiur: s, reason }) => (
         <div className="recommendation-item" key={s.id}>
           <ShiurCard
             shiur={s}
@@ -492,6 +518,7 @@ export function LearningHome(props: Props) {
             saved={savedIds.has(s.id)}
             active={activeId === s.id && playing}
           />
+          {reasons && <p className="recommendation-reason">{reason}</p>}
         </div>
       ))}
     </div>
@@ -618,29 +645,31 @@ export function LearningHome(props: Props) {
       }
     >
       {isHome && isMobile && (
-        <MobileDiscover
-          onTrending={() => setTrendingWanted(true)}
-          subjects={subjects}
-          home={home}
-          directory={directory}
-          library={library}
-          pick={pick}
-          items={items.map(({ shiur }) => shiur)}
-          trending={discoveryCharts['week:0']?.trending ?? []}
-          trendingLoading={discoveryLoading && !discoveryCharts['week:0']}
-          trendingError={discoveryError}
-          continuing={continuing}
-          activeId={activeId}
-          playing={playing}
-          refreshing={refreshing}
-          onPlay={onPlay}
-          onDetails={onDetails}
-          onSave={onSave}
-          onSearch={onSearch}
-          onNavigate={onNavigate}
-          onPreferences={() => setPreferences(true)}
-          onRefresh={refreshAll}
-        />
+        <Suspense fallback={<output>Loading recommendations…</output>}>
+          <MobileDiscover
+            onTrending={() => setTrendingWanted(true)}
+            subjects={subjects}
+            home={home}
+            directory={directory}
+            library={library}
+            pick={pick}
+            items={items.map(({ shiur }) => shiur)}
+            trending={discoveryCharts['week:0']?.trending ?? []}
+            trendingLoading={discoveryLoading && !discoveryCharts['week:0']}
+            trendingError={discoveryError}
+            continuing={continuing}
+            activeId={activeId}
+            playing={playing}
+            refreshing={refreshing}
+            onPlay={onPlay}
+            onDetails={onDetails}
+            onSave={onSave}
+            onSearch={onSearch}
+            onNavigate={onNavigate}
+            onPreferences={() => setPreferences(true)}
+            onRefresh={refreshAll}
+          />
+        </Suspense>
       )}
       {(!isHome || !isMobile) && (
         <>
@@ -694,11 +723,13 @@ export function LearningHome(props: Props) {
               ].map(({ value, label, icon: Icon }) => (
                 <button
                   key={value}
-                  aria-pressed={currentTab === value}
+                  aria-pressed={
+                    currentTab === value ||
+                    (value === 'for-you' && currentTab === 'recommended')
+                  }
                   onClick={() => {
                     setTab(value);
                     setLimit(8);
-                    setBrowseMore(false);
                   }}
                 >
                   <Icon size={15} />
@@ -714,7 +745,7 @@ export function LearningHome(props: Props) {
                   Featured shiur
                   {pick?.category ? ' · ' + pick.category : ''}
                 </span>
-                <h2>
+                <FeaturedTitle>
                   {pick ? (
                     <button dir="auto" onClick={() => onDetails(pick)}>
                       {pick.title}
@@ -722,7 +753,7 @@ export function LearningHome(props: Props) {
                   ) : (
                     'Explore the Torah library'
                   )}
-                </h2>
+                </FeaturedTitle>
                 {pick && (
                   <p className="home-hero-byline">
                     <strong>
@@ -1116,16 +1147,20 @@ export function LearningHome(props: Props) {
                 sectionHeading(
                   currentTab === 'featured'
                     ? 'Featured shiurim'
-                    : hasInterests
-                      ? 'Recommended for you'
-                      : 'Discover something new',
+                    : 'Recommended for you',
                   currentTab === 'featured'
                     ? 'Selected by the YUTorah editors.'
                     : hasInterests
-                      ? 'Inspired by what you listen to, save, and follow.'
+                      ? 'Based on the series, collections, teachers, and subjects you learn.'
                       : 'Featured and recent shiurim from the YUTorah library.',
-                  isHome ? () => setTab('featured') : undefined,
-                  'Editors’ picks',
+                  isHome
+                    ? () => {
+                        setTab('recommended');
+                        setLimit(10);
+                      }
+                    : undefined,
+                  'View all',
+                  recommendationView,
                 )}
               {currentTab === 'following' && library.following.length > 0 && (
                 <div className="following-chips">
@@ -1148,45 +1183,36 @@ export function LearningHome(props: Props) {
                   ))}
                 </div>
               )}
-              {(!followingPage || library.following.length > 0) && (
-                <div className="discovery-toolbar">
-                  <div className="time-chips" aria-label="Time available">
-                    <Timer size={15} />
-                    {['all', '10', '20', '30'].map((v) => (
-                      <button
-                        key={v}
-                        aria-pressed={minutes === v}
-                        onClick={() => {
-                          setMinutes(v);
-                          setLimit(8);
-                        }}
-                      >
-                        {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
-                      </button>
-                    ))}
+              {!recommendationView &&
+                (!followingPage || library.following.length > 0) && (
+                  <div className="discovery-toolbar">
+                    <div className="time-chips" aria-label="Time available">
+                      <Timer size={15} />
+                      {['all', '10', '20', '30'].map((v) => (
+                        <button
+                          key={v}
+                          aria-pressed={minutes === v}
+                          onClick={() => {
+                            setMinutes(v);
+                            setLimit(8);
+                          }}
+                        >
+                          {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
+                        </button>
+                      ))}
+                    </div>
+                    {refreshRecommendations}
                   </div>
-                  <button
-                    className="icon-button"
-                    aria-label="Refresh recommendations"
-                    onClick={refreshAll}
-                    disabled={feedLoading || refreshing}
-                  >
-                    <RefreshCw
-                      size={16}
-                      className={feedLoading || refreshing ? 'spin' : ''}
-                    />
-                  </button>
-                </div>
-              )}
+                )}
               {feedLoading && (
                 <output className="feed-loading">
                   <Loader2 size={14} className="spin" />
-                  Finding learning from your follows…
+                  Finding shiurim for you…
                 </output>
               )}
               {feedError && (
                 <p className="feed-notice">
-                  Some followed sources could not load.{' '}
+                  Some learning sources could not load.{' '}
                   <button onClick={refreshAll}>Try again</button>
                 </p>
               )}
@@ -1214,49 +1240,83 @@ export function LearningHome(props: Props) {
                 </StatePanel>
               ) : items.length ? (
                 <>
-                  {isHome
-                    ? cards(items, browseMore ? limit : 5, !browseMore)
-                    : cards(items)}
-                  {items.length > (isHome && !browseMore ? 5 : limit) ? (
+                  {cards(
+                    items,
+                    isHome ? 10 : limit,
+                    recommendationView,
+                    recommendationView,
+                  )}
+                  {!isHome && items.length > limit && (
                     <button
                       className="outline-button discovery-more"
-                      onClick={() => {
-                        if (isHome && !browseMore) {
-                          setBrowseMore(true);
-                          setLimit(15);
-                        } else setLimit((n) => n + 10);
-                      }}
+                      onClick={() => setLimit((n) => n + 10)}
                     >
                       Browse more shiurim
                       <ArrowRight size={15} />
                     </button>
-                  ) : (
-                    isHome &&
-                    browseMore && (
-                      <button
-                        className="outline-button discovery-more"
-                        onClick={() => onNavigate('search')}
-                      >
-                        Search the full library
-                        <ArrowRight size={15} />
-                      </button>
-                    )
                   )}
                 </>
               ) : (
                 !feedLoading && (
                   <StatePanel
-                    title="A little more time opens more possibilities."
-                    description="Choose a different time budget or explore another teacher."
+                    title={
+                      recommendationView
+                        ? 'Find your next shiur.'
+                        : 'A little more time opens more possibilities.'
+                    }
+                    description={
+                      recommendationView
+                        ? 'Save a shiur or follow a teacher, series, or collection to shape your recommendations.'
+                        : 'Choose a different time budget or explore another teacher.'
+                    }
                   >
                     <button
                       className="outline-button"
-                      onClick={() => setMinutes('all')}
+                      onClick={() =>
+                        recommendationView
+                          ? onNavigate('teachers')
+                          : setMinutes('all')
+                      }
                     >
-                      See all lengths
+                      {recommendationView
+                        ? 'Discover teachers'
+                        : 'See all lengths'}
                     </button>
                   </StatePanel>
                 )
+              )}
+            </section>
+          )}
+          {isHome && (
+            <section className="discovery-section following-section">
+              {sectionHeading(
+                'Following',
+                'The latest shiurim from teachers and library pages you follow.',
+                () => onNavigate('following'),
+              )}
+              {!library.following.length ? (
+                <StatePanel
+                  title="Choose what to follow"
+                  description="Follow teachers, topics, or series to see their latest shiurim here."
+                >
+                  <button
+                    className="outline-button"
+                    onClick={() => onNavigate('teachers')}
+                  >
+                    Discover teachers <ArrowRight size={15} />
+                  </button>
+                </StatePanel>
+              ) : followingItems.length ? (
+                cards(followingItems, 5, true)
+              ) : feedLoading ? (
+                <output className="feed-loading">
+                  <Loader2 size={14} className="spin" /> Loading your follows…
+                </output>
+              ) : (
+                <StatePanel
+                  title="No followed shiurim to show here yet."
+                  description="Open Following to browse more of your follows."
+                />
               )}
             </section>
           )}

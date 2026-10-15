@@ -1,5 +1,5 @@
 import type { Shiur } from './yutorah';
-import { searchText } from './search-discovery';
+import { searchAliases, searchTerms, searchText } from './search-matching';
 
 export const followKinds = [
   'teacher',
@@ -224,13 +224,128 @@ export function mergeShiurim(items: Shiur[]) {
   return [...unique.values()];
 }
 export type Recommendation = { shiur: Shiur; reason: string; score: number };
+const genericGroup =
+  /^(daily shiur(?:im)?|miscellaneous|general(?: shiurim)?|all(?: shiurim)?|yutorah(?: library)?)$/;
+const genericTitleWords = new Set(
+  'shiur shiurim lecture lectures class classes lesson lessons part parts series daily weekly introduction intro overview learning learn torah halacha halachah halachos halachot hilchos hilchot laws law rabbi rav dr teacher siman perek chapter the and for with from about into this that what when where why how your our you are can does not הלכות הלכה שיעור שיעורים חלק פרק סימן הרב'.split(
+    ' ',
+  ),
+);
+function teacherIds(shiur: Shiur) {
+  return [
+    ...new Set([shiur.teacherId, ...(shiur.speakers || []).map((s) => s.id)]),
+  ].filter((id) => id > 0);
+}
+function titleSubjects(shiur: Shiur) {
+  const names = new Set(
+    searchTerms(
+      [shiur.teacher, ...(shiur.speakers || []).map((s) => s.name)].join(' '),
+    ),
+  );
+  return [
+    ...new Set(
+      searchTerms(shiur.title.slice(0, 500))
+        .filter(
+          (term) =>
+            /\p{L}/u.test(term) &&
+            term.length > 2 &&
+            !genericTitleWords.has(term) &&
+            !names.has(term),
+        )
+        .map((term) =>
+          term
+            .split(' ')
+            .map((word) => [...searchAliases(word)].sort()[0])
+            .join(' '),
+        ),
+    ),
+  ].slice(0, 16);
+}
+function recommendationInterests(library: LearningContext) {
+  const interests = new Map<number, { shiur: Shiur; weight: number }>();
+  const add = (shiur: Shiur, weight: number) => {
+    if (library.hidden.includes(shiur.id)) return;
+    const previous = interests.get(shiur.id);
+    if (!previous || weight > previous.weight)
+      interests.set(shiur.id, { shiur, weight });
+  };
+  for (const [index, h] of library.history.slice(0, 32).entries()) {
+    const duration = h.duration || h.shiur.duration;
+    const completed = library.completed.includes(h.shiur.id);
+    // A preview or accidental play should not become a new interest.
+    if (
+      !completed &&
+      h.seconds < Math.min(60, duration > 0 ? duration * 0.1 : 60)
+    )
+      continue;
+    const progress = completed ? 1 : Math.min(1, h.seconds / (duration || 600));
+    add(h.shiur, (0.5 + progress * 0.5) / (1 + index / 12));
+  }
+  for (const [index, shiur] of library.saved.slice(0, 24).entries())
+    add(shiur, 1 / (1 + index / 24));
+  return [...interests.values()].sort((a, b) => b.weight - a.weight);
+}
+export function recommendationAnchor(library: LearningContext) {
+  return recommendationInterests(library)[0]?.shiur;
+}
+/** Share the eight-source request budget between follows and learned interests. */
+export function recommendationSources(library: LearningContext): Follow[] {
+  const inferred = new Map<string, { follow: Follow; weight: number }>();
+  const add = (
+    kind: Follow['kind'],
+    id: number,
+    name: string,
+    weight: number,
+  ) => {
+    if (!(id > 0)) return;
+    const key = `${kind}:${id}`;
+    const previous = inferred.get(key);
+    inferred.set(key, {
+      follow: { kind, id, name },
+      weight: (previous?.weight || 0) + weight,
+    });
+  };
+  for (const { shiur, weight } of recommendationInterests(library)) {
+    for (const id of teacherIds(shiur))
+      add(
+        'teacher',
+        id,
+        shiur.speakers?.find((s) => s.id === id)?.name || shiur.teacher,
+        weight,
+      );
+    if (sharesSpecificSeries(shiur, shiur))
+      add('series', shiur.seriesId, shiur.series, weight * 0.9);
+    for (const collection of shiur.collections || [])
+      if (!genericGroup.test(searchText(collection.name)))
+        add('collection', collection.id, collection.name, weight * 0.9);
+    for (const [index, id] of (shiur.topicIds || []).entries())
+      add('topic', id, shiur.topics[index] || shiur.category, weight * 0.6);
+  }
+  const follows = new Set(library.following.map((f) => `${f.kind}:${f.id}`));
+  const interests = [...inferred.values()]
+    .sort((a, b) => b.weight - a.weight)
+    .map((entry) => entry.follow)
+    .filter((f) => !follows.has(`${f.kind}:${f.id}`));
+  // Reserve room for different kinds of evidence, even with a prolific teacher.
+  const kinds = new Set<string>();
+  const diverse = interests.filter((f) => {
+    if (kinds.has(f.kind)) return false;
+    kinds.add(f.kind);
+    return true;
+  });
+  const remaining = interests.filter((f) => !diverse.includes(f));
+  return [
+    ...library.following.slice(0, 4),
+    ...diverse,
+    ...library.following.slice(4),
+    ...remaining,
+  ].slice(0, 8);
+}
 function sharesSpecificSeries(a: Shiur, b: Shiur) {
   return (
     a.seriesId > 0 &&
     a.seriesId === b.seriesId &&
-    !/^(daily shiur|daily shiurim|miscellaneous|general shiurim)$/.test(
-      searchText(a.series || b.series),
-    )
+    !genericGroup.test(searchText(a.series || b.series))
   );
 }
 export function recommend(
@@ -243,24 +358,27 @@ export function recommend(
     now?: number;
   } = {},
 ): Recommendation[] {
-  const recent = library.history.slice(0, 12).map((h) => h.shiur);
-  const interests = [...recent, ...library.saved.slice(0, 12)];
+  const interests = recommendationInterests(library).map((interest) => ({
+    ...interest,
+    teachers: teacherIds(interest.shiur),
+    subjects: titleSubjects(interest.shiur),
+  }));
   const hidden = new Set(library.hidden);
   const learned = new Set(library.completed);
   for (const h of library.history)
     if (h.duration > 0 && h.seconds / h.duration >= 0.95)
       learned.add(h.shiur.id);
   const saved = new Set(library.saved.map((s) => s.id));
-  const teachers = new Set(interests.map((s) => s.teacherId));
-  const topics = new Set(interests.flatMap((s) => s.topics.map(searchText)));
   const now = options.now ?? Date.now();
-  const ranked: Recommendation[] = [];
+  const ranked: (Recommendation & { affinity: number })[] = [];
   for (const s of mergeShiurim(items)) {
     if (hidden.has(s.id) || (!options.includeCompleted && learned.has(s.id)))
       continue;
     if (options.minutes && (!s.duration || s.duration > options.minutes * 60))
       continue;
     const normalizedTopics = s.topics.map(searchText);
+    const teachers = teacherIds(s);
+    const subjects = titleSubjects(s);
     const followed = library.following.find((follow) =>
       followsShiur(s, follow),
     );
@@ -268,46 +386,126 @@ export function recommend(
     let score = 0;
     let reason = 'From the YUTorah library';
     if (followed) {
-      score += 70;
+      score += {
+        teacher: 36,
+        topic: 45,
+        series: 55,
+        collection: 45,
+        venue: 18,
+      }[followed.kind];
       reason =
         followed.kind === 'teacher'
           ? 'From a teacher you follow'
           : `You follow ${followed.name}`;
     }
-    const sameSeries = interests.find(
-      (i) => i.id !== s.id && sharesSpecificSeries(i, s),
-    );
-    if (sameSeries) {
-      score += 45;
-      if (!followed)
-        reason = `More in ${sameSeries.series || s.series || 'this series'}`;
+    let seriesWeight = 0;
+    let collectionWeight = 0;
+    let teacherWeight = 0;
+    let topicWeight = 0;
+    let titleWeight = 0;
+    let series = '';
+    let collection = '';
+    let topic = '';
+    let relatedTitle = '';
+    for (const interest of interests) {
+      const { shiur, weight } = interest;
+      if (shiur.id === s.id) continue;
+      if (sharesSpecificSeries(shiur, s)) {
+        seriesWeight += weight;
+        series ||= shiur.series || s.series || 'this series';
+      }
+      const sharedCollection = shiur.collections?.find(
+        (c) =>
+          c.id > 0 &&
+          !genericGroup.test(searchText(c.name)) &&
+          s.collections?.some(
+            (other) =>
+              other.id === c.id && !genericGroup.test(searchText(other.name)),
+          ),
+      );
+      if (sharedCollection) {
+        collectionWeight += weight;
+        collection ||=
+          sharedCollection.name ||
+          s.collections?.find((c) => c.id === sharedCollection.id)?.name ||
+          'this collection';
+      }
+      if (teachers.some((id) => interest.teachers.includes(id)))
+        teacherWeight += weight;
+      const sharedSubjects = subjects.filter((term) =>
+        interest.subjects.includes(term),
+      );
+      // Two subject words, or a recognized compound, are stronger than boilerplate.
+      if (
+        (sharedSubjects.length >= 2 ||
+          sharedSubjects.some((term) => term.includes(' '))) &&
+        sharedSubjects.length /
+          Math.max(1, Math.min(subjects.length, interest.subjects.length)) >=
+          0.5
+      ) {
+        titleWeight += weight;
+        relatedTitle ||= shiur.title;
+      }
+      const sharedId = s.topicIds?.find((id) => shiur.topicIds?.includes(id));
+      // IDs distinguish topics with the same name. Fall back for legacy records.
+      const sharedName = !(s.topicIds?.length && shiur.topicIds?.length)
+        ? s.topics.find((_, index) =>
+            shiur.topics.some(
+              (name) =>
+                !!normalizedTopics[index] &&
+                searchText(name) === normalizedTopics[index],
+            ),
+          )
+        : undefined;
+      if (sharedId || sharedName) {
+        topicWeight += weight;
+        topic ||=
+          sharedName ||
+          s.topics[s.topicIds!.indexOf(sharedId!)] ||
+          s.category ||
+          'this topic';
+      }
     }
-    if (teachers.has(s.teacherId)) {
-      score += 20;
-      if (!followed && !sameSeries) reason = 'From a teacher you learn with';
+    score +=
+      45 * Math.min(1.5, seriesWeight) +
+      35 * Math.min(1.5, collectionWeight) +
+      20 * Math.min(2, teacherWeight) +
+      16 * Math.min(2, topicWeight) +
+      18 * Math.min(1.5, titleWeight);
+    if (seriesWeight) reason = `More in ${series}`;
+    else if (collectionWeight) reason = `More from ${collection}`;
+    else if (!followed) {
+      if (teacherWeight) reason = 'From a teacher you learn with';
+      else if (topicWeight) reason = `Because you explore ${topic}`;
+      else if (titleWeight) reason = `Similar to "${relatedTitle}"`;
     }
-    const topic = s.topics.find((_, index) =>
-      topics.has(normalizedTopics[index]),
-    );
-    if (topic) {
-      score += 16;
-      if (!followed && !sameSeries) reason = `Because you explore ${topic}`;
-    }
+    const affinity = score;
     const age = Math.max(0, (now - (Date.parse(s.date) || 0)) / 86400000);
     score += Math.max(0, 12 - age / 7);
     if (saved.has(s.id)) score -= 8;
-    ranked.push({ shiur: s, reason, score });
+    ranked.push({ shiur: s, reason, score, affinity });
   }
-  // Interleave teachers so one prolific uploader cannot fill the whole feed.
+  // Prefer teacher variety only among similarly relevant recommendations.
   ranked.sort((a, b) => b.score - a.score || b.shiur.id - a.shiur.id);
   const output: Recommendation[] = [];
   while (ranked.length) {
-    const index = ranked.findIndex((r) =>
-      output.slice(-2).every((p) => p.shiur.teacherId !== r.shiur.teacherId),
+    const index = ranked.findIndex(
+      (r) =>
+        r.affinity >= ranked[0].affinity * 0.75 &&
+        r.score >= ranked[0].score - 12 &&
+        output.slice(-2).every((p) => p.shiur.teacherId !== r.shiur.teacherId),
     );
-    output.push(ranked.splice(index < 0 ? 0 : index, 1)[0]);
+    const { shiur, reason, score } = ranked.splice(index < 0 ? 0 : index, 1)[0];
+    output.push({ shiur, reason, score });
   }
-  return output;
+  return options.followingOnly
+    ? output.sort(
+        (a, b) =>
+          (Date.parse(b.shiur.uploadedAt || b.shiur.date) || 0) -
+            (Date.parse(a.shiur.uploadedAt || a.shiur.date) || 0) ||
+          b.shiur.id - a.shiur.id,
+      )
+    : output;
 }
 export function relatedShiurim(
   source: Shiur,

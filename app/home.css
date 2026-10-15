@@ -61,6 +61,8 @@
 /* ─── Home: featured hero ───────────────────────────────────── */
 .home-hero {
   display: grid;
+  height: 360px;
+  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: auto minmax(0, 1fr) minmax(240px, 300px);
   grid-template-areas: 'portrait main next';
   align-items: stretch;
@@ -75,7 +77,11 @@
   flex-direction: column;
   justify-content: center;
   min-width: 0;
+  min-height: 0;
   padding: 8px 0;
+}
+.home-hero-main > * {
+  flex-shrink: 0;
 }
 .home-hero-eyebrow {
   margin-bottom: 14px;
@@ -90,8 +96,11 @@
   line-height: 1.08;
   letter-spacing: -0.03em;
   text-wrap: balance;
+  overflow-wrap: anywhere;
 }
 .home-hero h2 button {
+  display: block;
+  width: 100%;
   text-align: start;
 }
 .home-hero h2 button:hover {
@@ -506,20 +515,26 @@
 .discovery-card-grid.is-row {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
-@media (max-width: 1280px) {
-  .discovery-card-grid.is-row {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-  .discovery-card-grid.is-row > :nth-child(n + 5) {
-    display: none;
-  }
+.discovery-section-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+}
+.recommendation-reason {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin-top: 10px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.5;
 }
 @media (max-width: 1000px) {
   .discovery-card-grid.is-row {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .discovery-card-grid.is-row > :nth-child(n + 4) {
-    display: none;
+    grid-template-columns: repeat(5, minmax(180px, 1fr));
+    overflow-x: auto;
   }
 }
 .shiur-card {
@@ -1748,6 +1763,7 @@
     flex-shrink: 0;
   }
   .discovery-card-grid,
+  .discovery-card-grid.is-row,
   .shiur-grid {
     display: grid;
     grid-template-columns: 1fr;

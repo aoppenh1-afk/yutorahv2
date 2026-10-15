@@ -17,6 +17,7 @@ export type SavedNote = {
   createdAtMs: number;
   gzip: Uint8Array;
 };
+export type NoteMetadata = Omit<SavedNote, 'gzip'>;
 export const hex = (bytes: Uint8Array) =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 export async function notesHash(bytes: Uint8Array) {
@@ -185,6 +186,33 @@ export class TiDBNotesStore {
     );
     const row = rows[0];
     return row && !Array.isArray(row) ? Number(row.oldest) || 0 : 0;
+  }
+  /** Keyset pagination inventories every canonical note without downloading all blobs. */
+  async listMetadata(afterId = '0', limit = 200): Promise<NoteMetadata[]> {
+    if (
+      !/^\d{1,12}$/.test(afterId) ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 1000
+    )
+      throw new Error('Invalid notes inventory bounds.');
+    const rows = await this.db.execute(
+      'SELECT shiur_id, source_sha256, notes_sha256, generator_version, language, raw_bytes, created_at_ms FROM shiur_notes WHERE shiur_id > ? ORDER BY shiur_id LIMIT ?',
+      [afterId, limit],
+    );
+    return rows.map((row) => {
+      if (Array.isArray(row))
+        throw new Error('Unexpected database row format.');
+      return {
+        shiurId: String(row.shiur_id),
+        sourceHash: hex(row.source_sha256),
+        notesHash: hex(row.notes_sha256),
+        generatorVersion: row.generator_version,
+        language: row.language,
+        rawBytes: Number(row.raw_bytes),
+        createdAtMs: Number(row.created_at_ms),
+      };
+    });
   }
   /** A zero-row probe checks replacement rights without changing a published note. */
   async verifyReplacementPermission() {

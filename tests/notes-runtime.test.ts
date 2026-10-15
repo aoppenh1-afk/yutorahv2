@@ -7,6 +7,7 @@ import { NotesQueue } from '../packages/notes-only/src/queue.js';
 import {
   ServerSessionAdapter,
   verifySchema,
+  OpenCodeServer,
   type ServerAPI,
 } from '../packages/opencode-acp/src/server.js';
 import {
@@ -19,6 +20,13 @@ import {
   validateQualification,
   type Qualification,
 } from '../packages/notes-only/src/qualification.js';
+import {
+  SharedSessionMonitor,
+  readEvents,
+} from '../packages/opencode-acp/src/monitor.js';
+import { setTimeout as delay } from 'node:timers/promises';
+import { createServer } from 'node:http';
+import { loopbackJSON } from '../packages/opencode-acp/src/transport.js';
 const catalog = {
   providers: [
     {
@@ -351,5 +359,341 @@ void test('pinned runtime aborts a missing session successfully but DELETE 404 s
     queue.db.prepare("SELECT state FROM sessions WHERE id='sesGone'").get()
       ?.state,
     'deleted',
+  );
+});
+
+void test('concurrent expired guard refreshes coalesce and every caller sees a failed price/configuration check', async (t) => {
+  const { root, queue } = await setup(t);
+  const server = new OpenCodeServer(
+    { executable: 'unused', root, deadlineMs: 1000, catalogTtlMs: 1 },
+    queue,
+  );
+  t.mock.method(server, 'start', async () => {});
+  let checks = 0;
+  t.mock.method(server, 'verify', async () => {
+    checks++;
+    await delay(10);
+    throw new Error('paid_route');
+  });
+  const results = await Promise.allSettled(
+    Array.from({ length: 6 }, () => server.guard()),
+  );
+  assert.equal(checks, 1);
+  assert.equal(results.filter((r) => r.status === 'rejected').length, 6);
+});
+
+void test('pending session creation counts toward the six-session ceiling and a lost creation acknowledgement pauses admissions', async (t) => {
+  const { queue, job } = await setup(t);
+  let created = 0;
+  const api: ServerAPI = async (path, method = 'GET', body) => {
+    if (path === '/session' && method === 'POST')
+      return {
+        id: 'ses' + ++created,
+        title: (body as { title: string }).title,
+      };
+    if (path === '/permission') return [];
+    if (path === '/session/status') return {};
+    const id = path.split('/')[2];
+    if (path.endsWith('/message'))
+      return method === 'POST' ? assistant(id) : [user(id), assistant(id)];
+    if (path.endsWith('/abort') || method === 'DELETE') return true;
+    assert.fail(path);
+  };
+  const adapter = new ServerSessionAdapter(api, queue, 'owned', 1000);
+  const results = await Promise.allSettled(
+    Array.from({ length: 8 }, (_, i) =>
+      adapter.request(
+        job,
+        'request' + i,
+        'full source',
+        new AbortController().signal,
+      ),
+    ),
+  );
+  assert.equal(created, 6);
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 6);
+  for (const result of results)
+    if (result.status === 'rejected')
+      assert.match(result.reason.message, /concurrency_limit/);
+  const uncertain = new ServerSessionAdapter(
+    async () => {
+      throw new Error('lost response');
+    },
+    queue,
+    'owned',
+    1000,
+  );
+  await assert.rejects(
+    uncertain.request(job, 'lost', 'full source', new AbortController().signal),
+    (error: { code?: string; pause?: boolean }) =>
+      error.code === 'session_uncertain' && error.pause === true,
+  );
+});
+
+void test('successful startup reconciliation releases uncertain finished callbacks while preserving a newly admitted request awaiting its session', async (t) => {
+  const { queue, job } = await setup(t);
+  const insert = queue.db.prepare(
+    "INSERT INTO requests(id,job_id,token,route,kind,started_at,ended_at,status,reserved_tokens) VALUES(?,?,?,'server-high','generation',?,?,'active',100)",
+  );
+  insert.run(
+    'uncertain',
+    job.id,
+    job.lease_token,
+    Date.now() - 120000,
+    Date.now() - 1000,
+  );
+  insert.run('starting', job.id, job.lease_token, Date.now(), null);
+  let failed = true;
+  const adapter = new ServerSessionAdapter(
+    async (path) => {
+      if (failed) throw new Error('offline');
+      assert.equal(path, '/session');
+      return [];
+    },
+    queue,
+    'owned',
+    1000,
+  );
+  await assert.rejects(adapter.reconcile(), /offline/);
+  assert.equal(
+    queue.db.prepare("SELECT status FROM requests WHERE id='uncertain'").get()
+      ?.status,
+    'active',
+  );
+  failed = false;
+  await adapter.reconcile();
+  assert.equal(
+    queue.db.prepare("SELECT status FROM requests WHERE id='uncertain'").get()
+      ?.status,
+    'reconciled_interrupted',
+  );
+  assert.equal(
+    queue.db.prepare("SELECT status FROM requests WHERE id='starting'").get()
+      ?.status,
+    'active',
+  );
+});
+
+void test('shared runtime monitoring uses one stream, rejects only owned permissions, and reconciles missed tool events after disconnect', async () => {
+  const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
+  let opens = 0,
+    permissionReads = 0,
+    historyReads = 0,
+    denied = 0,
+    missedTool = false;
+  const errors: string[] = [];
+  let outputs = 0;
+  const api: ServerAPI = async (path) => {
+    if (path === '/permission') {
+      permissionReads++;
+      return [];
+    }
+    if (path === '/permission/perOwned/reply') {
+      denied++;
+      return true;
+    }
+    if (path.endsWith('/message')) {
+      historyReads++;
+      return missedTool && path.includes('ses2')
+        ? [{ parts: [{ type: 'tool' }] }]
+        : [];
+    }
+    assert.fail(path);
+  };
+  const monitor = new SharedSessionMonitor(
+    api,
+    async () => {
+      opens++;
+      return new ReadableStream({
+        start(c) {
+          streams.push(c);
+        },
+      });
+    },
+    { pollMs: 10, reconcileMs: 10000, retryMs: 10, idleMs: 1000 },
+  );
+  const watcher = {
+    fail: (e: unknown) => errors.push((e as Error).message),
+    output: () => {
+      outputs++;
+    },
+  };
+  const [release1, release2] = await Promise.all([
+    monitor.watch('ses1', watcher),
+    monitor.watch('ses2', watcher),
+  ]);
+  try {
+    await delay(30);
+    assert.equal(opens, 1);
+    assert.ok(
+      permissionReads <= 2,
+      'global permission polling must not scale with sessions',
+    );
+    assert.ok(
+      historyReads <= 3,
+      'healthy SSE must not reread growing history every 500ms',
+    );
+    const send = (event: unknown) =>
+      streams
+        .at(-1)!
+        .enqueue(
+          new TextEncoder().encode(
+            'data: ' + JSON.stringify({ payload: event }) + '\n\n',
+          ),
+        );
+    send({
+      type: 'permission.asked',
+      properties: { id: 'perHuman', sessionID: 'sesHuman' },
+    });
+    send({
+      type: 'message.updated',
+      properties: { sessionID: 'ses1', info: { id: 'msgUser', role: 'user' } },
+    });
+    send({
+      type: 'message.part.updated',
+      properties: {
+        sessionID: 'ses1',
+        part: { messageID: 'msgUser', type: 'text', text: 'complete prompt' },
+      },
+    });
+    send({
+      type: 'message.updated',
+      properties: {
+        sessionID: 'ses1',
+        info: { id: 'msgAssistant', role: 'assistant' },
+      },
+    });
+    send({
+      type: 'message.part.delta',
+      properties: {
+        sessionID: 'ses1',
+        messageID: 'msgAssistant',
+        delta: 'first output',
+      },
+    });
+    send({
+      type: 'permission.asked',
+      properties: { id: 'perOwned', sessionID: 'ses1' },
+    });
+    await delay(10);
+    assert.equal(denied, 1);
+    assert.equal(outputs, 1);
+    assert.deepEqual(errors, ['off_task']);
+    missedTool = true;
+    streams.at(-1)!.close();
+    await delay(300);
+    assert.ok(opens >= 2);
+    assert.ok(
+      errors.length >= 2,
+      'a tool event missed during disconnect must still fail reconciliation',
+    );
+  } finally {
+    await release1();
+    await release2();
+  }
+});
+
+void test('SSE parser handles split UTF-8, CRLF, multiline data, and bounded malformed events', async () => {
+  const encoded = new TextEncoder().encode(
+    'data: {"type":"message.part.delta",\r\ndata: "properties":{"sessionID":"ses1","delta":"שלום"}}\r\n\r\n',
+  );
+  const found: unknown[] = [];
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      for (let i = 0; i < encoded.length; i++)
+        c.enqueue(encoded.slice(i, i + 1));
+      c.close();
+    },
+  });
+  await readEvents(
+    stream,
+    new AbortController().signal,
+    (e) => {
+      found.push(e);
+    },
+    1000,
+  );
+  assert.deepEqual(found, [
+    {
+      type: 'message.part.delta',
+      properties: { sessionID: 'ses1', delta: 'שלום' },
+    },
+  ]);
+  await assert.rejects(
+    readEvents(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode('data: not-json\n\n'));
+          c.close();
+        },
+      }),
+      new AbortController().signal,
+      () => {},
+      1000,
+    ),
+  );
+});
+
+void test('local JSON transport waits for delayed headers, enforces cancellation through the body, bounds evidence, and preserves Retry-After', async (t) => {
+  const server = createServer((req, res) => {
+    assert.equal(
+      req.headers.authorization,
+      'Basic ' + Buffer.from('opencode:fixture').toString('base64'),
+    );
+    if (req.url === '/slow') {
+      const timer = setTimeout(() => res.end('{"ok":true}'), 100);
+      res.once('close', () => clearTimeout(timer));
+    } else if (req.url === '/body') {
+      res.writeHead(200);
+      res.write('{');
+    } else if (req.url === '/large') res.end('x'.repeat(100));
+    else if (req.url === '/quota')
+      res.writeHead(429, { 'Retry-After': '7' }).end('ignored');
+    else res.writeHead(302, { Location: 'https://example.com' }).end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(
+    () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
+  );
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const url = `http://127.0.0.1:${address.port}`;
+  const options = () => ({
+    method: 'POST',
+    password: 'fixture',
+    signal: AbortSignal.timeout(1000),
+  });
+  assert.deepEqual(await loopbackJSON(url + '/slow', options()), { ok: true });
+  await assert.rejects(
+    loopbackJSON(url + '/slow', {
+      ...options(),
+      signal: AbortSignal.timeout(20),
+    }),
+  );
+  await assert.rejects(
+    loopbackJSON(url + '/body', {
+      ...options(),
+      signal: AbortSignal.timeout(30),
+    }),
+  );
+  await assert.rejects(
+    loopbackJSON(url + '/large', { ...options(), maxBytes: 32 }),
+    /byte limit/,
+  );
+  await assert.rejects(
+    loopbackJSON(url + '/quota', options()),
+    (error: { status?: number; retryAfter?: string }) =>
+      error.status === 429 && error.retryAfter === '7',
+  );
+  await assert.rejects(
+    loopbackJSON(url + '/redirect', options()),
+    (error: { status?: number }) => error.status === 302,
+  );
+  await assert.rejects(
+    loopbackJSON('https://example.com', options()),
+    /loopback/,
   );
 });

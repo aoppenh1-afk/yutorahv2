@@ -36,6 +36,46 @@ const approval = (): Qualification => ({
   },
 });
 
+void test('repaired prior-cohort notes do not count twice toward a retained rollout boundary', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'notes-cohort-repairs-'));
+  const queue = new NotesQueue(join(root, 'queue.sqlite'));
+  t.after(async () => {
+    queue.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const path = join(root, 'first-cohort.json');
+  await durableWrite(
+    path,
+    JSON.stringify({
+      profile,
+      size: 100,
+      verified: Array.from({ length: 100 }, (_, i) => ({ id: String(i + 1) })),
+    }),
+  );
+  queue.db
+    .prepare('INSERT INTO cohorts VALUES(?,?,?,?)')
+    .run(profile, 100, path, Date.now());
+  const initial = (await pendingCohort(root, queue, profile))!;
+  // Simulate a pre-fix retained boundary without the newly derived membership exclusion.
+  await durableWrite(
+    join(root, 'cohorts', profile, 'rollout-current.json'),
+    JSON.stringify({ profile, size: 500, startedAt: initial.startedAt }),
+  );
+  const resumed = (await pendingCohort(root, queue, profile))!;
+  assert.equal(resumed.startedAt, initial.startedAt);
+  queue.enqueue([{ id: '1' }, { id: '101' }]);
+  queue.db
+    .prepare(
+      "UPDATE jobs SET status='completed',profile=?,route='server-high',completed_at=?",
+    )
+    .run(profile, resumed.startedAt + 1);
+  assert.deepEqual(
+    cohortJobs(queue, resumed).map((j) => j.id),
+    ['101'],
+  );
+  assert.deepEqual(await pendingCohort(root, queue, profile), resumed);
+});
+
 void test('explicit user waivers do not manufacture reviews, waive cohort verification, or silently change the default policy', () => {
   const e = approval();
   assert.doesNotThrow(() => validateQualification(e));
