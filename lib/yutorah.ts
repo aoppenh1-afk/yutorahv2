@@ -1,7 +1,11 @@
 import { naturalSearch } from './natural-search';
 import { orderedTopicGroups } from './topic-groups';
 import { viewCount } from './view-count';
-import { searchText, teacherMention } from './search-discovery';
+import {
+  searchText,
+  teacherMention,
+  directorySearchIndex,
+} from './search-discovery';
 import {
   intentLabels,
   interpretAliases,
@@ -592,8 +596,9 @@ export async function getDirectory(): Promise<Directory> {
   return data;
 }
 export function enrichShiur(shiur: Shiur, directory: Directory): Shiur {
+  const index = directorySearchIndex(directory);
   const paths = (shiur.topicIds || []).map((id) => {
-    const t = directory.topics.find((t) => t.id === id);
+    const t = index.topicsById.get(id);
     return t
       ? { id, name: t.name, group: t.group, branch: t.branch }
       : shiur.topicPaths?.find((t) => t.id === id) || {
@@ -604,10 +609,7 @@ export function enrichShiur(shiur: Shiur, directory: Directory): Shiur {
   });
   const result = {
     ...shiur,
-    series:
-      shiur.series ||
-      directory.series.find((s) => s.id === shiur.seriesId)?.name ||
-      '',
+    series: shiur.series || index.seriesById.get(shiur.seriesId)?.name || '',
     topicPaths: paths,
   };
   if (paths.some((t) => t.name)) {
@@ -700,15 +702,7 @@ export function parseSearch(
     ? { term, labels: [] }
     : interpretSpacing(
         term,
-        directory
-          ? [
-              ...directory.teachers.map(
-                (teacher) => `${teacher.firstName} ${teacher.lastName}`,
-              ),
-              ...directory.topics.map((topic) => topic.name),
-              ...directory.series.map((series) => series.name),
-            ]
-          : [],
+        directory ? directorySearchIndex(directory).spacing : [],
       );
   term = spacing.term;
   labels.push(...spacing.labels);

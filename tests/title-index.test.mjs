@@ -627,6 +627,52 @@ void test('whole-word matches stay ahead of spelling candidates and frequency br
   );
 });
 
+void test('transliteration-key backfill adds one key per word and retries without changing title frequencies', async () => {
+  const db = database();
+  await db.batch(
+    index.indexTitleStatements(db, [
+      { id: 1, title: 'Shakhter on Pesach' },
+      { id: 2, title: 'Shakhter on Shabbos' },
+    ]),
+  );
+  await db.prepare("DELETE FROM search_title_keys WHERE key LIKE 'v:%'").run();
+  const before = (
+    await db.prepare('SELECT * FROM search_title_terms ORDER BY term').all()
+  ).results;
+  let after = '';
+  for (;;) {
+    const progress = await index.refreshSpellingKeys(db, after, 1);
+    after = progress.after;
+    if (progress.complete) break;
+  }
+  assert.ok(
+    (await index.titleVocabulary(db, 'schachter')).words.includes('shakhter'),
+  );
+  const count = (
+    await db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM search_title_keys WHERE key LIKE 'v:%'",
+      )
+      .first()
+  ).n;
+  await index.refreshSpellingKeys(db);
+  assert.equal(
+    (
+      await db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM search_title_keys WHERE key LIKE 'v:%'",
+        )
+        .first()
+    ).n,
+    count,
+  );
+  assert.deepEqual(
+    (await db.prepare('SELECT * FROM search_title_terms ORDER BY term').all())
+      .results,
+    before,
+  );
+});
+
 void test('archive backfill resumes atomically and refreshes new titles without duplicating word counts', async () => {
   const db = database();
   const realFetch = globalThis.fetch;

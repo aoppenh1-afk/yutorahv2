@@ -53,6 +53,30 @@ void test(
         ).rows[0].title,
         'Preserved title',
       );
+      const definition = async () =>
+        (
+          await admin.query(
+            'SELECT pg_get_functiondef(to_regprocedure($1)) AS source',
+            [`${schema}.title_changed()`],
+          )
+        ).rows[0].source;
+      const beforeReplay = await definition();
+      await admin.query(`INSERT INTO ${schema}.search_runs(id,fingerprint,plan,total,created) VALUES('bad-cache','bad','{}',1,1);
+        INSERT INTO ${schema}.search_hits(run,id,payload,matched,rank,date,duration,title,position) VALUES('bad-cache',1,'invalid json',1,1,1,1,'bad',1);
+        DELETE FROM ${schema}.schema_migrations`);
+      await assert.rejects(
+        migratePostgresSearch(process.env.TEST_DATABASE_URL!, schema),
+        /invalid input syntax for type json/,
+      );
+      assert.equal(
+        await definition(),
+        beforeReplay,
+        'A failed replay must restore compact-aware triggers',
+      );
+      await admin.query(
+        `DELETE FROM ${schema}.search_runs WHERE id='bad-cache'`,
+      );
+      await migratePostgresSearch(process.env.TEST_DATABASE_URL!, schema);
       await admin.query(`CREATE ROLE ${role}`);
       roleCreated = true;
       await admin.query(

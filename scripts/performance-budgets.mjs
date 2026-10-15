@@ -98,9 +98,10 @@ const measurements = {
 };
 const budgets = {
   initialHomeJs: 300_000,
-  // Includes account SDKs plus the offline downloader and Downloads screen.
-  // The initial-page and individual-chunk budgets remain unchanged.
-  totalJs: 420_000,
+  // Includes account SDKs, offline downloads and the shared search vocabulary.
+  // 157 spelling groups and 69 subject bridges add a few KB of browser data.
+  // Keep the initial-page and individual-chunk caps unchanged.
+  totalJs: 425_000,
   notesExportJs: 600_000,
   notesBundleWorkerJs: 500_000,
   totalCss: 50_000,

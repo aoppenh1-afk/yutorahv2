@@ -5,10 +5,12 @@ import {
   searchAliases,
   searchTerms,
   searchText,
-  textMatchScore,
   wordMatch,
+  prepareMatchText,
+  createTextMatcher,
+  relatedSearchTerms,
 } from './search-matching';
-import { relevanceScore } from './search-discovery';
+import { createRelevanceScorer } from '../packages/yutorah-core/src/search-ranking.js';
 import { titleVocabulary } from './title-index';
 
 type Title = { id: number; title: string };
@@ -25,7 +27,14 @@ export function titleAutocompleteQuery(query: string, words: string[] = []) {
       .sort((a, b) => b.score - a.score)
       .slice(0, 4)
       .flatMap(({ word }) => searchAliases(word));
-    return [...new Set([...searchAliases(term), ...completions])]
+    const subjects = relatedSearchTerms(term);
+    return [
+      ...new Set([
+        ...subjects,
+        ...subjects.flatMap(searchAliases),
+        ...completions,
+      ]),
+    ]
       .map(searchText)
       .filter((word) => /^[\p{L}\p{N}]+(?: [\p{L}\p{N}]+)*$/u.test(word))
       .slice(0, 24);
@@ -82,31 +91,31 @@ export async function findShiurSuggestions(
           .bind(compiled.sqlite);
   const { results } = await statement.all<Title>();
   const terms = searchTerms(term);
+  const matchers = terms.map((word) => createTextMatcher(word));
+  const scoreTitle = createRelevanceScorer(term);
   return [...new Map(results.map((title) => [title.id, title])).values()]
+    .map((title) => ({ ...title, prepared: prepareMatchText(title.title) }))
     .filter(
       (title) =>
         Number.isSafeInteger(title.id) &&
         title.id > 0 &&
         title.title &&
-        terms.every((word) => textMatchScore(title.title, word) > 0),
+        matchers.every((matcher) => matcher.score(title.prepared) > 0),
     )
     .map((title) => ({
       ...title,
       score:
         2000 *
           terms.filter((word) =>
-            ` ${searchText(title.title)} `.includes(` ${word} `),
+            ` ${title.prepared.normalized} `.includes(` ${word} `),
           ).length +
-        relevanceScore(
-          {
-            title: title.title,
-            topics: [],
-            series: '',
-            teacher: '',
-            description: '',
-          },
-          term,
-        ),
+        scoreTitle({
+          title: title.title,
+          topics: [],
+          series: '',
+          teacher: '',
+          description: '',
+        }),
     }))
     .sort(
       (a, b) =>

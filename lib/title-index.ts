@@ -1,5 +1,6 @@
 import type { SearchDatabase, SearchStatement } from './search-storage';
 import { searchText, wordMatch } from './search-matching';
+import { transliterationKey } from '../packages/yutorah-core/src/search-spelling.js';
 
 type TitleRecord = { id: number; title: string };
 type TitleTerm = { term: string; words: number; documents: number };
@@ -11,7 +12,7 @@ function spellingKeys(word: string): string[] {
   const prefix = Array.from(word).slice(0, 7).join('');
   const keys = new Set([prefix]);
   let previous = [prefix];
-  for (let edit = 0; edit < (word.length >= 7 ? 2 : 1); edit++) {
+  for (let edit = 0; edit < (Array.from(word).length >= 7 ? 2 : 1); edit++) {
     const next = new Set<string>();
     for (const value of previous) {
       const letters = Array.from(value);
@@ -25,9 +26,13 @@ function spellingKeys(word: string): string[] {
 }
 
 function termKeys(term: string, words: number): string[] {
+  const variant = words === 1 ? transliterationKey(term) : '';
   return [
     `j:${term.replaceAll(' ', '')}`,
-    ...(words === 1 ? [`p:${term.slice(0, 3)}`, ...spellingKeys(term)] : []),
+    ...(words === 1
+      ? [`p:${Array.from(term).slice(0, 3).join('')}`, ...spellingKeys(term)]
+      : []),
+    ...(variant ? [`v:${variant}`] : []),
   ];
 }
 
@@ -161,7 +166,11 @@ export async function titleVocabulary(db: SearchDatabase, query: string) {
   for (const [slot, word] of tokens.entries()) {
     if (!word || /\p{N}/u.test(word)) continue;
     if (word.length >= 3 && word.length <= 64)
-      for (const key of [`p:${word.slice(0, 3)}`, ...spellingKeys(word)])
+      for (const key of [
+        `p:${Array.from(word).slice(0, 3).join('')}`,
+        ...spellingKeys(word),
+        ...(transliterationKey(word) ? [`v:${transliterationKey(word)}`] : []),
+      ])
         requested.push({ key, slot });
     for (let count = 1; count <= 3; count++) {
       const span = tokens.slice(slot, slot + count);
@@ -212,6 +221,43 @@ export async function titleVocabulary(db: SearchDatabase, query: string) {
     )
     .map((record) => record.term);
   return { words, phrases: unique.map((record) => record.term) };
+}
+
+/** Upgrade existing vocabulary without fetching titles or duplicating word rows.
+ * Each committed page can be retried; the caller retains the last word cursor.
+ */
+export async function refreshSpellingKeys(
+  db: SearchDatabase,
+  after = '',
+  limit = 500,
+) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 2000)
+    throw new RangeError('Choose 1–2000 words per spelling-key batch.');
+  const { results } = await db
+    .prepare(
+      'SELECT term FROM search_title_terms WHERE words=1 AND documents>0 AND term>? ORDER BY term LIMIT ?',
+    )
+    .bind(after, limit)
+    .all<{ term: string }>();
+  const entries = results.flatMap(({ term }) => {
+    const key = transliterationKey(term);
+    return key ? [[`v:${key}`, term]] : [];
+  });
+  if (entries.length)
+    await db.batch([
+      db
+        .prepare(
+          `INSERT OR IGNORE INTO search_title_keys (key,term)
+     SELECT json_extract(value,'$[0]'),json_extract(value,'$[1]') FROM json_each(?)`,
+        )
+        .bind(JSON.stringify(entries)),
+    ]);
+  return {
+    scanned: results.length,
+    keys: entries.length,
+    after: results.at(-1)?.term ?? after,
+    complete: results.length < limit,
+  };
 }
 
 /** Seed a pre-existing cache in bounded passes without losing it on expiry. */

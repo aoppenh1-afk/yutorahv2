@@ -3,12 +3,19 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Client } from 'pg';
 
+// Prefer the dedicated fixture, or reuse CI's disposable test database.
+const database =
+  process.env.NOTIFICATION_TEST_DATABASE_URL || process.env.TEST_DATABASE_URL;
 void test(
   'library RPC preserves private accounts, deletions, counters and atomic quotas',
-  { skip: !process.env.NOTIFICATION_TEST_DATABASE_URL },
+  { skip: !database && !process.env.CI },
   async () => {
+    assert.ok(
+      database,
+      'Set TEST_DATABASE_URL to a disposable PostgreSQL database.',
+    );
     const db = new Client({
-      connectionString: process.env.NOTIFICATION_TEST_DATABASE_URL,
+      connectionString: database,
     });
     await db.connect();
     try {

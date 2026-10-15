@@ -178,7 +178,8 @@ export function postgresSearchDatabase(
         (statements as Statement[]).some(
           (s) =>
             s.sql.includes(`${schema}.search_title_catalog`) ||
-            s.sql.includes(`${schema}.search_title_keys`),
+            s.sql.includes(`${schema}.search_title_keys`) ||
+            s.sql.includes(`${schema}.insert_spelling_keys`),
         )
       )
         await client.query(

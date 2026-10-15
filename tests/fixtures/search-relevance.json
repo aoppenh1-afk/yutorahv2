@@ -1,0 +1,232 @@
+[
+  {
+    "query": "coffee on shabbos",
+    "relevant": ["Coffee on Shabbos", "Making Coffee on Shabbat"],
+    "distractors": ["Coffee on Yom Tov", "Shabbos Clothing"]
+  },
+  {
+    "query": "returning lost objects",
+    "relevant": ["Hashavas Aveidah"],
+    "distractors": ["Lost in the Desert", "Objects in Halacha"]
+  },
+  {
+    "query": "counting the omer",
+    "relevant": ["Sefiras HaOmer"],
+    "distractors": ["Counting a Minyan", "The Omer Offering"]
+  },
+  {
+    "query": "honoring parents",
+    "relevant": ["Kibbud Av Vaem"],
+    "distractors": ["Honoring Teachers", "Parenting Children"]
+  },
+  {
+    "query": "lashon hara",
+    "relevant": ["Hilchos Lashon Hara"],
+    "distractors": ["Har Gerizim", "The Hebrew Language"]
+  },
+  {
+    "query": "kashrut",
+    "relevant": ["Kashrus in the Kitchen"],
+    "distractors": ["Kiddush in Shul", "Emunah"]
+  },
+  {
+    "query": "muktzah",
+    "relevant": ["Hilchos Muktzeh"],
+    "distractors": ["Hilchos Matza", "The Mishkan"]
+  },
+  {
+    "query": "chometz",
+    "relevant": ["Chametz on Pesach"],
+    "distractors": ["Chumash Shiur", "Chazzanus"]
+  },
+  {
+    "query": "shechitah",
+    "relevant": ["Hilchos Shechita"],
+    "distractors": ["Shemitah Today", "Shacharis"]
+  },
+  {
+    "query": "ketubot",
+    "relevant": ["Maseches Kesubos"],
+    "distractors": ["Maseches Kerisos", "Maseches Shabbos"]
+  },
+  {
+    "query": "Baba Metsia",
+    "relevant": ["Bava Metzia"],
+    "distractors": ["Bava Basra", "Bava Kamma"]
+  },
+  {
+    "query": "chulin",
+    "relevant": ["Maseches Chullin"],
+    "distractors": ["Chol Hamoed", "Chinuch"]
+  },
+  {
+    "query": "torts",
+    "relevant": ["Introduction to Nezikin"],
+    "distractors": ["Torah Study", "Teaching Methods"]
+  },
+  {
+    "query": "renting property",
+    "relevant": ["Hilchos Sechirus"],
+    "distractors": ["Property Values", "Returning Lost Property"]
+  },
+  {
+    "query": "property acquisition",
+    "relevant": ["The Laws of Kinyanim"],
+    "distractors": ["Lost Property", "Laws of Marriage"]
+  },
+  {
+    "query": "inheritance",
+    "relevant": ["Hilchos Yerushah"],
+    "distractors": ["Honoring Parents", "Hilchos Chinuch"]
+  },
+  {
+    "query": "agency",
+    "relevant": ["The Principle of Shlichus"],
+    "distractors": ["The Power of Prayer", "A General Lecture"]
+  },
+  {
+    "query": "verbal mistreatment",
+    "relevant": ["Onaas Devarim"],
+    "distractors": ["Sefer Devarim", "Verbal Vows"]
+  },
+  {
+    "query": "humiliating others",
+    "relevant": ["Halbanas Panim"],
+    "distractors": ["Birkas Kohanim", "How to Teach Others"]
+  },
+  {
+    "query": "judging favorably",
+    "relevant": ["Dan Lekaf Zechut"],
+    "distractors": ["Jewish Judges", "Court Procedure"]
+  },
+  {
+    "query": "love your neighbor",
+    "relevant": ["Ahavas Yisrael"],
+    "distractors": ["Love of Torah", "Neighbors and Property"]
+  },
+  {
+    "query": "divine providence",
+    "relevant": ["Hashgacha Pratis"],
+    "distractors": ["Divine Names", "A General Lecture"]
+  },
+  {
+    "query": "free will",
+    "relevant": ["Bechira Chofshis"],
+    "distractors": ["Writing a Will", "Freedom on Pesach"]
+  },
+  {
+    "query": "oral Torah",
+    "relevant": ["Torah Shebeal Peh"],
+    "distractors": ["Torah Shebichtav", "Torah Study"]
+  },
+  {
+    "query": "written Torah",
+    "relevant": ["Torah Shebichtav"],
+    "distractors": ["Torah Shebeal Peh", "The Writing of Contracts"]
+  },
+  {
+    "query": "resurrection",
+    "relevant": ["Techiyas Hameisim"],
+    "distractors": ["Mourning Customs", "The History of Medicine"]
+  },
+  {
+    "query": "world to come",
+    "relevant": ["Olam Haba"],
+    "distractors": ["World History", "Coming to Shul"]
+  },
+  {
+    "query": "reading the Torah",
+    "relevant": ["Krias Hatorah"],
+    "distractors": ["Reading the Megillah", "Torah Study"]
+  },
+  {
+    "query": "priestly blessing",
+    "relevant": ["Birkas Kohanim"],
+    "distractors": ["Birkas Hamazon", "The Priestly Garments"]
+  },
+  {
+    "query": "travelers prayer",
+    "relevant": ["Tefillas Haderech"],
+    "distractors": ["The Structure of Prayer", "Travel on Shabbos"]
+  },
+  {
+    "query": "blessing on the moon",
+    "relevant": ["Kiddush Levanah"],
+    "distractors": ["Rosh Chodesh Customs", "Kiddush on Wine"]
+  },
+  {
+    "query": "searching for chametz",
+    "relevant": ["Bedikas Chometz"],
+    "distractors": ["Selling Chometz", "Chametz Mixtures"]
+  },
+  {
+    "query": "selling chametz",
+    "relevant": ["Mechiras Chometz"],
+    "distractors": ["Bedikas Chometz", "Selling Property"]
+  },
+  {
+    "query": "destroying chametz",
+    "relevant": ["Biur Chometz"],
+    "distractors": ["Mechiras Chometz", "Chametz Mixtures"]
+  },
+  {
+    "query": "four cups",
+    "relevant": ["Arba Kosos"],
+    "distractors": ["Four Species", "Kiddush Cups"]
+  },
+  {
+    "query": "intermediate festival days",
+    "relevant": ["Chol Hamoed"],
+    "distractors": ["Festival Prayers", "The Nine Days"]
+  },
+  {
+    "query": "redeeming the firstborn",
+    "relevant": ["Pidyon Haben"],
+    "distractors": ["Pidyon Shvuyim", "First Fruits"]
+  },
+  {
+    "query": "family purity",
+    "relevant": ["Taharat Hamishpacha"],
+    "distractors": ["Family History", "Pure Olive Oil"]
+  },
+  {
+    "query": "mental health",
+    "relevant": ["בריאות הנפש"],
+    "distractors": ["Physical Health", "Pikuach Nefesh"]
+  },
+  {
+    "query": "electricity shabbat",
+    "relevant": ["חשמל בשבת"],
+    "distractors": ["Electricity on Yom Tov", "Shabbos Clothing"]
+  },
+  {
+    "query": "תחיית המתים",
+    "relevant": ["Techiyat Hameitim"],
+    "distractors": ["Hilchos Aveilus", "Techumin on Shabbos"]
+  },
+  {
+    "query": "חשמל בשבת",
+    "relevant": ["Electricity on Shabbat"],
+    "distractors": ["Electricity on Yom Tov", "Shabbos Clothing"]
+  },
+  {
+    "query": "שמיטה",
+    "relevant": ["Shemittah Today"],
+    "distractors": ["Shechita Today", "Maseches Shabbos"]
+  },
+  {
+    "query": "קידושין",
+    "relevant": ["Maseches Kiddushin"],
+    "distractors": ["Kiddush on Wine", "Kaddish"]
+  },
+  {
+    "query": "berakhot",
+    "relevant": ["Maseches Berachos"],
+    "distractors": ["Birkat Hamazon", "Maseches Bechoros"]
+  },
+  {
+    "query": "schachter",
+    "relevant": ["Shakhter on Pesach"],
+    "distractors": ["Shacharis on Pesach", "Shechita on Pesach"]
+  }
+]

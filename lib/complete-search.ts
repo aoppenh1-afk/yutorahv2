@@ -14,12 +14,12 @@ import {
 } from './yutorah';
 import type { SearchResponse } from './api-types';
 import type { SearchDatabase, SearchStatement } from './search-storage';
-import { searchText } from './search-discovery';
+import { searchText, directorySearchIndex } from './search-discovery';
 import { createRelevanceScorer } from '../packages/yutorah-core/src/search-ranking.js';
 import {
   interpretSpacing,
   searchRetrieval,
-  searchVocabulary,
+  queryVocabulary,
 } from './search-matching';
 import {
   changedTitleStatements,
@@ -107,11 +107,12 @@ async function searchPass(
   const venues = await catalogVenues().catch(() => []);
   const venueNames = new Map(venues.map((v) => [v.id, v.name]));
   const venueIds = new Map(venues.map((v) => [searchText(v.name), v.id]));
+  const { seriesById, topicsById } = directorySearchIndex(directory);
   let plan = parseSearch(query, options, directory);
   // The expansion is snapshotted on the run. Learning more titles must not
   // change a pending scan's source query, title matching, or candidate counts.
   const criteria = {
-    version: 14,
+    version: 15,
     query,
     literal: !!plan.literal,
     quoted: /"[^"]+"/.test(query),
@@ -208,17 +209,13 @@ async function searchPass(
         searchTerm: spacing.term,
         corrections: spacing.labels,
         knownWords,
-        vocabulary: [
+        vocabulary: queryVocabulary(spacing.term, [
           ...new Set([
             ...learned.words,
             ...knownWords,
-            ...searchVocabulary([
-              ...directory.teachers.map((teacher) => teacher.name),
-              ...directory.topics.map((topic) => topic.name),
-              ...directory.series.map((series) => series.name),
-            ]),
+            ...directorySearchIndex(directory).vocabulary,
           ]),
-        ],
+        ]),
       };
     }
     // Resume with the same dictionary protection even if another search has
@@ -427,10 +424,9 @@ async function searchPass(
             if (!s.volumeId && plan.volumeId) s.volumeId = plan.volumeId;
             if (!s.collections?.length && plan.collectionId)
               s.collections = [{ id: plan.collectionId, name: '' }];
-            s.series ||=
-              directory.series.find((x) => x.id === s.seriesId)?.name || '';
+            s.series ||= seriesById.get(s.seriesId)?.name || '';
             s.topicPaths = (s.topicIds || []).map((id) => {
-              const topic = directory.topics.find((x) => x.id === id);
+              const topic = topicsById.get(id);
               return topic
                 ? {
                     id,

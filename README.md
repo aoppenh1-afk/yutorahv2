@@ -104,6 +104,8 @@ npm run lint
 npm run audit
 npm run test:search
 npm run test:learning
+npm run test:account-library
+npm run test:notifications
 npm run test:api
 npm run test:sources
 npm run test:performance
@@ -118,9 +120,21 @@ npm run performance:budgets
 # Browser player regressions use the built website and an isolated local state directory:
 npx playwright install chromium
 npm run test:player
+npm run test:mobile-sheet
+# Offline playback also exercises WebKit:
+npx playwright install webkit
+npm run test:downloads
 # Start the production server in another terminal first:
 npm run test:live
 ```
+
+TypeScript checks application, package, script, and test sources. Local benchmark
+experiments and scratch/output directories are excluded. Account-library and
+notification SQL tests accept `TEST_DATABASE_URL`, or a separate
+`NOTIFICATION_TEST_DATABASE_URL`, pointing to an empty disposable PostgreSQL
+database. They may skip without a database locally; CI requires the database
+checks to run. Browser suites start isolated servers against the production build;
+`TEST_ORIGIN` can instead select an existing test server.
 
 `TEST_ORIGIN` can point the live checks at another deployment. These tests intentionally use actual YUTorah content and require network access. They cover live homepage content, compound metadata search, pagination, question interpretation, audio/source material availability, and invalid input. See `QA.md` for browser checks and remaining release conditions.
 

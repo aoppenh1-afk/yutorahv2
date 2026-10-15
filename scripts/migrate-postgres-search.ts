@@ -15,6 +15,11 @@ export async function migratePostgresSearch(
     const client = await pool.connect();
     try {
       await client.query('SELECT pg_advisory_lock(1790900496,0)');
+      // Replaying an untracked older trigger must not admit title writes before
+      // the compact-representation trigger is restored by the final migration.
+      await client.query('SELECT pg_advisory_lock(1790900494,hashtext($1))', [
+        schema,
+      ]);
       await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema};
       CREATE TABLE IF NOT EXISTS ${schema}.schema_migrations(id text PRIMARY KEY,applied_at timestamptz NOT NULL DEFAULT now())`);
       const applied = new Set(
@@ -24,12 +29,12 @@ export async function migratePostgresSearch(
           )
         ).rows.map((row) => row.id),
       );
-      for (const file of (await readdir('db/search-postgres'))
-        .filter((file) => file.endsWith('.sql'))
-        .sort()) {
-        if (applied.has(file)) continue;
-        await client.query('BEGIN');
-        try {
+      await client.query('BEGIN');
+      try {
+        for (const file of (await readdir('db/search-postgres'))
+          .filter((file) => file.endsWith('.sql'))
+          .sort()) {
+          if (applied.has(file)) continue;
           await client.query(
             (await readFile('db/search-postgres/' + file, 'utf8')).replace(
               /\byutorah_search\b/g,
@@ -40,13 +45,18 @@ export async function migratePostgresSearch(
             `INSERT INTO ${schema}.schema_migrations(id) VALUES($1)`,
             [file],
           );
-          await client.query('COMMIT');
-        } catch (error) {
-          await client.query('ROLLBACK');
-          throw error;
         }
+        // Older trigger definitions and their replacements become visible
+        // together. A later failure must restore the previous representation.
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
       }
     } finally {
+      await client
+        .query('SELECT pg_advisory_unlock(1790900494,hashtext($1))', [schema])
+        .catch(() => {});
       await client
         .query('SELECT pg_advisory_unlock(1790900496,0)')
         .catch(() => {});
