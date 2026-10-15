@@ -41,6 +41,9 @@ No local AI model, TiDB writer, transcript writer, or Sefaria key is needed.`);
       'Set the SOURCES_DATABASE_URL secret to the website search database connection.',
     );
   const pool = postgresSearchPool(connection);
+  const databaseBudget = Number(process.env.SOURCES_MAX_DATABASE_BYTES || 0);
+  if (!Number.isSafeInteger(databaseBudget) || databaseBudget < 0)
+    throw new Error('Use a nonnegative SOURCES_MAX_DATABASE_BYTES.');
   const abort = new AbortController();
   const stop = () => abort.abort(new Error('Preparation interrupted.'));
   process.once('SIGTERM', stop);
@@ -63,14 +66,32 @@ No local AI model, TiDB writer, transcript writer, or Sefaria key is needed.`);
         catalogPages: Number(values['catalog-pages']),
         ids: values.ids ? values.ids.split(',').map((id) => id.trim()) : [],
         // Connect cancellation to API work too, keeping each request's own timeout.
-        fetcher: (url, init) =>
-          fetch(url, {
+        fetcher: async (url, init) => {
+          if (databaseBudget) {
+            const size = Number(
+              (
+                await pool.query(
+                  'SELECT pg_database_size(current_database()) AS bytes',
+                )
+              ).rows[0].bytes,
+            );
+            if (size >= databaseBudget) {
+              abort.abort(
+                new Error(
+                  'Source preparation reached its database storage checkpoint.',
+                ),
+              );
+              throw abort.signal.reason;
+            }
+          }
+          return fetch(url, {
             ...init,
             signal: AbortSignal.any([
               abort.signal,
               ...(init?.signal ? [init.signal] : []),
             ]),
-          }),
+          });
+        },
         report: (event) => console.log(JSON.stringify(event)),
       });
       summary = `Source preparation: ${JSON.stringify(result)}\nResults and queue checkpoints are saved in the shared database.`;

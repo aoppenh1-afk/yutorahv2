@@ -25,6 +25,7 @@ jobs:
     env:
       SOURCES_SITE_URL: ${{ vars.SOURCES_SITE_URL || 'https://yutorah.vercel.app' }}
       SOURCES_DATABASE_URL: ${{ secrets.SOURCES_DATABASE_URL }}
+      SOURCES_MAX_DATABASE_BYTES: ${{ vars.SOURCES_MAX_DATABASE_BYTES || '500000000' }}
       SOURCE_IDS: ${{ inputs.ids || '' }}
       SOURCE_CHECK: ${{ inputs.check || false }}
     steps:
