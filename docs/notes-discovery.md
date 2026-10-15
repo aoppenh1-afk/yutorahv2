@@ -121,7 +121,10 @@ The `Refresh written notes search` Actions workflow runs hourly only when the
 repository variable `NOTES_SEARCH_SYNC_ENABLED` is `true`. Configure the dedicated
 `NOTES_SEARCH_DATABASE_URL` writer and read-only `TIDB_NOTES_*` secrets, run its
 manual read-only check, and validate a full inventory before enabling it. Each
-run checkpoints after at most 500 pages or ten minutes. The writer can modify
+run checkpoints after at most 1,000 pages of five notes or ten minutes. It stops
+before writing another page when `NOTES_SEARCH_MAX_DATABASE_BYTES` is reached,
+which defaults to 510,000,000 bytes in Actions. Verify storage allocation before
+changing that repository variable. The writer can modify
 only the derived notes-index tables and cannot change the schema or title data.
 
 Excerpt text is stored losslessly as gzip/base64 with an explicit version in
