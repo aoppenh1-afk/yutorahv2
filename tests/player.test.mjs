@@ -304,6 +304,16 @@ void test('player controls stop playback and the phone dialog stays inside the b
         const { context, page } = await openPlayer({ width: 390, height: 844 });
         try {
           await page.locator('audio').evaluate((audio) => {
+            // Only the explicit canplay below may end simulated buffering.
+            // Queued native recovery events otherwise race this assertion in CI.
+            for (const type of ['canplay', 'playing'])
+              audio.addEventListener(
+                type,
+                (event) => {
+                  if (event.isTrusted) event.stopImmediatePropagation();
+                },
+                { capture: true },
+              );
             audio.dispatchEvent(new Event('waiting'));
           });
           await page.waitForFunction(() =>
