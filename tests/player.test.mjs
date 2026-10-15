@@ -164,7 +164,7 @@ async function openPlayer(viewport, stalled = false, options = {}) {
       });
     },
   );
-  await context.route('**/player-test.wav', async (route) => {
+  await context.route('**/player-test.wav*', async (route) => {
     if (stalled) await new Promise((resolve) => setTimeout(resolve, 1500));
     const range = route
       .request()
@@ -411,6 +411,32 @@ void test('player controls stop playback and the phone dialog stays inside the b
               following: [{ kind: 'teacher', id: 1, name: 'Test teacher' }],
               defaultSpeed: 1.25,
               speed: 1,
+              queue: [
+                {
+                  ...shiur,
+                  id: 900002,
+                  audio: `${shiur.audio}?queued`,
+                },
+              ],
+            },
+            onPage: async (_page, context) => {
+              await context.addInitScript(() => {
+                const open = caches.open.bind(caches);
+                caches.open = async (name) => {
+                  const cache = await open(name);
+                  const match = cache.match.bind(cache);
+                  cache.match = async (request, options) => {
+                    // Resolve the queued source after the track-change effects.
+                    if (
+                      typeof request === 'string' &&
+                      request.includes('900002')
+                    )
+                      await new Promise((resolve) => setTimeout(resolve, 250));
+                    return match(request, options);
+                  };
+                  return cache;
+                };
+              });
             },
           });
           try {
@@ -480,6 +506,12 @@ void test('player controls stop playback and the phone dialog stays inside the b
             await playerDialog
               .getByRole('button', { name: 'Play next in queue', exact: true })
               .click();
+            await page.waitForFunction(() => {
+              const audio = document.querySelector('audio');
+              return (
+                audio?.currentSrc.endsWith('?queued') && audio.readyState >= 2
+              );
+            });
             await page.waitForFunction(
               () => document.querySelector('audio').playbackRate === 1.5,
             );

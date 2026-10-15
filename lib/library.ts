@@ -609,6 +609,9 @@ export function useAudio(
       const el = audio.current!;
       boundTrack.current = activeRef.current?.id ?? null;
       setDuration(el.duration);
+      // Loading an asynchronously resolved source can reset the rate after
+      // the track-change effect has already applied the selected speed.
+      el.playbackRate = lib.current.speed;
       if (resume.current !== null && Number.isFinite(el.duration)) {
         el.currentTime = Math.min(resume.current, el.duration);
         setTime(el.currentTime);
