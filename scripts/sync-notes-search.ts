@@ -46,6 +46,11 @@ export function notesSyncOptions(args: string[]) {
 export async function syncNotesSearch(args = process.argv.slice(2)) {
   const options = notesSyncOptions(args);
   const { batch } = options;
+  const databaseBudget = Number(
+    process.env.NOTES_SEARCH_MAX_DATABASE_BYTES || 0,
+  );
+  if (!Number.isSafeInteger(databaseBudget) || databaseBudget < 0)
+    throw new RangeError('Use a nonnegative NOTES_SEARCH_MAX_DATABASE_BYTES.');
   const credential = notesCredential();
   if (!credential)
     throw new Error('Configure the read-only TIDB_NOTES_* connection.');
@@ -91,6 +96,19 @@ export async function syncNotesSearch(args = process.argv.slice(2)) {
           Date.now() < deadline
         ) {
           pages++;
+          if (pool && databaseBudget) {
+            const size = Number(
+              (
+                await pool.query(
+                  'SELECT pg_database_size(current_database()) AS bytes',
+                )
+              ).rows[0].bytes,
+            );
+            if (size >= databaseBudget)
+              throw new RangeError(
+                'Notes indexing reached its database storage checkpoint; increase allocated capacity before resuming.',
+              );
+          }
           const progress = await syncNotesPage(
             db,
             source,

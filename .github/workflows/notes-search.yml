@@ -24,6 +24,7 @@ jobs:
       TIDB_NOTES_USERNAME: ${{ secrets.TIDB_NOTES_USERNAME }}
       TIDB_NOTES_PASSWORD: ${{ secrets.TIDB_NOTES_PASSWORD }}
       TIDB_NOTES_DATABASE: ${{ secrets.TIDB_NOTES_DATABASE }}
+      NOTES_SEARCH_MAX_DATABASE_BYTES: ${{ vars.NOTES_SEARCH_MAX_DATABASE_BYTES || '510000000' }}
       NOTES_SEARCH_CHECK: ${{ inputs.check || false }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -39,5 +40,5 @@ jobs:
           if [ "$NOTES_SEARCH_CHECK" = 'true' ]; then
             npm run notes:search:sync -- --check
           else
-            npm run notes:search:sync -- --batch 20 --max-pages 500 --max-minutes 10
+            npm run notes:search:sync -- --batch 5 --max-pages 1000 --max-minutes 10
           fi
