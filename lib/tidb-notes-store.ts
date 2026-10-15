@@ -159,6 +159,26 @@ export class TiDBNotesStore {
     );
     return rows.map(savedNote);
   }
+  /** Lightweight keyset inventory; never downloads compressed bodies while scanning. */
+  async headersAfter(after: number, limit: number) {
+    if (
+      !Number.isSafeInteger(after) ||
+      after < 0 ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    )
+      throw new RangeError('Invalid notes inventory page.');
+    const rows = await this.db.execute(
+      'SELECT shiur_id,notes_sha256 FROM shiur_notes WHERE shiur_id > ? ORDER BY shiur_id LIMIT ?',
+      [after, limit],
+    );
+    return rows.map((row) => {
+      if (Array.isArray(row))
+        throw new Error('Unexpected notes inventory format.');
+      return { id: String(row.shiur_id), hash: hex(row.notes_sha256) };
+    });
+  }
   async oldestShiurId(): Promise<number> {
     const rows = await this.db.execute(
       'SELECT MIN(shiur_id) AS oldest FROM shiur_notes',

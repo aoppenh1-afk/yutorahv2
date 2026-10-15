@@ -101,7 +101,9 @@ const budgets = {
   // Includes account SDKs, offline downloads and the shared search vocabulary.
   // 157 spelling groups and 69 subject bridges add a few KB of browser data.
   // Keep the initial-page and individual-chunk caps unchanged.
-  totalJs: 425_000,
+  // Inside the Shiur results and saved-search controls are deferred screens.
+  // Allow their added code without increasing the initial-page budget.
+  totalJs: 430_000,
   notesExportJs: 600_000,
   notesBundleWorkerJs: 500_000,
   totalCss: 50_000,
@@ -119,7 +121,7 @@ for (const [name, budget] of Object.entries(budgets))
   );
 for (const [path] of files)
   if (
-    /\/(transcript-reader|react-markdown|sources-panel|advanced-search|transcript-search|secondary-screens)-/.test(
+    /\/(transcript-reader|react-markdown|sources-panel|advanced-search|inside-shiur-search|saved-search-tools|search-scope|downloads-page|secondary-screens)-/.test(
       path,
     )
   )

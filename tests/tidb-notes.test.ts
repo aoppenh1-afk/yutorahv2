@@ -70,6 +70,38 @@ function sqlQuery(init: RequestInit) {
   assert.ok(typeof init.body === 'string');
   return JSON.parse(init.body).query as string;
 }
+void test('notes inventory pages read only IDs and hashes with bounded keyset pagination', async (t) => {
+  const queries: string[] = [];
+  t.mock.method(
+    globalThis,
+    'fetch',
+    async (_url: unknown, init: RequestInit) => {
+      queries.push(sqlQuery(init));
+      return Response.json(
+        {
+          types: [
+            { name: 'shiur_id', type: 'BIGINT' },
+            { name: 'notes_sha256', type: 'BINARY' },
+          ],
+          rows: [['42', 'a'.repeat(64)]],
+        },
+        { headers: { 'TiDB-Session': 'synthetic' } },
+      );
+    },
+  );
+  const store = new TiDBNotesStore(credential);
+  assert.deepEqual(await store.headersAfter(41, 10), [
+    { id: '42', hash: 'a'.repeat(64) },
+  ]);
+  assert.match(
+    queries[0],
+    /SELECT shiur_id,notes_sha256 FROM shiur_notes WHERE shiur_id > 41 ORDER BY shiur_id LIMIT 10/,
+  );
+  assert.ok(!queries[0].includes('notes_gzip'));
+  await assert.rejects(store.headersAfter(-1, 10), RangeError);
+  await assert.rejects(store.headersAfter(0, 101), RangeError);
+  assert.equal(queries.length, 1);
+});
 void test('normal publication writes one row and verifies it with one primary-key read', async (t) => {
   const saved = await note('2170001');
   const queries: string[] = [];

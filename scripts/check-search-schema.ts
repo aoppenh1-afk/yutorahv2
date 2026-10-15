@@ -17,6 +17,10 @@ export async function checkSearchSchema(
     'SELECT id,title,terms FROM search_title_catalog LIMIT 0',
     'SELECT key,term FROM search_title_keys LIMIT 0',
     'SELECT id,payload,lease,expires FROM sources_runs LIMIT 0',
+    'SELECT id,completed,count FROM search_note_snapshots LIMIT 0',
+    'SELECT key,id,notes_hash,payload,text,normalized FROM search_note_documents LIMIT 0',
+    'SELECT snapshot,id,key FROM search_note_members LIMIT 0',
+    'SELECT name,snapshot,cursor,owner,lease,updated FROM search_notes_state LIMIT 0',
   ])
     await db.prepare(sql).all();
   if (db.dialect === 'postgres') {
@@ -44,8 +48,20 @@ export async function checkSearchSchema(
       throw new Error(
         'Missing search autocomplete index. Run search:schema:migrate with the schema owner before activating this release.',
       );
-  } else
+    const notesIndex = await db
+      .prepare(
+        "SELECT indexname FROM pg_indexes WHERE schemaname=? AND tablename='search_note_documents' AND indexname='search_note_fulltext'",
+      )
+      .bind(postgresSchema)
+      .first();
+    if (!notesIndex)
+      throw new Error(
+        'Missing notes search index. Run search:schema:migrate with the schema owner before activating this release.',
+      );
+  } else {
     await db.prepare('SELECT id FROM search_title_autocomplete LIMIT 0').all();
+    await db.prepare('SELECT rowid FROM search_note_fulltext LIMIT 0').all();
+  }
 }
 if (
   process.argv[1] &&
