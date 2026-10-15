@@ -86,6 +86,7 @@ const shiur = {
 let downloadMode = 'ok';
 let fixtureOffline = false;
 let studyMode = 'official';
+let transcriptDelay = 0;
 let portraitRequests = 0;
 const portrait = await readFile('public/icons/yutorah-192.png');
 const portraitServer = createServer((request, response) => {
@@ -211,6 +212,8 @@ const fixtures = createServer(async (request, response) => {
     return;
   }
   if (url.pathname === '/api/transcript') {
+    if (transcriptDelay)
+      await new Promise((resolve) => setTimeout(resolve, transcriptDelay));
     if (studyMode === 'missing' || studyMode === 'notes-only') {
       response.writeHead(404, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ error: 'Transcript unavailable' }));
@@ -259,6 +262,7 @@ async function setup(browser) {
   downloadMode = 'ok';
   fixtureOffline = false;
   studyMode = 'official';
+  transcriptDelay = 0;
   portraitRequests = 0;
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
@@ -266,6 +270,15 @@ async function setup(browser) {
   });
   const page = await context.newPage();
   return { context, page };
+}
+async function waitForSavedData(page, predicate) {
+  const deadline = Date.now() + 5000;
+  // waitForFunction checks the Promise's truthiness before it resolves.
+  // Evaluate and await each Cache Storage read before deciding to poll again.
+  while (!(await page.evaluate(predicate))) {
+    assert.ok(Date.now() < deadline, 'Timed out waiting for saved data.');
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 async function offline(context, page, value, engine = 'chromium') {
   if (engine === 'chromium') {
@@ -604,19 +617,16 @@ try {
         });
         for (const kind of ['transcript', 'notes', 'summary', 'image'])
           assert.equal(content[kind], true, kind + ' is already saved');
+        transcriptDelay = 2000;
         await offline(context, page, false);
-        await page.waitForFunction(
-          async () => {
-            const saved = await (
-              await (
-                await caches.open('yutorah-study-v1')
-              ).match('/api/transcript?id=900001')
-            ).json();
-            return saved.segments[0].text !== 'Old saved transcript';
-          },
-          null,
-          { timeout: 5000 },
-        );
+        await waitForSavedData(page, async () => {
+          const saved = await (
+            await (
+              await caches.open('yutorah-study-v1')
+            ).match('/api/transcript?id=900001')
+          ).json();
+          return saved.segments[0].text !== 'Old saved transcript';
+        });
         assert.equal(await page.locator('.toast.visible').count(), 0);
         await page.goto(origin + '/?shiur=' + shiur.id);
         await page
@@ -700,7 +710,7 @@ try {
             exact: true,
           })
           .waitFor();
-        await page.waitForFunction(async () =>
+        await waitForSavedData(page, async () =>
           (
             await Promise.all(
               ['transcript', 'study-notes', 'official-study'].map(
@@ -805,7 +815,8 @@ try {
           .getByRole('button', { name: 'Cancel download', exact: true })
           .click();
         releaseStudy?.();
-        await page.waitForFunction(
+        await waitForSavedData(
+          page,
           async () =>
             (await (await caches.open('yutorah-audio-v1')).keys()).length ===
               0 &&

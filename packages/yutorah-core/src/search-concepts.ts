@@ -1,6 +1,7 @@
 /** Domain connections for intent retrieval. Forms are related search subjects,
  * not interchangeable theological definitions. Literal matches rank first.
  */
+import { extraSearchConcepts } from './search-extra-concepts.js';
 export const searchConcepts = [
   {
     subject: 'anger',
@@ -582,4 +583,5 @@ export const searchConcepts = [
     forms: ['deuteronomy', 'devarim', 'devorim', 'דברים'],
     requests: [],
   },
+  ...extraSearchConcepts,
 ];

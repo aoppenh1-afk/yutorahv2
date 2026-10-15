@@ -164,7 +164,7 @@ async function openPlayer(viewport, stalled = false, options = {}) {
       });
     },
   );
-  await context.route('**/player-test.wav', async (route) => {
+  await context.route('**/player-test.wav*', async (route) => {
     if (stalled) await new Promise((resolve) => setTimeout(resolve, 1500));
     const range = route
       .request()
@@ -299,6 +299,32 @@ async function closeAndVerify(page, minSeconds = 42) {
 void test('player controls stop playback and the phone dialog stays inside the built viewport', async (t) => {
   try {
     await t.test(
+      'buffering recovery restores Pause without another playing event',
+      async () => {
+        const { context, page } = await openPlayer({ width: 390, height: 844 });
+        try {
+          await page.locator('audio').evaluate((audio) => {
+            audio.dispatchEvent(new Event('waiting'));
+          });
+          await page.waitForFunction(() =>
+            document.querySelector('.player .spin'),
+          );
+          await page.locator('audio').evaluate((audio) => {
+            audio.dispatchEvent(new Event('canplay'));
+          });
+          await page
+            .getByRole('button', { name: 'Pause', exact: true })
+            .waitFor();
+          assert.equal(
+            await page.locator('audio').evaluate((audio) => audio.paused),
+            false,
+          );
+        } finally {
+          await context.close();
+        }
+      },
+    );
+    await t.test(
       'active mobile shiur keeps its title and play button colors',
       async () => {
         const { context, page } = await openPlayer(
@@ -411,6 +437,32 @@ void test('player controls stop playback and the phone dialog stays inside the b
               following: [{ kind: 'teacher', id: 1, name: 'Test teacher' }],
               defaultSpeed: 1.25,
               speed: 1,
+              queue: [
+                {
+                  ...shiur,
+                  id: 900002,
+                  audio: `${shiur.audio}?queued`,
+                },
+              ],
+            },
+            onPage: async (_page, context) => {
+              await context.addInitScript(() => {
+                const open = caches.open.bind(caches);
+                caches.open = async (name) => {
+                  const cache = await open(name);
+                  const match = cache.match.bind(cache);
+                  cache.match = async (request, options) => {
+                    // Resolve the queued source after the track-change effects.
+                    if (
+                      typeof request === 'string' &&
+                      request.includes('900002')
+                    )
+                      await new Promise((resolve) => setTimeout(resolve, 250));
+                    return match(request, options);
+                  };
+                  return cache;
+                };
+              });
             },
           });
           try {
@@ -480,6 +532,12 @@ void test('player controls stop playback and the phone dialog stays inside the b
             await playerDialog
               .getByRole('button', { name: 'Play next in queue', exact: true })
               .click();
+            await page.waitForFunction(() => {
+              const audio = document.querySelector('audio');
+              return (
+                audio?.currentSrc.endsWith('?queued') && audio.readyState >= 2
+              );
+            });
             await page.waitForFunction(
               () => document.querySelector('audio').playbackRate === 1.5,
             );

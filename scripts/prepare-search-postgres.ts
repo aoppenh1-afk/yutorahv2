@@ -85,7 +85,7 @@ ALTER TABLE yutorah_search.search_title_catalog DISABLE TRIGGER search_title_cha
     const destination = keyTable ? 'search_title_word_keys' : table;
     const copyColumns = keyTable ? ['term', 'prefix', 'keys'] : columns;
     const select = keyTable
-      ? "SELECT term,MAX(CASE WHEN key LIKE 'p:%' THEN key END) AS prefix,json_group_array(key) FILTER (WHERE key LIKE 'd:%') AS keys FROM search_title_keys WHERE key LIKE 'd:%' OR key LIKE 'p:%' GROUP BY term ORDER BY term"
+      ? "SELECT term,MAX(CASE WHEN key LIKE 'p:%' THEN key END) AS prefix,json_group_array(key) FILTER (WHERE key LIKE 'd:%' OR key LIKE 'v:%') AS keys FROM search_title_keys WHERE key LIKE 'd:%' OR key LIKE 'p:%' OR key LIKE 'v:%' GROUP BY term ORDER BY term"
       : `SELECT ${columns.join(',')} FROM ${table} ORDER BY ${order}`;
     writeSync(
       file,
@@ -99,9 +99,10 @@ ALTER TABLE yutorah_search.search_title_catalog DISABLE TRIGGER search_title_cha
       const line =
         copyColumns
           .map((column) => {
-        if (keyTable && column === 'keys') {
-          if (typeof row.keys !== 'string') throw new TypeError('Invalid word keys.');
-          const keys = JSON.parse(row.keys) as string[];
+            if (keyTable && column === 'keys') {
+              if (typeof row.keys !== 'string')
+                throw new TypeError('Invalid word keys.');
+              const keys = JSON.parse(row.keys) as string[];
               return field(
                 '{' + keys.map((key) => JSON.stringify(key)).join(',') + '}',
               );

@@ -8,7 +8,11 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import Markdown from 'react-markdown';
 import { createNotesDocx } from '../lib/notes-docx';
-import { createNotesPdf } from '../lib/notes-pdf';
+import {
+  createNotesPdf,
+  createNotesBundlePdf,
+  type NotesBundleDocument,
+} from '../lib/notes-pdf';
 import { notesBlocks } from '../lib/notes-document';
 import {
   remarkNotesDirection,
@@ -200,8 +204,26 @@ void test('Word paragraphs keep the preview’s left-to-right layout when an Eng
   );
 });
 
-void test('PDF uses US Letter pages and keeps bold Hebrew source labels before explanations', async () => {
+function registerLocalPdfFonts() {
   // Pre-register local copies so the real browser exporter also runs in Node.
+  Font.register({
+    family: 'NotesDisplay',
+    fonts: [
+      ['Regular', 400, 'normal'],
+      ['Semibold', 700, 'normal'],
+      ['It', 400, 'italic'],
+      ['SemiboldIt', 700, 'italic'],
+    ].map(([variant, fontWeight, fontStyle]) => ({
+      src: fileURLToPath(
+        new URL(
+          `../public/fonts/notes/SourceSerif4-${variant}.ttf`,
+          import.meta.url,
+        ),
+      ),
+      fontWeight: fontWeight as 400 | 700,
+      fontStyle: fontStyle as 'normal' | 'italic',
+    })),
+  });
   for (const [family, name] of [
     ['Notes', 'NotoSansHebrew'],
     ['NotesLatin', 'NotoSans'],
@@ -224,9 +246,23 @@ void test('PDF uses US Letter pages and keeps bold Hebrew source labels before e
           ),
           fontWeight: 700,
         },
+        {
+          src: fileURLToPath(
+            new URL(
+              `../public/fonts/notes/${name}-${family === 'NotesLatin' ? 'Italic' : 'Regular'}.ttf`,
+              import.meta.url,
+            ),
+          ),
+          fontWeight: 400,
+          fontStyle: 'italic',
+        },
       ],
     });
   }
+}
+
+void test('PDF uses US Letter pages and keeps bold Hebrew source labels before explanations', async () => {
+  registerLocalPdfFonts();
   const blob = await createNotesPdf(mixedNotes);
   const loading = getDocument({
     data: new Uint8Array(await blob.arrayBuffer()),
@@ -277,6 +313,207 @@ void test('PDF uses US Letter pages and keeps bold Hebrew source labels before e
       hebrewExplanation.fontName,
       'Only the source label uses the bold font',
     );
+  } finally {
+    await loading.destroy();
+  }
+});
+
+void test('bundle PDF preserves notes across pages and prints contents numbers that match working destinations', async () => {
+  registerLocalPdfFonts();
+  const paragraphs = Array.from(
+    { length: 70 },
+    (_, i) =>
+      `Paragraph ${String(i + 1).padStart(3, '0')}. This original explanation must remain complete and in order when the notes continue onto another page.`,
+  );
+  const firstTitle = 'Learning Torah';
+  const bundle: NotesBundleDocument = {
+    title:
+      'Selected Shiurim in Halacha and Jewish Thought: Sources, Questions, and Practical Applications for the Entire Year',
+    subtitle: '28 shiurim with notes',
+    items: Array.from({ length: 28 }, (_, i) => ({
+      id: 1000 + i,
+      title:
+        i === 0
+          ? firstTitle
+          : `Lecture ${i + 1}: a longer title about sources and practical applications that wraps onto a second line in the contents`,
+      teacher: 'Rabbi Example',
+      date: i % 2 ? '' : '2026-10-01',
+      markdown:
+        i === 0
+          ? `# ${firstTitle}\n\n## Original section\n\n${paragraphs.join('\n\n')}\n\n## Final section\n\n- **גמ׳:** שמע מינה מצטמק ויפה לו מותר.\n  - **Bold explanation** with *italic emphasis* and [Genesis](https://www.sefaria.org/Genesis.1.1).`
+          : `# Original note ${i + 1}\n\nUnique explanation ${i + 1} is preserved.`,
+    })),
+  };
+  const original = structuredClone(bundle);
+  const blob = await createNotesBundlePdf(bundle);
+  assert.deepEqual(bundle, original, 'Export never mutates the supplied notes');
+  const loading = getDocument({
+    data: new Uint8Array(await blob.arrayBuffer()),
+    useSystemFonts: false,
+    standardFontDataUrl: fileURLToPath(
+      new URL('../node_modules/pdfjs-dist/standard_fonts/', import.meta.url),
+    ),
+  });
+  const document = await loading.promise;
+  try {
+    const destinationPage = async (name: string) => {
+      const destination = await document.getDestination(name);
+      assert.ok(destination, `${name} has a named destination`);
+      return (await document.getPageIndex(destination[0])) + 1;
+    };
+    assert.equal(await destinationPage('contents'), 2);
+    const firstChapter = await destinationPage('shiur-1000');
+    assert.ok(firstChapter > 3, 'Contents span multiple pages');
+    const secondChapter = await destinationPage('shiur-1001');
+    assert.ok(
+      secondChapter > firstChapter + 1,
+      'Long notes span multiple pages',
+    );
+    const outline = await document.getOutline();
+    assert.deepEqual(
+      outline?.map((entry) => entry.title),
+      [
+        'Cover',
+        'Contents',
+        ...bundle.items.map((item, i) => `${i + 1}. ${item.title}`),
+      ],
+    );
+
+    let contentsLinks = 0;
+    const originalBody: string[] = [];
+    let hasSourceLink = false;
+    let hasHebrewLabel = false;
+    for (let number = 1; number <= document.numPages; number++) {
+      const page = await document.getPage(number);
+      const viewport = page.getViewport({ scale: 1 });
+      assert.equal(viewport.width, 612);
+      assert.equal(viewport.height, 792);
+      const content = await page.getTextContent();
+      const text = content.items.filter((item) => 'str' in item);
+      const annotations = await page.getAnnotations();
+      if (number === 1) {
+        assert.ok(
+          !text.some((item) => item.str === 'Contents'),
+          'Cover stands alone',
+        );
+        assert.ok(text.some((item) => item.str === 'Oct 1, 2026'));
+        for (const item of text.filter((item) => item.str.trim())) {
+          assert.ok(
+            item.transform[4] >= 63 &&
+              item.transform[4] + item.width <= 549 &&
+              item.transform[5] >= 61 &&
+              item.transform[5] <= 731,
+            `Long cover title and metadata stay inside the frame: ${item.str}`,
+          );
+        }
+        continue;
+      }
+      assert.ok(
+        text.some((item) => item.str === 'YUTorah'),
+        `Header on page ${number}`,
+      );
+      assert.ok(
+        text.some((item) => item.str === `${number} / ${document.numPages}`),
+        `Accurate footer on page ${number}`,
+      );
+      for (const item of text.filter((item) => item.str.trim())) {
+        assert.ok(
+          item.transform[4] >= 53,
+          `Text stays inside the left margin on page ${number}`,
+        );
+        assert.ok(
+          item.transform[4] + item.width <= 559,
+          `Text stays inside the right margin on page ${number}`,
+        );
+        assert.ok(
+          item.transform[5] >= 29 && item.transform[5] <= 761,
+          `Text stays inside the page on page ${number}`,
+        );
+      }
+      if (number < firstChapter) {
+        assert.ok(
+          text.some((item) => item.str === 'Contents'),
+          'Contents heading repeats',
+        );
+        for (const link of annotations.filter(
+          (annotation) =>
+            typeof annotation.dest === 'string' &&
+            annotation.dest.startsWith('shiur-'),
+        )) {
+          const expectedPage = await destinationPage(link.dest);
+          assert.ok(
+            text.some(
+              (item) =>
+                item.str === String(expectedPage) &&
+                item.transform[4] > 520 &&
+                item.transform[5] >= link.rect[1] &&
+                item.transform[5] <= link.rect[3],
+            ),
+            `Printed contents number matches ${link.dest}`,
+          );
+          contentsLinks++;
+        }
+      } else {
+        assert.ok(
+          annotations.some((annotation) => annotation.dest === 'contents'),
+          'Every note page links back to the first contents page',
+        );
+        hasSourceLink ||= annotations.some(
+          (annotation) =>
+            annotation.url === 'https://www.sefaria.org/Genesis.1.1',
+        );
+        hasHebrewLabel ||= text.some((item) => item.str.includes('גמ׳'));
+        const sourceLabel = text.find((item) => item.str.includes('גמ׳'));
+        if (sourceLabel) {
+          const explanation = text.find((item) => item.str.includes('שמע'));
+          assert.ok(
+            explanation,
+            'Hebrew explanation stays beside its source label',
+          );
+          assert.ok(sourceLabel.transform[4] < explanation.transform[4]);
+          assert.equal(sourceLabel.transform[5], explanation.transform[5]);
+          assert.notEqual(
+            sourceLabel.fontName,
+            explanation.fontName,
+            'Only the source label is bold',
+          );
+        }
+        originalBody.push(
+          ...text
+            .filter((item) => item.transform[5] > 60 && item.transform[5] < 720)
+            .map((item) => item.str),
+        );
+      }
+    }
+    assert.equal(
+      contentsLinks,
+      bundle.items.length,
+      'Every shiur has a clickable contents entry',
+    );
+    assert.ok(hasSourceLink, 'Original source hyperlink survives');
+    assert.ok(hasHebrewLabel, 'Original Hebrew text survives');
+    const body = originalBody.join(' ').replace(/\s+/gu, ' ');
+    let previous = -1;
+    for (const paragraph of paragraphs) {
+      const position = body.indexOf(paragraph);
+      assert.ok(
+        position > previous,
+        `Original paragraph survives in order: ${paragraph}`,
+      );
+      previous = position;
+    }
+    assert.equal(
+      body.split(firstTitle).length - 1,
+      1,
+      'Matching note title appears once in the chapter opening',
+    );
+    for (let i = 1; i < bundle.items.length; i++) {
+      assert.ok(
+        body.includes(`Original note ${i + 1}`),
+        'A distinct note heading is retained',
+      );
+      assert.ok(body.includes(`Unique explanation ${i + 1} is preserved.`));
+    }
   } finally {
     await loading.destroy();
   }

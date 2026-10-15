@@ -3,11 +3,12 @@ import {
   searchText,
   searchTerms,
   textMatchScore,
-  wordMatch,
+  teacherWordMatch,
   matchingSpans,
   interpretSpacing,
   prepareMatchText,
   prepareSpacingVocabulary,
+  searchVocabulary,
 } from './search-matching';
 import { naturalSearch } from './natural-search';
 export { searchText } from './search-matching';
@@ -61,11 +62,8 @@ export function teacherMention(term: string, directory: Directory) {
     if (i > 0 && teacherTitle.test(tokens[i - 1].word)) start--;
     if (start > 0 && tokens[start - 1].word === 'by') start--;
     const explicit = start !== i;
-    for (const teacher of directory.teachers) {
-      const fullName = searchText(`${teacher.firstName} ${teacher.lastName}`)
-        .split(' ')
-        .filter(Boolean);
-      const surname = searchText(teacher.lastName).split(' ').filter(Boolean);
+    for (const { teacher, fullName, surname } of directorySearchIndex(directory)
+      .teachers) {
       for (const name of [fullName, ...(explicit ? [surname] : [])]) {
         if (!name.length || i + name.length > tokens.length) continue;
         if (!explicit && name.length < 2) continue;
@@ -86,7 +84,7 @@ export function teacherMention(term: string, directory: Directory) {
             name[0].startsWith(tokens[i].word)
               ? 0.9
               : fuzzy
-                ? wordMatch(tokens[i + j].word, name[j])
+                ? teacherWordMatch(tokens[i + j].word, name[j])
                 : Number(tokens[i + j].word === name[j]);
           if (!score) break;
           scores.push(score);
@@ -130,6 +128,11 @@ const suggestionIndexes = new WeakMap<
   ReturnType<typeof buildSuggestionIndex>
 >();
 function buildSuggestionIndex(directory: Directory) {
+  const names = [
+    ...directory.teachers.map((t) => `${t.firstName} ${t.lastName}`),
+    ...directory.topics.map((t) => t.name),
+    ...directory.series.map((t) => t.name),
+  ];
   const entries: SearchSuggestion[] = [
     ...directory.teachers.map((t) => ({
       id: t.id,
@@ -163,12 +166,28 @@ function buildSuggestionIndex(directory: Directory) {
         prepared: prepareMatchText(name),
       };
     }),
-    spacing: prepareSpacingVocabulary([
-      ...directory.teachers.map((t) => `${t.firstName} ${t.lastName}`),
-      ...directory.topics.map((t) => t.name),
-      ...directory.series.map((t) => t.name),
-    ]),
+    spacing: prepareSpacingVocabulary(names),
+    vocabulary: searchVocabulary(names),
+    seriesById: new Map(directory.series.map((series) => [series.id, series])),
+    topicsById: new Map(directory.topics.map((topic) => [topic.id, topic])),
+    teachers: directory.teachers.map((teacher) => ({
+      teacher,
+      fullName: searchText(`${teacher.firstName} ${teacher.lastName}`)
+        .split(' ')
+        .filter(Boolean),
+      surname: searchText(teacher.lastName).split(' ').filter(Boolean),
+    })),
   };
+}
+
+/** One immutable directory index is shared by parsing, suggestions and scans. */
+export function directorySearchIndex(directory: Directory) {
+  let index = suggestionIndexes.get(directory);
+  if (!index) {
+    index = buildSuggestionIndex(directory);
+    suggestionIndexes.set(directory, index);
+  }
+  return index;
 }
 
 export function suggestSearch(
@@ -176,11 +195,7 @@ export function suggestSearch(
   directory: Directory | null,
 ): SearchSuggestion[] {
   if (!directory) return [];
-  let index = suggestionIndexes.get(directory);
-  if (!index) {
-    index = buildSuggestionIndex(directory);
-    suggestionIndexes.set(directory, index);
-  }
+  const index = directorySearchIndex(directory);
   const spacing = interpretSpacing(naturalSearch(query).term, index.spacing);
   const term = searchText(spacing.term).replace(
     /^(rabbi|rabi|rabby|rav|r)\s+/,
@@ -211,7 +226,8 @@ export function suggestSearch(
               ? 0.9
               : entry.kind === 'teacher'
                 ? words.reduce(
-                    (best, word) => Math.max(best, wordMatch(token, word, 2)),
+                    (best, word) =>
+                      Math.max(best, teacherWordMatch(token, word, 2)),
                     0,
                   )
                 : textMatchScore(prepared, token, 2);

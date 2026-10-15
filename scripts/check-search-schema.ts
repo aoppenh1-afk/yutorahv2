@@ -20,6 +20,20 @@ export async function checkSearchSchema(
   ])
     await db.prepare(sql).all();
   if (db.dialect === 'postgres') {
+    const generator = await db
+      .prepare('SELECT to_regprocedure(?) AS implementation')
+      .bind(`${postgresSchema}.title_terms(text)`)
+      .first<{ implementation: string | null }>();
+    const compact = await db
+      .prepare(
+        "SELECT indexname FROM pg_indexes WHERE schemaname=? AND tablename='search_title_terms' AND indexname='search_title_compact_hash'",
+      )
+      .bind(postgresSchema)
+      .first();
+    if (!compact || !generator?.implementation)
+      throw new Error(
+        'Missing compact vocabulary migration. Run search:schema:migrate with the schema owner before activating this release.',
+      );
     const index = await db
       .prepare(
         "SELECT indexname FROM pg_indexes WHERE schemaname=? AND tablename='search_title_catalog' AND indexname='search_title_autocomplete'",

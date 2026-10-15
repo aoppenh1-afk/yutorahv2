@@ -4,11 +4,16 @@ import { readFile } from 'node:fs/promises';
 import { Client } from 'pg';
 
 // Run against an empty, disposable PostgreSQL database. Everything rolls back.
-const database = process.env.NOTIFICATION_TEST_DATABASE_URL;
+const database =
+  process.env.NOTIFICATION_TEST_DATABASE_URL || process.env.TEST_DATABASE_URL;
 void test(
   'teacher alerts are independent, private, and never replay muted uploads',
-  { skip: !database },
+  { skip: !database && !process.env.CI },
   async () => {
+    assert.ok(
+      database,
+      'Set TEST_DATABASE_URL to a disposable PostgreSQL database.',
+    );
     const db = new Client({ connectionString: database });
     await db.connect();
     try {

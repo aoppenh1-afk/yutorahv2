@@ -8,10 +8,7 @@ import {
   postgresSearchDatabase,
   postgresSearchPool,
 } from '../lib/search-postgres.js';
-import {
-  indexTitleStatements,
-  titleVocabulary,
-} from '../lib/title-index.js';
+import { indexTitleStatements, titleVocabulary } from '../lib/title-index.js';
 import { completeSearch } from '../lib/complete-search.js';
 import { migrateTitleArchive } from '../lib/title-migration.js';
 import { SearchBusyError } from '../lib/complete-search.js';
@@ -29,6 +26,7 @@ void test(
         '001_search.sql',
         '003_efficiency.sql',
         '004_fencing.sql',
+        '005_compact_vocabulary.sql',
       ])
         await admin.query(
           (await readFile('db/search-postgres/' + file, 'utf8')).replaceAll(
@@ -152,7 +150,9 @@ void test(
       '\n' +
       (await readFile('db/search-postgres/003_efficiency.sql', 'utf8')) +
       '\n' +
-      (await readFile('db/search-postgres/004_fencing.sql', 'utf8'))
+      (await readFile('db/search-postgres/004_fencing.sql', 'utf8')) +
+      '\n' +
+      (await readFile('db/search-postgres/005_compact_vocabulary.sql', 'utf8'))
     ).replaceAll('yutorah_search', schema);
     try {
       await admin.query(migration);

@@ -45,6 +45,7 @@ jobs:
       - run: npm run test:search
       - run: npm run test:parity
       - run: npm run test:learning
+      - run: npm run test:account-library
       - run: npm run test:notifications
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
@@ -59,7 +60,9 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm run performance:budgets
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:player
+      - run: npm run test:mobile-sheet
+      - run: npm run test:downloads
       - run: npm run build:vercel
       - run: npm run performance:budgets -- .vercel/output/static
