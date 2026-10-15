@@ -1,6 +1,7 @@
 import { searchDatabase } from '../../../../lib/search-db';
-import { transcriptGateway } from '../../../../lib/transcript-gateway';
-import { sourcesResponse } from '../../../../lib/sources-handler';
+import { websiteTranscript } from '../../../../lib/website-transcript';
+import { hostedNotes } from '../../../../lib/tidb-notes';
+import { sourceCreatorResponse } from '../../../../lib/source-creator-handler';
 
 /** Worker-authenticated warm-up uses the same published-transcript checks as the tab. */
 export async function POST(request: Request) {
@@ -21,18 +22,10 @@ export async function POST(request: Request) {
       url.searchParams.set('revision', body.transcriptId);
     if (typeof body.version === 'string')
       url.searchParams.set('version', body.version);
-    return await sourcesResponse(new Request(url), {
+    return await sourceCreatorResponse(new Request(url), {
       db: searchDatabase(),
-      status: (id) =>
-        transcriptGateway(
-          `/v1/transcripts/${id}/status`,
-          new URLSearchParams({ fresh: 'true' }),
-        ),
-      transcript: (id, version) =>
-        transcriptGateway(
-          `/v1/transcripts/${id}`,
-          new URLSearchParams(version ? { version } : { fresh: 'true' }),
-        ),
+      transcript: websiteTranscript,
+      notes: hostedNotes,
     });
   } catch {
     return Response.json(

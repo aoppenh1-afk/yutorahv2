@@ -1,249 +1,291 @@
-# Transcript sources and source sheet preview
+# Source creator
 
-The Sources tab lives beside Transcript and Study notes in shiur details. Opening
-it checks the **published, timestamped transcript**. Accepted citations appear as
-Sefaria links with the transcript wording and every mention's segment timestamp.
-Returning to Transcript shows links on those exact words. Nothing is extracted
-from generated notes, the shiur title, related texts, or uploaded source sheets.
+The Sources tab in a shiur checks the same transcript displayed by the website,
+including official YUTorah VTT, plus the published study notes. It finds explicit
+citations, searches distinctive quoted passages, and assembles a source sheet.
+It works with either transcript or notes alone. Nothing is inferred from the
+shiur title, teacher, topic, or recommended recordings.
 
-The optional **Preview source sheet** button adds source text, Hebrew citations,
-category paths, edition attribution, and Download sheet / Print / Save PDF.
-Choose Hebrew/original, English, or both; short excerpts or complete cited text;
-first-mention or category order; and which accepted sources to include. Changing
-language reuses loaded editions. Retry fetches only missing texts.
-Download produces a standalone HTML document; print uses the same document in an
-isolated frame, excluding site navigation and the player. Browser print can save
-it as a PDF. The preview can be removed without changing extraction or the tab.
+## Turn either output off
 
-## Research and acceptance policy
+Both outputs are enabled by default. In Sources, open the options menu and choose
+**Settings**. The independent **Sefaria links** and **Source sheets** checkboxes
+control this device. Turning both off stops
+source processing in that browser. Preferences survive page reloads.
 
-Reviewed Sefaria's documentation, implementation, and live endpoints on 2026-10-02:
+To disable an output for the whole site, set either server environment variable:
 
-- [Find Refs](https://developers.sefaria.org/reference/post-find-refs) and
-  [Linker request/debug format](https://developers.sefaria.org/docs/linker-api).
-  Use `POST /api/find-refs?debug=1&with_text=0` with
-  `{text: {title: "", body: transcriptChunk}, lang: "en" | "he"}`. Current
-  responses are HTTP 202 task IDs, not immediate citation lists.
-- [Async task API](https://developers.sefaria.org/docs/async-task-api): poll
-  `/api/async/{task_id}` until `result.body` is ready; preserve pending tasks and
-  handle failure, timeout, and retry.
-- [Ref metadata](https://developers.sefaria.org/reference/get-ref): validate
-  with `/api/ref/{ref}` and use `normalized`, `hebrew`, `url_ref`, `depth`,
-  `address_types`, and start/end indexes. Invalid refs can be HTTP 200 with
-  `is_ref: false` or a parsing error with HTTP 404.
-- [Texts v3](https://developers.sefaria.org/reference/get-v3-texts): retrieve
-  `version=primary&version=english&return_format=text_only` only for accepted
-  sources when opening the sheet. A broad ref can silently return its first
-  section; the returned `ref` must match the requested canonical ref.
-- [Sefaria's implementation](https://github.com/Sefaria/Sefaria-Project/blob/master/sefaria/helper/linker/linker.py)
-  chooses one model using the majority language when `lang` is omitted. We use
-  separate passes for each script present and merge agreeing matches. Live probes
-  confirmed Python Unicode character offsets: emoji consume one offset, unlike
-  JavaScript's UTF-16 string indexes.
+```sh
+SOURCES_LINKS_ENABLED=false
+SOURCES_SHEETS_ENABLED=false
+```
 
-A link requires an identifiable work and a numbered location validated by Sefaria.
-The Linker pass checks exact transcript spans and rejects ambiguous or inferred
-resolutions. A separate spoken-citation parser recovers explicit names and locations
-spread across nearby words, sentences, or segments. It proposes only addresses
-present in the transcript and validates each proposal against reference metadata.
-The linked location keeps the detail the speaker actually supplied:
+Set just one to `false` to keep the other. `0`, `off`, and `no` also disable an
+output. Server switches take precedence over browser preferences. With links off,
+sheets still load source text and retain edition attribution. Source headings in
+the viewer and downloads remain plain text. With sheets off, transcript and
+notes links still work. Disabling both hides Sources after settings load and
+prevents source API reads. No Sefaria API key or language-model credentials are
+required.
 
-| Mention                                                  | Behavior                                               |
-| -------------------------------------------------------- | ------------------------------------------------------ |
-| Gemara Shabbos / מסכת פסחים                              | Omit: missing a numbered location                      |
-| Menachos 37 / Shabbat 2                                  | Accept the whole daf, including both amudim            |
-| Shabbos 2b / שבת ב ע״ב                                   | Accept the canonical Shabbat 2b                        |
-| Tosfos daf 2b                                            | Omit: missing tractate                                 |
-| Tosfos on Shabbos 2b                                     | Accept the commentary page                             |
-| Tosafot on Shabbat 2b:1                                  | Accept a specific commentary entry                     |
-| Commentary with a dibbur hamatchil                       | Link the resolved entry, or the explicitly named page  |
-| Genesis 1                                                | Accept the chapter                                     |
-| Genesis 1:1 / בראשית א:א                                 | Accept; deduplicate under Genesis 1:1                  |
-| Ibid. / שם / inferred references                         | Omit, even if Sefaria resolves them                    |
-| Multiple matches or disagreement between language models | Omit                                                   |
-| Shulchan Aruch in auruch chaim ... In siman 37           | Accept Shulchan Arukh, Orach Chayim 37                 |
-| Mishnah Berurah ... siman thirty seven, sif katan daled  | Accept Mishnah Berurah 37:4                            |
-| Shulchan Aruch ... siman 37, sif katan daled             | Accept siman 37; do not invent a commentator or seif 4 |
-| Orach Chaim siman 37 without a work name                 | Omit: section alone cannot select Shulchan Arukh       |
+On Neon, uncached interactive sheet generation and source-text cache misses also
+check the allocated database limit before writing. They leave at least 16 MiB
+of headroom for concurrent bounded requests and index maintenance. Previously
+prepared sheets and cached source texts remain readable when new work stops.
+This protects the shared database while notes-search capacity is unresolved;
+it does not enable the scheduled preparation job.
 
-An explicit amud, verse, seif, halacha, or commentary entry remains specific.
-A missing amud links both sides of the named daf. Whole-daf ranges also include
-both sides; a mixed range expands only its unspecified endpoint. A side supplied
-silently by the Linker is never accepted as though the speaker supplied it.
-Chapter, siman and commentary-page references are useful sources in their own
-right. A commentary name stays attached to the commentary, including phrases
-such as "Tosfos's comment on" and "Rashi says in". A partially recognized base
-Gemara match is suppressed when the speaker named a commentary.
+## Sheet interface
 
-## Pipeline and storage
+Sources opens directly to a source sheet in the site's monochrome study reader.
+Hebrew is the default. The **English** checkbox adds English alongside the
+original text. There is no separate references view.
 
-`advanceSources(db, transcript, fetcher)` owns chunking, task submission and
-polling, acceptance, canonicalization, deduplication, and timestamp mapping. The
-website and tests call this same interface. `sourcesResponse` reads the transcript
-through the existing server-side gateway. Client-supplied prose is ignored, and
-`/api/source-text` refuses refs absent from that transcript's accepted list.
+**Download** opens a compact dialog with format and language choices. PDF, Word,
+standalone HTML, and print are supported. Title, introduction, and excerpt/full
+text choices are collapsed under **More options**. Missing text requires an
+explicit choice to include citations only. All formats retain edition attribution
+and licenses, and exports made during checking are labeled partial.
 
-Input is split into at most 12,000 Unicode characters with 512-character overlaps.
-Original segment text and offsets are retained. Spoken recovery recognizes common
-tractate and halachic work aliases, English cardinal/ordinal numbers, transliterated
-Hebrew letters and Hebrew numerals. Named source and location parts may be at
-most 450 characters apart, with at most 40 tokens after a name. Another named
-source ends the search window. Segment start times may span at most two minutes,
-with no gap over 30 seconds. Only the source and address words are highlighted;
-intervening explanations stay plain. There is no LLM source generation,
-quotation search, or related-source expansion.
-Matches crossing adjacent segments retain all highlight spans and the first
-segment's seek position. Repeated canonical refs retain distinct occurrences;
-overlap/model duplicates do not create duplicate timestamps.
+The options menu contains **Edit sources**, **Add source**, **Review possible
+sources**, refresh, and settings. Editing reveals selection, ordering, and
+personal notes. A manually added or corrected reference must pass Sefaria
+validation and stays labeled as an addition. Review candidates require this
+validation too. Published notes and manual additions never invent recording
+times. Transcript occurrences still link to the recording, and verified sources
+remain linked in transcript and notes text when links are enabled.
 
-Each request completes a bounded pass and checkpoints it in `sources_runs` in
-the **search database**, not the read-only transcription database. A lease prevents
-simultaneous visitors from submitting the same pending chunk twice. The key
-includes policy version, transcript ID, text, and segment timings. Cold servers
-can resume; corrected transcripts produce fresh runs. Completed runs last thirty
-days. A short published-transcript snapshot is cached for 60 seconds in SQL
-and reused by polls and text requests, so corrected or removed transcripts are
-rechecked within a minute. A requested revision mismatch forces an immediate
-gateway check and returns HTTP 409 if the client is stale. Explicit refresh also
-bypasses snapshots. Immutable in-memory snapshots reuse their Unicode offsets and
-hash. Accepted source texts are cached for one day by canonical ref and excerpt/
-full extent. No failed text response is cached. Expired cache rows are pruned at
-most once a minute per warm adapter. A crashed request's
-lease expires after a minute; an expired five-minute Sefaria task can be restarted
-automatically on retry. Every save checks both the lease owner and expiry; a
-stale request cannot publish unsaved results or release a replacement owner’s
-lease. The UI polls every two seconds and can resume after its poll budget.
-An unavailable metadata lookup preserves the other verified references from its
-pass and retries the failed reference after remaining candidates. A persistent
-upstream error stays visible and can prevent the run from completing.
-Transient network errors and HTTP 429/5xx are retried up to four times with
-exponential backoff and Retry-After (seconds or HTTP dates), bounded to one minute.
-Changing shiur or hiding the reader cancels waits and requests.
+Sheet edits are stored per shiur on the current device. They are not published,
+sent to Sefaria, or synced to the account. Download a copy to share it or move it
+between devices. Browser storage failures are disclosed without blocking editing.
+Old sheet edits migrate to the new Hebrew default; subsequent language choices
+are remembered.
 
-Omissions retain counts by reason and up to 50 timestamped transcript examples.
-Examples explain missing locations/comments, incomplete ranges, ambiguity,
-inferred locations, partial commentary recognition and invalid matches. They
-never enter the accepted source list or a source sheet. Model/overlap duplicates
-are counted once for the first 2,000 distinct omission keys.
+## Citation policy
 
-## Remaining gaps and intentional limits
+The citation adapter uses Sefaria's Linker in each script present, plus the spoken
+reference parser. Every proposal is checked with reference metadata. Matches
+must correspond to the original wording and offsets. Inferred locations, ibid,
+model disagreements, incomplete ranges, and ambiguous references are excluded.
 
-- **Find Refs finds citations, not the provenance of an arbitrary quotation.**
-  An uncited quotation, an alias outside the spoken parser's catalog, a transcription
-  mistake, or an unresolved dibbur hamatchil may be missed. An explicitly named
-  commentary page can still be linked when its individual entry cannot be resolved.
-  There is no fuzzy full-text fallback that could add a source the speaker never cited.
-- Even an explicit, recognized citation can have been transcribed incorrectly
-  or misquoted by the speaker. We identify references; we do not certify that the
-  speech matches the source text. The interface labels the result as automatic.
-- Timestamps are limited by segmentation: the beginning of the segment containing
-  the citation, not a guessed word-level time.
-- Sefaria may not hold a work/edition, may fail to link a valid spoken reference,
-  or may expose several possibilities for a range. Those references remain omitted.
-  An empty list does not mean the recording mentioned no sources.
-- The sheet includes primary text and English when available, with returned edition
-  names, source links, and license strings. Licenses differ by edition; live Davidson
-  versions, for example, report CC-BY-NC. The preview preserves these terms rather
-  than assigning one license to all content.
-- Sheet text is limited to eight nonempty segments and 12,000 characters per edition,
-  in excerpt mode. Complete mode allows up to 500 segments and 200,000 characters
-  per edition, still labeling any shortened text and linking its complete citation.
-  Upstream JSON downloads are capped at four million bytes before parsing. Extraction accepts
-  transcripts up to two million UTF-16 characters and displays up to 100 unique
-  sources, 50 occurrences per source and 300 total occurrences, with a notice when
-  limits are reached. Per-model candidate queues and metadata caches are bounded;
-  SQL payloads cannot exceed 900,000 bytes.
-- Opening Sources sends transcript chunks to Sefaria. No tracking metadata,
-  credentials, generated notes, or shiur title is sent. Opening the sheet sends
-  only accepted canonical refs. Text requests share the published-transcript
-  snapshot and accepted whitelist. The external API must be available; retries
-  preserve progress and upstream errors stay server-side.
+Nearby parts of an explicit citation can cross sentence and VTT cue boundaries.
+A combined mention must fit within 450 Unicode characters, span at most 60 seconds
+between its first and last cue starts, and cross no cue gap over 15 seconds.
+Another named source stops the spoken parser's search. Processing batches can
+contain more speech; these limits apply to each accepted mention. Only source
+and address words become links. English numbers, Hebrew numerals, common spoken
+work names and transliterations, and vocalized Hebrew are supported.
 
-## Deployment
+The section of Shulchan Arukh, Tur, Beit Yosef, or Taz must actually be supplied.
+“Shulchan Aruch, siman daled, seif daled” alone cannot pick Orach Chayim. A named
+chapter, siman, or commentary page can be retained at the detail supplied. A daf
+without an amud refers to the whole daf. A later seif refines the same earlier
+siman mention instead of duplicating it; independent mentions remain separate.
 
-No Sefaria API key is required. Existing transcript and search connections are
-used. Apply the additive cache migration before deploying:
+Notes paragraphs are independent citation contexts. Markdown destinations,
+code, and HTML are masked without changing character positions. Notes links
+are added to unchanged text leaves, without nesting links or changing Markdown.
+The reader checks the notes version before applying highlights. Transcript
+highlights also check the original span text before linking it.
 
-- D1: `npm run db:migrate:local` for development, or the usual remote process for
-  `drizzle/0005_sources.sql`. This follows main's title autocomplete migration;
-  existing preview cache tables are retained. Vercel's D1 setup also applies it
-  idempotently.
-- PostgreSQL: apply `db/search-postgres/002_sources.sql` using the **search schema
-  owner**. It grants CRUD to the installed `yutorah_search_app` role when present;
-  installations with another app role must grant it the same four table privileges.
-  The build verifies the table and can create it only when its search connection
-  already has DDL privileges. Transcript reader permissions do not change.
+## Reading and quotation policy
 
-The production `yutorah-titles` main branch cache migration was applied through
-Neon’s owner SQL editor on 2026-10-02. Verification showed `sources_runs` exists,
-`yutorah_search_app` has the four table privileges, and it still lacks schema
-CREATE. The prior Vercel migration failure is resolved; new code still requires
-a successful preview deployment before merge.
+Hebrew and Aramaic runs can be searched without quote marks. English passages
+need quote marks or a reading cue such as “the text says.” A passage needs at
+least seven Hebrew/Aramaic words and 32 normalized characters, or ten English
+words and 50 characters, with at least four distinct informative words.
+“אמר רבא” does not qualify and does not trigger a search.
 
-### Optional preparation after publication
+The verifier normalizes vowels, cantillation, punctuation, and whitespace while
+preserving word order. Readings can cross nearby transcript cue boundaries.
+Long readings produce overlapping anchors of up to 14 words at 10-word intervals,
+so a clean part of a reading can verify a specific segment even when other words
+cross Sefaria segment boundaries or contain transcription mistakes.
+Clear Hebrew reading cues add one targeted anchor after the introduction. The
+original opening remains a candidate, because phrases such as “שנאמר” can also
+belong to the source itself. Every anchor must meet the same specificity rules.
 
-The worker can prepare sources immediately after `store.complete` publishes a
-transcript and its job heartbeat has stopped. Configure the same private `SOURCES_PREPARE_TOKEN` on the website and
-worker, and set the worker’s `SOURCES_PREPARE_URL` to the deployed
-`https://YOUR_SITE/api/sources/prepare`. The authenticated POST accepts only a
-shiur ID and drives the same published-transcript pipeline; it cannot submit
-prose or add refs. It checkpoints one bounded pass per request. Preparation
-polls for at most five minutes/120 passes with bounded retries and cancellation.
-A failure emits `sources_preparation_deferred`; it never retries/fails an already
-published transcription. The normal Sources tab resumes any unfinished run.
-Preparation occupies the worker slot after publication, so leave it disabled if
-transcription throughput matters more than a warm Sources tab. This integration
-is implemented but is not enabled on the installed VM or production website;
-the new worker build and matching secrets must be deployed together.
+If the nearest explicit citation names one exact segment, the verifier can check
+its complete text directly. It accepts only an exact normalized word match in
+that canonical segment. Chapters, dapim, conflicting wording, and missing text
+cannot use this shortcut. Otherwise it searches the Sefaria text library with an
+exact phrase query and requests complete hit counts. It then:
 
-## Verification
+1. Rejects partial, timed-out, malformed, or truncated search results. At most
+   60 raw search hits are inspected; a larger result is left for review.
+2. Deduplicates editions of the same reference. Different locations remain
+   different candidates. Search rank does not decide which is correct.
+3. If needed, uses the nearest explicit preceding citation within 450 characters and
+   60 seconds to restrict matches to that cited location. A title or topic alone
+   cannot establish this context. Multiple remaining locations are ambiguous.
+4. Validates the canonical reference at segment depth and fetches that exact
+   source text. At least one complete returned edition must actually contain
+   the normalized words in order. A guessed chapter or default first section
+   cannot verify a reading.
 
-`npm run test:sources` runs offline against SQLite and a recorded live response.
-Set `TEST_DATABASE_URL` to an isolated PostgreSQL test database to also exercise
-the migration, leases, 64-bit epochs, and resumed extraction. Tests cover incomplete
-citations, inferred/ambiguous failures, amud and commentary precision, bilingual
-disagreement, emoji and cross-segment offsets, overlap deduplication, cache
-invalidation, failures/retries, the ref whitelist, escaped exports, text truncation,
-and attribution.
+When a search match comes from another edition, up to two indexed English or
+Hebrew editions can be fetched by their exact version titles. The fetched
+reference, edition identity, language, and complete text must match. A substituted
+edition or search snippet alone never establishes verification.
 
-Live checks used a synthetic positive transcript and published shiur `929649`
-(`RTC Dvar Halacha - Eating Meat At A Kattan's Siyum`). The latter mentions
-Pesachim without a daf: both language passes completed with **zero accepted
-sources**, as expected. The positive fixture linked Shabbat 2b, Genesis 1:1, and
-Tosafot on Shabbat 2b:1 while omitting unspecified Tosfos. Browser checks exercised
-the links tab, repeated timestamps, inline transcript links, bilingual text,
-HTML download, and the identical print document.
+This is deliberately exact text matching. Paraphrases, translated summaries,
+transliterated readings, and transcription errors can be missed. They are not
+turned into approximate automatic links. Repeated passages and missing Sefaria
+texts remain reviewable. Notes evidence establishes what appears in the notes;
+it does not claim that the teacher said it in the recording.
 
-## Real-transcript evaluation
+## Incremental processing and failure recovery
 
-The [evaluation report](sefaria-sources-evaluation.json) replays live Sefaria
-responses recorded on 2026-10-02 through the same extraction interface. The
-[review set](../tests/fixtures/sources-corpus.json) contains 30 bounded excerpts
-from 30 already published shiurim, with source URL, transcript revision, original
-segment/character position, timings, agent-annotated expected refs,
-excluded/unavailable references and review notes. Excerpts were chosen by citation
-keywords. All 30 happen to be Rabbi Aryeh Lebowitz; this is not a random or
-representative estimate for the archive. Review was performed by the Codex agent;
-independent human review is pending.
+`lib/source-creator.ts` owns the new workflow. `lib/source-windows.ts` groups up
+to 32 transcript units or roughly 9,000 characters, with up to 450 characters of
+lookbehind bounded by recording time. Large individual cues are split with
+overlap. Unchanged window text and timings reuse completed verification across
+appends and corrections. Quotes have their own cache keyed by words and explicit
+context. A content hash identifies each complete input snapshot, including notes.
+Changed text, timings, notes, or policy cannot reuse an incompatible result.
 
-The original policy accepted 10 of 18 complete citations. The 2026-10-06 review
-adds seven explicitly named broad references to the annotations, bringing the
-expected set to 25. Spoken recovery and the broader policy accept 24 of those 25,
-with zero incorrect links relative to the annotations. The remaining reference,
-`Teshuvot haRashba part I 24`, has a recorded HTTP 500 metadata failure. Its Rivash
-and Beit Yosef neighbors are now preserved despite that failure. Four additional
-fully named citations were unavailable in the library lookup and are reported
-separately. These figures describe this bounded, agent-reviewed excerpt set and
-its revised acceptance policy. They are not an archive-wide accuracy estimate.
-Missing metadata was recorded on 2026-10-06; the original Linker responses were
-retained.
+Each request advances up to six stages within a soft six-second budget and awaits
+all work. It yields immediately when a Sefaria task is still pending. Quotation
+verification runs in batches of three; identical normalized words and citation
+context share an in-flight request. Successful results are checkpointed even
+when another quotation fails, and retries reuse completed verification.
+Different passages from the same canonical source share reference metadata and
+text lookups. Verified full text populates the sheet cache too. Concurrent local
+requests share a download; an excerpt can use an in-progress full-text request.
+Warm sheet requests use validated cached text without another Sefaria request.
+Expired entries are revalidated. Original excerpt limits and attribution remain.
+SQL leases prevent
+duplicate submissions by simultaneous visitors. There are no background promises
+that can disappear when a server request ends. Source results, window results,
+and pending Sefaria tasks use the existing writable `sources_runs` table in the
+search database. The read-only transcript database is not modified.
 
-Run `npm run sources:evaluate` to reproduce the report offline. Run
-`npm run sources:evaluate -- --record --output REPORT.json` to collect missing
-live responses with at most three concurrent transcripts. Recording checkpoints
-successful responses and preserves status codes for failed metadata lookups.
-Delete `tests/fixtures/sources-corpus-sefaria.json` first to refresh every response;
-review and commit changes deliberately. The CI source suite checks that this
-sample keeps zero incorrect links and at least its baseline accepted citations.
-Expand the set to more teachers, languages and longer transcripts before using
-these metrics as a release-wide accuracy claim.
+The client continues available local work after 150 milliseconds and respects
+normal polling backoff when waiting for remote work. It pauses when hidden and cancels on navigation
+or when both outputs are disabled. Completed snapshots are checked again each
+minute for newly available notes or revised transcripts. Inputs explicitly
+marked incomplete are checked every 15 seconds. Upstream providers must expose
+new text before this app can discover it; the creator does not transcribe audio.
+A changed transcript identity refreshes the reader before applying new spans.
+Retries preserve the last verified sources and continue saved work.
+
+The public pipeline accepts only server-loaded published inputs. Request query
+strings cannot supply prose for extraction. Manual reference validation is a
+separate endpoint. Text retrieval allows numbered canonical references from
+Sefaria's public library, including manually added sources, independently of a
+transcript run. Downloads and private sheet comments are assembled in the browser.
+
+Limits are visible: twelve quotation candidates per window, 150 distinct sources,
+60 occurrences per source, and 80 displayed review examples. Legacy citation
+batch limits also propagate to the result. Intermediate results last 30 days.
+Completed prepared sheets last one year and are reused only when the current
+input hash matches. Source texts are cached by canonical ref and extent for one
+day. Capacity pruning bounds transient rows while preserving prepared sheets
+and the preparation queue. Expired work is removed. Errors do not become
+successful matches.
+
+## Prepare sheets on GitHub Actions
+
+The `Prepare mekoros` workflow runs the same detector directly on a GitHub-hosted
+runner every 30 minutes. It fetches published transcripts and notes from the
+website and verifies sources with Sefaria. It needs no AI worker and does not run
+on the notes VM. It does not generate notes or transcribe audio.
+
+Add the repository Actions secret `SOURCES_DATABASE_URL` using the writable
+production search database connection. This is the `yutorah_search_app` role in
+`yutorah-titles`, not the read-only transcript database. No credentials belong in
+workflow files, variables, logs, or artifacts. `SOURCES_SITE_URL` is an optional
+repository variable overriding `https://yutorah.vercel.app`.
+
+After merging the workflow to the default branch and deploying the source
+creator, run it manually with **Only verify database configuration** selected.
+That checks the connection and table with a read-only query. Then run normally,
+optionally supplying comma-separated shiur IDs to prepare first. Enable the
+repository variable `SOURCES_PREPARATION_ENABLED=true` only after these checks.
+The scheduled job allows 20 minutes and 60 shiur attempts per run. GitHub scheduling may be
+delayed. The website still handles an uncached shiur on demand.
+
+Every run checks the newest catalog page and advances a separate archive cursor.
+The queue, cursor, detector checkpoints, and prepared sheets live in the shared
+`sources_runs` table, so the next runner resumes them. An incomplete catalog page
+does not advance its cursor. A database lease prevents overlapping runners and
+blocks an expired owner from overwriting queue state.
+
+Complete inputs are rechecked after six hours, growing transcripts after 15
+seconds, missing inputs after 24 hours, and temporary failures after five minutes.
+These are eligibility times; the next scheduled run performs the work. Every
+fourth attempt prioritizes eligible rechecks, so an archive backlog cannot starve
+later notes or corrections. Changed inputs invalidate the prepared sheet. A run
+stops after three consecutive temporary failures and preserves its checkpoints.
+Source text is warmed on the runner when sheets are enabled. Site feature
+switches apply to the runner too.
+
+For another machine with the secret already in its environment:
+
+```sh
+npm run sources:prepare -- --check
+npm run sources:prepare -- --ids 929649 --catalog-pages 0
+```
+
+Disable the workflow in GitHub Actions to stop scheduled preparation. Existing
+verified sheets remain available. Prepared sheets share the existing 32 MiB
+cache cap with completed detector results and source texts; coordination rows
+and active leases are preserved. The scheduled runner checks database size
+before each upstream request and stops at `SOURCES_MAX_DATABASE_BYTES`, which
+defaults to 500,000,000 bytes in Actions. Adjust that repository variable only
+after verifying allocated storage and headroom. No new database migration is
+required.
+
+## Endpoints and files
+
+- `GET /api/source-creator/features`: independent server switches.
+- `GET /api/source-creator?id=…`: current published transcript and notes, verified
+  references, evidence, review reasons, warnings, and checkpoint progress.
+- `POST /api/source-creator/verify` with `{ "ref": "Genesis 1:1" }`: validate a
+  manual addition without claiming recording evidence.
+- `GET /api/source-creator/text?ref=…&extent=excerpt|full`: canonical source text
+  and edition attribution, gated by the sheets switch.
+- `/api/sources` and `/api/source-text` retain compatibility aliases to the new
+  routes. Authenticated `/api/sources/prepare` warms the new pipeline.
+
+`lib/sources.ts` and `lib/spoken-sources.ts` provide the conservative citation
+adapter. `lib/source-quotes.ts` verifies readings. `hooks/use-source-creator.ts`
+coordinates client polling and output preferences. `app/sources-panel.tsx`,
+`hooks/use-source-sheet.ts`, `lib/source-draft.ts`, and `lib/source-sheet.ts` own
+sheet editing and exports.
+`lib/source-text-handler.ts` serves validated cached texts and checks cache misses.
+
+## Request-cost regression checks
+
+The four-reading fixture in `tests/source-creator.test.ts` finds four passages
+from one source. Before shared verification it made 14 upstream requests,
+including four metadata reads and four identical text downloads. It now makes
+eight requests with one metadata read and one text download, a 43% reduction.
+Opening that cached sheet makes zero additional upstream requests. These are
+deterministic request counts, not a claim about every shiur's completion time.
+
+## Storage setup and checks
+
+No new database migration is needed. The existing sources migration must have
+been applied to the writable search database:
+
+```sh
+npm run db:migrate:local
+npm run test:sources
+npm run test:notes-export
+npm run lint
+npm exec tsc -- --noEmit
+npm run build
+```
+
+On managed PostgreSQL, use the existing search-schema migration procedure,
+including `db/search-postgres/002_sources.sql`. No transcript-store migration or
+notes-worker change is required. The optional PostgreSQL integration test needs
+its configured test database; it is skipped when that database is unavailable.
+
+Sefaria endpoints were checked against the official documentation and live
+search on 2026-10-15:
+[Find Refs](https://developers.sefaria.org/reference/post-find-refs),
+[reference validation](https://developers.sefaria.org/reference/get-ref),
+[search](https://developers.sefaria.org/docs/search-api), and
+[Texts v3](https://developers.sefaria.org/reference/get-v3-texts).
