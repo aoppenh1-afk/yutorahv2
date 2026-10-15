@@ -18,6 +18,8 @@ const {
   defaultLearning,
   restoreLearning,
   recommend,
+  recommendationAnchor,
+  recommendationSources,
   relatedShiurim,
   followsShiur,
   learningStats,
@@ -51,7 +53,6 @@ const context = (overrides = {}) => ({
   history: [],
   ...overrides,
 });
-
 void test('existing libraries migrate without inventing learning or follows', () => {
   const restored = restoreLearning({ saved: [shiur(1)] });
   assert.deepEqual(restored.following, []);
@@ -107,6 +108,35 @@ void test('following feed excludes non-followed records and supports topics and 
   assert.deepEqual(output.map((r) => r.shiur.id).sort(), [1, 2]);
   assert.equal(followsShiur(shiur(4), { kind: 'teacher', id: 9 }), false);
 });
+void test('Following shows newest uploads first instead of personal ranking or teacher variety', () => {
+  const library = context({
+    following: [{ kind: 'teacher', id: 50, name: 'Teacher' }],
+    saved: [shiur(9, { teacherId: 50, seriesId: 20, series: 'Shabbat' })],
+    hidden: [4],
+    completed: [5],
+  });
+  const result = recommend(
+    [
+      shiur(1, {
+        teacherId: 50,
+        seriesId: 20,
+        series: 'Shabbat',
+        date: '2026-09-01',
+      }),
+      shiur(2, { teacherId: 50, topics: [], date: '2026-10-02' }),
+      shiur(3, { teacherId: 50, date: '2020-01-01', uploadedAt: '2026-10-03' }),
+      shiur(4, { teacherId: 50, date: '2026-10-04' }),
+      shiur(5, { teacherId: 50, date: '2026-10-05' }),
+      shiur(6, { teacherId: 60, date: '2026-10-06' }),
+    ],
+    library,
+    { followingOnly: true },
+  );
+  assert.deepEqual(
+    result.map((r) => r.shiur.id),
+    [3, 2, 1],
+  );
+});
 void test('hidden, completed and almost-finished shiurim are removed; unknown duration never meets a time budget', () => {
   const library = context({
     hidden: [1],
@@ -143,7 +173,7 @@ void test('recommendations deduplicate and retain richer metadata', () => {
   assert.deepEqual(merged[0].topics, ['Shabbat']);
   assert.equal(recommend(items, context(), { minutes: 15 }).length, 1);
 });
-void test('one teacher cannot occupy adjacent recommendations when alternatives exist', () => {
+void test('similarly relevant recommendations include a variety of teachers', () => {
   const items = [
     shiur(1, { teacherId: 50 }),
     shiur(2, { teacherId: 50 }),
@@ -153,9 +183,309 @@ void test('one teacher cannot occupy adjacent recommendations when alternatives 
   ];
   const output = recommend(
     items,
-    context({ following: [{ kind: 'teacher', id: 50, name: 'Teacher' }] }),
+    context({
+      following: [50, 4, 5].map((id) => ({
+        kind: 'teacher',
+        id,
+        name: 'Teacher ' + id,
+      })),
+    }),
   );
   assert.notEqual(output[0].shiur.teacherId, output[1].shiur.teacherId);
+});
+void test('teacher variety never promotes unrelated recordings ahead of strong matches', () => {
+  const output = recommend(
+    [shiur(1, { teacherId: 50 }), shiur(2, { teacherId: 50 }), shiur(3)],
+    context({ following: [{ kind: 'teacher', id: 50, name: 'Teacher' }] }),
+  );
+  assert.deepEqual(
+    output.map((r) => r.shiur.teacherId),
+    [50, 50, 3],
+  );
+  const topicOnly = recommend(
+    [
+      shiur(1, { teacherId: 50 }),
+      shiur(2, { teacherId: 50 }),
+      shiur(3, { topics: ['Tefillah'] }),
+    ],
+    context({ saved: [shiur(9)] }),
+  );
+  assert.deepEqual(
+    topicOnly.map((r) => r.shiur.id),
+    [2, 1, 3],
+  );
+});
+void test('accidental plays and hidden interests do not influence ranking or fetched sources', () => {
+  const library = context({
+    history: [
+      {
+        shiur: shiur(10, { teacherId: 50, seriesId: 20 }),
+        seconds: 3,
+        duration: 900,
+      },
+    ],
+    saved: [shiur(11, { teacherId: 50 })],
+    hidden: [11],
+  });
+  const output = recommend([shiur(1, { teacherId: 50 }), shiur(2)], library);
+  assert.deepEqual(
+    output.map((r) => r.shiur.id),
+    [2, 1],
+  );
+  assert.ok(output.every((r) => r.reason === 'From the YUTorah library'));
+  assert.deepEqual(recommendationSources(library), []);
+  assert.equal(recommendationAnchor(library), undefined);
+});
+void test('sustained and repeated learning outweighs a single sampled teacher', () => {
+  const library = context({
+    history: [
+      {
+        shiur: shiur(10, { teacherId: 60, topics: [] }),
+        seconds: 90,
+        duration: 900,
+      },
+      {
+        shiur: shiur(11, { teacherId: 50, topics: [] }),
+        seconds: 800,
+        duration: 900,
+      },
+      {
+        shiur: shiur(12, { teacherId: 50, topics: [] }),
+        seconds: 800,
+        duration: 900,
+      },
+    ],
+  });
+  const output = recommend(
+    [shiur(1, { teacherId: 60 }), shiur(2, { teacherId: 50 })],
+    library,
+  );
+  assert.equal(output[0].shiur.teacherId, 50);
+  assert.equal(recommendationSources(library)[0].id, 50);
+  assert.equal(recommendationAnchor(library).id, 11);
+});
+void test('topic identity connects sparse metadata and distinguishes same-name topics', () => {
+  const output = recommend(
+    [
+      shiur(1, { topics: ['Other label'], topicIds: [100] }),
+      shiur(2, { topics: ['Shabbat'], topicIds: [200] }),
+    ],
+    context({ saved: [shiur(9, { topicIds: [100] })] }),
+  );
+  assert.equal(output[0].shiur.id, 1);
+  assert.equal(output[0].reason, 'Because you explore Other label');
+  assert.equal(output[1].reason, 'From the YUTorah library');
+});
+void test('saved-only interests fetch teachers, specific series and topics within the source budget', () => {
+  const saved = shiur(9, {
+    seriesId: 20,
+    series: 'Shabbat in Depth',
+    topicIds: [100],
+  });
+  const sources = recommendationSources(context({ saved: [saved] }));
+  assert.deepEqual(
+    sources.map(({ kind, id }) => [kind, id]),
+    [
+      ['teacher', 9],
+      ['series', 20],
+      ['topic', 100],
+    ],
+  );
+  const follows = Array.from({ length: 12 }, (_, i) => ({
+    kind: 'teacher',
+    id: i + 1,
+    name: 'Teacher',
+  }));
+  const bounded = recommendationSources(
+    context({ following: follows, saved: [saved] }),
+  );
+  assert.equal(bounded.length, 8);
+  assert.ok(bounded.some((f) => f.kind === 'series' && f.id === 20));
+  assert.ok(bounded.some((f) => f.kind === 'topic' && f.id === 100));
+  assert.equal(new Set(bounded.map((f) => f.kind + ':' + f.id)).size, 8);
+  assert.deepEqual(
+    recommendationSources(context({ following: follows })),
+    follows.slice(0, 8),
+  );
+});
+void test('generic series and duplicate listening records do not inflate interests', () => {
+  const source = shiur(9, { seriesId: 20, series: 'Daily Shiur' });
+  const history = { shiur: source, seconds: 900, duration: 900 };
+  const single = context({ history: [history] });
+  const options = { now: Date.parse('2026-10-15') };
+  assert.deepEqual(
+    recommend([shiur(1)], context({ history: [history, history] }), options),
+    recommend([shiur(1)], single, options),
+  );
+  assert.ok(recommendationSources(single).every((f) => f.kind !== 'series'));
+});
+const unclassified = (id, overrides = {}) =>
+  shiur(id, {
+    title: 'Recording ' + id,
+    topics: [],
+    category: '',
+    topicIds: [],
+    ...overrides,
+  });
+void test('collections match by identity, explain the connection, and do not double count membership', () => {
+  const collection = { id: 40, name: 'Practical Kashrut' };
+  const library = context({
+    saved: [unclassified(9, { collections: [collection] })],
+  });
+  const matched = unclassified(1, { collections: [collection] });
+  const options = { now: Date.parse('2026-10-15') };
+  const output = recommend(
+    [unclassified(2, { collections: [{ ...collection, id: 41 }] }), matched],
+    library,
+    options,
+  );
+  assert.equal(output[0].shiur.id, 1);
+  assert.equal(output[0].reason, 'More from Practical Kashrut');
+  assert.equal(output[1].reason, 'From the YUTorah library');
+  assert.equal(
+    recommend(
+      [{ ...matched, collections: [collection, collection] }],
+      library,
+      options,
+    )[0].score,
+    output[0].score,
+  );
+});
+void test('a matching series and collection outweigh a teacher follow alone', () => {
+  const collection = { id: 40, name: 'Practical Kashrut' };
+  const shared = {
+    seriesId: 20,
+    series: 'Kitchen Questions',
+    collections: [collection],
+  };
+  const library = context({
+    following: [{ kind: 'teacher', id: 50, name: 'Teacher' }],
+    saved: [unclassified(9, { ...shared, teacherId: 50 })],
+  });
+  const output = recommend(
+    [
+      unclassified(1, { ...shared, teacherId: 80 }),
+      unclassified(2, { teacherId: 50 }),
+    ],
+    library,
+  );
+  assert.equal(output[0].shiur.id, 1);
+  assert.equal(output[0].reason, 'More in Kitchen Questions');
+});
+void test('title subjects connect related learning across spellings and languages', () => {
+  for (const [source, title] of [
+    ['Shabbat Candle Lighting', 'Shabbos Candles: Lighting at Home'],
+    ['קידוש שבת', 'Shabbos Kiddush'],
+  ]) {
+    const output = recommend(
+      [
+        unclassified(1, { title }),
+        unclassified(2, { title: 'Charity and Community' }),
+      ],
+      context({ saved: [unclassified(9, { title: source })] }),
+    );
+    assert.equal(output[0].shiur.id, 1, source);
+    assert.equal(output[0].reason, `Similar to "${source}"`);
+    assert.equal(output[1].reason, 'From the YUTorah library');
+  }
+});
+void test('title boilerplate, numbers, speaker names and one shared word do not create interests', () => {
+  const source = unclassified(9, {
+    title: 'Weekly Torah Shiur Part 2 by Rabbi Example Name',
+    teacher: 'Rabbi Example Name',
+  });
+  const items = [
+    unclassified(1, {
+      title: 'Weekly Torah Shiur Part 2 by Rabbi Example Name',
+    }),
+  ];
+  assert.equal(
+    recommend(items, context({ saved: [source] }))[0].reason,
+    'From the YUTorah library',
+  );
+  const singleWord = recommend(
+    [unclassified(1, { title: 'Shabbos Family Customs' })],
+    context({ saved: [unclassified(9, { title: 'Shabbat Candle Lighting' })] }),
+  );
+  assert.equal(singleWord[0].reason, 'From the YUTorah library');
+});
+void test('all named speakers contribute to teacher matches and fetched candidates', () => {
+  const source = unclassified(9, {
+    speakers: [{ id: 50, name: 'Co-teacher' }],
+  });
+  const library = context({ saved: [source] });
+  const output = recommend(
+    [unclassified(1, { teacherId: 50 }), unclassified(2)],
+    library,
+  );
+  assert.equal(output[0].shiur.id, 1);
+  assert.equal(output[0].reason, 'From a teacher you learn with');
+  assert.ok(
+    recommendationSources(library).some(
+      (s) => s.kind === 'teacher' && s.id === 50,
+    ),
+  );
+});
+void test('candidate fetching reserves space for series and collections alongside teachers and topics', () => {
+  const shared = {
+    seriesId: 20,
+    series: 'Kitchen Questions',
+    collections: [{ id: 40, name: 'Kashrut' }],
+    topicIds: [100],
+  };
+  const library = context({
+    following: Array.from({ length: 10 }, (_, i) => ({
+      kind: 'teacher',
+      id: i + 1,
+      name: 'Teacher',
+    })),
+    history: Array.from({ length: 8 }, (_, i) => ({
+      shiur: unclassified(100 + i, { ...shared, teacherId: 50 + i }),
+      seconds: 900,
+      duration: 900,
+    })),
+  });
+  const sources = recommendationSources(library);
+  assert.equal(sources.length, 8);
+  assert.deepEqual(
+    new Set(sources.map((s) => s.kind)),
+    new Set(['teacher', 'series', 'collection', 'topic']),
+  );
+  assert.ok(sources.some((s) => s.kind === 'collection' && s.id === 40));
+  const followed = recommend(
+    [unclassified(1, { ...shared, teacherId: 50 })],
+    library,
+    { followingOnly: true },
+  );
+  assert.deepEqual(
+    followed,
+    [],
+    'inferred sources never become explicit follows',
+  );
+});
+void test('generic collections and same-name series with different IDs do not imply a relationship', () => {
+  const collection = { id: 40, name: 'General Shiurim' };
+  const source = unclassified(9, {
+    collections: [collection],
+    seriesId: 20,
+    series: 'Questions',
+  });
+  const output = recommend(
+    [
+      unclassified(1, {
+        collections: [collection],
+        seriesId: 21,
+        series: 'Questions',
+      }),
+    ],
+    context({ saved: [source] }),
+  );
+  assert.equal(output[0].reason, 'From the YUTorah library');
+  assert.ok(
+    recommendationSources(context({ saved: [source] })).every(
+      (s) => s.kind !== 'collection',
+    ),
+  );
 });
 void test('indexed recommendations preserve normalized topic matches and the first follow reason', () => {
   const library = context({
