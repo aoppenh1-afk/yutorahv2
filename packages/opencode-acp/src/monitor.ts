@@ -8,9 +8,14 @@ export type EventStream = (
   signal: AbortSignal,
 ) => Promise<ReadableStream<Uint8Array>>;
 type Watcher = {
-  fail: (error: unknown) => void;
+  fail: (error: unknown, reason?: 'resume_stall') => void;
   output: () => void;
   complete?: (messages: RuntimeMessage[]) => void;
+  discontinuity?: (clock: {
+    wallGapMs: number;
+    elapsedGapMs: number;
+    adjustmentMs: number;
+  }) => void;
 };
 type RuntimeEvent = {
   type?: string;
@@ -50,7 +55,11 @@ export class SharedSessionMonitor {
       failed: boolean;
       completed: boolean;
       lastTick: number;
+      lastWallTick: number;
       resumeUntil: number;
+      recoveryAt?: number;
+      recoveryBaselined: boolean;
+      recoveryBaselining: boolean;
       controller: AbortController;
       checking?: Promise<void>;
       timer: ReturnType<typeof setInterval>;
@@ -63,6 +72,8 @@ export class SharedSessionMonitor {
   private rescuedProgress = 0;
   private completedHistories = 0;
   private resumeGraces = 0;
+  private discontinuities = 0;
+  private resumeRecoveries = 0;
   status() {
     return {
       connected: this.connected,
@@ -74,6 +85,8 @@ export class SharedSessionMonitor {
       rescuedProgress: this.rescuedProgress,
       completedHistories: this.completedHistories,
       resumeGraces: this.resumeGraces,
+      discontinuities: this.discontinuities,
+      resumeRecoveries: this.resumeRecoveries,
     };
   }
   constructor(
@@ -87,6 +100,7 @@ export class SharedSessionMonitor {
       stallMs?: number;
       recheckMs?: number;
       resumeGraceMs?: number;
+      resumeStallMs?: number;
     } = {
       pollMs: 2000,
       reconcileMs: 30000,
@@ -107,7 +121,11 @@ export class SharedSessionMonitor {
       failed: false,
       completed: false,
       lastTick: performance.now(),
+      lastWallTick: Date.now(),
       resumeUntil: 0,
+      recoveryAt: undefined as number | undefined,
+      recoveryBaselined: false,
+      recoveryBaselining: false,
       controller: new AbortController(),
       timer: setInterval(
         () => this.checkSilence(id, watcher),
@@ -150,24 +168,51 @@ export class SharedSessionMonitor {
     const now = performance.now();
     if (progress) {
       const gap = now - progress.lastTick;
+      const wall = Date.now();
+      const wallGapMs = wall - progress.lastWallTick;
+      const adjustmentMs = wallGapMs - gap;
       progress.lastTick = now;
+      progress.lastWallTick = wall;
+      // A wall-clock correction alone is not a host pause. Require a delayed
+      // execution tick as corroboration, or a genuinely prolonged process pause.
+      if (gap >= 30000 || (gap >= 4000 && adjustmentMs >= 30000)) {
+        progress.recoveryAt = now;
+        progress.recoveryBaselined = false;
+        progress.resumeUntil = now + (this.settings.resumeGraceMs ?? 5000);
+        this.discontinuities++;
+        this.nextPoll = 0;
+        watcher.discontinuity?.({ wallGapMs, elapsedGapMs: gap, adjustmentMs });
+      }
       if (gap > Math.max(1000, Math.min(1000, stallMs / 4) * 4)) {
         progress.resumeUntil = now + (this.settings.resumeGraceMs ?? 5000);
         this.resumeGraces++;
         this.nextPoll = 0;
       }
     }
+    const deadline = () =>
+      Math.min(
+        (progress?.at ?? now) + stallMs,
+        progress?.recoveryAt === undefined
+          ? Infinity
+          : Math.max(progress.at, progress.recoveryAt) +
+              (this.settings.resumeStallMs ?? 60000),
+      );
+    const baseline =
+      progress?.recoveryAt !== undefined && !progress.recoveryBaselined;
     if (
       !progress ||
       progress.failed ||
       progress.completed ||
       progress.checking ||
       now < progress.resumeUntil ||
-      now - progress.at < stallMs
+      (!baseline && now < deadline())
     )
       return;
     const observedAt = progress.at;
-    this.silenceChecks++;
+    if (baseline) {
+      progress.recoveryBaselined = true;
+      progress.recoveryBaselining = true;
+    } else this.silenceChecks++;
     // Timers can run before queued stream events after a process pause. Read
     // persisted progress before cancellation, with a separate bounded deadline.
     progress.checking = (async () => {
@@ -180,6 +225,9 @@ export class SharedSessionMonitor {
             AbortSignal.timeout(this.settings.recheckMs ?? 5000),
           ]),
         );
+        // Establish the persisted post-grace baseline before deciding whether
+        // later history is new output. Queued catch-up is not a healthy stream.
+        if (baseline) return;
         if (
           this.progress.get(id) !== progress ||
           progress.failed ||
@@ -188,12 +236,18 @@ export class SharedSessionMonitor {
         )
           return;
         if (progress.at > observedAt) this.rescuedProgress++;
-        else if (performance.now() - progress.at >= stallMs) {
+        else if (performance.now() >= deadline()) {
           progress.failed = true;
-          watcher.fail(new PipelineFailure('timeout'));
+          const resumed = progress.recoveryAt !== undefined;
+          if (resumed) this.resumeRecoveries++;
+          watcher.fail(
+            new PipelineFailure('timeout'),
+            resumed ? 'resume_stall' : undefined,
+          );
         }
       } catch (error) {
         if (
+          !baseline &&
           !progress.controller.signal.aborted &&
           this.progress.get(id) === progress
         ) {
@@ -202,6 +256,7 @@ export class SharedSessionMonitor {
         }
       }
     })().finally(() => {
+      if (baseline) progress.recoveryBaselining = false;
       progress.checking = undefined;
     });
   }
@@ -248,6 +303,10 @@ export class SharedSessionMonitor {
     if (!delta && bytes <= (progress.sizes.get(key) ?? 0)) return;
     if (!delta) progress.sizes.set(key, bytes);
     progress.at = performance.now();
+    // Give queued events their catch-up grace; output arriving during that
+    // grace cannot by itself prove the upstream connection resumed producing.
+    if (!progress.recoveryBaselining && progress.at >= progress.resumeUntil)
+      progress.recoveryAt = undefined;
     this.watchers.get(id)?.output();
   }
 

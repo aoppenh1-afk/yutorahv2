@@ -27,6 +27,7 @@ import {
 import { setTimeout as delay } from 'node:timers/promises';
 import { createServer } from 'node:http';
 import { loopbackJSON } from '../packages/opencode-acp/src/transport.js';
+import { performance } from 'node:perf_hooks';
 const catalog = {
   providers: [
     {
@@ -82,6 +83,19 @@ async function setup(t: test.TestContext) {
   queue.enqueue([{ id: '1' }, { id: '2' }]);
   const job = queue.claim('fetching')!;
   return { root, queue, job };
+}
+function virtualRuntimeClock(t: test.TestContext) {
+  let monotonic = 10000,
+    wall = Date.now();
+  t.mock.method(performance, 'now', () => monotonic);
+  t.mock.method(Date, 'now', () => wall);
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  return async (elapsed: number, clockJump = 0) => {
+    monotonic += elapsed;
+    wall += elapsed + clockJump;
+    t.mock.timers.tick(elapsed);
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+  };
 }
 void test('zero-price guard rejects absent, changed, or priced input/output/cache models', () => {
   assert.doesNotThrow(() => assertFreeCatalog(catalog));
@@ -895,6 +909,283 @@ void test('a backward wall-clock adjustment cannot keep a silent session alive i
     );
   } finally {
     await release();
+  }
+});
+
+void test('a request stranded across a host discontinuity releases its worker after bounded recovery', async (t) => {
+  let monotonic = 10000,
+    wall = Date.now();
+  t.mock.method(performance, 'now', () => monotonic);
+  t.mock.method(Date, 'now', () => wall);
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const errors: string[] = [];
+  const newErrors: string[] = [];
+  let text = '';
+  const monitor = new SharedSessionMonitor(
+    async (path) =>
+      path === '/permission'
+        ? []
+        : [
+            {
+              info: { role: 'assistant', id: 'msg1' },
+              parts: [{ type: 'reasoning', text }],
+            },
+          ],
+    undefined,
+    {
+      pollMs: 1000,
+      reconcileMs: 30000,
+      retryMs: 1000,
+      idleMs: 45000,
+    },
+  );
+  const advance = async (elapsed: number, clockJump = 0) => {
+    monotonic += elapsed;
+    wall += elapsed + clockJump;
+    t.mock.timers.tick(elapsed);
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  };
+  const release = await monitor.watch('sesStranded', {
+    fail: (e) => errors.push((e as Error).message),
+    output: () => {},
+  });
+  let releaseNew: (() => Promise<void>) | undefined;
+  try {
+    await advance(1000);
+    await advance(17000, 137000);
+    text = 'queued catch-up output';
+    await advance(1000);
+    releaseNew = await monitor.watch('sesNewAfterPause', {
+      fail: (e) => newErrors.push((e as Error).message),
+      output: () => {},
+    });
+    for (let i = 0; i < 70; i++) await advance(1000);
+    assert.deepEqual(
+      errors,
+      ['timeout'],
+      'A corroborated host pause must not strand a worker for another three minutes',
+    );
+    assert.deepEqual(
+      newErrors,
+      [],
+      'Newly admitted sessions retain the ordinary deadline',
+    );
+    assert.equal(monitor.status().resumeRecoveries, 1);
+  } finally {
+    await release();
+    await releaseNew?.();
+  }
+});
+
+void test('a clock correction without an execution pause retains the ordinary silence deadline', async (t) => {
+  let monotonic = 10000,
+    wall = Date.now();
+  t.mock.method(performance, 'now', () => monotonic);
+  t.mock.method(Date, 'now', () => wall);
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const errors: string[] = [];
+  const monitor = new SharedSessionMonitor(async () => [], undefined, {
+    pollMs: 1000,
+    reconcileMs: 30000,
+    retryMs: 1000,
+    idleMs: 45000,
+  });
+  const release = await monitor.watch('sesClockOnly', {
+    fail: (e) => errors.push((e as Error).message),
+    output: () => {},
+  });
+  try {
+    for (let i = 0; i < 70; i++) {
+      monotonic += 1000;
+      wall += 1000 + (i === 1 ? 137000 : 0);
+      t.mock.timers.tick(1000);
+      for (let j = 0; j < 20; j++) await Promise.resolve();
+    }
+    assert.deepEqual(errors, []);
+  } finally {
+    await release();
+  }
+});
+
+void test('recovery never extends an ordinary silence deadline that already elapsed', async (t) => {
+  const advance = virtualRuntimeClock(t);
+  const errors: string[] = [];
+  const monitor = new SharedSessionMonitor(async () => [], undefined, {
+    pollMs: 1000,
+    reconcileMs: 30000,
+    retryMs: 1000,
+    idleMs: 45000,
+  });
+  const release = await monitor.watch('sesAlreadySilent', {
+    fail: (e) => errors.push((e as Error).message),
+    output: () => {},
+  });
+  try {
+    for (let i = 0; i < 165; i++) await advance(1000);
+    await advance(17000, 137000);
+    for (let i = 0; i < 8; i++) await advance(1000);
+    assert.deepEqual(errors, ['timeout']);
+  } finally {
+    await release();
+  }
+});
+
+void test('output that actually resumes after the catch-up grace restores the ordinary deadline', async (t) => {
+  const advance = virtualRuntimeClock(t);
+  let text = '';
+  const errors: string[] = [];
+  const monitor = new SharedSessionMonitor(
+    async (path) =>
+      path === '/permission'
+        ? []
+        : [
+            {
+              info: { role: 'assistant', id: 'msg1' },
+              parts: [{ type: 'reasoning', text }],
+            },
+          ],
+    undefined,
+    { pollMs: 1000, reconcileMs: 30000, retryMs: 1000, idleMs: 45000 },
+  );
+  const release = await monitor.watch('sesRecovered', {
+    fail: (e) => errors.push((e as Error).message),
+    output: () => {},
+  });
+  try {
+    await advance(1000);
+    await advance(17000, 137000);
+    text = 'queued output';
+    for (let i = 0; i < 6; i++) await advance(1000);
+    text += ' genuinely resumed progress';
+    await advance(1000);
+    for (let i = 0; i < 75; i++) await advance(1000);
+    assert.deepEqual(errors, []);
+    assert.equal(monitor.status().discontinuities, 1);
+  } finally {
+    await release();
+  }
+});
+
+void test('post-pause recovery confirms owned cleanup and records its reason before returning capacity', async (t) => {
+  const { queue, job } = await setup(t);
+  const advance = virtualRuntimeClock(t);
+  let aborted = false,
+    deleted = false;
+  const api: ServerAPI = async (path, method = 'GET', body, signal) => {
+    if (path === '/session' && method === 'POST')
+      return { id: 'sesResume', title: (body as { title: string }).title };
+    if (path === '/permission') return [];
+    if (path === '/session/status')
+      return aborted ? {} : { sesResume: { type: 'busy' } };
+    if (path.endsWith('/message') && method === 'POST')
+      return new Promise((_, reject) =>
+        signal!.addEventListener('abort', () => reject(new Error('aborted')), {
+          once: true,
+        }),
+      );
+    if (path.endsWith('/message')) return [];
+    if (path.endsWith('/abort')) {
+      aborted = true;
+      return true;
+    }
+    if (method === 'DELETE') {
+      assert.equal(aborted, true);
+      deleted = true;
+      return true;
+    }
+    assert.fail(path);
+  };
+  const adapter = new ServerSessionAdapter(api, queue, 'owned', 1200000);
+  const controller = new AbortController();
+  const request = adapter
+    .request(job, 'resume-cleanup', 'complete transcript', controller.signal)
+    .then(
+      () => ({ code: 'completed' }),
+      (e: Error) => ({ code: e.message }),
+    );
+  try {
+    await advance(1000);
+    await advance(17000, 137000);
+    for (let i = 0; i < 70; i++) await advance(1000);
+    assert.equal(deleted, true);
+    assert.deepEqual(await request, { code: 'timeout' });
+    assert.equal(
+      queue.db
+        .prepare("SELECT COUNT(*) n FROM sessions WHERE state!='deleted'")
+        .get()?.n,
+      0,
+    );
+    assert.ok(
+      queue.db
+        .prepare(
+          "SELECT 1 FROM request_observations WHERE request_id='resume-cleanup' AND phase='resume_watchdog_timeout'",
+        )
+        .get(),
+    );
+    assert.ok(
+      queue.db
+        .prepare(
+          "SELECT 1 FROM request_observations WHERE request_id='resume-cleanup' AND phase='runtime_discontinuity'",
+        )
+        .get(),
+    );
+  } finally {
+    controller.abort();
+    await request;
+  }
+});
+
+void test('a complete verified response saved during a pause is recovered before any retry', async (t) => {
+  const { queue, job } = await setup(t);
+  const advance = virtualRuntimeClock(t);
+  let complete = false,
+    aborted = false;
+  const api: ServerAPI = async (path, method = 'GET', body, signal) => {
+    if (path === '/session' && method === 'POST')
+      return {
+        id: 'sesResumeComplete',
+        title: (body as { title: string }).title,
+      };
+    if (path === '/permission' || path === '/session/status')
+      return path === '/permission' ? [] : {};
+    if (path.endsWith('/message') && method === 'POST')
+      return new Promise((_, reject) =>
+        signal!.addEventListener('abort', () => reject(new Error('aborted')), {
+          once: true,
+        }),
+      );
+    if (path.endsWith('/message'))
+      return complete
+        ? [user('sesResumeComplete'), assistant('sesResumeComplete')]
+        : [];
+    if (path.endsWith('/abort')) {
+      aborted = true;
+      return true;
+    }
+    if (method === 'DELETE') return true;
+    assert.fail(path);
+  };
+  const adapter = new ServerSessionAdapter(api, queue, 'owned', 1200000);
+  const controller = new AbortController();
+  const request = adapter.request(
+    job,
+    'resume-complete',
+    'complete transcript',
+    controller.signal,
+  );
+  try {
+    await advance(1000);
+    complete = true;
+    await advance(17000, 137000);
+    for (let i = 0; i < 5; i++) await advance(1000);
+    const result = await request;
+    assert.match(result.value, /Complete prose/);
+    assert.equal(result.evidence.cost, 0);
+    assert.equal(aborted, true);
+    assert.equal(adapter.monitor.status().resumeRecoveries, 0);
+  } finally {
+    controller.abort();
+    await request.catch(() => {});
   }
 });
 

@@ -240,7 +240,7 @@ export class ServerSessionAdapter {
       recoverHistory = resolve;
     });
     const release = await this.monitor.watch(id, {
-      fail: (error) => {
+      fail: (error, reason) => {
         monitorError ??= error;
         if (
           sentAt &&
@@ -252,7 +252,22 @@ export class ServerSessionAdapter {
             'watchdog_timeout',
             performance.now() - sentAt,
           );
+        if (sentAt && reason === 'resume_stall')
+          this.queue.observe(
+            requestID,
+            'resume_watchdog_timeout',
+            performance.now() - sentAt,
+          );
         requestAbort.abort();
+      },
+      discontinuity: (clock) => {
+        if (sentAt)
+          this.queue.observe(
+            requestID,
+            'runtime_discontinuity',
+            clock.elapsedGapMs,
+            JSON.stringify(clock),
+          );
       },
       output: () => {
         if (sentAt && !outputObserved) {
