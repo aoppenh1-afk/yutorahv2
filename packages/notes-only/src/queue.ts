@@ -31,6 +31,7 @@ export type NoteJob = {
   error: string | null;
   replace_hash: string | null;
   teacher_id: number;
+  catalog_date: number;
   ready_at: number | null;
   redo_reason: string | null;
 };
@@ -63,6 +64,7 @@ const columns = {
   completed_at: 'INTEGER',
   replace_hash: 'TEXT',
   teacher_id: 'INTEGER NOT NULL DEFAULT 0',
+  catalog_date: 'INTEGER NOT NULL DEFAULT 0',
   ready_at: 'INTEGER',
   redo_reason: 'TEXT',
 };
@@ -213,7 +215,9 @@ export class NotesQueue {
         ${options.eligibilityOnly ? "AND source_path IS NOT NULL AND eligibility='unknown'" : ''}
         ${options.allowedIds ? `AND id IN (${options.allowedIds.map(() => '?').join(',')})` : ''}
         ${stage === 'publishing' ? "AND review IN ('approved_route','accepted')" : ''}
-        ORDER BY CASE WHEN priority>=3 THEN 0 WHEN priority>=2 THEN 1 ELSE 2 END,${options.backlog ? 'rowid' : 'priority DESC,rowid'} LIMIT 1)
+        ORDER BY CASE WHEN priority>=3 THEN 0 WHEN priority>=2 THEN 1 ELSE 2 END,
+        ${stage === 'fetching' ? 'CASE WHEN source_path IS NOT NULL THEN 0 ELSE 1 END,' : ''}
+        ${options.backlog ? 'rowid' : 'priority DESC,CASE WHEN priority=2 THEN catalog_date ELSE 0 END DESC,rowid'} LIMIT 1)
       RETURNING *`)
         .get(
           stage,

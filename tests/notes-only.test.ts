@@ -607,6 +607,117 @@ void test('priority teacher inventory resumes each filtered cursor, promotes exi
   assert.equal(f.queue.claim('fetching', { backlog: true })?.id, '3');
   assert.equal(f.queue.claim('fetching', { backlog: true })?.id, '1');
 });
+
+void test('recent priority-teacher catalog dates determine claims even when the newest job was inserted last', async (t) => {
+  const f = await fixture(t);
+  f.queue.enqueue([{ id: '900' }, { id: '1' }, { id: '2' }]);
+  t.mock.method(globalThis, 'fetch', async () =>
+    Response.json({
+      response: {
+        numFound: 2,
+        docs: [
+          {
+            shiurid: '1',
+            teacherid: 80714,
+            teacherfullname: 'Priority teacher',
+            shiurtitle: 'Earlier recording',
+            shiurdate: '2025-01-01T00:00:00Z',
+          },
+          {
+            shiurid: '2',
+            teacherid: 80714,
+            teacherfullname: 'Priority teacher',
+            shiurtitle: 'New recording',
+            shiurdate: '2026-10-15T00:00:00Z',
+          },
+        ],
+      },
+    }),
+  );
+  await priorityInventoryPage(f.queue, signal, [
+    { id: 80714, name: 'Priority teacher' },
+  ]);
+  assert.equal(
+    f.queue.claim('fetching')?.id,
+    '2',
+    'new recording was trapped behind the old insertion order',
+  );
+  assert.equal(
+    f.queue.claim('fetching', { backlog: true })?.id,
+    '1',
+    'fairness claims must still favor requested teachers',
+  );
+  assert.equal(f.queue.claim('fetching')?.id, '900');
+});
+
+void test('cached preparation leads unknown sources within the same teacher priority, and generation chooses recent ready sources', async (t) => {
+  const f = await fixture(t);
+  f.queue.enqueue([{ id: '1' }, { id: '2' }]);
+  await f.pipeline.fetching(f.queue.claim('fetching')!, signal);
+  f.queue.db
+    .prepare("UPDATE jobs SET status='discovered',priority=2 WHERE id='1'")
+    .run();
+  f.queue.db.prepare("UPDATE jobs SET priority=2 WHERE id='2'").run();
+  // Put the cached preparation behind the unknown source in the insertion order.
+  f.queue.db.prepare("UPDATE jobs SET rowid=3 WHERE id='1'").run();
+  const cached = f.queue.claim('fetching')!;
+  assert.equal(
+    cached.id,
+    '1',
+    'known full VTT should not wait behind another speculative fetch',
+  );
+  await f.pipeline.fetching(cached, signal);
+  await f.pipeline.fetching(f.queue.claim('fetching')!, signal);
+  f.queue.db
+    .prepare(
+      "UPDATE jobs SET catalog_date=CASE id WHEN '1' THEN 1000 ELSE 2000 END",
+    )
+    .run();
+  assert.equal(
+    f.queue.claim('generating')?.id,
+    '2',
+    'recent verified ready sources should lead old cached notes',
+  );
+  assert.equal(f.queue.claim('generating', { backlog: true })?.id, '1');
+});
+
+void test('catalog-date backfill is paced and resumable without resetting teacher or general discovery cursors', async (t) => {
+  const f = await fixture(t);
+  f.queue.enqueue([{ id: '1' }]);
+  f.queue.db
+    .prepare("UPDATE jobs SET teacher_id=80714,priority=2 WHERE id='1'")
+    .run();
+  f.queue.setCursor('teacherDone:80714', 1);
+  f.queue.setCursor('teacher:80714', 100);
+  f.queue.setCursor('catalog', 900);
+  f.queue.setCursor('teacherRecent:80714', Date.now());
+  let requests = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    requests++;
+    return Response.json({
+      response: {
+        numFound: 1,
+        docs: [
+          { shiurid: '1', teacherid: 80714, shiurdate: '2026-10-15T00:00:00Z' },
+        ],
+      },
+    });
+  });
+  const result = await priorityInventoryPage(f.queue, signal, [
+    { id: 80714, name: 'Priority teacher' },
+  ]);
+  assert.equal('dateBackfill' in result && result.dateBackfill, true);
+  assert.equal(requests, 1);
+  assert.equal(f.queue.cursor('teacher:80714'), 100);
+  assert.equal(f.queue.cursor('catalog'), 900);
+  assert.equal(f.queue.cursor('teacherDate:80714'), 2);
+  assert.equal(f.queue.cursor('teacherDateDone:80714'), 2);
+  assert.equal(
+    f.queue.db.prepare("SELECT catalog_date FROM jobs WHERE id='1'").get()
+      ?.catalog_date,
+    Date.parse('2026-10-15T00:00:00Z'),
+  );
+});
 void test('atomic claims, lease fencing, stale completion, and renewal across SQLite connections', async (t) => {
   const f = await fixture(t);
   f.queue.enqueue([{ id: '1' }]);

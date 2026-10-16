@@ -45,6 +45,10 @@ export async function inventoryPage(
       title: scalar(raw.shiurTitle ?? raw.shiurtitle).replace(/<[^>]*>/g, ''),
       teacher: scalar(raw.teacherfullname),
       teacherId: Number(scalar(raw.teacherid ?? raw.teacherID)) || 0,
+      catalogDate:
+        [raw.shiurdate, raw.shiurdatesubmitted]
+          .map((value) => Date.parse(scalar(value)))
+          .find((value) => Number.isSafeInteger(value) && value > 0) ?? 0,
     }))
     .filter(
       (item: { teacherId: number }) =>
@@ -52,7 +56,7 @@ export async function inventoryPage(
     );
   queue.transaction(() => {
     const insert = queue.db.prepare(
-      "INSERT INTO jobs(id,title,teacher,status,teacher_id,priority) VALUES(?,?,?,'discovered',?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,teacher=excluded.teacher,teacher_id=excluded.teacher_id,priority=MAX(jobs.priority,excluded.priority)",
+      "INSERT INTO jobs(id,title,teacher,status,teacher_id,priority,catalog_date) VALUES(?,?,?,'discovered',?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,teacher=excluded.teacher,teacher_id=excluded.teacher_id,priority=MAX(jobs.priority,excluded.priority),catalog_date=CASE WHEN excluded.catalog_date>0 THEN excluded.catalog_date ELSE jobs.catalog_date END",
     );
     for (const item of items) {
       if (!/^[1-9]\d{0,11}$/.test(item.id))
@@ -63,6 +67,7 @@ export async function inventoryPage(
         item.teacher.slice(0, 300),
         item.teacherId,
         teacher ? 2 : 0,
+        item.catalogDate,
       );
     }
     if (teacher && advanceCursor) {
@@ -110,6 +115,31 @@ export async function priorityInventoryPage(
       queue.setCursor('teacherRecent:' + teacher.id, Date.now());
       return result;
     }
+  // Existing queues predate catalog dates. Backfill just the requested teachers,
+  // one paced page per inventory turn, without resetting any discovery cursor.
+  const dateTurn = queue.cursor('teacherDateTurn') - 1;
+  for (let n = 0; n < teachers.length; n++) {
+    const i = (dateTurn + n) % teachers.length;
+    const teacher = teachers[i];
+    if (queue.cursor('teacherDateDone:' + teacher.id) === 2) continue;
+    if (
+      !queue.db
+        .prepare(
+          'SELECT 1 FROM jobs WHERE teacher_id=? AND catalog_date=0 LIMIT 1',
+        )
+        .get(teacher.id)
+    ) {
+      queue.setCursor('teacherDateDone:' + teacher.id, 2);
+      continue;
+    }
+    const page = queue.cursor('teacherDate:' + teacher.id);
+    const result = await inventoryPage(queue, signal, page, false, teacher);
+    queue.setCursor('teacherDate:' + teacher.id, page + 1);
+    if (page * 30 >= result.total)
+      queue.setCursor('teacherDateDone:' + teacher.id, 2);
+    queue.setCursor('teacherDateTurn', i + 2);
+    return { ...result, dateBackfill: true };
+  }
   if (Date.now() - queue.cursor('recentCheckedAt') >= 1800_000) {
     const result = await inventoryPage(queue, signal, 1, false);
     queue.setCursor('recentCheckedAt', Date.now());
