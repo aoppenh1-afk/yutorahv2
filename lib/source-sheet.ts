@@ -128,9 +128,6 @@ export function sourceSheetMarkdown(options: SourceSheetOptions) {
         language === 'both' ? markdownText(source.ref) : '',
         markdownText(options.comments?.[source.ref] || ''),
         ...editions.flatMap((edition) => edition.text.map(markdownText)),
-        editions.some((edition) => edition.truncated)
-          ? 'Excerpt; full text on Sefaria.'
-          : '',
         !editions.length
           ? 'Text in the selected language is unavailable. Reference only.'
           : '',
