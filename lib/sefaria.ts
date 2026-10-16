@@ -51,6 +51,7 @@ export type SourceEdition = {
 };
 export type SourceText = {
   ref: string;
+  heRef?: string;
   categories: string[];
   editions: SourceEdition[];
 };
@@ -344,6 +345,7 @@ export async function sourceText(
   }
   return {
     ref,
+    ...(typeof data.heRef === 'string' ? { heRef: data.heRef } : {}),
     categories: data.categories.filter((c: unknown) => typeof c === 'string'),
     editions,
   };

@@ -26,6 +26,7 @@ if (values.help) {
   npm run sources:prepare -- [options]
 
   --url URL          Website supplying published transcripts, notes, and feature flags
+                    Descriptions come from the public YUTorah catalog
   --ids 123,456      Queue specific shiurim immediately
   --max-minutes 20   Stop after a bounded run; checkpoints survive on the database
   --max-jobs 60      Maximum shiur attempts in this run
@@ -94,7 +95,7 @@ No local AI model, TiDB writer, transcript writer, or Sefaria key is needed.`);
         },
         report: (event) => console.log(JSON.stringify(event)),
       });
-      summary = `Source preparation: ${JSON.stringify(result)}\nResults and queue checkpoints are saved in the shared database.`;
+      summary = `Source preparation: ${JSON.stringify(result)}\nOnly canonical references and operational queue checkpoints are saved in the shared database. Source text is never saved.`;
       if (result.outcome === 'upstream-unavailable') process.exitCode = 1;
     }
     console.log(summary);

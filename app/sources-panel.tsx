@@ -277,7 +277,11 @@ export function SourcesPanel({
                 ? ''
                 : source.occurrences.some((o) => o.origin === 'notes')
                   ? 'From notes'
-                  : 'Added by you';
+                  : source.occurrences.some((o) => o.origin === 'description')
+                    ? 'From shiur description'
+                    : source.occurrences.some((o) => o.origin === 'manual')
+                      ? 'Added by you'
+                      : '';
               return (
                 <li
                   key={source.ref}

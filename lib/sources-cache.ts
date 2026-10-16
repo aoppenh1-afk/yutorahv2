@@ -12,7 +12,6 @@ import {
   type SourceText,
 } from './sefaria';
 
-type CacheRow = { payload: string; expires: number };
 const snapshots = new WeakMap<
   SearchDatabase,
   {
@@ -21,10 +20,7 @@ const snapshots = new WeakMap<
   }
 >();
 const pruned = new WeakMap<SearchDatabase, number>();
-const textLoads = new WeakMap<
-  SearchDatabase,
-  Map<string, Promise<SourceText>>
->();
+const textLoads = new WeakMap<SefariaFetch, Map<string, Promise<SourceText>>>();
 
 /** Neon limits the whole project, including template and maintenance databases.
  * Leave room for concurrent bounded requests and PostgreSQL index maintenance. */
@@ -57,7 +53,15 @@ export async function pruneSourceCache(db: SearchDatabase) {
     .run();
   await db
     .prepare(`DELETE FROM sources_runs WHERE id IN (
-    SELECT id FROM (SELECT id,SUM(length(payload)*4) OVER(ORDER BY expires DESC,id) AS bytes,ROW_NUMBER() OVER(ORDER BY expires DESC,id) AS ordinal FROM sources_runs WHERE lease<? AND id NOT LIKE 'preparation:%' AND (id LIKE 'prepared:%' OR id LIKE 'text:%' OR payload LIKE '%"done":true%')) capacity WHERE bytes>33554432 OR ordinal>256 LIMIT 64
+    SELECT id FROM (SELECT id,SUM(length(payload)*4) OVER(ORDER BY expires DESC,id) AS bytes,ROW_NUMBER() OVER(ORDER BY expires DESC,id) AS ordinal FROM sources_runs WHERE lease<? AND id NOT LIKE 'preparation:%' AND id NOT LIKE 'prepared:creator-v5:%' AND (id LIKE 'prepared:%' OR id LIKE 'text:%' OR payload LIKE '%"done":true%')) capacity WHERE bytes>33554432 OR ordinal>256 LIMIT 64
+  )`)
+    .bind(now)
+    .run();
+  await db
+    .prepare(`DELETE FROM sources_runs WHERE id IN (
+    SELECT id FROM sources_runs WHERE lease<? AND (
+      id LIKE 'text:%' OR id LIKE 'creator-v4:%' OR id LIKE 'prepared:creator-v4:%' OR (payload LIKE '%"done":true%' AND (payload LIKE '%"occurrences"%' OR payload LIKE '%"mention"%'))
+    ) LIMIT 128
   )`)
     .bind(now)
     .run();
@@ -104,55 +108,42 @@ export async function sourceSnapshot(
   return pending;
 }
 
-/** Every saved text was fetched for this exact ref; a warm hit needs no upstream validation. */
+// Text stays in a bounded process cache. It is never written to SQL.
+const textCaches = new WeakMap<SefariaFetch, BoundedCache<SourceText>>();
+function textCache(fetcher: SefariaFetch) {
+  let cache = textCaches.get(fetcher);
+  if (!cache) {
+    cache = new BoundedCache(32, 4 * 1024 * 1024);
+    textCaches.set(fetcher, cache);
+  }
+  return cache;
+}
 export async function readCachedSourceText(
-  db: SearchDatabase,
+  _db: SearchDatabase | null,
   ref: string,
   extent: 'excerpt' | 'full' = 'excerpt',
+  fetcher: SefariaFetch = fetch,
 ): Promise<SourceText | null> {
-  const key = `text:v2:${extent}:${ref}`;
-  const now = Date.now();
-  const row = await db
-    .prepare(
-      'SELECT payload,expires FROM sources_runs WHERE id = ? AND expires > ?',
-    )
-    .bind(key, now)
-    .first<CacheRow>();
-  const decode = (row: CacheRow | null) => {
-    if (!row || row.payload === '{}') return null;
-    try {
-      const text = JSON.parse(row.payload) as SourceText;
-      return text?.ref === ref && Array.isArray(text.editions) ? text : null;
-    } catch {
-      return null;
-    }
-  };
-  const cached = decode(row);
+  const cache = textCache(fetcher);
+  const cached = cache.get(`${extent}:${ref}`);
   if (cached) return cached;
-  if (extent === 'excerpt') {
-    const full = await db
-      .prepare(
-        'SELECT payload,expires FROM sources_runs WHERE id = ? AND expires > ?',
-      )
-      .bind(`text:v2:full:${ref}`, now)
-      .first<CacheRow>();
-    const text = decode(full);
-    if (text) return sourceTextExcerpt(text);
-  }
-  return null;
+  const full = extent === 'excerpt' ? cache.get(`full:${ref}`) : undefined;
+  return full ? sourceTextExcerpt(full) : null;
 }
 
 /** Call only for a validated canonical reference. Errors never enter the cache. */
 export async function cachedSourceText(
-  db: SearchDatabase,
+  db: SearchDatabase | null,
   ref: string,
   fetcher: SefariaFetch = fetch,
   extent: 'excerpt' | 'full' = 'excerpt',
 ): Promise<SourceText> {
-  let pending = textLoads.get(db);
+  const cached = await readCachedSourceText(db, ref, extent, fetcher);
+  if (cached) return cached;
+  let pending = textLoads.get(fetcher);
   if (!pending) {
     pending = new Map();
-    textLoads.set(db, pending);
+    textLoads.set(fetcher, pending);
   }
   const full = extent === 'excerpt' ? pending.get(`full:${ref}`) : undefined;
   if (full) return sourceTextExcerpt(await full);
@@ -162,56 +153,13 @@ export async function cachedSourceText(
     if (pending.size >= 16)
       throw new SourcesLeaseError('Source text is busy. Please retry.');
     const current = pending;
-    work = loadSourceText(db, ref, fetcher, extent).finally(() =>
-      current.delete(key),
-    );
-    pending.set(key, work);
+    work = sourceText(ref, fetcher, extent)
+      .then((text) => {
+        textCache(fetcher).set(key, text, 5 * 60000);
+        return text;
+      })
+      .finally(() => current.delete(key));
+    current.set(key, work);
   }
   return work;
-}
-
-async function loadSourceText(
-  db: SearchDatabase,
-  ref: string,
-  fetcher: SefariaFetch,
-  extent: 'excerpt' | 'full',
-): Promise<SourceText> {
-  const cached = await readCachedSourceText(db, ref, extent);
-  if (cached) return cached;
-  await assertSourceStorageCapacity(db);
-  const key = `text:v2:${extent}:${ref}`;
-  const now = Date.now();
-  await db
-    .prepare(
-      'INSERT INTO sources_runs (id,payload,lease,expires) VALUES (?, ?, 0, ?) ON CONFLICT(id) DO NOTHING',
-    )
-    .bind(key, '{}', now + 86400000)
-    .run();
-  const lease = now + 60000;
-  const claim = await db
-    .prepare('UPDATE sources_runs SET lease = ? WHERE id = ? AND lease < ?')
-    .bind(lease, key, now)
-    .run();
-  if (!claim.meta.changes)
-    throw new SourcesLeaseError('Source text is being checked.');
-  try {
-    const text = await sourceText(ref, fetcher, extent);
-    const payload = JSON.stringify(text);
-    if (new TextEncoder().encode(payload).length > 900000)
-      throw new Error('This source text is too large to cache.');
-    const saved = await db
-      .prepare(
-        'UPDATE sources_runs SET payload = ?, expires = ? WHERE id = ? AND lease = ? AND lease > ?',
-      )
-      .bind(payload, Date.now() + 86400000, key, lease, Date.now())
-      .run();
-    if (!saved.meta.changes)
-      throw new SourcesLeaseError('Source text processing ownership changed.');
-    return text;
-  } finally {
-    await db
-      .prepare('UPDATE sources_runs SET lease = 0 WHERE id = ? AND lease = ?')
-      .bind(key, lease)
-      .run();
-  }
 }

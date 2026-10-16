@@ -1,11 +1,18 @@
+import { BoundedCache } from './bounded-cache';
 import type { SearchDatabase } from './search-storage';
 import {
   advanceSources,
   type SourceOccurrence,
   type TranscriptSource,
   type SourcesResult,
+  type SourceDetectionSession,
 } from './sources';
-import type { SefariaFetch } from './sefaria';
+import {
+  pollRefs,
+  SefariaTaskError,
+  sefariaUrl,
+  type SefariaFetch,
+} from './sefaria';
 import {
   sourceWindows,
   type SourceInput,
@@ -21,7 +28,7 @@ import {
 import { cachedSourceText, assertSourceStorageCapacity } from './sources-cache';
 
 // Increment when detection/acceptance changes. Old accepted results must not bypass new checks.
-export const sourceCreatorPolicy = 'creator-v4';
+export const sourceCreatorPolicy = 'creator-v5';
 const policy = sourceCreatorPolicy;
 const maxQuotes = 12;
 const lifetime = 30 * 86400_000;
@@ -29,7 +36,7 @@ export type SourceReview = {
   id: string;
   reason: string;
   mention: string;
-  origin: 'transcript' | 'notes';
+  origin: 'transcript' | 'notes' | 'description';
   startMs: number;
   candidates?: string[];
 };
@@ -72,12 +79,112 @@ export async function sourceHash(value: unknown) {
     n.toString(16).padStart(2, '0'),
   ).join('');
 }
+// Rich detection evidence is request/process-local. SQL holds only canonical refs,
+// input hashes and operational cursors/leases, never text or source positions.
+const memories = new WeakMap<
+  SearchDatabase,
+  BoundedCache<{ payload: string; value: unknown }>
+>();
+const sessions = new WeakMap<
+  SearchDatabase,
+  BoundedCache<SourceDetectionSession>
+>();
+function memory(db: SearchDatabase) {
+  let cache = memories.get(db);
+  if (!cache) {
+    cache = new BoundedCache(128, 8 * 1024 * 1024);
+    memories.set(db, cache);
+  }
+  return cache;
+}
+function citationSession(db: SearchDatabase, key: string) {
+  let cache = sessions.get(db);
+  if (!cache) {
+    cache = new BoundedCache(32, 8 * 1024 * 1024);
+    sessions.set(db, cache);
+  }
+  return { cache, session: cache.get(key) || {} };
+}
+function referenceSource(ref: string): TranscriptSource {
+  return {
+    ref,
+    heRef: '',
+    category: 'Source',
+    occurrences: [],
+    url: sefariaUrl(encodeURI(ref.replaceAll(' ', '_').replaceAll(':', '.')))!,
+  };
+}
+function encode(key: string, value: unknown) {
+  const v = value as CreatorState & SourceCreatorResult & QuoteResolution;
+  if (key.includes(':quote:'))
+    return JSON.stringify({
+      ref: v.source?.ref,
+      review: v.review,
+      contextual: v.contextual,
+      done: true,
+    });
+  const refs = [...new Set(v.sources.map((source) => source.ref))];
+  if (key.startsWith('prepared:'))
+    return JSON.stringify({
+      inputVersion: v.inputVersion,
+      refs,
+      ...(v.limited ? { limited: true } : {}),
+    });
+  if (key.includes(':window:'))
+    return JSON.stringify({ refs, done: true, limited: v.limited });
+  return JSON.stringify({
+    refs,
+    cursor: v.cursor,
+    done: v.done,
+    limited: v.limited,
+    // A new token invalidates another process's evidence for the same cursor.
+    checkpoint: crypto.randomUUID(),
+  });
+}
 async function read<T>(db: SearchDatabase, key: string): Promise<T | null> {
   const row = await db
     .prepare('SELECT payload FROM sources_runs WHERE id=? AND expires>?')
     .bind(key, Date.now())
     .first<Row>();
-  return row ? (JSON.parse(row.payload) as T) : null;
+  if (!row) return null;
+  const cached = memory(db).get(key);
+  if (cached?.payload === row.payload)
+    return structuredClone(cached.value) as T;
+  const saved = JSON.parse(row.payload);
+  if (key.includes(':quote:'))
+    return {
+      source: saved.ref ? referenceSource(saved.ref) : undefined,
+      review: saved.review,
+      contextual: saved.contextual,
+    } as T;
+  const sources = (saved.refs || []).map(referenceSource);
+  if (key.startsWith('prepared:'))
+    return {
+      inputVersion: saved.inputVersion,
+      status: 'ready',
+      sources,
+      reviews: [],
+      reviewCount: 0,
+      limited: !!saved.limited,
+    } as T;
+  if (key.includes(':window:'))
+    return {
+      ...emptyWindow(),
+      sources,
+      done: true,
+      limited: saved.limited,
+    } as T;
+  return {
+    ...emptyWindow(),
+    sources,
+    cursor: saved.cursor,
+    done: saved.done,
+    limited: saved.limited,
+    current: emptyWindow(),
+    quoteIndex: 0,
+    citationsReady: false,
+    reviewCount: 0,
+  } as T;
 }
 async function write(
   db: SearchDatabase,
@@ -85,15 +192,68 @@ async function write(
   value: unknown,
   duration = lifetime,
 ) {
-  const payload = JSON.stringify(value);
-  if (payload.length > 800000)
-    throw new Error('This source result is too large to save.');
+  const payload = encode(key, value);
   await db
     .prepare(
       'INSERT INTO sources_runs (id,payload,lease,expires) VALUES (?,?,0,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,expires=excluded.expires',
     )
     .bind(key, payload, Date.now() + duration)
     .run();
+  memory(db).set(key, { payload, value: structuredClone(value) }, 5 * 60000);
+}
+
+/** Only async task handles survive a cold start; linker bodies stay in memory. */
+function taskFetcher(db: SearchDatabase, fetcher: SefariaFetch): SefariaFetch {
+  return async (input, init) => {
+    const url = new URL(
+      input instanceof Request ? input.url : input.toString(),
+    );
+    if (
+      url.origin !== 'https://www.sefaria.org' ||
+      url.pathname !== '/api/find-refs'
+    )
+      return fetcher(input, init);
+    const key = `${policy}:task:${await sourceHash(init?.body)}`;
+    const row = await db
+      .prepare('SELECT payload FROM sources_runs WHERE id=? AND expires>?')
+      .bind(key, Date.now())
+      .first<{ payload: string }>();
+    if (row) {
+      const { taskId } = JSON.parse(row.payload);
+      try {
+        const body = await pollRefs(taskId, fetcher);
+        return Response.json(body ? { body } : { task_id: taskId });
+      } catch (error) {
+        if (error instanceof SefariaTaskError)
+          await db
+            .prepare('DELETE FROM sources_runs WHERE id=?')
+            .bind(key)
+            .run();
+        throw error;
+      }
+    }
+    const response = await fetcher(input, init);
+    if (response.ok) {
+      const data = await response.clone().json();
+      if (
+        typeof data.task_id === 'string' &&
+        /^[a-zA-Z0-9_-]{1,100}$/.test(data.task_id) &&
+        !data.body &&
+        !data.result
+      )
+        await db
+          .prepare(
+            'INSERT INTO sources_runs (id,payload,lease,expires) VALUES (?,?,0,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,expires=excluded.expires',
+          )
+          .bind(
+            key,
+            JSON.stringify({ taskId: data.task_id }),
+            Date.now() + 5 * 60000,
+          )
+          .run();
+    }
+    return response;
+  };
 }
 
 /** Advance a bounded set of checkpoints, yielding when Sefaria needs more time. */
@@ -103,11 +263,13 @@ export async function advanceSourceCreator(
   fetcher: SefariaFetch = fetch,
 ): Promise<SourceCreatorResult> {
   const windows = sourceWindows(input);
+  const linkerFetch = taskFetcher(db, fetcher);
   const inputVersion = await sourceHash({
     policy,
     shiurId: input.shiurId,
     transcript: input.transcript,
     notes: input.notes,
+    description: input.description,
   });
   const key = `${policy}:${inputVersion}`;
   const preparedKey = `prepared:${policy}:${input.shiurId}`;
@@ -115,6 +277,14 @@ export async function advanceSourceCreator(
   if (prepared?.inputVersion === inputVersion && prepared.status === 'ready')
     return {
       ...prepared,
+      transcriptId: input.transcript?.transcriptId || `notes-${input.shiurId}`,
+      notesVersion: input.notes?.version,
+      progress: 100,
+      omitted: 0,
+      omissions: [],
+      omissionCounts: {},
+      checkedWindows: windows.length,
+      totalWindows: windows.length,
       warnings: input.warnings || [],
       transcriptComplete: input.transcript?.complete !== false,
     };
@@ -140,7 +310,7 @@ export async function advanceSourceCreator(
       .prepare(
         'INSERT INTO sources_runs (id,payload,lease,expires) VALUES (?,?,0,?) ON CONFLICT(id) DO NOTHING',
       )
-      .bind(key, JSON.stringify(state), Date.now() + lifetime)
+      .bind(key, encode(key, state), Date.now() + lifetime)
       .run();
   }
   const reply = (
@@ -185,11 +355,11 @@ export async function advanceSourceCreator(
   };
   if (state.done) {
     const result = reply(state);
-    await write(db, preparedKey, result, 365 * 86400_000);
+    if (!input.retryable) await write(db, preparedKey, result, 365 * 86400_000);
     return result;
   }
   const now = Date.now(),
-    lease = now + 60000;
+    lease = now + 300000;
   const claimed = await db
     .prepare('UPDATE sources_runs SET lease = ? WHERE id = ? AND lease < ?')
     .bind(lease, key, now)
@@ -197,7 +367,7 @@ export async function advanceSourceCreator(
   if (!claimed.meta.changes)
     return reply((await read<CreatorState>(db, key)) || state, true);
   const checkpoint = async () => {
-    const payload = JSON.stringify(state);
+    const payload = encode(key, state);
     if (payload.length > 800000)
       throw new Error('This source result is too large to save.');
     const saved = await db
@@ -210,6 +380,7 @@ export async function advanceSourceCreator(
       throw new Error(
         'Source processing changed ownership. Retry to continue.',
       );
+    memory(db).set(key, { payload, value: structuredClone(state) }, 5 * 60000);
   };
   try {
     state = (await read<CreatorState>(db, key))!;
@@ -241,11 +412,19 @@ export async function advanceSourceCreator(
         completeWindow(state, cached, window);
       } else {
         if (!state.citationsReady) {
-          const citations = await advanceSources(
-            db,
-            { ...local, transcriptId: windowHash },
-            fetcher,
-          );
+          const transient = citationSession(db, windowKey);
+          // Finish a synchronous citation window in this request. A cold process can
+          // replay linker tasks, but cannot resume evidence/positions from SQL.
+          let citations: SourcesResult;
+          do {
+            citations = await advanceSources(
+              db,
+              { ...local, transcriptId: windowHash },
+              linkerFetch,
+              transient.session,
+            );
+            transient.cache.set(windowKey, transient.session, 5 * 60000);
+          } while (citations.status !== 'ready' && !citations.waiting);
           state.current.sources = citations.sources
             .filter((s) =>
               s.occurrences.some((o) => boundedOccurrence(o, window)),
@@ -308,7 +487,7 @@ export async function advanceSourceCreator(
                       o.method === 'citation' &&
                       o.offset + o.mention.length <= occurrence.offset &&
                       occurrence.offset - o.offset <= 450 &&
-                      (window.origin === 'notes' ||
+                      (window.origin !== 'transcript' ||
                         Math.abs(o.startMs - occurrence.startMs) <= 60000),
                   )
                   .map((o) => ({
@@ -393,7 +572,8 @@ export async function advanceSourceCreator(
       if (waiting || Date.now() >= deadline) break;
     }
     const result = reply(state, waiting);
-    if (state.done) await write(db, preparedKey, result, 365 * 86400_000);
+    if (state.done && !input.retryable)
+      await write(db, preparedKey, result, 365 * 86400_000);
     return result;
   } finally {
     await db
@@ -431,6 +611,11 @@ function completeWindow(
   state.current = emptyWindow();
 }
 function mergeSources(target: TranscriptSource[], sources: TranscriptSource[]) {
+  const referenceOnly = new Set(
+    target.filter((s) => !s.occurrences.length).map((s) => s.ref),
+  );
+  for (const source of sources)
+    if (!source.occurrences.length) referenceOnly.add(source.ref);
   const occurrenceKey = (o: SourceOccurrence) =>
     `${o.origin || ''}:${o.offset}:${o.method || ''}`;
   for (const source of sources) {
@@ -467,7 +652,8 @@ function mergeSources(target: TranscriptSource[], sources: TranscriptSource[]) {
     }
   }
   for (let i = target.length - 1; i >= 0; i--)
-    if (!target[i].occurrences.length) target.splice(i, 1);
+    if (!target[i].occurrences.length && !referenceOnly.has(target[i].ref))
+      target.splice(i, 1);
   target.sort(
     (a, b) =>
       (a.occurrences[0]?.origin === 'notes' ? 1 : 0) -
@@ -478,7 +664,7 @@ function mergeSources(target: TranscriptSource[], sources: TranscriptSource[]) {
 function boundedOccurrence(occurrence: SourceOccurrence, window: SourceWindow) {
   if (Array.from(occurrence.mention).length > 450 || !occurrence.spans.length)
     return false;
-  if (window.origin === 'notes') return true;
+  if (window.origin !== 'transcript') return true;
   const first = occurrence.spans[0].segmentIndex,
     last = occurrence.spans.at(-1)!.segmentIndex;
   if (

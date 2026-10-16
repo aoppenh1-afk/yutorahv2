@@ -1243,7 +1243,7 @@ void test('published snapshot caching checks changed revisions, corrected timing
   assert.equal(reads, 4);
 });
 
-void test('source texts are durably cached by exact ref and extent; failures do not poison retries', async () => {
+void test('source texts are cached in process memory by exact ref and extent; failures do not poison retries', async () => {
   const db = database();
   let calls = 0;
   const fetcher: typeof fetch = async () => {

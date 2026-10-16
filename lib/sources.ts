@@ -27,7 +27,7 @@ export type SourceOccurrence = {
     endChar: number;
     text?: string;
   }>;
-  origin?: 'transcript' | 'notes' | 'manual';
+  origin?: 'transcript' | 'notes' | 'description' | 'manual';
   method?: 'citation' | 'quotation';
   noteSpans?: Array<{ startChar: number; endChar: number }>;
   verification?: string;
@@ -89,6 +89,7 @@ type State = {
   limited: boolean;
   done: boolean;
 };
+export type SourceDetectionSession = { state?: State };
 type Row = { payload: string; lease: number; expires: number };
 const policyVersion = 7;
 const chunkSize = 12000;
@@ -197,6 +198,7 @@ export async function advanceSources(
   db: SearchDatabase,
   transcript: SourceTranscript,
   fetcher: SefariaFetch = fetch,
+  session?: SourceDetectionSession,
 ): Promise<SourcesResult> {
   const { key, chars, segmentOffsets } = await prepare(transcript);
   const now = Date.now();
@@ -216,13 +218,22 @@ export async function advanceSources(
     limited: false,
     done: transcript.segments.every((s) => !s.text.trim()),
   };
-  const existing = await db
-    .prepare(
-      'SELECT payload,lease,expires FROM sources_runs WHERE id = ? AND expires > ?',
-    )
-    .bind(key, now)
-    .first<Row>();
-  if (!existing) {
+  const existing = session
+    ? session.state
+      ? {
+          payload: JSON.stringify(session.state),
+          lease: 0,
+          expires: now + cacheDuration,
+        }
+      : null
+    : await db
+        .prepare(
+          'SELECT payload,lease,expires FROM sources_runs WHERE id = ? AND expires > ?',
+        )
+        .bind(key, now)
+        .first<Row>();
+  if (session && !session.state) session.state = initial;
+  if (!session && !existing) {
     await db
       .prepare(
         'DELETE FROM sources_runs WHERE id = ? AND expires < ? AND lease < ?',
@@ -237,6 +248,7 @@ export async function advanceSources(
       .run();
   }
   const read = async () => {
+    if (session) return structuredClone(session.state!);
     const row = await db
       .prepare('SELECT payload,lease,expires FROM sources_runs WHERE id = ?')
       .bind(key)
@@ -265,10 +277,12 @@ export async function advanceSources(
     : await read();
   if (cached.done) return reply(cached);
   const lease = now + 60000;
-  const claimed = await db
-    .prepare('UPDATE sources_runs SET lease = ? WHERE id = ? AND lease < ?')
-    .bind(lease, key, now)
-    .run();
+  const claimed = session
+    ? { meta: { changes: 1 } }
+    : await db
+        .prepare('UPDATE sources_runs SET lease = ? WHERE id = ? AND lease < ?')
+        .bind(lease, key, now)
+        .run();
   if (!claimed.meta.changes) return reply(await read());
   try {
     const state = await read();
@@ -535,12 +549,17 @@ export async function advanceSources(
     await save(state);
     return reply(state);
   } finally {
-    await db
-      .prepare('UPDATE sources_runs SET lease = 0 WHERE id = ? AND lease = ?')
-      .bind(key, lease)
-      .run();
+    if (!session)
+      await db
+        .prepare('UPDATE sources_runs SET lease = 0 WHERE id = ? AND lease = ?')
+        .bind(key, lease)
+        .run();
   }
   async function save(state: State) {
+    if (session) {
+      session.state = structuredClone(state);
+      return;
+    }
     const payload = JSON.stringify(
       state.done
         ? {

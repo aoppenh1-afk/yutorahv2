@@ -1,17 +1,13 @@
 import type { SearchDatabase } from './search-storage';
 import { sourceFeatures, type SourceFeatures } from './source-features';
 import { verifyManualSource } from './source-manual';
-import {
-  cachedSourceText,
-  readCachedSourceText,
-  pruneSourceCache,
-} from './sources-cache';
+import { cachedSourceText, readCachedSourceText } from './sources-cache';
 import type { SefariaFetch } from './sefaria';
 
 export async function sourceTextResponse(
   request: Request,
   dependencies: {
-    database: () => SearchDatabase;
+    database?: () => SearchDatabase;
     fetcher?: SefariaFetch;
     features?: SourceFeatures;
   },
@@ -30,10 +26,14 @@ export async function sourceTextResponse(
       { status: 400, headers },
     );
   try {
-    const db = dependencies.database();
-    await pruneSourceCache(db);
+    const db = null;
     const extent = params.get('extent') === 'full' ? 'full' : 'excerpt';
-    const cached = await readCachedSourceText(db, ref, extent);
+    const cached = await readCachedSourceText(
+      db,
+      ref,
+      extent,
+      dependencies.fetcher,
+    );
     if (cached)
       return Response.json(cached, {
         headers: { 'Cache-Control': 'public, max-age=3600' },

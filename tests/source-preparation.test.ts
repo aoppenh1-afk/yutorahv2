@@ -54,6 +54,11 @@ function service() {
             transcriptId: 'official-' + parsed.searchParams.get('id'),
             segments: [{ text: transcript, startMs: 0, endMs: 1000 }],
           });
+    if (parsed.pathname === '/api/shiur/details')
+      return Response.json({
+        shiurID: Number(parsed.searchParams.get('shiurID')),
+        shiurDescription: '',
+      });
     if (parsed.pathname === '/api/study-notes')
       return Response.json(
         notes
@@ -385,7 +390,7 @@ void test('cache capacity pruning preserves prepared sheets and the backlog, eve
       )
       .bind(`creator:old:${i}`, JSON.stringify({ done: true }), expires)
       .run();
-  for (const id of ['prepared:creator-v4:42', 'preparation:creator-v4:job:42'])
+  for (const id of ['prepared:creator-v5:42', 'preparation:creator-v5:job:42'])
     await db
       .prepare(
         'INSERT INTO sources_runs(id,payload,lease,expires) VALUES(?,?,0,?)',
@@ -451,17 +456,17 @@ void test('workflow runs the actual script with pinned actions and safely passes
   assert.equal((workflow.match(/uses: [^\n]+@[a-f0-9]{40}/g) || []).length, 2);
 });
 
-void test('prepared sheets obey the shared cache cap without evicting runner checkpoints or leases', async () => {
+void test('compact prepared references survive cache pruning alongside runner checkpoints and leases', async () => {
   const { db, sqlite } = database();
   const expires = Date.now() + 86400000;
   const insert = sqlite.prepare(
     'INSERT INTO sources_runs(id,payload,lease,expires) VALUES(?,?,?,?)',
   );
   for (let n = 0; n < 300; n++)
-    insert.run('prepared:creator-v4:' + n, '{}', 0, expires + n);
+    insert.run('prepared:creator-v5:' + n, '{}', 0, expires + n);
   insert.run('preparation:creator-v4:inventory', '{"page":400}', 0, expires);
   insert.run('preparation:runner-lock', '{}', expires, expires);
-  insert.run('prepared:creator-v4:active', '{}', expires, expires);
+  insert.run('prepared:creator-v5:active', '{}', expires, expires);
   await pruneSourceCache(db);
   assert.equal(
     Number(
@@ -471,7 +476,7 @@ void test('prepared sheets obey the shared cache cap without evicting runner che
         )
         .get()!.n,
     ),
-    256,
+    300,
   );
   assert.ok(
     sqlite
@@ -488,9 +493,85 @@ void test('prepared sheets obey the shared cache cap without evicting runner che
   assert.ok(
     sqlite
       .prepare(
-        "SELECT id FROM sources_runs WHERE id='prepared:creator-v4:active'",
+        "SELECT id FROM sources_runs WHERE id='prepared:creator-v5:active'",
       )
       .get(),
   );
   sqlite.close();
+});
+
+void test('runner prepares sources from a description with no transcript or notes and never warms source text', async () => {
+  const { db } = database(),
+    api = service();
+  api.setMissing();
+  const calls: string[] = [];
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = new URL(
+      input instanceof Request ? input.url : input.toString(),
+    );
+    calls.push(url.pathname);
+    if (url.pathname === '/api/shiur/details')
+      return Response.json({
+        shiurID: 42,
+        shiurDescription: '<p>See Genesis 1:1.</p>',
+      });
+    if (url.pathname === '/api/find-refs')
+      return Response.json({
+        body: {
+          results: [
+            {
+              startChar: 4,
+              endChar: 15,
+              text: 'Genesis 1:1',
+              refs: ['Genesis 1:1'],
+              linkFailed: false,
+            },
+          ],
+          refData: {
+            'Genesis 1:1': {
+              heRef: 'בראשית א׳:א׳',
+              url: 'Genesis.1.1',
+              primaryCategory: 'Tanakh',
+            },
+          },
+          debugData: [
+            [
+              {
+                context_ref: null,
+                context_type: null,
+                resolved_part_classes: ['RawRefPart'],
+                orig_part_types: ['NAMED', 'NUMBERED'],
+              },
+            ],
+          ],
+        },
+      });
+    if (url.pathname.startsWith('/api/ref/'))
+      return Response.json({
+        is_ref: true,
+        normalized: 'Genesis 1:1',
+        hebrew: 'בראשית א׳:א׳',
+        url_ref: 'Genesis.1.1',
+        node_type: 'JaggedArrayNode',
+        depth: 2,
+        address_types: ['Perek', 'Pasuk'],
+        start_indexes: [1, 1],
+        end_indexes: [1, 1],
+        start_labels: ['1', '1'],
+        end_labels: ['1', '1'],
+      });
+    return api.fetcher(input, init);
+  };
+  const result = await runSourcePreparation({
+    ...options(db, fetcher),
+    ids: ['42'],
+  });
+  assert.equal(result.ready, 1);
+  const row = await db
+    .prepare(
+      "SELECT payload FROM sources_runs WHERE id='prepared:creator-v5:42'",
+    )
+    .first<{ payload: string }>();
+  assert.deepEqual(JSON.parse(row!.payload).refs, ['Genesis 1:1']);
+  assert.ok(!calls.some((path) => path.startsWith('/api/v3/texts')));
 });

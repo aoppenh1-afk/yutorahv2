@@ -8,6 +8,10 @@ on:
         description: 'Optional comma-separated shiur IDs to prepare first'
         type: string
         default: ''
+      max_jobs:
+        description: 'Maximum shiur attempts, use 1 for a rollout check'
+        type: string
+        default: '60'
       check:
         description: 'Only verify database configuration'
         type: boolean
@@ -28,6 +32,7 @@ jobs:
       SOURCES_MAX_DATABASE_BYTES: ${{ vars.SOURCES_MAX_DATABASE_BYTES || '500000000' }}
       SOURCE_IDS: ${{ inputs.ids || '' }}
       SOURCE_CHECK: ${{ inputs.check || false }}
+      SOURCE_MAX_JOBS: ${{ inputs.max_jobs || '60' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -43,5 +48,5 @@ jobs:
           if [ "$SOURCE_CHECK" = 'true' ]; then
             npm run sources:prepare -- --check
           else
-            npm run sources:prepare -- --url "$SOURCES_SITE_URL" --ids "$SOURCE_IDS" --max-minutes 20 --max-jobs 60 --catalog-pages 2
+            npm run sources:prepare -- --url "$SOURCES_SITE_URL" --ids "$SOURCE_IDS" --max-minutes 20 --max-jobs "$SOURCE_MAX_JOBS" --catalog-pages 2
           fi

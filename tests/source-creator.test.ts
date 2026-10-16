@@ -118,10 +118,12 @@ void test('new source sheets stop before database capacity is exhausted while pr
       advanceSourceCreator(constrained, input('Genesis 1:1'), mock().fetcher),
     /capacity/i,
   );
-  await assert.rejects(
-    () => cachedSourceText(constrained, 'Genesis 1:1', mock().fetcher),
-    /capacity/i,
+  const textOnly = await cachedSourceText(
+    constrained,
+    'Genesis 1:1',
+    mock().fetcher,
   );
+  assert.equal(textOnly.ref, 'Genesis 1:1');
   assert.equal(
     (
       await base
@@ -645,13 +647,14 @@ void test('overlapping readings reuse canonical verification and populate the sh
   const service = mock({ text: passages.join('\n') });
   const db = database();
   const started = performance.now();
+  const fetcher: typeof fetch = async (...args) => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return service.fetcher(...args);
+  };
   const result = await finish(
     db,
     input(...passages.flatMap((text) => [text, 'The teacher explains.'])),
-    async (...args) => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      return service.fetcher(...args);
-    },
+    fetcher,
   );
   const metadataCalls = service.calls.filter((url) =>
     url.includes('/api/ref/'),
@@ -678,12 +681,7 @@ void test('overlapping readings reuse canonical verification and populate the sh
     1,
     'the same canonical text should be downloaded once',
   );
-  const sheet = await cachedSourceText(
-    db,
-    'Genesis 1:1',
-    service.fetcher,
-    'excerpt',
-  );
+  const sheet = await cachedSourceText(db, 'Genesis 1:1', fetcher, 'excerpt');
   assert.equal(sheet.ref, 'Genesis 1:1');
   assert.equal(
     service.calls.filter((url) => url.includes('/api/v3/texts/')).length,
@@ -889,7 +887,7 @@ void test('search count inconsistencies and unknown count precision never establ
   }
 });
 
-void test('the sheet text endpoint serves verified cached text with no upstream requests and revalidates expired entries', async () => {
+void test('sheet texts use bounded process memory, expire, and never need database access', async (t) => {
   const db = database(),
     service = mock();
   await cachedSourceText(db, 'Genesis 1:1', service.fetcher, 'full');
@@ -902,14 +900,17 @@ void test('the sheet text endpoint serves verified cached text with no upstream 
     fetcher: service.fetcher,
     features: { links: true, sheets: true },
   };
-  const warm = await sourceTextResponse(request, dependencies);
+  const initialTime = Date.now();
+  const warm = await sourceTextResponse(request, {
+    ...dependencies,
+    database: () => {
+      throw new Error('No database access for source text');
+    },
+  });
   assert.equal(warm.status, 200);
   assert.equal((await warm.json()).ref, 'Genesis 1:1');
   assert.equal(service.calls.length, 0);
-  await db
-    .prepare('UPDATE sources_runs SET expires=0 WHERE id LIKE ?')
-    .bind('text:%')
-    .run();
+  t.mock.method(Date, 'now', () => initialTime + 5 * 60000 + 1);
   assert.equal((await sourceTextResponse(request, dependencies)).status, 200);
   assert.equal(
     service.calls.filter((url) => url.includes('/api/ref/')).length,
@@ -1339,3 +1340,209 @@ void test('manual verification bounds request bytes before parsing and rejects m
     400,
   );
 });
+
+void test('durable records contain only references and operational metadata, including after a cold restart', async () => {
+  const db = database();
+  const data = input('See Genesis 1:1. ' + quote);
+  data.notes = {
+    markdown: 'Private note wording. Exodus 2:2.',
+    version: 'notes-1',
+  };
+  data.description = 'Private description wording. Genesis 1:1.';
+  const service = mock();
+  const first = await finish(db, data, service.fetcher);
+  assert.equal(first.sources.length, 2);
+  const rows = await db
+    .prepare('SELECT id,payload FROM sources_runs')
+    .all<{ id: string; payload: string }>();
+  for (const row of rows.results) {
+    const stored = JSON.parse(row.payload);
+    assert.doesNotMatch(
+      row.payload,
+      /Private|בראשית|mention|spans|startMs|endMs|editions|verification|heRef|occurrences/,
+    );
+    assert.ok(!row.id.startsWith('text:'));
+    assert.ok(!stored.segments && !stored.markdown && !stored.description);
+    if (row.id.startsWith('prepared:')) {
+      assert.deepEqual(Object.keys(stored).sort(), ['inputVersion', 'refs']);
+      assert.deepEqual(stored.refs, ['Genesis 1:1', 'Exodus 2:2']);
+      assert.ok(Buffer.byteLength(row.payload) < 150);
+    }
+  }
+  // A new database adapter has no process-local detection evidence.
+  const cold = await advanceSourceCreator({ ...db }, data, async () => {
+    throw new Error('Prepared references must not require Sefaria');
+  });
+  assert.equal(cold.status, 'ready');
+  assert.deepEqual(
+    cold.sources.map((s) => s.ref),
+    ['Genesis 1:1', 'Exodus 2:2'],
+  );
+  assert.ok(
+    cold.sources.every(
+      (s) =>
+        s.occurrences.length === 0 &&
+        s.url.startsWith('https://www.sefaria.org/'),
+    ),
+  );
+});
+
+void test('description-only shiurim are checked, and changed descriptions replace stale references', async () => {
+  const db = database(),
+    service = mock();
+  let description = 'See Genesis 1:1.';
+  const request = new Request('https://example.test/api/source-creator?id=42');
+  const dependencies = {
+    db,
+    fetcher: service.fetcher,
+    features: { links: true, sheets: true },
+    transcript: async () => Response.json({}, { status: 404 }),
+    notes: async () => Response.json({}, { status: 404 }),
+    description: async () => Response.json({ description }),
+  };
+  const finishRequest = async () => {
+    for (let n = 0; n < 20; n++) {
+      const response = await sourceCreatorResponse(request, dependencies);
+      assert.ok(response.status === 200 || response.status === 202);
+      const result = (await response.json()) as SourceCreatorResult;
+      if (response.status === 200) return result;
+    }
+    throw new Error('Description checking did not finish');
+  };
+  const first = await finishRequest();
+  assert.deepEqual(
+    first.sources.map((s) => s.ref),
+    ['Genesis 1:1'],
+  );
+  assert.ok(
+    first.sources[0].occurrences.every(
+      (o) => o.origin === 'description' && !o.spans.length && !o.noteSpans,
+    ),
+  );
+  description = 'Corrected source list: Exodus 2:2.';
+  const changed = await finishRequest();
+  assert.notEqual(changed.inputVersion, first.inputVersion);
+  assert.deepEqual(
+    changed.sources.map((s) => s.ref),
+    ['Exodus 2:2'],
+  );
+});
+
+void test('pending Sefaria tasks survive process loss without saving source positions or resubmitting text', async () => {
+  const db = database(),
+    data = input('See Genesis 1:1.'),
+    service = mock();
+  let submissions = 0,
+    polls = 0;
+  const fetcher: typeof fetch = async (url, init) => {
+    const address = url instanceof Request ? url.url : url.toString();
+    if (address.includes('/api/find-refs')) {
+      submissions++;
+      return Response.json({ task_id: 'source-task-1' });
+    }
+    if (address.includes('/api/async/')) {
+      polls++;
+      if (polls < 2) return Response.json({ state: 'PENDING', ready: false });
+      return service.fetcher('https://www.sefaria.org/api/find-refs', {
+        method: 'POST',
+        body: JSON.stringify({
+          text: { body: data.transcript!.segments[0].text },
+        }),
+      });
+    }
+    return service.fetcher(url, init);
+  };
+  let result = await advanceSourceCreator({ ...db }, data, fetcher);
+  assert.equal(result.status, 'pending');
+  for (let n = 0; n < 10 && result.status !== 'ready'; n++)
+    result = await advanceSourceCreator({ ...db }, data, fetcher);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(
+    result.sources.map((s) => s.ref),
+    ['Genesis 1:1'],
+  );
+  assert.equal(submissions, 1);
+  assert.ok(polls >= 2);
+});
+
+void test('a temporary description outage cannot overwrite a fully prepared reference list', async () => {
+  const db = database(),
+    data = input('Genesis 1:1'),
+    service = mock();
+  data.description = 'Exodus 2:2';
+  await finish(db, data, service.fetcher);
+  const before = await db
+    .prepare("SELECT payload FROM sources_runs WHERE id LIKE 'prepared:%'")
+    .first<{ payload: string }>();
+  const partial = input('Genesis 1:1');
+  partial.retryable = true;
+  await finish(db, partial, service.fetcher);
+  const after = await db
+    .prepare("SELECT payload FROM sources_runs WHERE id LIKE 'prepared:%'")
+    .first<{ payload: string }>();
+  assert.equal(after!.payload, before!.payload);
+});
+
+void test(
+  'reference-only creator and cleanup work on PostgreSQL across fresh database adapters',
+  {
+    skip: !process.env.TEST_DATABASE_URL,
+  },
+  async () => {
+    const { Pool } = await import('pg');
+    const { postgresSearchDatabase } = await import('../lib/search-postgres');
+    const { migrateSourcesSchema } =
+      await import('../scripts/migrate-search-schema');
+    const { pruneSourceCache } = await import('../lib/sources-cache');
+    const pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
+    const schema = 'source_refs_' + crypto.randomUUID().replaceAll('-', '');
+    try {
+      await pool.query(`CREATE SCHEMA ${schema}`);
+      const db = postgresSearchDatabase(pool, schema);
+      await migrateSourcesSchema(db);
+      const data: SourceInput = {
+        shiurId: '42',
+        description: 'See Genesis 1:1.',
+      };
+      const service = mock();
+      await finish(db, data, service.fetcher);
+      const cold = await advanceSourceCreator(
+        postgresSearchDatabase(pool, schema),
+        data,
+        async () => {
+          throw new Error('A saved reference must need no upstream request');
+        },
+      );
+      assert.deepEqual(
+        cold.sources.map((s) => s.ref),
+        ['Genesis 1:1'],
+      );
+      await db
+        .prepare(
+          'INSERT INTO sources_runs(id,payload,lease,expires) VALUES(?,?,0,?)',
+        )
+        .bind(
+          'text:legacy',
+          JSON.stringify({ editions: [{ text: ['legacy text'] }] }),
+          Date.now() + 86400000,
+        )
+        .run();
+      await pruneSourceCache(db);
+      const rows = await db
+        .prepare('SELECT id,payload FROM sources_runs')
+        .all<{ id: string; payload: string }>();
+      assert.ok(!rows.results.some((r) => r.id.startsWith('text:')));
+      assert.ok(
+        rows.results.some((r) => r.id.startsWith('prepared:creator-v5:')),
+      );
+      assert.ok(
+        rows.results.every(
+          (r) => !/mention|spans|editions|occurrences/.test(r.payload),
+        ),
+      );
+    } finally {
+      await pool.query(`DROP SCHEMA ${schema} CASCADE`);
+      await pool.end();
+    }
+  },
+);

@@ -13,6 +13,7 @@ export async function sourceCreatorResponse(
     db: SearchDatabase;
     transcript: (id: string, params: URLSearchParams) => Promise<Response>;
     notes: (id: string) => Promise<Response>;
+    description?: (id: string) => Promise<Response>;
     features?: SourceFeatures;
     fetcher?: SefariaFetch;
   },
@@ -43,11 +44,40 @@ export async function sourceCreatorResponse(
     for (const key of ['source', 'version'])
       if (params.get(key)) forwarded.set(key, params.get(key)!);
     if (params.get('refresh') === '1') forwarded.set('fresh', 'true');
-    const [transcriptResult, notesResult] = await Promise.allSettled([
-      dependencies.transcript(id, forwarded),
-      dependencies.notes(id),
-    ]);
+    const [transcriptResult, notesResult, descriptionResult] =
+      await Promise.allSettled([
+        dependencies.transcript(id, forwarded),
+        dependencies.notes(id),
+        dependencies.description?.(id) ||
+          Promise.resolve(Response.json({}, { status: 404 })),
+      ]);
     const input: SourceInput = { shiurId: id, warnings: [] };
+    const upstreamFailed = [
+      transcriptResult,
+      notesResult,
+      descriptionResult,
+    ].some(
+      (result) =>
+        result.status === 'rejected' ||
+        result.value.status >= 500 ||
+        result.value.status === 429,
+    );
+    input.retryable = upstreamFailed;
+    if (
+      descriptionResult.status === 'fulfilled' &&
+      descriptionResult.value.ok
+    ) {
+      const data = await descriptionResult.value.json();
+      if (typeof data.description === 'string' && data.description.trim())
+        input.description = data.description;
+    } else if (
+      dependencies.description &&
+      (descriptionResult.status === 'rejected' ||
+        descriptionResult.value.status >= 500)
+    )
+      input.warnings!.push(
+        'The shiur description is temporarily unavailable. Retry to check all sources.',
+      );
     if (
       params.get('revision') &&
       params.get('version') &&
@@ -101,7 +131,7 @@ export async function sourceCreatorResponse(
     }
     if (!input.transcript)
       input.warnings!.push(
-        'The transcript is unavailable. Only available notes are checked.',
+        'The transcript is unavailable. Available notes and the shiur description are checked.',
       );
     if (notesResult.status === 'fulfilled' && notesResult.value.ok) {
       const data = await notesResult.value.json();
@@ -130,18 +160,13 @@ export async function sourceCreatorResponse(
       input.warnings!.push(
         'Published notes are temporarily unavailable. Transcript sources are still checked.',
       );
-    if (!input.transcript && !input.notes) {
-      const unavailable =
-        transcriptResult.status === 'rejected' ||
-        notesResult.status === 'rejected' ||
-        (transcriptResult.status === 'fulfilled' &&
-          transcriptResult.value.status >= 500) ||
-        (notesResult.status === 'fulfilled' && notesResult.value.status >= 500);
+    if (!input.transcript && !input.notes && !input.description) {
+      const unavailable = upstreamFailed;
       return reply(
         {
           error: unavailable
-            ? 'The transcript and notes could not be loaded. Retry to continue.'
-            : 'No transcript or published notes are available to check yet.',
+            ? 'The transcript, notes, and description could not be loaded. Retry to continue.'
+            : 'No transcript, published notes, or shiur description are available to check yet.',
         },
         unavailable ? 503 : 404,
       );

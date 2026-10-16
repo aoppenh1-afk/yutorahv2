@@ -9,6 +9,8 @@ export type SourceInput = {
   shiurId: string;
   transcript?: SourceTranscript & { complete?: boolean };
   notes?: { markdown: string; version?: string; sourceHash?: string };
+  description?: string;
+  retryable?: boolean;
   warnings?: string[];
 };
 export type SourceUnit = {
@@ -20,7 +22,7 @@ export type SourceUnit = {
   offset: number;
 };
 export type SourceWindow = {
-  origin: 'transcript' | 'notes';
+  origin: 'transcript' | 'notes' | 'description';
   units: SourceUnit[];
 };
 
@@ -101,6 +103,22 @@ export function sourceWindows(input: SourceInput): SourceWindow[] {
       for (const part of splitUnit(unit))
         windows.push({ origin: 'notes', units: [part] });
     }
+  }
+  if (input.description?.trim()) {
+    if (input.description.length > 100000)
+      throw new SourcesLimitError(
+        'This description is too large to check for sources.',
+      );
+    const unit: SourceUnit = {
+      text: input.description,
+      startMs: 0,
+      endMs: 0,
+      segmentIndex: 0,
+      charOffset: 0,
+      offset: 0,
+    };
+    for (const part of splitUnit(unit))
+      windows.push({ origin: 'description', units: [part] });
   }
   if (windows.length > 4000)
     throw new SourcesLimitError(

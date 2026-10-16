@@ -95,9 +95,12 @@ export function useSourceSheet(options: {
     void Promise.all([read(), read(), read()]);
     return () => abort.abort();
   }, [manualKey, restored, enabled]);
+  const [cache, setCache] = useState<Record<string, SourceText>>({});
+  const extent = draft.extent;
   const sources = useMemo(() => {
     const combined = options.sources.map((source) => ({
       ...source,
+      heRef: source.heRef || cache[`${extent}:${source.ref}`]?.heRef || '',
       occurrences: [...source.occurrences],
     }));
     for (const source of manual) {
@@ -106,17 +109,15 @@ export function useSourceSheet(options: {
       else combined.push(source);
     }
     return combined;
-  }, [options.sources, manual]);
+  }, [options.sources, manual, cache, extent]);
   const selected = useMemo(
     () => orderedSheetSources(sources, draft),
     [sources, draft],
   );
-  const [cache, setCache] = useState<Record<string, SourceText>>({});
   const cacheRef = useRef(cache);
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
-  const refs = selected.map((s) => s.ref).join('\0'),
-    extent = draft.extent;
+  const refs = selected.map((s) => s.ref).join('\0');
   useEffect(() => {
     if (!enabled || !restored) return;
     const abort = new AbortController();

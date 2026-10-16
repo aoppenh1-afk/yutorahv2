@@ -145,24 +145,40 @@ to 32 transcript units or roughly 9,000 characters, with up to 450 characters of
 lookbehind bounded by recording time. Large individual cues are split with
 overlap. Unchanged window text and timings reuse completed verification across
 appends and corrections. Quotes have their own cache keyed by words and explicit
-context. A content hash identifies each complete input snapshot, including notes.
-Changed text, timings, notes, or policy cannot reuse an incompatible result.
+context. A content hash identifies each complete input snapshot, including notes and the
+shiur description. Changed text, timings, notes, descriptions, or policy cannot
+reuse an incompatible result.
 
-Each request advances up to six stages within a soft six-second budget and awaits
-all work. It yields immediately when a Sefaria task is still pending. Quotation
+Each request advances up to six creator stages within a soft six-second budget
+and awaits all work. Synchronous citation verification for a window finishes
+together so a cold process needs no saved source positions. A pending Sefaria task
+yields immediately. Quotation
 verification runs in batches of three; identical normalized words and citation
 context share an in-flight request. Successful results are checkpointed even
 when another quotation fails, and retries reuse completed verification.
-Different passages from the same canonical source share reference metadata and
-text lookups. Verified full text populates the sheet cache too. Concurrent local
-requests share a download; an excerpt can use an in-progress full-text request.
-Warm sheet requests use validated cached text without another Sefaria request.
-Expired entries are revalidated. Original excerpt limits and attribution remain.
-SQL leases prevent
-duplicate submissions by simultaneous visitors. There are no background promises
-that can disappear when a server request ends. Source results, window results,
-and pending Sefaria tasks use the existing writable `sources_runs` table in the
-search database. The read-only transcript database is not modified.
+Different passages from the same canonical source share process-local reference
+and text lookups. Text is held in a bounded 4 MiB process cache for five minutes,
+with at most 32 entries. Concurrent local requests share a download. Text is never
+written to the database, including during quotation verification or when a sheet
+is opened. Cold processes fetch it from Sefaria again. A source sheet can load text
+even when database capacity is exhausted.
+
+Only canonical references are saved for a shiur. The prepared record uses the
+shiur ID in its key and contains an input hash and a deduplicated reference list.
+It does not contain source text, quotations, labels, transcript positions, or
+notes. The input hash covers the transcript, published notes, and catalog
+description, so any changed input triggers a fresh scan. The description can be
+checked without a transcript or notes. Description matches have no recording
+timestamps and are never applied as transcript or notes highlights.
+
+Detection evidence and positions can exist in bounded process memory during an
+active scan; they are not retained in SQL. Loading a prepared list in a cold
+process therefore supplies references without transcript highlights or jump links.
+Sefaria links, sheet text, manual edits, and downloads still work. Operational
+checkpoint rows contain only references, cursors, leases, and async Sefaria task
+IDs. Task handles allow a cold process to poll existing work rather than resubmit
+text. A cold process can repeat unfinished verification. SQL leases prevent
+simultaneous visitors from advancing the same scan.
 
 The client continues available local work after 150 milliseconds and respects
 normal polling backoff when waiting for remote work. It pauses when hidden and cancels on navigation
@@ -180,19 +196,21 @@ Sefaria's public library, including manually added sources, independently of a
 transcript run. Downloads and private sheet comments are assembled in the browser.
 
 Limits are visible: twelve quotation candidates per window, 150 distinct sources,
-60 occurrences per source, and 80 displayed review examples. Legacy citation
-batch limits also propagate to the result. Intermediate results last 30 days.
-Completed prepared sheets last one year and are reused only when the current
-input hash matches. Source texts are cached by canonical ref and extent for one
-day. Capacity pruning bounds transient rows while preserving prepared sheets
-and the preparation queue. Expired work is removed. Errors do not become
-successful matches.
+60 transient occurrences per source, and 80 transient review examples. Legacy
+citation batch limits also propagate to the result. Operational checkpoints last
+30 days; async task handles last five minutes. Prepared reference lists last one
+year and are reused only when the input hash matches. Capacity pruning removes
+expired work and bounds intermediate caches while preserving current compact
+prepared lists and the preparation queue. Obsolete source-text caches and rich
+detection records are removed in bounded batches. Errors never become successful
+matches, and temporary input outages cannot overwrite a complete prepared list.
 
 ## Prepare sheets on GitHub Actions
 
 The `Prepare mekoros` workflow runs the same detector directly on a GitHub-hosted
 runner every 30 minutes. It fetches published transcripts and notes from the
-website and verifies sources with Sefaria. It needs no AI worker and does not run
+website, reads shiur descriptions from the public YUTorah catalog, and verifies
+sources with Sefaria. It needs no AI worker and does not run
 on the notes VM. It does not generate notes or transcribe audio.
 
 Add the repository Actions secret `SOURCES_DATABASE_URL` using the writable
@@ -221,8 +239,9 @@ These are eligibility times; the next scheduled run performs the work. Every
 fourth attempt prioritizes eligible rechecks, so an archive backlog cannot starve
 later notes or corrections. Changed inputs invalidate the prepared sheet. A run
 stops after three consecutive temporary failures and preserves its checkpoints.
-Source text is warmed on the runner when sheets are enabled. Site feature
-switches apply to the runner too.
+The runner saves references only and does not warm sheet text. It may fetch text
+transiently to verify a quotation, then discard it. Site feature switches apply
+to the runner too.
 
 For another machine with the secret already in its environment:
 

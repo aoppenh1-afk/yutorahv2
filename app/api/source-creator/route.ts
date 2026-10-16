@@ -1,3 +1,6 @@
+import { upstream } from '../../../lib/yutorah';
+import { sourceDescription } from '../../../lib/source-description';
+import type { RawShiur } from '../../../lib/api-types';
 import { searchDatabase } from '../../../lib/search-db';
 import { websiteTranscript } from '../../../lib/website-transcript';
 import { hostedNotes } from '../../../lib/tidb-notes';
@@ -16,6 +19,15 @@ export async function GET(request: Request) {
       db: searchDatabase(),
       transcript: websiteTranscript,
       notes: hostedNotes,
+      description: async (id) => {
+        const raw = await upstream<RawShiur>(
+          'shiur/details?shiurID=' + id,
+          600,
+        );
+        if (!raw?.shiurID && !raw?.shiurid)
+          return Response.json({}, { status: 404 });
+        return Response.json(sourceDescription(raw, id));
+      },
       features,
     });
   } catch {

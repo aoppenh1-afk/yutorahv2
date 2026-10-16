@@ -1,3 +1,4 @@
+import { sourceDescription } from './source-description';
 import type { SearchDatabase } from './search-storage';
 import {
   sourceCreatorPolicy,
@@ -31,7 +32,6 @@ export type PreparationReport = {
   ready: number;
   missing: number;
   deferred: number;
-  textReady: number;
   nextPage: number;
   discoveryFailed: boolean;
 };
@@ -181,7 +181,6 @@ export async function runSourcePreparation(
     ready: 0,
     missing: 0,
     deferred: 0,
-    textReady: 0,
     nextPage: 1,
     discoveryFailed: false,
   };
@@ -326,7 +325,7 @@ export async function runSourcePreparation(
       try {
         // Input snapshots stay identical across all checkpoints in this attempt.
         const params = new URLSearchParams({ id: job.id });
-        const [transcript, notes] = await Promise.all([
+        const [transcript, notes, description] = await Promise.all([
           preparationFetch(
             new URL('/api/transcript?' + params, options.site),
             signal,
@@ -337,6 +336,19 @@ export async function runSourcePreparation(
             signal,
             fetcher,
           ),
+          preparationFetch(
+            new URL('https://yutorah.org/api/shiur/details?shiurID=' + job.id),
+            signal,
+            fetcher,
+          )
+            .then(async (response) =>
+              response.ok
+                ? Response.json(
+                    sourceDescription(await response.json(), job.id),
+                  )
+                : response,
+            )
+            .catch(() => Response.json({}, { status: 503 })),
         ]);
         const request = new Request(
           new URL('/api/source-creator?' + params, options.site),
@@ -352,6 +364,7 @@ export async function runSourcePreparation(
             fetcher,
             transcript: async () => transcript.clone(),
             notes: async () => notes.clone(),
+            description: async () => description.clone(),
           });
           if (response.status === 200) {
             ready = (await response.json()) as SourceCreatorResult;
@@ -359,7 +372,11 @@ export async function runSourcePreparation(
               throw new Error('Unexpected detector response.');
             status = 'ready';
             next = now() + (ready.transcriptComplete ? 6 * 3600_000 : 15_000);
-            if (transcript.status >= 500 || notes.status >= 500)
+            if (
+              transcript.status >= 500 ||
+              notes.status >= 500 ||
+              description.status >= 500
+            )
               next = now() + 5 * 60000;
             break;
           }
@@ -382,20 +399,6 @@ export async function runSourcePreparation(
               : sourceRetryDelay(response.headers.get('Retry-After'), retry);
           if (now() + pause >= jobDeadline) break;
           await wait(pause, signal);
-        }
-        // Warm the same text cache the viewer uses, on the runner itself.
-        if (ready && features!.sheets) {
-          const { cachedSourceText } = await import('./sources-cache');
-          for (const source of ready.sources) {
-            if (!active() || now() >= jobDeadline) break;
-            try {
-              await cachedSourceText(db, source.ref, fetcher);
-              summary.textReady++;
-            } catch {
-              next = Math.min(next, now() + 5 * 60000);
-              break;
-            }
-          }
         }
       } catch {
         if (signal.aborted) throw signal.reason;
