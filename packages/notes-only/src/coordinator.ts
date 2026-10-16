@@ -6,6 +6,7 @@ import { classify, backoff, MAX_AI_CONCURRENCY } from './control.js';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 export const SOURCE_RESERVATION = 8 * 1024 * 1024;
 export const OUTBOX_RESERVATION = 272 * 1024;
+export const GENERATION_STARTUP_MIB = 512;
 export type PoolSettings = {
   fetchers: number;
   generators: number;
@@ -52,6 +53,28 @@ export async function availableMemoryMiB() {
 export async function diskHeadroom(root: string) {
   const d = await statfs(root);
   return Number(d.bavail) * Number(d.bsize);
+}
+export function generationMemoryAdmission(queue: NotesQueue, floorMiB: number) {
+  // MemAvailable already accounts for allocated session memory. Keep an extra
+  // reservation for each unconfirmed startup, and for the prospective job.
+  // Only output from an active request under the current lease proves startup;
+  // old attempts and completed generation requests cannot release a repair's reserve.
+  const pendingStarts = Number(
+    queue.db
+      .prepare(`SELECT COUNT(*) AS count FROM jobs j
+      WHERE j.status='generating' AND NOT EXISTS (
+        SELECT 1 FROM requests r JOIN request_observations o ON o.request_id=r.id
+        WHERE r.job_id=j.id AND r.token=j.lease_token AND r.status='active'
+          AND o.phase='first_output'
+      )`)
+      .get()?.count ?? 0,
+  );
+  return {
+    floorMiB,
+    pendingStarts,
+    startupReservationMiB: GENERATION_STARTUP_MIB * (1 + pendingStarts),
+    requiredMiB: floorMiB + GENERATION_STARTUP_MIB * (1 + pendingStarts),
+  };
 }
 export function metrics(queue: NotesQueue, since = Date.now() - 3600_000) {
   since = Math.max(since, queue.cursor('regenerationStartedAt'));
@@ -218,7 +241,7 @@ export function metrics(queue: NotesQueue, since = Date.now() - 3600_000) {
 export async function runCoordinator(input: {
   root: string;
   queue: NotesQueue;
-  pipeline: NotesPipeline;
+  pipeline: Pick<NotesPipeline, Stage | 'recoverExpired'>;
   settings: PoolSettings;
   signal: AbortSignal;
   limit?: number;
@@ -412,6 +435,10 @@ export async function runCoordinator(input: {
           type: 'metrics',
           ...metrics(queue, started),
           availableMemoryMiB: Math.round(memory),
+          generationMemory: generationMemoryAdmission(
+            queue,
+            s.minFreeMemoryMiB,
+          ),
           diskHeadroomBytes: disk,
           rss: process.memoryUsage().rss,
           eventLoopP95Ms: Number.isFinite(eventLoop.mean)
@@ -561,7 +588,8 @@ export async function runCoordinator(input: {
                 !admission(
                   'memory',
                   (await (input.memory ?? availableMemoryMiB)()) >=
-                    s.minFreeMemoryMiB + counts.generating * 512,
+                    generationMemoryAdmission(queue, s.minFreeMemoryMiB)
+                      .requiredMiB,
                 )
               )
                 break;

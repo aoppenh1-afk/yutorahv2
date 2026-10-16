@@ -24,6 +24,16 @@ The attached RESEARCH.md was checked against the working tree and the installed 
 
 ## Choices deferred or rejected
 
+### Startup memory reservations (October 16 follow-up)
+
+Read-only log replay found 85 samples with prepared work, fewer than four active sessions, at least 3.5 GiB available, and memory admission waiting. The old coordinator permanently added 512 MiB per active generation to `MemAvailable`, even after the shared server had allocated those sessions. A coordinator regression at the observed 3,659 MiB reproduced two active workers instead of four. This is distinct from genuine low-memory waits: the recent 30-minute baseline also contained samples below the 3 GiB floor, which must continue to block new work.
+
+A 180-second live sample covered 18 requests, including 14 new starts. The shared server's RSS ranged from 550 to 634 MiB; the largest aggregate RSS increase across an observed new request was 64 MiB. This small sample cannot establish a universal memory maximum, but supports retaining a generous 512 MiB startup reserve instead of charging it throughout every request.
+
+Production now requires the 3 GiB floor plus 512 MiB for the prospective job and each existing generation whose current active request has not produced assistant output. That startup evidence is fenced by the current lease and request status; prior attempts and a completed generation cannot release a repair's reserve. Existing allocated memory remains accounted in `MemAvailable`. The first cold start now also requires its own 512 MiB margin. No wall-clock expiry releases a reservation, and an unknown startup retains it. Memory is reread before each claim. Metrics expose `generationMemory` so future waits show the exact threshold. The separate qualification runner retains its older conservative per-occupied-generation reservation; this change does not qualify additional concurrency.
+
+The regression covers warm sessions, simultaneous cold starts, insufficient headroom, old-lease evidence, a repair awaiting its own first output, and a memory drop during admission. Four remains the production concurrency; provider silence and external application memory changes remain independent limits. Live results are retained privately in `STATE/upgrades/memory-admission-*.json`; compare verified publication events separately from reconciled records and report both monotonic elapsed time and wall-clock changes.
+
 Do not run eight- or ten-session trials. Do not add Redis, distributed scheduling, more AI supervisors, extra OpenCode servers, lower reasoning, shortened transcripts, or batched unrelated lectures. Three fetchers and one publisher remain adequate for the observed ready buffer and roughly 128 ms median publication stage.
 
 Do not install an adaptive concurrency controller yet. Variable host headroom and server failures would confound a controller that rewarded short-term notes/hour. Keep four until matched measurements show that six improves useful work without resource, cleanup, provider, or quality deterioration. A short trial is evidence of runtime behavior, not sustained capacity.

@@ -212,3 +212,86 @@ void test('recovery lookups use bounded live-state indexes', (t) => {
     assert.doesNotMatch(plan, /TEMP B-TREE/);
   }
 });
+
+void test('memory admission distinguishes allocated sessions from pending startup allocations', async (t) => {
+  for (const scenario of [
+    { memory: 3659, output: 'current', expected: 4 },
+    { memory: 3659, output: 'none', expected: 1 },
+    { memory: 3583, output: 'current', expected: 0 },
+    { memory: 4096, output: 'none', expected: 2 },
+    { memory: 3659, output: 'old-lease', expected: 1 },
+    { memory: 3659, output: 'previous-request', expected: 1 },
+    { memory: 3659, output: 'current', dropAfter: 2, expected: 2 },
+  ]) {
+    const queue = new NotesQueue(':memory:');
+    t.after(() => queue.close());
+    queue.enqueue(Array.from({ length: 4 }, (_, i) => ({ id: String(i + 1) })));
+    for (let i = 0; i < 4; i++) {
+      const job = queue.claim('fetching')!;
+      queue.finish(job, {
+        status: 'ready',
+        eligibility: 'eligible',
+        source_path: 'sources/fixture.vtt',
+        source_bytes: 100,
+      });
+    }
+    let launched = 0;
+    await runCoordinator({
+      root: '.',
+      queue,
+      pipeline: {
+        recoverExpired: async () => {},
+        fetching: async () => assert.fail('Fetch pool is disabled'),
+        publishing: async () => assert.fail('Publish pool is disabled'),
+        generating: async (job, signal) => {
+          launched++;
+          queue.db
+            .prepare(`INSERT INTO requests
+            (id,job_id,token,route,kind,started_at,status,reserved_tokens)
+            VALUES(?,?,?,'server-high','generation',?,'active',1)`)
+            .run(job.id, job.id, job.lease_token, Date.now());
+          if (scenario.output === 'current')
+            queue.observe(job.id, 'first_output', 1);
+          if (scenario.output === 'old-lease') {
+            queue.db
+              .prepare(`INSERT INTO requests
+              (id,job_id,token,route,kind,started_at,status,reserved_tokens)
+              VALUES(?,?,?,'server-high','generation',?,'active',1)`)
+              .run(
+                job.id + '-old',
+                job.id,
+                job.lease_token + '-old',
+                Date.now(),
+              );
+            queue.observe(job.id + '-old', 'first_output', 1);
+          }
+          if (scenario.output === 'previous-request') {
+            queue.observe(job.id, 'first_output', 1);
+            queue.db
+              .prepare(
+                "UPDATE requests SET status='completed',ended_at=? WHERE id=?",
+              )
+              .run(Date.now(), job.id);
+            queue.db
+              .prepare(`INSERT INTO requests
+              (id,job_id,token,route,kind,started_at,status,reserved_tokens)
+              VALUES(?,?,?,'server-high','repair',?,'active',1)`)
+              .run(job.id + '-repair', job.id, job.lease_token, Date.now());
+          }
+          await new Promise<void>((resolve) =>
+            signal.addEventListener('abort', () => resolve(), { once: true }),
+          );
+          signal.throwIfAborted();
+          return 'generated';
+        },
+      },
+      settings: { ...defaults, fetchers: 0, publishers: 0 },
+      signal: AbortSignal.timeout(250),
+      follow: true,
+      memory: async () =>
+        launched >= (scenario.dropAfter ?? Infinity) ? 3000 : scenario.memory,
+      disk: async () => 100 * 1024 ** 3,
+    });
+    assert.equal(launched, scenario.expected, JSON.stringify(scenario));
+  }
+});
