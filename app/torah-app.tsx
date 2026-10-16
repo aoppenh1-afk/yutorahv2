@@ -1124,10 +1124,12 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         )
       }
       onSelect={(suggestion) =>
-        void runSearch('', {
-          ...noFilters,
-          [suggestion.kind]: String(suggestion.id),
-        })
+        suggestion.kind === 'teacher'
+          ? openCatalog('teacher', suggestion.id)
+          : void runSearch('', {
+              ...noFilters,
+              [suggestion.kind]: String(suggestion.id),
+            })
       }
       onSelectShiur={(suggestion) =>
         void showDetail(

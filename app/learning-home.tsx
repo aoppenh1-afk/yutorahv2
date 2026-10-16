@@ -1242,7 +1242,7 @@ export function LearningHome(props: Props) {
                 <>
                   {cards(
                     items,
-                    isHome ? 10 : limit,
+                    isHome ? 5 : limit,
                     recommendationView,
                     recommendationView,
                   )}

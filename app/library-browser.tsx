@@ -33,6 +33,7 @@ import { PagedItems } from './paged-items';
 import { TopicCard } from './topic-card';
 import { CatalogCover } from './catalog-cover';
 import { TeacherPopularShiurim } from './teacher-popular-shiurim';
+import { TeacherBio } from './teacher-bio';
 import { orderedTopicGroups } from '@/lib/topic-groups';
 import {
   cachedCatalogResource,
@@ -555,11 +556,17 @@ export function EntityPage({
           </div>
           <h1 dir="auto">{d.name}</h1>
           {d.count > 0 && <p>{d.count.toLocaleString()} shiurim</p>}
-          {d.description && (
-            <p className="catalog-bio" dir="auto">
-              {d.description}
-            </p>
-          )}
+          {d.description &&
+            (kind === 'teacher' ? (
+              <TeacherBio
+                key={id + ':' + d.description}
+                description={d.description}
+              />
+            ) : (
+              <p className="catalog-bio" dir="auto">
+                {d.description}
+              </p>
+            ))}
           <div className="catalog-actions">
             <button
               className="primary-button"

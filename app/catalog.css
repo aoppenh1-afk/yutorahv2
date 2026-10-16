@@ -211,6 +211,17 @@
   color: var(--ink-2);
   max-width: 780px;
 }
+.teacher-bio-collapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+.teacher-bio-toggle {
+  margin-top: 4px;
+  min-height: 32px;
+  font-size: 13px;
+}
 .catalog-actions {
   display: flex;
   align-items: center;
@@ -690,6 +701,10 @@
     order: 2;
     margin-top: 18px;
     line-height: 1.7;
+  }
+  .catalog-profile .teacher-bio {
+    grid-column: 1 / -1;
+    order: 2;
   }
   .catalog-actions .primary-button {
     flex: 1;
