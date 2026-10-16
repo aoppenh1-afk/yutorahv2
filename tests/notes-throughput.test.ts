@@ -5,6 +5,7 @@ import { InferenceLimiter } from '../packages/notes-only/src/control.js';
 import {
   generateNotes,
   normalizeNotes,
+  notesViolations,
   notesProfile,
 } from '../packages/notes-only/src/notes.js';
 import {
@@ -97,6 +98,75 @@ void test('normalization never rewrites a quoted vocalized passage to make an un
   const raw =
     '# שאלה\n\n## Argument\n\nWe preserve the quoted wording “בְּרֵאשִׁית” for source checking.';
   assert.equal(normalizeNotes(raw, 'An unrelated transcript.'), raw);
+});
+
+void test('Hebrew abbreviation marks cannot protect ordinary vocalized prose from normalization', async () => {
+  const raw =
+    '# טבילה\n\n## The distinction\n\nWe compare רש״י on טְבִילָה with רמב״ם on the שאלה.';
+  const source = 'We compare רש״י on טבילה with רמב״ם on the שאלה.';
+  let calls = 0;
+  const result = await generateNotes({
+    profile: notesProfile({
+      model: 'free',
+      runtime: 'test',
+      language: 'hebrewEnglish',
+      notesSkill: 'Use unvocalized Hebrew terms in English prose.',
+    }),
+    source,
+    signal: AbortSignal.timeout(1000),
+    request: async () => {
+      calls++;
+      return raw;
+    },
+  });
+  assert.equal(calls, 1);
+  assert.equal(
+    result.markdown,
+    raw.replace(/[\u0591-\u05bd\u05bf\u05c1-\u05c2\u05c4-\u05c5\u05c7]/g, ''),
+  );
+});
+
+void test('real quotations containing abbreviation marks retain exact wording and source validation', () => {
+  const quote = 'רש״י אומר בְּרֵאשִׁית וכן רמב״ם';
+  const raw =
+    '# שאלה\n\n## The wording\n\nWe retain the quotation “' +
+    quote +
+    '” as stated.';
+  assert.equal(normalizeNotes(raw, quote), raw);
+  assert.deepEqual(notesViolations(raw, quote), []);
+  assert.equal(normalizeNotes(raw, 'An unrelated English source.'), raw);
+  assert.ok(
+    notesViolations(raw, 'An unrelated English source.').some((v) =>
+      v.startsWith('Use unvocalized'),
+    ),
+  );
+});
+
+void test('logical-order direction controls do not trigger a second full-source request', async () => {
+  const raw =
+    '# שאלה\n\n## The distinction\n\nWe explain the \u200fשאלה\u200e and its consequence in English\u2069.';
+  const source = 'We explain the שאלה and its consequence.';
+  let requests = 0;
+  const result = await generateNotes({
+    profile: notesProfile({
+      model: 'free',
+      runtime: 'test',
+      language: 'hebrewEnglish',
+      notesSkill: 'Use logical-order UTF-8 prose.',
+    }),
+    source,
+    signal: AbortSignal.timeout(1000),
+    request: async () => {
+      requests++;
+      return requests === 1 ? raw : raw.replace(/[\u200e\u200f\u2069]/g, '');
+    },
+  });
+  assert.equal(
+    requests,
+    1,
+    'Invisible formatting must not spend another inference request',
+  );
+  assert.equal(result.markdown, raw.replace(/[\u200e\u200f\u2069]/g, ''));
 });
 
 void test('completed known usage releases the unused reservation for another full-source request', async (t) => {

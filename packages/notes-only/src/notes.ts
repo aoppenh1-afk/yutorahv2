@@ -19,11 +19,54 @@ export function notesProfile(
     id: createHash('sha256').update(JSON.stringify(value)).digest('hex'),
   };
 }
-/** Source-aware presentation changes preserve consonants, word order, and quotation text. */
-export const NOTES_NORMALIZER = 'presentation-3';
+/** Source-aware presentation changes preserve consonants, word order, and quoted wording. */
+export const NOTES_NORMALIZER = 'presentation-4';
+// Abbreviation marks between Hebrew letters (רש״י, רמב"ם) are not quotation
+// boundaries. Use the same short-quotation segmentation for normalization and
+// source validation, so genuine quotations remain exact even with abbreviations.
+function quotationParts(text: string) {
+  const parts: { text: string; quotation?: string }[] = [];
+  const mark = /[\u0591-\u05bd\u05bf\u05c1-\u05c2\u05c4-\u05c5\u05c7]/;
+  const abbreviation = (at: number) => {
+    let before = at - 1,
+      after = at + 1;
+    while (before >= 0 && mark.test(text[before])) before--;
+    while (after < text.length && mark.test(text[after])) after++;
+    return (
+      /[\u05d0-\u05ea]/.test(text[before] ?? '') &&
+      /[\u05d0-\u05ea]/.test(text[after] ?? '')
+    );
+  };
+  let from = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (!/["“״]/.test(text[i]) || abbreviation(i)) continue;
+    for (
+      let end = i + 1;
+      end < text.length && end <= i + 241 && text[end] !== '\n';
+      end++
+    ) {
+      if (!/["”״]/.test(text[end]) || abbreviation(end)) continue;
+      if (end > i + 1) {
+        parts.push({ text: text.slice(from, i) });
+        parts.push({
+          text: text.slice(i, end + 1),
+          quotation: text.slice(i + 1, end),
+        });
+        from = end + 1;
+        i = end;
+      }
+      break;
+    }
+  }
+  parts.push({ text: text.slice(from) });
+  return parts;
+}
 export function normalizeNotes(markdown: string, source?: string) {
   let text = markdown
     .replace(/\r\n?/g, '\n')
+    // Store logical character order; directional formatting must not cause a
+    // model rewrite of otherwise valid prose. Letters and punctuation stay put.
+    .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
     .replace(/[\t ]+$/gm, '')
     .trim();
   if (
@@ -45,12 +88,11 @@ export function normalizeNotes(markdown: string, source?: string) {
   if (source === undefined) return normalized;
   // The contract requires unvocalized prose. Never modify a quoted passage to
   // make an unsupported quotation appear acceptable to source validation.
-  return normalized
-    .split(/(["“״][^"”״\n]{1,240}["”״])/gu)
-    .map((part, i) =>
-      i % 2
-        ? part
-        : part.replace(
+  return quotationParts(normalized)
+    .map((part) =>
+      part.quotation !== undefined
+        ? part.text
+        : part.text.replace(
             /[\u0591-\u05bd\u05bf\u05c1-\u05c2\u05c4-\u05c5\u05c7]/g,
             '',
           ),
@@ -110,10 +152,13 @@ export function notesViolations(markdown: string, source: string) {
     );
   // Only supported short quotations may retain vocalization; ordinary Hebrew prose is unvocalized.
   const nikud = /[\u0591-\u05bd\u05bf\u05c1-\u05c2\u05c4-\u05c5\u05c7]/;
-  const prose = markdown.replace(
-    /["“״]([^"”״\n]{1,240})["”״]/gu,
-    (whole, quote: string) => (source.includes(quote) ? '' : whole),
-  );
+  const prose = quotationParts(markdown)
+    .map((part) =>
+      part.quotation !== undefined && source.includes(part.quotation)
+        ? ''
+        : part.text,
+    )
+    .join('');
   if (nikud.test(prose))
     failures.push(
       'Use unvocalized Hebrew in prose and headings. Retain vocalization only inside a short supported quotation.',
