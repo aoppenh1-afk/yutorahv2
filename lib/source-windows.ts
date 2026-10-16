@@ -29,6 +29,22 @@ export type SourceWindow = {
 /** Stable core groups plus a short lookbehind let appended/corrected tails reuse completed work. */
 export function sourceWindows(input: SourceInput): SourceWindow[] {
   const windows: SourceWindow[] = [];
+  if (input.description?.trim()) {
+    if (input.description.length > 100000)
+      throw new SourcesLimitError(
+        'This description is too large to check for sources.',
+      );
+    const unit: SourceUnit = {
+      text: input.description,
+      startMs: 0,
+      endMs: 0,
+      segmentIndex: 0,
+      charOffset: 0,
+      offset: 0,
+    };
+    for (const part of splitUnit(unit))
+      windows.push({ origin: 'description', units: [part] });
+  }
   if (input.transcript) {
     validateSourceTranscript(input.transcript);
     let offset = 0;
@@ -103,22 +119,6 @@ export function sourceWindows(input: SourceInput): SourceWindow[] {
       for (const part of splitUnit(unit))
         windows.push({ origin: 'notes', units: [part] });
     }
-  }
-  if (input.description?.trim()) {
-    if (input.description.length > 100000)
-      throw new SourcesLimitError(
-        'This description is too large to check for sources.',
-      );
-    const unit: SourceUnit = {
-      text: input.description,
-      startMs: 0,
-      endMs: 0,
-      segmentIndex: 0,
-      charOffset: 0,
-      offset: 0,
-    };
-    for (const part of splitUnit(unit))
-      windows.push({ origin: 'description', units: [part] });
   }
   if (windows.length > 4000)
     throw new SourcesLimitError(

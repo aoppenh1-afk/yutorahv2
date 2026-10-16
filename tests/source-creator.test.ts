@@ -1546,3 +1546,34 @@ void test(
     }
   },
 );
+
+void test('description references appear while a long transcript is still waiting on Sefaria', async () => {
+  const db = database(),
+    service = mock();
+  const data = input('A long transcript awaiting remote source detection.');
+  data.description = 'See Genesis 1:1.';
+  const fetcher: typeof fetch = async (url, init) => {
+    const address = url instanceof Request ? url.url : url.toString();
+    if (
+      address.includes('/api/find-refs') &&
+      typeof init?.body === 'string' &&
+      init.body.includes('A long transcript')
+    )
+      return Response.json({ task_id: 'pending-transcript' });
+    if (address.includes('/api/async/pending-transcript'))
+      return Response.json({ ready: false, state: 'PENDING' });
+    return service.fetcher(url, init);
+  };
+  const first = await advanceSourceCreator(db, data, fetcher);
+  assert.equal(first.status, 'pending');
+  assert.deepEqual(
+    first.sources.map((s) => s.ref),
+    ['Genesis 1:1'],
+  );
+  const cold = await advanceSourceCreator({ ...db }, data, fetcher);
+  assert.equal(cold.status, 'pending');
+  assert.deepEqual(
+    cold.sources.map((s) => s.ref),
+    ['Genesis 1:1'],
+  );
+});

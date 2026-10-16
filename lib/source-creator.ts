@@ -266,6 +266,7 @@ export async function advanceSourceCreator(
   const linkerFetch = taskFetcher(db, fetcher);
   const inputVersion = await sourceHash({
     policy,
+    windowOrder: 'description-first',
     shiurId: input.shiurId,
     transcript: input.transcript,
     notes: input.notes,

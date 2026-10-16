@@ -168,7 +168,9 @@ shiur ID in its key and contains an input hash and a deduplicated reference list
 It does not contain source text, quotations, labels, transcript positions, or
 notes. The input hash covers the transcript, published notes, and catalog
 description, so any changed input triggers a fresh scan. The description can be
-checked without a transcript or notes. Description matches have no recording
+checked without a transcript or notes. Descriptions are checked first so their
+references appear while a long transcript is still processing. Description
+matches have no recording
 timestamps and are never applied as transcript or notes highlights.
 
 Detection evidence and positions can exist in bounded process memory during an
