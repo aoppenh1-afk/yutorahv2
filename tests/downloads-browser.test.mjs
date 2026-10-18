@@ -407,12 +407,16 @@ try {
           await page.locator('audio').evaluate((audio) => {
             audio.currentTime = 35;
           });
-          await page.waitForFunction(
-            () => document.querySelector('audio').currentTime >= 35,
-          );
+          await page.waitForFunction(() => {
+            const audio = document.querySelector('audio');
+            return !audio.seeking && audio.currentTime >= 35;
+          });
           await page
             .getByRole('button', { name: 'Pause ' + shiur.title, exact: true })
             .click();
+          await page.waitForFunction(
+            () => document.querySelector('audio').paused,
+          );
           await page.screenshot({
             animations: 'disabled',
             path: 'outputs/downloads/' + name + '-offline.png',
@@ -491,6 +495,23 @@ try {
               href: location.href,
               text: document.body.innerText,
               online: navigator.onLine,
+              audio: [...document.querySelectorAll('audio')].map((audio) => ({
+                src: audio.currentSrc,
+                currentTime: audio.currentTime,
+                duration: audio.duration,
+                paused: audio.paused,
+                ended: audio.ended,
+                readyState: audio.readyState,
+                networkState: audio.networkState,
+                error: audio.error && {
+                  code: audio.error.code,
+                  message: audio.error.message,
+                },
+                seekable: Array.from(
+                  { length: audio.seekable.length },
+                  (_, i) => [audio.seekable.start(i), audio.seekable.end(i)],
+                ),
+              })),
               scripts: [...document.scripts].map((s) => s.src),
               cacheKeys: await Promise.all(
                 (await caches.keys()).map(async (name) => [

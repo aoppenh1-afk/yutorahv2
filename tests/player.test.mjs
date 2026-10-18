@@ -299,7 +299,7 @@ async function closeAndVerify(page, minSeconds = 42) {
 void test('player controls stop playback and the phone dialog stays inside the built viewport', async (t) => {
   try {
     await t.test(
-      'buffering recovery restores Pause without another playing event',
+      'buffering keeps Pause available and recovers without another playing event',
       async () => {
         const { context, page } = await openPlayer({ width: 390, height: 844 });
         try {
@@ -319,12 +319,28 @@ void test('player controls stop playback and the phone dialog stays inside the b
           await page.waitForFunction(() =>
             document.querySelector('.player .spin'),
           );
+          await page
+            .getByRole('button', { name: 'Pause', exact: true })
+            .click({ timeout: 2000 });
+          await page.waitForFunction(
+            () => document.querySelector('audio').paused,
+          );
+          await page.getByRole('button', { name: 'Play', exact: true }).click();
+          await page.locator('audio').evaluate((audio) => {
+            audio.dispatchEvent(new Event('waiting'));
+          });
+          await page.waitForFunction(() =>
+            document.querySelector('.player .spin'),
+          );
           await page.locator('audio').evaluate((audio) => {
             audio.dispatchEvent(new Event('canplay'));
           });
+          await page.waitForFunction(
+            () => !document.querySelector('.player .spin'),
+          );
           await page
             .getByRole('button', { name: 'Pause', exact: true })
-            .waitFor();
+            .waitFor({ timeout: 2000 });
           assert.equal(
             await page.locator('audio').evaluate((audio) => audio.paused),
             false,
@@ -367,6 +383,9 @@ void test('player controls stop playback and the phone dialog stays inside the b
                 (audio, type) => audio.dispatchEvent(new Event(type)),
                 recovery,
               );
+            await page.waitForFunction(
+              () => !document.querySelector('.player .spin'),
+            );
             await page
               .getByRole('button', { name: 'Pause', exact: true })
               .waitFor({ timeout: 2000 });

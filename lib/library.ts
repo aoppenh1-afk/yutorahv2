@@ -661,7 +661,9 @@ export function useAudio(
     onWaiting: () => {
       if (!activeRef.current) return;
       setLoading(true);
-      setPlaying(false);
+      // Buffering does not pause the recording. Keep Pause available during
+      // a seek or slow download, even before another recovery event arrives.
+      setPlaying(!audio.current!.paused);
     },
     onCanPlay: () => {
       setLoading(false);
