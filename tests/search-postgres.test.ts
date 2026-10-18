@@ -14,6 +14,152 @@ import { migrateTitleArchive } from '../lib/title-migration.js';
 import { SearchBusyError } from '../lib/complete-search.js';
 
 void test(
+  'PostgreSQL cache pressure evicts idle partial searches and protects reservations across hosts',
+  { skip: !process.env.TEST_DATABASE_URL },
+  async (t) => {
+    const schema = 'search_' + randomUUID().replaceAll('-', '');
+    const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
+    const pool = postgresSearchPool(process.env.TEST_DATABASE_URL!);
+    const peerPool = postgresSearchPool(process.env.TEST_DATABASE_URL!);
+    try {
+      for (const file of [
+        '001_search.sql',
+        '003_efficiency.sql',
+        '004_fencing.sql',
+        '005_compact_vocabulary.sql',
+      ])
+        await admin.query(
+          (await readFile('db/search-postgres/' + file, 'utf8')).replaceAll(
+            'yutorah_search',
+            schema,
+          ),
+        );
+      const peer = postgresSearchDatabase(peerPool, schema);
+      const raw = postgresSearchDatabase(pool, schema);
+      const now = Date.now();
+      await raw.batch([
+        raw
+          .prepare(
+            "INSERT INTO search_runs(id,fingerprint,plan,total,next,created,lease) VALUES('active','active','{}',49819,2,?,?)",
+          )
+          .bind(now - 25 * 60 * 60 * 1000, now + 60000),
+        raw
+          .prepare(
+            "INSERT INTO search_runs(id,fingerprint,plan,total,next,created) VALUES('abandoned','abandoned','{}',181,2,?)",
+          )
+          .bind(now - 2 * 60 * 60 * 1000),
+        raw.prepare(
+          "INSERT INTO search_runs(id,fingerprint,plan,total,next,created) VALUES('trending','trending:v1:test','{}',100000,1,0)",
+        ),
+        raw
+          .prepare(
+            "INSERT INTO search_documents(key,payload,created) VALUES('old-payload','{}',?)",
+          )
+          .bind(now),
+        raw.prepare(
+          "INSERT INTO search_hits(run,id,payload,document_key,matched,rank,date,duration,title,position) VALUES('abandoned',1,'','old-payload',1,0,0,1,'Old',1)",
+        ),
+      ]);
+      const fixture = Array.from({ length: 181 }, (_, i) => ({
+        shiurid: i + 1,
+        shiurtitle: 'Cache pressure fixture ' + i,
+        teacherfullname: 'Fixture',
+        duration: 1,
+      }));
+      t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+        const url = new URL(input instanceof Request ? input.url : input);
+        if (url.pathname.includes('/browse/')) return Response.json([]);
+        const page = Number(url.searchParams.get('start') || 1);
+        return Response.json({
+          response: {
+            docs: fixture.slice((page - 1) * 30, page * 30),
+            numFound: fixture.length,
+          },
+        });
+      });
+      let intercepted = false;
+      const host = {
+        ...raw,
+        async batch(statements: Parameters<typeof raw.batch>[0]) {
+          const committed = await raw.batch(statements);
+          const created = await peer
+            .prepare(
+              "SELECT id FROM search_runs WHERE id NOT IN ('active','abandoned','trending')",
+            )
+            .first<{ id: string }>();
+          if (created && !intercepted) {
+            intercepted = true;
+            await assert.rejects(
+              completeSearch(peer, 'cache pressure peer', {}, 1, '', true),
+              SearchBusyError,
+            );
+            assert.ok(
+              await peer
+                .prepare('SELECT id FROM search_runs WHERE id=?')
+                .bind(created.id)
+                .first(),
+            );
+          }
+          return committed;
+        },
+      };
+      let result = await completeSearch(
+        host,
+        'cache pressure fixture',
+        {},
+        1,
+        '',
+        true,
+      );
+      assert.ok(intercepted);
+      assert.equal(result.scanned, 30);
+      assert.equal(
+        await peer
+          .prepare("SELECT id FROM search_runs WHERE id='abandoned'")
+          .first(),
+        null,
+      );
+      assert.equal(
+        await peer
+          .prepare("SELECT key FROM search_documents WHERE key='old-payload'")
+          .first(),
+        null,
+      );
+      for (const id of ['active', 'trending'])
+        assert.ok(
+          await peer
+            .prepare('SELECT id FROM search_runs WHERE id=?')
+            .bind(id)
+            .first(),
+        );
+      while (!result.complete)
+        result = await completeSearch(
+          peer,
+          'cache pressure fixture',
+          {},
+          1,
+          result.run,
+        );
+      assert.equal(result.scanned, fixture.length);
+      assert.equal(result.total, fixture.length);
+      assert.equal(
+        (await peer
+          .prepare(
+            "SELECT SUM(total) AS reserved FROM search_runs WHERE fingerprint NOT LIKE 'trending:v1:%'",
+          )
+          .first<{ reserved: number }>())!.reserved,
+        50000,
+      );
+    } finally {
+      await pool.end();
+      await peerPool.end();
+      await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await admin.end();
+    }
+  },
+);
+
+void test(
   'separate PostgreSQL hosts reject a replaced or expired pass atomically',
   { skip: !process.env.TEST_DATABASE_URL },
   async (t) => {

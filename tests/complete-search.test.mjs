@@ -88,6 +88,182 @@ test.after(() => {
   globalThis.fetch = realFetch;
 });
 
+void test('an abandoned partial search cannot block a new mobile search', async () => {
+  const db = database();
+  await db
+    .prepare(
+      'INSERT INTO search_runs(id,fingerprint,plan,total,next,created,lease,scanned) VALUES(?,?,?,?,?,?,0,30)',
+    )
+    .bind(
+      'abandoned',
+      'abandoned-query',
+      '{}',
+      50000,
+      2,
+      Date.now() - 2 * 60 * 60 * 1000,
+    )
+    .run();
+  const result = await completeSearch(db, 'teshuva', {}, 1, '', true);
+  assert.equal(result.complete, false);
+  assert.equal(result.scanned, 30);
+  assert.equal(result.sourceTotal, records.length);
+  assert.equal(result.items.length, 30);
+  assert.equal(
+    await db.prepare("SELECT id FROM search_runs WHERE id='abandoned'").first(),
+    null,
+  );
+  let finished = result;
+  while (!finished.complete)
+    finished = await completeSearch(db, 'teshuva', {}, 1, finished.run);
+  assert.equal(finished.sourceTotal, records.length);
+  assert.equal(finished.scanned, records.length);
+});
+
+void test('cache admission accounts for active reservations before retaining completed searches', async () => {
+  const db = database();
+  const now = Date.now();
+  for (const [id, total, next, created, lease] of [
+    [
+      'active',
+      50000 - records.length,
+      2,
+      now - 25 * 60 * 60 * 1000,
+      now + 60000,
+    ],
+    ['completed', records.length, 8, now, 0],
+  ])
+    await db
+      .prepare(
+        'INSERT INTO search_runs(id,fingerprint,plan,total,next,created,lease) VALUES(?,?,?, ?,?,?,?)',
+      )
+      .bind(id, id, '{}', total, next, created, lease)
+      .run();
+  const result = await completeSearch(db, 'teshuva', {}, 1, '', true);
+  assert.equal(result.scanned, 30);
+  assert.ok(
+    await db.prepare("SELECT id FROM search_runs WHERE id='active'").first(),
+  );
+  assert.equal(
+    await db.prepare("SELECT id FROM search_runs WHERE id='completed'").first(),
+    null,
+  );
+  assert.equal(
+    (await db.prepare('SELECT SUM(total) AS reserved FROM search_runs').first())
+      .reserved,
+    50000,
+  );
+});
+
+void test('cache pressure never evicts an actively running search', async () => {
+  const db = database();
+  await db
+    .prepare(
+      'INSERT INTO search_runs(id,fingerprint,plan,total,next,created,lease) VALUES(?,?,?,50000,2,?,?)',
+    )
+    .bind('active', 'active', '{}', Date.now(), Date.now() + 60000)
+    .run();
+  await assert.rejects(completeSearch(db, 'teshuva', {}, 1, '', true), {
+    message:
+      'The search cache is busy. Retry shortly or choose a narrower search.',
+  });
+  assert.equal(
+    (await db.prepare('SELECT COUNT(*) AS n FROM search_runs').first()).n,
+    1,
+  );
+  assert.ok(
+    await db.prepare("SELECT id FROM search_runs WHERE id='active'").first(),
+  );
+});
+
+void test('a new search owns its reservation before another host can evict it', async () => {
+  const peer = database();
+  await peer
+    .prepare(
+      'INSERT INTO search_runs(id,fingerprint,plan,total,next,created,lease) VALUES(?,?,?, ?,2,?,?)',
+    )
+    .bind(
+      'active',
+      'active',
+      '{}',
+      50000 - records.length,
+      Date.now(),
+      Date.now() + 60000,
+    )
+    .run();
+  let intercepted = false;
+  const host = {
+    ...peer,
+    async batch(statements) {
+      const committed = await peer.batch(statements);
+      const created = await peer
+        .prepare("SELECT id FROM search_runs WHERE id <> 'active'")
+        .first();
+      if (created && !intercepted) {
+        intercepted = true;
+        await assert.rejects(
+          completeSearch(peer, 'another search', {}, 1, '', true),
+          {
+            message:
+              'The search cache is busy. Retry shortly or choose a narrower search.',
+          },
+        );
+        assert.ok(
+          await peer
+            .prepare('SELECT id FROM search_runs WHERE id=?')
+            .bind(created.id)
+            .first(),
+        );
+      }
+      return committed;
+    },
+  };
+  const result = await completeSearch(host, 'teshuva', {}, 1, '', true);
+  assert.ok(intercepted);
+  assert.equal(result.scanned, 30);
+});
+
+void test('cache admission reclaims all orphaned documents while preserving shared payloads', async () => {
+  const db = database();
+  const now = Date.now();
+  await db
+    .prepare(
+      "INSERT INTO search_runs(id,fingerprint,plan,total,next,created,lease) VALUES('kept','kept','{}',1,2,?,0)",
+    )
+    .bind(now)
+    .run();
+  await db.batch(
+    Array.from({ length: 301 }, (_, i) =>
+      db
+        .prepare(
+          'INSERT INTO search_documents(key,payload,created) VALUES(?,?,?)',
+        )
+        .bind('cached-' + i, '{}', now),
+    ),
+  );
+  await db
+    .prepare(
+      "INSERT INTO search_hits(run,id,payload,document_key,matched,rank,date,duration,title,position) VALUES('kept',1,'','cached-0',1,0,0,0,'Kept',1)",
+    )
+    .run();
+  const result = await completeSearch(db, 'teshuva', {}, 1, '', true);
+  assert.equal(result.scanned, 30);
+  assert.ok(
+    await db
+      .prepare("SELECT key FROM search_documents WHERE key='cached-0'")
+      .first(),
+  );
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT COUNT(*) AS n FROM search_documents d WHERE NOT EXISTS(SELECT 1 FROM search_hits h WHERE h.document_key=d.key)',
+        )
+        .first()
+    ).n,
+    0,
+  );
+});
+
 void test('an empty scoped search explicitly requests all matching lessons and retains upload metadata', async (t) => {
   const fixture = Array.from({ length: 35 }, (_, i) => ({
     shiurid: 2000 + i,

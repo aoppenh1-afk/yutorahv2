@@ -165,6 +165,7 @@ async function searchPass(
     suggestion?: string;
   };
   let creationOwner = '';
+  let initialPassOwner = '';
   if (!run) {
     creationOwner = crypto.randomUUID();
     const claim = await db
@@ -282,40 +283,55 @@ async function searchPass(
         firstPage = await fetchFirst();
         related = firstPage.response.numFound > 0;
       }
+      // Protect the admission-to-first-pass gap from another host's eviction.
+      initialPassOwner = crypto.randomUUID();
       run = {
         id: crypto.randomUUID(),
         plan: JSON.stringify({ ...plan, ...expansion, sourceQuery, related }),
         total: firstPage.response.numFound,
         next: 1,
         created: Date.now(),
-        lease: 0,
-        owner: '',
+        lease: firstPage.response.numFound ? Date.now() + 60000 : 0,
+        owner: initialPassOwner,
         scanned: 0,
       };
       if (run.total > 50000)
         throw new RangeError(
           'This search exceeds the cache budget. Choose a teacher, topic, or narrower search.',
         );
+      const admissionTime = Date.now();
       const committed = await db.batch([
         db
           .prepare(
-            "DELETE FROM search_runs WHERE id IN (SELECT id FROM search_runs WHERE fingerprint NOT LIKE 'trending:v1:%' AND created < ? AND ((next - 1) * 30 >= total OR created < ?) LIMIT 64)",
+            "DELETE FROM search_runs WHERE lease < ? AND id IN (SELECT id FROM search_runs WHERE fingerprint NOT LIKE 'trending:v1:%' AND created < ? AND ((next - 1) * 30 >= total OR created < ?) LIMIT 64)",
           )
-          .bind(cutoff, activeCutoff),
+          .bind(admissionTime, cutoff, activeCutoff),
+        // Reserve active passes first, then keep the newest idle runs that fit.
+        // A paused or abandoned partial scan must not reserve the cache for 24h.
+        // Recheck the lease on DELETE so a newly acquired pass stays protected.
         db
           .prepare(
-            `DELETE FROM search_runs WHERE id IN (SELECT id FROM (SELECT id,SUM(total) OVER (ORDER BY created DESC,id DESC) AS reserved,ROW_NUMBER() OVER (ORDER BY created DESC,id DESC) AS ordinal FROM search_runs WHERE (next-1)*30>=total AND fingerprint NOT LIKE 'trending:v1:%') ranked WHERE reserved > ? OR ordinal > 128)`,
+            `DELETE FROM search_runs WHERE lease < ? AND id IN (
+              SELECT id FROM (
+                SELECT id,
+                  SUM(total) OVER (ORDER BY CASE WHEN lease >= ? THEN 0 ELSE 1 END,created DESC,id DESC) AS reserved,
+                  ROW_NUMBER() OVER (ORDER BY CASE WHEN lease >= ? THEN 0 ELSE 1 END,created DESC,id DESC) AS ordinal
+                FROM search_runs WHERE fingerprint NOT LIKE 'trending:v1:%'
+              ) ranked WHERE reserved > ? OR ordinal > 128
+            )`,
           )
-          .bind(Math.max(0, 50000 - run.total)),
+          .bind(admissionTime, admissionTime, admissionTime, 50000 - run.total),
+        // Eviction can orphan thousands of payloads. Reclaim all of them before
+        // new hits arrive so the document byte limit does not block the scan.
         db.prepare(
-          'DELETE FROM search_documents WHERE key IN (SELECT key FROM search_documents d WHERE NOT EXISTS (SELECT 1 FROM search_hits h WHERE h.document_key=d.key) LIMIT 256)',
+          'DELETE FROM search_documents WHERE key IN (SELECT key FROM search_documents d WHERE NOT EXISTS (SELECT 1 FROM search_hits h WHERE h.document_key=d.key))',
         ),
         db
           .prepare('DELETE FROM search_creation_leases WHERE expires < ?')
           .bind(Date.now()),
         db
           .prepare(
-            `INSERT INTO search_runs (id,fingerprint,plan,total,next,created,lease) SELECT ?,?,?,?,1,?,0 WHERE (SELECT COALESCE(SUM(total),0) FROM search_runs WHERE fingerprint NOT LIKE 'trending:v1:%') <= ?`,
+            `INSERT INTO search_runs (id,fingerprint,plan,total,next,created,lease,owner) SELECT ?,?,?,?,1,?,?,? WHERE (SELECT COALESCE(SUM(total),0) FROM search_runs WHERE fingerprint NOT LIKE 'trending:v1:%') <= ?`,
           )
           .bind(
             run.id,
@@ -323,6 +339,8 @@ async function searchPass(
             run.plan,
             run.total,
             run.created,
+            run.lease,
+            run.owner,
             50000 - run.total,
           ),
       ]);
@@ -353,13 +371,13 @@ async function searchPass(
   const pages = Math.ceil(run.total / pageSize);
   let progressed = false;
   if (run.next <= pages) {
-    const owner = crypto.randomUUID();
+    const owner = initialPassOwner || crypto.randomUUID();
     const lease = Date.now() + 60000;
     const acquired = await db
       .prepare(
-        'UPDATE search_runs SET lease = ?, owner = ? WHERE id = ? AND lease < ? AND next = ?',
+        'UPDATE search_runs SET lease = ?, owner = ? WHERE id = ? AND (lease < ? OR owner = ?) AND next = ?',
       )
-      .bind(lease, owner, run.id, Date.now(), run.next)
+      .bind(lease, owner, run.id, Date.now(), owner, run.next)
       .run();
     if (acquired.meta.changes) {
       try {
