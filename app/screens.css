@@ -2581,6 +2581,23 @@
 .mobile-now-playing[data-closed] {
   animation: np-fade 0.2s var(--ease) reverse forwards !important;
 }
+/* Safari preserves the previous browser tint for viewport-sized overlays.
+   Separate fixed edges make it sample the player's color instead. */
+.now-playing-browser-edge {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 12px;
+  z-index: 1;
+  background: var(--night-2);
+  pointer-events: none;
+}
+.now-playing-browser-edge[data-edge='top'] {
+  top: 0;
+}
+.now-playing-browser-edge[data-edge='bottom'] {
+  bottom: 0;
+}
 @keyframes np-fade {
   from {
     opacity: 0;

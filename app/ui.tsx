@@ -446,6 +446,7 @@ export function MobileRecordingCard({
   onSave,
   saved,
   active = false,
+  showCategory = true,
 }: {
   shiur: Shiur;
   onPlay: (s: Shiur) => void;
@@ -454,6 +455,7 @@ export function MobileRecordingCard({
   onSave: (s: Shiur) => void;
   saved: boolean;
   active?: boolean;
+  showCategory?: boolean;
 }) {
   const kind = mediaKind(s);
   return (
@@ -499,7 +501,7 @@ export function MobileRecordingCard({
                 ? 'Article'
                 : 'Recording'}
           </span>
-          {(s.category || s.topics[0]) && (
+          {showCategory && (s.category || s.topics[0]) && (
             <span dir="auto">{s.category || s.topics[0]}</span>
           )}
           <ShiurViews shiur={s} />
@@ -1387,6 +1389,16 @@ function NowPlayingDialog({
         }
         showCloseButton={false}
       >
+        <span
+          className="now-playing-browser-edge"
+          data-edge="top"
+          aria-hidden="true"
+        />
+        <span
+          className="now-playing-browser-edge"
+          data-edge="bottom"
+          aria-hidden="true"
+        />
         <div className="now-playing-top">
           <button
             aria-label={

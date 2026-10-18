@@ -342,13 +342,17 @@ export function MobileDiscover({
             <button
               className="m-browse-more"
               onClick={() =>
-                entries.length > shown ? setShown((n) => n + 5) : browseAll()
+                feed === 'trending'
+                  ? browseAll()
+                  : entries.length > shown
+                    ? setShown((n) => n + 5)
+                    : browseAll()
               }
             >
-              {entries.length > shown
-                ? 'Browse more shiurim'
-                : feed === 'trending'
-                  ? 'See the full chart'
+              {feed === 'trending'
+                ? 'Browse all trending shiurim'
+                : entries.length > shown
+                  ? 'Browse more shiurim'
                   : 'Search the full library'}
               <ArrowRight size={16} />
             </button>

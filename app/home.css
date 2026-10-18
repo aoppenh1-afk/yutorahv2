@@ -1337,25 +1337,37 @@
   opacity: 0.5;
 }
 .m-feed-tabs {
-  display: flex;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   margin-bottom: 8px;
+  border-bottom: 1px solid var(--line-strong);
 }
 .m-feed-tabs button {
-  min-height: 36px;
-  padding: 0 16px;
-  border-radius: 999px;
+  position: relative;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 8px 8px;
   font-size: 13.5px;
   font-weight: 600;
-  color: var(--ink-2);
-  background: rgba(0, 0, 0, 0.05);
-  transition:
-    background 0.2s,
-    color 0.2s;
+  text-align: center;
+  white-space: nowrap;
+  color: var(--ink-3);
+  background: transparent;
+  transition: color 0.2s;
 }
 .m-feed-tabs button[aria-pressed='true'] {
+  color: var(--ink);
+}
+.m-feed-tabs button[aria-pressed='true']::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
   background: var(--ink);
-  color: #fff;
 }
 .m-recordings {
   display: grid;
@@ -1842,5 +1854,139 @@
   .trending-periods button {
     padding: 0 2px;
     font-size: 12px;
+  }
+}
+
+/* The full phone chart shares the home feed's recording controls. */
+@media (max-width: 767px) {
+  .mobile-trending-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    margin-top: -12px;
+    margin-bottom: 8px;
+    color: var(--ink-3);
+    font-size: 13px;
+    font-weight: 550;
+  }
+  .trending-page .discover-heading {
+    margin-bottom: 24px;
+  }
+  .trending-page .discover-heading .eyebrow,
+  .trending-page .discovery-section-heading h2,
+  .trending-page .discovery-toolbar > .icon-button {
+    display: none;
+  }
+  .trending-page .discover-heading h1 {
+    padding-right: 44px;
+    font-size: clamp(28px, 8.2vw, 32px);
+  }
+  .trending-page .discover-heading p {
+    margin-top: 10px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .trending-page .discover-heading-tools {
+    top: -4px;
+  }
+  .trending-page .discover-heading-tools .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+  .trending-page .discovery-section {
+    margin-top: 0;
+  }
+  .trending-page .discovery-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    margin-bottom: 12px;
+  }
+  .trending-page .trending-periods {
+    position: relative;
+    isolation: isolate;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0;
+    padding: 4px;
+    border-radius: 14px;
+    background: var(--panel);
+  }
+  .trending-page .trending-periods::before {
+    content: '';
+    position: absolute;
+    inset: 4px auto 4px 4px;
+    width: calc((100% - 8px) / 5);
+    border-radius: 10px;
+    background: var(--surface);
+    box-shadow:
+      0 1px 4px rgba(0, 0, 0, 0.09),
+      inset 0 0 0 1px var(--line);
+    transform: translateX(calc(var(--period-index, 1) * 100%));
+    transition: transform 180ms var(--ease);
+  }
+  .trending-page .trending-periods button {
+    position: relative;
+    min-height: 44px;
+    padding: 0 4px;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--ink-3);
+    box-shadow: none;
+    font-size: 13px;
+    font-weight: 550;
+  }
+  .trending-page .trending-periods button[aria-pressed='true'] {
+    color: var(--ink);
+    background: transparent;
+    font-weight: 650;
+  }
+  .mobile-trending-status {
+    display: block;
+    margin: 0 0 8px;
+    color: var(--ink-3);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .mobile-trending-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .mobile-trending-list > li {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .mobile-trending-rank {
+    color: var(--ink-3);
+    font-size: 16px;
+    font-weight: 550;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .mobile-trending-list .mobile-recording-card {
+    grid-template-columns: 48px minmax(0, 1fr) 44px;
+    gap: 10px;
+    padding: 16px 0;
+    border: 0;
+  }
+  .mobile-trending-list .recording-portrait {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+  }
+  .mobile-trending-list .recording-save {
+    width: 44px;
+    height: 44px;
+  }
+  .trending-page .discovery-more {
+    width: 100%;
+    min-height: 46px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .trending-page .trending-periods::before {
+    transition: none;
   }
 }

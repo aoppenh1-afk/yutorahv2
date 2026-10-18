@@ -377,6 +377,46 @@ void test('player controls stop playback and the phone dialog stays inside the b
             assert.equal(currentColors.root, background);
             assert.equal(currentColors.body, background);
             assert.notEqual(currentColors.theme, originalColors.theme);
+            const edges = await dialog
+              .locator('.now-playing-browser-edge')
+              .evaluateAll((elements) =>
+                elements.map((el) => {
+                  const rect = el.getBoundingClientRect();
+                  const style = getComputedStyle(el);
+                  return {
+                    edge: el.dataset.edge,
+                    top: rect.top,
+                    bottom: rect.bottom,
+                    width: rect.width,
+                    height: rect.height,
+                    position: style.position,
+                    background: style.backgroundColor,
+                    pointerEvents: style.pointerEvents,
+                    hidden: el.getAttribute('aria-hidden'),
+                  };
+                }),
+              );
+            assert.equal(edges.length, 2);
+            assert.deepEqual(
+              edges.map((edge) => edge.edge),
+              ['top', 'bottom'],
+            );
+            for (const edge of edges) {
+              assert.equal(edge.position, 'fixed');
+              assert.equal(edge.background, background);
+              assert.equal(edge.pointerEvents, 'none');
+              assert.equal(edge.hidden, 'true');
+              assert.ok(Math.abs(edge.width - viewport.width) < 1);
+              // Safari ignores very thin fixed containers when sampling colors.
+              assert.ok(edge.height > 10);
+              assert.ok(
+                Math.abs(
+                  edge.edge === 'top'
+                    ? edge.top
+                    : edge.bottom - viewport.height,
+                ) < 1,
+              );
+            }
           }
           await dialog
             .getByRole('button', { name: 'Collapse player controls' })
@@ -385,6 +425,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             () =>
               !document.documentElement.classList.contains('now-playing-open'),
           );
+          await dialog.waitFor({ state: 'detached' });
           assert.deepEqual(await colors(), originalColors);
           await page
             .getByRole('button', { name: 'Expand player controls' })

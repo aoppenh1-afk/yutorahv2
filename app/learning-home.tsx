@@ -10,6 +10,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -22,6 +23,7 @@ import {
   preferDiscoveryChart,
 } from '@/lib/trending-local';
 import {
+  ArrowLeft,
   ArrowRight,
   Bookmark,
   BookOpen,
@@ -50,6 +52,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   Avatar,
+  MobileRecordingCard,
   SeriesCover,
   ShiurCard,
   ShiurRow,
@@ -107,6 +110,7 @@ type Props = {
   homeSearch: ReactNode;
   onNavigate: (
     view:
+      | 'discover'
       | 'teachers'
       | 'series'
       | 'topics'
@@ -181,7 +185,10 @@ export function LearningHome(props: Props) {
   >({});
   const discoveryChartsRef = useRef(discoveryCharts);
   discoveryChartsRef.current = discoveryCharts;
-  const trendingMinutes = minutes === 'all' ? 0 : Number(minutes);
+  const trendingMinutes =
+    (isMobile && currentTab === 'trending') || minutes === 'all'
+      ? 0
+      : Number(minutes);
   const discoveryPeriod = currentTab === 'trending' ? trendingPeriod : 'week';
   const discoveryMinutes = recommendationView ? 0 : trendingMinutes;
   const discoveryKey = `${discoveryPeriod}:${discoveryMinutes}`;
@@ -468,8 +475,8 @@ export function LearningHome(props: Props) {
   );
   const trending = (discovery?.trending || []).filter(
     (s) =>
-      minutes === 'all' ||
-      (s.duration > 0 && s.duration <= Number(minutes) * 60),
+      trendingMinutes === 0 ||
+      (s.duration > 0 && s.duration <= trendingMinutes * 60),
   );
   const isHome = currentTab === 'for-you';
   const refreshAll = () => {
@@ -546,70 +553,92 @@ export function LearningHome(props: Props) {
     </div>
   );
   const trendingList = (count: number) => (
-    <ol className="trending-list">
-      {trending.slice(0, count).map((s, i) => (
-        <li
-          className={
-            'trending-item' +
-            (activeId === s.id && playing ? ' is-playing' : '')
-          }
-          key={s.id}
-        >
-          <span className="trending-rank">{i + 1}</span>
-          <button
-            className={'trending-cover ' + tone(s.teacherId)}
-            aria-label={
-              (mediaKind(s) === 'audio' ? 'Play ' : 'Open ') + s.title
-            }
-            onClick={() =>
-              mediaKind(s) === 'audio' ? onPlay(s) : onDetails(s)
-            }
-          >
-            <Avatar src={s.image} name={s.teacher} />
-            <span>
-              {mediaKind(s) === 'audio' ? (
-                <Play size={16} fill="currentColor" />
-              ) : (
-                <ArrowRight size={16} />
-              )}
-            </span>
-          </button>
-          <div className="trending-copy">
-            <button dir="auto" onClick={() => onDetails(s)}>
-              {s.title}
-            </button>
-            <p>
-              <TeacherLink
-                shiur={s}
-                onTeacher={(s) =>
-                  onEntity
-                    ? onEntity('teacher', s.teacherId)
-                    : onSearch('', {
-                        ...noFilters,
-                        teacher: String(s.teacherId),
-                      })
-                }
-              />
-            </p>
-            <small>
-              <ShiurViews shiur={s} />
-              <span>·</span>
-              {s.duration ? Math.round(s.duration / 60) + ' min' : mediaKind(s)}
-            </small>
-          </div>
-          <button
-            className="icon-button"
-            aria-label={(savedIds.has(s.id) ? 'Unsave ' : 'Save ') + s.title}
-            aria-pressed={savedIds.has(s.id)}
-            onClick={() => onSave(s)}
-          >
-            <Bookmark
-              size={17}
-              fill={savedIds.has(s.id) ? 'currentColor' : 'none'}
+    <ol className={isMobile ? 'mobile-trending-list' : 'trending-list'}>
+      {trending.slice(0, count).map((s, i) =>
+        isMobile ? (
+          <li key={s.id}>
+            <span className="mobile-trending-rank">{i + 1}</span>
+            <MobileRecordingCard
+              showCategory={false}
+              shiur={s}
+              onPlay={onPlay}
+              onDetails={onDetails}
+              onTeacher={(s) =>
+                onEntity
+                  ? onEntity('teacher', s.teacherId)
+                  : onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+              }
+              onSave={onSave}
+              saved={savedIds.has(s.id)}
+              active={activeId === s.id && playing}
             />
-          </button>
-        </li>
-      ))}
+          </li>
+        ) : (
+          <li
+            className={
+              'trending-item' +
+              (activeId === s.id && playing ? ' is-playing' : '')
+            }
+            key={s.id}
+          >
+            <span className="trending-rank">{i + 1}</span>
+            <button
+              className={'trending-cover ' + tone(s.teacherId)}
+              aria-label={
+                (mediaKind(s) === 'audio' ? 'Play ' : 'Open ') + s.title
+              }
+              onClick={() =>
+                mediaKind(s) === 'audio' ? onPlay(s) : onDetails(s)
+              }
+            >
+              <Avatar src={s.image} name={s.teacher} />
+              <span>
+                {mediaKind(s) === 'audio' ? (
+                  <Play size={16} fill="currentColor" />
+                ) : (
+                  <ArrowRight size={16} />
+                )}
+              </span>
+            </button>
+            <div className="trending-copy">
+              <button dir="auto" onClick={() => onDetails(s)}>
+                {s.title}
+              </button>
+              <p>
+                <TeacherLink
+                  shiur={s}
+                  onTeacher={(s) =>
+                    onEntity
+                      ? onEntity('teacher', s.teacherId)
+                      : onSearch('', {
+                          ...noFilters,
+                          teacher: String(s.teacherId),
+                        })
+                  }
+                />
+              </p>
+              <small>
+                <ShiurViews shiur={s} />
+                <span>·</span>
+                {s.duration
+                  ? Math.round(s.duration / 60) + ' min'
+                  : mediaKind(s)}
+              </small>
+            </div>
+            <button
+              className="icon-button"
+              aria-label={(savedIds.has(s.id) ? 'Unsave ' : 'Save ') + s.title}
+              aria-pressed={savedIds.has(s.id)}
+              onClick={() => onSave(s)}
+            >
+              <Bookmark
+                size={17}
+                fill={savedIds.has(s.id) ? 'currentColor' : 'none'}
+              />
+            </button>
+          </li>
+        ),
+      )}
     </ol>
   );
   const subjects = [
@@ -663,7 +692,8 @@ export function LearningHome(props: Props) {
       className={
         'listening-home ' +
         (isHome ? 'has-mobile-home' : '') +
-        (followingPage ? ' following-page' : '')
+        (followingPage ? ' following-page' : '') +
+        (trendingPage ? ' trending-page' : '')
       }
     >
       {isHome && isMobile && (
@@ -700,6 +730,14 @@ export function LearningHome(props: Props) {
       {(!isHome || !isMobile) && (
         <>
           {props.dataTiming && <DataCommitMarker timings={props.dataTiming} />}
+          {trendingPage && isMobile && (
+            <button
+              className="mobile-trending-back"
+              onClick={() => onNavigate('discover')}
+            >
+              <ArrowLeft size={16} /> Home
+            </button>
+          )}
           <header className="discover-heading">
             <div>
               <span className="eyebrow">
@@ -713,7 +751,9 @@ export function LearningHome(props: Props) {
                 {followingPage
                   ? 'Following'
                   : trendingPage
-                    ? 'Trending in the library.'
+                    ? isMobile
+                      ? 'Trending shiurim'
+                      : 'Trending in the library.'
                     : 'The Torah library.'}
               </h1>
               {(followingPage || trendingPage) && (
@@ -725,14 +765,28 @@ export function LearningHome(props: Props) {
               )}
             </div>
             <div className="discover-heading-tools">
-              <button
-                className="outline-button discover-preferences"
-                aria-label="Customize learning preferences"
-                onClick={() => setPreferences(true)}
-              >
-                <Settings2 size={16} />
-                <span>Preferences</span>
-              </button>
+              {trendingPage && isMobile ? (
+                <button
+                  className="icon-button"
+                  aria-label="Refresh trending"
+                  onClick={refreshAll}
+                  disabled={discoveryLoading}
+                >
+                  <RefreshCw
+                    size={18}
+                    className={discoveryLoading ? 'spin' : ''}
+                  />
+                </button>
+              ) : (
+                <button
+                  className="outline-button discover-preferences"
+                  aria-label="Customize learning preferences"
+                  onClick={() => setPreferences(true)}
+                >
+                  <Settings2 size={16} />
+                  <span>Preferences</span>
+                </button>
+              )}
             </div>
           </header>
           {!followingPage && !trendingPage && (
@@ -1051,23 +1105,34 @@ export function LearningHome(props: Props) {
               )}
             </section>
           ) : currentTab === 'trending' ? (
-            <section className="discovery-section">
-              {sectionHeading(
-                'What listeners are exploring',
-                discovery?.coverage?.status === 'paused'
-                  ? 'Indexing paused while coverage is unresolved. Saved rankings remain available.'
-                  : discovery?.refreshing
-                    ? 'Updating rankings. Showing the last saved chart.'
-                    : discovery?.partial
-                      ? `Observed ${discovery.sampled.toLocaleString()} unique records; the library reports ${(discovery.libraryTotal ?? discovery.total).toLocaleString()}. Coverage is unresolved. Rankings may change.`
-                      : discovery?.source === 'mobile'
-                        ? 'Rankings use an observed library census. YUTorah does not provide a fixed snapshot.'
-                        : undefined,
-              )}
+            <section
+              className="discovery-section"
+              aria-label="Trending shiurim"
+            >
+              {!isMobile &&
+                sectionHeading(
+                  'What listeners are exploring',
+                  discovery?.coverage?.status === 'paused'
+                    ? 'Indexing paused while coverage is unresolved. Saved rankings remain available.'
+                    : discovery?.refreshing
+                      ? 'Updating rankings. Showing the last saved chart.'
+                      : discovery?.partial
+                        ? `Observed ${discovery.sampled.toLocaleString()} unique records; the library reports ${(discovery.libraryTotal ?? discovery.total).toLocaleString()}. Coverage is unresolved. Rankings may change.`
+                        : discovery?.source === 'mobile'
+                          ? 'Rankings use an observed library census. YUTorah does not provide a fixed snapshot.'
+                          : undefined,
+                )}
               <div className="discovery-toolbar">
                 <fieldset
                   className="trending-periods"
                   aria-label="Trending period"
+                  style={
+                    {
+                      '--period-index': trendingPeriods.findIndex(
+                        ({ value }) => value === trendingPeriod,
+                      ),
+                    } as CSSProperties
+                  }
                 >
                   {trendingPeriods.map(({ value, label }) => (
                     <button
@@ -1078,25 +1143,27 @@ export function LearningHome(props: Props) {
                         setTrendingLimit(12);
                       }}
                     >
-                      {label}
+                      {isMobile && value === 'day' ? 'Day' : label}
                     </button>
                   ))}
                 </fieldset>
-                <fieldset className="time-chips" aria-label="Trending length">
-                  <Timer size={15} />
-                  {['all', '10', '20', '30'].map((v) => (
-                    <button
-                      key={v}
-                      aria-pressed={minutes === v}
-                      onClick={() => {
-                        setMinutes(v);
-                        setTrendingLimit(12);
-                      }}
-                    >
-                      {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
-                    </button>
-                  ))}
-                </fieldset>
+                {!isMobile && (
+                  <fieldset className="time-chips" aria-label="Trending length">
+                    <Timer size={15} />
+                    {['all', '10', '20', '30'].map((v) => (
+                      <button
+                        key={v}
+                        aria-pressed={minutes === v}
+                        onClick={() => {
+                          setMinutes(v);
+                          setTrendingLimit(12);
+                        }}
+                      >
+                        {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
+                      </button>
+                    ))}
+                  </fieldset>
+                )}
                 <button
                   className="icon-button"
                   aria-label="Refresh trending"
@@ -1106,20 +1173,32 @@ export function LearningHome(props: Props) {
                   <RefreshCw size={16} />
                 </button>
               </div>
-              <p className="trending-source">
-                {trendingPeriod === 'all'
-                  ? 'Ranked by total YUTorah views across the library.'
-                  : `Ranked by total YUTorah views for shiurim uploaded in the past ${
-                      trendingPeriods.find((p) => p.value === trendingPeriod)!
-                        .days === 1
-                        ? '24 hours'
-                        : trendingPeriods.find(
-                            (p) => p.value === trendingPeriod,
-                          )!.days + ' days'
-                    }.`}{' '}
-                Dates use YUTorah&apos;s upload date. View counts are lifetime
-                totals. Some source dates have day precision.
-              </p>
+              {isMobile &&
+                (discovery?.partial ||
+                  discovery?.refreshing ||
+                  discovery?.coverage?.status === 'paused') && (
+                  <output className="mobile-trending-status">
+                    {discovery?.coverage?.status === 'paused'
+                      ? 'Showing saved rankings'
+                      : 'Rankings are updating'}
+                  </output>
+                )}
+              {!isMobile && (
+                <p className="trending-source">
+                  {trendingPeriod === 'all'
+                    ? 'Ranked by total YUTorah views across the library.'
+                    : `Ranked by total YUTorah views for shiurim uploaded in the past ${
+                        trendingPeriods.find((p) => p.value === trendingPeriod)!
+                          .days === 1
+                          ? '24 hours'
+                          : trendingPeriods.find(
+                              (p) => p.value === trendingPeriod,
+                            )!.days + ' days'
+                      }.`}{' '}
+                  Dates use YUTorah&apos;s upload date. View counts are lifetime
+                  totals. Some source dates have day precision.
+                </p>
+              )}
               {discoveryLoading && !discovery ? (
                 <StatePanel
                   title="No saved chart yet."
@@ -1157,13 +1236,19 @@ export function LearningHome(props: Props) {
                 <StatePanel
                   title={
                     discovery?.partial
-                      ? 'Indexing this range…'
+                      ? isMobile
+                        ? 'Updating this chart…'
+                        : 'Indexing this range…'
                       : 'No viewed shiurim match this range.'
                   }
                   description={
                     discovery?.partial
-                      ? 'The chart will update as more shiurim are indexed.'
-                      : 'Choose another period or length to see more shiurim.'
+                      ? isMobile
+                        ? 'More shiurim will appear as rankings update.'
+                        : 'The chart will update as more shiurim are indexed.'
+                      : isMobile
+                        ? 'Choose another period to see more shiurim.'
+                        : 'Choose another period or length to see more shiurim.'
                   }
                 />
               )}
