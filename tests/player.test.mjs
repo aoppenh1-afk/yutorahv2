@@ -299,6 +299,113 @@ async function closeAndVerify(page, minSeconds = 42) {
 void test('player controls stop playback and the phone dialog stays inside the built viewport', async (t) => {
   try {
     await t.test(
+      'now playing adapts to changing phone heights and restores browser colors',
+      async () => {
+        const { context, page } = await openPlayer(
+          { width: 390, height: 844 },
+          false,
+          {
+            title: 'Ten Minute Halacha - Will Pig Ever Be Kosher?',
+            teacher: 'Rabbi Aryeh Lebowitz',
+            image:
+              'https://cdnyutorah.cachefly.net/_images/roshei_yeshiva/player-fixture.jpg',
+          },
+        );
+        const colors = () =>
+          page.evaluate(() => ({
+            theme: document.querySelector('meta[name="theme-color"]').content,
+            root: getComputedStyle(document.documentElement).backgroundColor,
+            body: getComputedStyle(document.body).backgroundColor,
+          }));
+        try {
+          const originalColors = await colors();
+          await page
+            .getByRole('button', { name: 'Expand player controls' })
+            .click();
+          const dialog = page.locator('.mobile-now-playing');
+          for (const viewport of [
+            { width: 390, height: 844 },
+            { width: 390, height: 664 },
+            { width: 320, height: 568 },
+            { width: 667, height: 375 },
+            { width: 390, height: 844 },
+          ]) {
+            await page.setViewportSize(viewport);
+            const cdp = await context.newCDPSession(page);
+            await cdp.send('Emulation.setSafeAreaInsetsOverride', {
+              insets:
+                viewport.width > viewport.height
+                  ? { top: 0, bottom: 21, left: 47, right: 47 }
+                  : { top: 47, bottom: 34, left: 0, right: 0 },
+            });
+            await cdp.detach();
+            await page.waitForFunction(
+              () =>
+                Math.abs(
+                  document.querySelector('.mobile-now-playing').clientHeight -
+                    innerHeight,
+                ) < 1,
+            );
+            await assertInViewport(dialog, viewport);
+            const overflow = await dialog.evaluate((el) => ({
+              vertical: el.scrollHeight - el.clientHeight,
+              horizontal: el.scrollWidth - el.clientWidth,
+            }));
+            assert.ok(
+              overflow.vertical <= 1,
+              JSON.stringify({ viewport, overflow }),
+            );
+            assert.ok(
+              overflow.horizontal <= 1,
+              JSON.stringify({ viewport, overflow }),
+            );
+            for (const selector of [
+              '.now-playing-top',
+              '.now-playing-portrait',
+              '.now-playing-title',
+              '.now-playing-seek',
+              '.now-playing-transport',
+              '.now-playing-actions',
+              '.now-playing-volume',
+            ]) {
+              await assertInViewport(dialog.locator(selector), viewport);
+            }
+            const background = await dialog.evaluate(
+              (el) => getComputedStyle(el).backgroundColor,
+            );
+            const currentColors = await colors();
+            assert.equal(currentColors.root, background);
+            assert.equal(currentColors.body, background);
+            assert.notEqual(currentColors.theme, originalColors.theme);
+          }
+          await dialog
+            .getByRole('button', { name: 'Collapse player controls' })
+            .click();
+          await page.waitForFunction(
+            () =>
+              !document.documentElement.classList.contains('now-playing-open'),
+          );
+          assert.deepEqual(await colors(), originalColors);
+          await page
+            .getByRole('button', { name: 'Expand player controls' })
+            .click();
+          await page.keyboard.press('Escape');
+          await page.waitForFunction(
+            () =>
+              !document.documentElement.classList.contains('now-playing-open'),
+          );
+          assert.deepEqual(await colors(), originalColors);
+          await page
+            .getByRole('button', { name: 'Expand player controls' })
+            .click();
+          await closeAndVerify(page);
+          assert.deepEqual(await colors(), originalColors);
+        } finally {
+          await context.close();
+        }
+      },
+    );
+    await t.test(
       'buffering keeps Pause available and recovers without another playing event',
       async () => {
         const { context, page } = await openPlayer({ width: 390, height: 844 });

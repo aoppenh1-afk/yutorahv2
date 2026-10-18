@@ -1348,6 +1348,29 @@ function NowPlayingDialog({
   setExpanded: (open: boolean) => void;
   desktop?: boolean;
 }) {
+  const playerOpen = expanded && Boolean(p.active);
+  useEffect(() => {
+    if (!playerOpen) return;
+    const root = document.documentElement;
+    const theme = document.querySelector<HTMLMetaElement>(
+      'meta[name="theme-color"]',
+    );
+    const previousTheme = theme?.getAttribute('content');
+    root.classList.add('now-playing-open');
+    theme?.setAttribute(
+      'content',
+      getComputedStyle(root).getPropertyValue('--night-2').trim(),
+    );
+    return () => {
+      root.classList.remove('now-playing-open');
+      if (theme) {
+        if (previousTheme === null) theme.removeAttribute('content');
+        else if (previousTheme !== undefined)
+          theme.setAttribute('content', previousTheme);
+      }
+    };
+  }, [playerOpen]);
+
   if (!p.active) return null;
   const s = p.active;
   const saved = library.saved.some((v) => v.id === s.id);
