@@ -10,7 +10,7 @@ import {
   createTextMatcher,
   relatedSearchTerms,
 } from './search-matching';
-import { createRelevanceScorer } from '../packages/yutorah-core/src/search-ranking.js';
+import { createTitleScorer } from '../packages/yutorah-core/src/search-ranking.js';
 import { titleVocabulary } from './title-index';
 
 type Title = { id: number; title: string };
@@ -92,7 +92,7 @@ export async function findShiurSuggestions(
   const { results } = await statement.all<Title>();
   const terms = searchTerms(term);
   const matchers = terms.map((word) => createTextMatcher(word));
-  const scoreTitle = createRelevanceScorer(term);
+  const scoreTitle = createTitleScorer(term);
   return [...new Map(results.map((title) => [title.id, title])).values()]
     .map((title) => ({ ...title, prepared: prepareMatchText(title.title) }))
     .filter(
@@ -104,24 +104,16 @@ export async function findShiurSuggestions(
     )
     .map((title) => ({
       ...title,
-      score:
-        2000 *
-          terms.filter((word) =>
-            ` ${title.prepared.normalized} `.includes(` ${word} `),
-          ).length +
-        scoreTitle({
-          title: title.title,
-          topics: [],
-          series: '',
-          teacher: '',
-          description: '',
-        }),
+      score: scoreTitle(title.title),
     }))
     .sort(
       (a, b) =>
-        b.score - a.score || a.title.length - b.title.length || b.id - a.id,
+        b.score - a.score ||
+        a.title.length - b.title.length ||
+        a.title.localeCompare(b.title) ||
+        b.id - a.id,
     )
-    .slice(0, 5)
+    .slice(0, 8)
     .map((title) => ({
       id: title.id,
       kind: 'shiur',

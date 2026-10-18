@@ -330,6 +330,128 @@ void test('a collection directory contains prepared covers, including confirmed 
   assert.equal(directory.entries[1].image, '');
   assert.equal(directory.entries[1].artworkKnown, true);
 });
+void test('main search reads series and collections beyond the first browse page from shared snapshots', async (t) => {
+  const db = database();
+  const service = createCatalogService({ database: () => db });
+  await service.snapshots.save('directory', {
+    teachers: [],
+    topics: [],
+    groups: [],
+    series: [
+      { id: 17, name: 'Weekly Parsha', count: 10, description: '', image: '' },
+    ],
+  });
+  await service.snapshots.save('browse:collection', {
+    entries: Array.from({ length: 80 }, (_, i) => ({
+      id: i + 1,
+      name: i === 79 ? 'Weekly Parsha' : `Other collection ${i}`,
+      count: 1,
+    })),
+    total: 80,
+    next: null,
+  });
+  t.mock.method(globalThis, 'fetch', async () => {
+    throw new Error('Warmed suggestions must not fetch upstream');
+  });
+  const result = await service.suggestions('Weekly Parsha');
+  assert.equal(result.partial, false);
+  assert.deepEqual(
+    result.items.map((item) => [item.kind, item.id]),
+    [
+      ['collection', 80],
+      ['series', 17],
+    ],
+  );
+});
+void test('collection suggestions remain usable when teacher and series directories are unavailable', async (t) => {
+  const db = database();
+  const service = createCatalogService({ database: () => db });
+  await service.snapshots.save('browse:collection', {
+    entries: [{ id: 42, name: 'Weekly Parsha', count: 5 }],
+    total: 1,
+    next: null,
+  });
+  t.mock.method(globalThis, 'fetch', async () => {
+    throw new Error('Directory unavailable');
+  });
+  const result = await service.suggestions('Weekly Parsha');
+  assert.equal(result.partial, true);
+  assert.equal(result.items[0].kind, 'collection');
+});
+void test('a slow directory does not block ready collection suggestions and finishes warming in the request lifecycle', async (t) => {
+  const db = database();
+  const service = createCatalogService({ database: () => db });
+  await service.snapshots.save('browse:collection', {
+    entries: [{ id: 42, name: 'Weekly Parsha', count: 5 }],
+    total: 1,
+    next: null,
+  });
+  let release!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  t.mock.method(globalThis, 'fetch', async () => {
+    await ready;
+    return Response.json([]);
+  });
+  const tasks: (() => Promise<unknown>)[] = [];
+  try {
+    const result = await service.suggestions('Weekly Parsha', {
+      timeoutMs: 20,
+      defer: (task) => tasks.push(task),
+    });
+    assert.equal(result.partial, true);
+    assert.equal(result.items[0].kind, 'collection');
+    assert.equal(tasks.length, 1);
+  } finally {
+    release();
+    await Promise.all(tasks.map((task) => task()));
+  }
+});
+void test('submitted catalog search paginates all matching pages and includes venues without upstream reads', async (t) => {
+  const db = database();
+  const service = createCatalogService({ database: () => db });
+  await service.snapshots.save('directory', {
+    teachers: [],
+    topics: [],
+    groups: [],
+    series: [],
+  });
+  await service.snapshots.save('browse:collection', {
+    entries: Array.from({ length: 80 }, (_, id) => ({
+      id: id + 1,
+      name: 'Weekly Parsha',
+      count: 1,
+    })),
+    total: 80,
+    next: null,
+  });
+  await service.snapshots.save('browse:venue', {
+    entries: [{ id: 200, name: 'Weekly Parsha', count: 100 }],
+    total: 1,
+    next: null,
+  });
+  t.mock.method(globalThis, 'fetch', async () => {
+    throw new Error('Use the warmed snapshots');
+  });
+  const first = await service.search('Weekly Parsha');
+  assert.equal(first.total, 81);
+  assert.equal(first.items.length, 60);
+  assert.equal(first.next, 60);
+  assert.equal(first.items[0].kind, 'venue');
+  const last = await service.search('Weekly Parsha', first.next!);
+  assert.equal(last.items.length, 21);
+  assert.equal(last.next, null);
+  assert.equal(
+    new Set(
+      [...first.items, ...last.items].map((item) => `${item.kind}-${item.id}`),
+    ).size,
+    81,
+  );
+  assert.equal(first.partial, false);
+  await assert.rejects(service.search('x'.repeat(301)), RangeError);
+  await assert.rejects(service.search('query', -1), RangeError);
+});
 void test('cache storage outages keep public reads usable without claiming a durable write', async () => {
   for (const table of ['catalog_snapshots', 'catalog_refresh_leases']) {
     const db = database();

@@ -39,6 +39,9 @@ import {
   SearchTools,
 } from './search-tools';
 import { MobileSearchSummary } from './mobile-search-summary';
+import { MixedSearchResults } from './mixed-search-results';
+import { useCatalogSearch } from '@/hooks/use-catalog-search';
+import { mergeSearchMatches } from '@/lib/search-results';
 import { SearchQueryNotice } from './search-query-notice';
 import type { TranscriptHit } from './transcript-search';
 import { ScreenBoundary } from './screen-boundary';
@@ -1257,77 +1260,70 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     }));
     notify(learned ? 'Marked as not learned.' : 'Marked as learned.');
   };
+  const renderShiurRow = (s: Shiur, history = false) => (
+    <SelectableResult
+      key={s.id}
+      enabled={selecting && view === 'search'}
+      selected={selectedIds.has(s.id)}
+      shiur={s}
+      onSelect={() =>
+        setSelectedIds((old) => {
+          const next = new Set(old);
+          if (next.has(s.id)) next.delete(s.id);
+          else next.add(s.id);
+          return next;
+        })
+      }
+    >
+      <ShiurRow
+        shiur={s}
+        query={view === 'search' ? results?.plan.term : undefined}
+        onPlay={play}
+        onDetails={showDetail}
+        onTeacher={(s) => openCatalog('teacher', s.teacherId)}
+        onSave={save}
+        onQueue={enqueue}
+        onPlaylist={() => addToPlaylist(s)}
+        onLearned={() => toggleLearned(s)}
+        active={player.active?.id === s.id && player.playing}
+        saved={savedIds.has(s.id)}
+        learned={learnedIds.has(s.id)}
+        progress={history ? historyById.get(s.id) : undefined}
+      />
+    </SelectableResult>
+  );
   const rows = (items: Shiur[], history = false) => (
     <PagedItems key={view + withinResults + libraryQuery} items={items}>
-      {(visible) =>
-        visible.map((s) => (
-          <SelectableResult
-            key={s.id}
-            enabled={selecting && view === 'search'}
-            selected={selectedIds.has(s.id)}
-            shiur={s}
-            onSelect={() =>
-              setSelectedIds((old) => {
-                const next = new Set(old);
-                if (next.has(s.id)) next.delete(s.id);
-                else next.add(s.id);
-                return next;
-              })
-            }
-          >
-            <ShiurRow
-              shiur={s}
-              query={view === 'search' ? results?.plan.term : undefined}
-              onPlay={play}
-              onDetails={showDetail}
-              onTeacher={(s) => openCatalog('teacher', s.teacherId)}
-              onSave={save}
-              onQueue={enqueue}
-              onPlaylist={() => addToPlaylist(s)}
-              onLearned={() => toggleLearned(s)}
-              active={player.active?.id === s.id && player.playing}
-              saved={savedIds.has(s.id)}
-              learned={learnedIds.has(s.id)}
-              progress={history ? historyById.get(s.id) : undefined}
-            />
-          </SelectableResult>
-        ))
-      }
+      {(visible) => visible.map((s) => renderShiurRow(s, history))}
     </PagedItems>
   );
-  const cards = (items: Shiur[]) => (
-    <PagedItems key={view + withinResults + libraryQuery} items={items}>
-      {(visible) =>
-        visible.map((s, i) => (
-          <SelectableResult
-            key={s.id}
-            enabled={selecting && view === 'search'}
-            selected={selectedIds.has(s.id)}
-            shiur={s}
-            onSelect={() =>
-              setSelectedIds((old) => {
-                const next = new Set(old);
-                if (next.has(s.id)) next.delete(s.id);
-                else next.add(s.id);
-                return next;
-              })
-            }
-          >
-            <ShiurCard
-              shiur={s}
-              index={i}
-              query={view === 'search' ? results?.plan.term : undefined}
-              onPlay={play}
-              onDetails={showDetail}
-              onTeacher={(s) => openCatalog('teacher', s.teacherId)}
-              onSave={save}
-              saved={savedIds.has(s.id)}
-              active={player.active?.id === s.id && player.playing}
-            />
-          </SelectableResult>
-        ))
+  const renderShiurCard = (s: Shiur, i: number) => (
+    <SelectableResult
+      key={s.id}
+      enabled={selecting && view === 'search'}
+      selected={selectedIds.has(s.id)}
+      shiur={s}
+      onSelect={() =>
+        setSelectedIds((old) => {
+          const next = new Set(old);
+          if (next.has(s.id)) next.delete(s.id);
+          else next.add(s.id);
+          return next;
+        })
       }
-    </PagedItems>
+    >
+      <ShiurCard
+        shiur={s}
+        index={i}
+        query={view === 'search' ? results?.plan.term : undefined}
+        onPlay={play}
+        onDetails={showDetail}
+        onTeacher={(s) => openCatalog('teacher', s.teacherId)}
+        onSave={save}
+        saved={savedIds.has(s.id)}
+        active={player.active?.id === s.id && player.playing}
+      />
+    </SelectableResult>
   );
   const searchBar = (
     <SearchBox
@@ -1346,8 +1342,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         )
       }
       onSelect={(suggestion) =>
-        suggestion.kind === 'teacher'
-          ? openCatalog('teacher', suggestion.id)
+        suggestion.kind === 'teacher' ||
+        suggestion.kind === 'collection' ||
+        suggestion.kind === 'venue'
+          ? openCatalog(suggestion.kind, suggestion.id)
           : void runSearch('', {
               ...noFilters,
               [suggestion.kind]: String(suggestion.id),
@@ -1472,6 +1470,38 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       resultMatcher,
       preparedResults,
     ],
+  );
+  const catalogEnabled =
+    view === 'search' &&
+    searchScope === 'shiurim' &&
+    learningFilter === 'all' &&
+    filters.sort !== 'library' &&
+    !['new', 'old', 'short', 'long', 'popular'].includes(resultOrder) &&
+    ![
+      filters.max,
+      filters.min,
+      filters.language,
+      filters.format,
+      filters.after,
+      filters.before,
+      filters.uploadedAfter,
+      filters.uploadedBefore,
+      filters.phrase,
+      filters.exclude,
+      filters.literal,
+    ].some(Boolean);
+  const catalogResults = useCatalogSearch(submitted, catalogEnabled);
+  const visiblePages = useMemo(
+    () =>
+      catalogResults.items.filter((page) =>
+        resultMatcher(prepareSearchText(page.name + ' ' + (page.group || ''))),
+      ),
+    [catalogResults.items, resultMatcher],
+  );
+  const mixedResults = useMemo(
+    () =>
+      mergeSearchMatches(visibleResults, visiblePages, submitted, resultOrder),
+    [visibleResults, visiblePages, submitted, resultOrder],
   );
   const loadedItems = useMemo(
     () => [
@@ -1989,7 +2019,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 <h1>What would you like to learn?</h1>
                 <p>
                   Search {home ? home.total.toLocaleString() + ' ' : ''}
-                  shiurim by topic, teacher, title or source.
+                  shiurim and explore teachers, series, collections and venues.
                 </p>
               </div>
               {searchBar}
@@ -1999,9 +2029,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                   onClick={() => setSearchScope('shiurim')}
                 >
                   <Library size={16} />
-                  Shiurim
+                  All results
                   {results && searchScope === 'shiurim' && (
-                    <span>{results.total.toLocaleString()}</span>
+                    <span>
+                      {(results.total + catalogResults.total).toLocaleString()}
+                    </span>
                   )}
                 </button>
                 <button
@@ -2226,7 +2258,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                   )}
                   {searchError && (
                     <StatePanel
-                      title="Search could not be reached."
+                      title="Shiur search could not be reached."
                       description={searchError}
                     >
                       <button
@@ -2243,12 +2275,34 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                       <p>Searching YUTorah…</p>
                     </output>
                   )}
+                  {!results && mixedResults.length > 0 && (
+                    <>
+                      <div className="results-heading">
+                        <h2>
+                          {catalogResults.total.toLocaleString()} library{' '}
+                          {catalogResults.total === 1 ? 'page' : 'pages'}
+                        </h2>
+                        {resultViewControls}
+                      </div>
+                      <MixedSearchResults
+                        matches={mixedResults}
+                        grid={grid}
+                        onOpen={openCatalog}
+                        renderShiur={(shiur, index) =>
+                          grid
+                            ? renderShiurCard(shiur, index)
+                            : renderShiurRow(shiur)
+                        }
+                      />
+                    </>
+                  )}
                   {results && (
                     <>
                       <div className="results-heading" aria-live="polite">
                         {isMobile ? (
                           <MobileSearchSummary
                             result={results}
+                            pageCount={catalogResults.total}
                             searching={searchLoading}
                             onToggle={() => {
                               if (searchLoading) {
@@ -2260,12 +2314,26 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                         ) : (
                           <div>
                             <h2>
-                              {results.complete === false
-                                ? `${results.total.toLocaleString()} matches found so far`
-                                : results.filtered
-                                  ? `${results.items.length} matching shiurim loaded`
-                                  : `${results.total.toLocaleString()} shiurim`}
+                              {catalogResults.total > 0
+                                ? `${((results.filtered ? results.items.length : results.total) + catalogResults.total).toLocaleString()} results`
+                                : results.complete === false
+                                  ? `${results.total.toLocaleString()} matches found so far`
+                                  : results.filtered
+                                    ? `${results.items.length} matching shiurim loaded`
+                                    : `${results.total.toLocaleString()} shiurim`}
                             </h2>
+                            {catalogResults.total > 0 && (
+                              <p>
+                                {(results.filtered
+                                  ? results.items.length
+                                  : results.total
+                                ).toLocaleString()}{' '}
+                                shiurim ·{' '}
+                                {catalogResults.total.toLocaleString()} library{' '}
+                                {catalogResults.total === 1 ? 'page' : 'pages'}
+                                {catalogResults.partial ? ' found so far' : ''}
+                              </p>
+                            )}
                             {results.complete !== undefined && (
                               <p>
                                 {results.complete
@@ -2318,7 +2386,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                         }
                       >
                         {isMobile && resultViewControls}
-                        {results.items.length > 0 && (
+                        {mixedResults.length > 0 && (
                           <div className="results-workspace-tools">
                             <label className="within-search">
                               <Search size={16} />
@@ -2357,9 +2425,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                             </button>
                             {(withinResults || learningFilter !== 'all') && (
                               <p>
-                                {visibleResults.length} of{' '}
-                                {results.items.length} loaded shiurim match
-                                these local refinements.{' '}
+                                {mixedResults.length} of{' '}
+                                {results.items.length +
+                                  catalogResults.items.length}{' '}
+                                loaded results match these local refinements.{' '}
                                 <button
                                   onClick={() => {
                                     setWithinResults('');
@@ -2483,8 +2552,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                           />
                         </div>
                       )}
-                      {results.items.length > 0 &&
-                        visibleResults.length === 0 && (
+                      {(results.items.length > 0 ||
+                        catalogResults.items.length > 0) &&
+                        mixedResults.length === 0 && (
                           <StatePanel
                             title="No matches in these loaded results"
                             description="Clear the local refinement or load more shiurim to keep looking."
@@ -2500,22 +2570,29 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                             </button>
                           </StatePanel>
                         )}
-                      {results.items.length ? (
-                        grid ? (
-                          <div className="shiur-grid">
-                            {cards(visibleResults)}
-                          </div>
-                        ) : (
-                          <div className="results-list">
-                            {rows(visibleResults)}
-                          </div>
-                        )
-                      ) : (
+                      {mixedResults.length ? (
+                        <MixedSearchResults
+                          key={
+                            submitted + withinResults + learningFilter + grid
+                          }
+                          matches={mixedResults}
+                          grid={grid}
+                          onOpen={openCatalog}
+                          renderShiur={(shiur, index) =>
+                            grid
+                              ? renderShiurCard(shiur, index)
+                              : renderShiurRow(shiur)
+                          }
+                        />
+                      ) : results.items.length ||
+                        catalogResults.items.length ? null : (
                         <StatePanel
                           title={
                             results.complete === false
                               ? 'Still checking for matches…'
-                              : 'No matching shiurim.'
+                              : catalogResults.status === 'loading'
+                                ? 'Looking for library pages…'
+                                : 'No matching results.'
                           }
                           description={
                             results.complete === false
@@ -2524,6 +2601,37 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                           }
                         />
                       )}{' '}
+                      {catalogResults.status === 'loading' &&
+                        mixedResults.length > 0 && (
+                          <output className="catalog-search-status">
+                            <Loader2 size={14} className="spin" />
+                            Finding library pages…
+                          </output>
+                        )}
+                      {(catalogResults.status === 'error' ||
+                        catalogResults.partial) && (
+                        <div className="catalog-search-status">
+                          Some library pages could not be loaded.
+                          <button
+                            className="text-button"
+                            onClick={catalogResults.retry}
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      )}
+                      {catalogResults.next !== null && (
+                        <div className="load-more">
+                          <button
+                            className="outline-button"
+                            disabled={catalogResults.status === 'loading'}
+                            onClick={() => void catalogResults.loadMore()}
+                          >
+                            Load more library pages
+                            <ArrowRight size={15} />
+                          </button>
+                        </div>
+                      )}
                       {results.nextPage && (
                         <div className="load-more">
                           <button

@@ -105,6 +105,65 @@ function fixture(t: TestContext) {
   return { paths, release };
 }
 
+void test('catalog search endpoint returns clickable page metadata across all supported kinds and bounds input', async (t) => {
+  const { GET } = await freshModule<typeof import('../app/api/catalog/route')>(
+    'app/api/catalog/route.ts',
+  );
+  t.mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    const item = { ID: 7, name: 'Weekly Parsha', shiurCount: 2 };
+    if (url.pathname.endsWith('/browse/teachers'))
+      return Response.json([
+        { ...item, firstName: 'Weekly', lastName: 'Parsha' },
+      ]);
+    if (url.pathname.endsWith('/browse/categories'))
+      return Response.json([{ name: 'Torah', subCategories: [item] }]);
+    if (url.pathname.includes('/browse/')) return Response.json([item]);
+    if (url.pathname.endsWith('/search/get'))
+      return Response.json({
+        response: { docs: [] },
+        facet_counts: {
+          facet_fields: {
+            collections: [
+              { CollectionId: 8, CollectionName: 'Weekly Parsha', Match: 2 },
+            ],
+          },
+        },
+      });
+    throw new Error('Unexpected request');
+  });
+  const response = await GET(
+    new Request('http://localhost/api/catalog?action=search&q=Weekly%20Parsha'),
+  );
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.deepEqual(
+    new Set(data.items.map((item: { kind: string }) => item.kind)),
+    new Set(['teacher', 'series', 'topic', 'collection', 'venue']),
+  );
+  assert.equal(data.partial, false);
+  assert.equal(
+    (
+      await GET(
+        new Request(
+          'http://localhost/api/catalog?action=search&q=' + 'a'.repeat(301),
+        ),
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await GET(
+        new Request(
+          'http://localhost/api/catalog?action=search&q=test&offset=-1',
+        ),
+      )
+    ).status,
+    400,
+  );
+});
+
 void test('a cold profile starts its content and facets while the directory is still loading', async (t) => {
   const { catalogLanding } =
     await freshModule<typeof import('../lib/catalog')>('lib/catalog.ts');

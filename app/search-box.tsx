@@ -14,11 +14,10 @@ import type { Directory } from '@/lib/yutorah';
 import {
   suggestSearch,
   combineSearchSuggestions,
-  highlightParts,
   type SearchSuggestion,
   type ShiurSuggestion,
 } from '@/lib/search-discovery';
-import { useShiurSuggestions } from '@/hooks/use-shiur-suggestions';
+import { useSearchSuggestions } from '@/hooks/use-search-suggestions';
 
 const recentKey = 'yutorah-recent-searches-v1';
 export function SearchBox({
@@ -46,13 +45,13 @@ export function SearchBox({
     [deferred, directory],
   );
   const history = value.trim() ? [] : recent;
-  const shiurim = useShiurSuggestions(value, open);
+  const library = useSearchSuggestions(value, open);
   const suggestions = useMemo(
-    () => combineSearchSuggestions(directorySuggestions, shiurim.items),
-    [directorySuggestions, shiurim.items],
+    () => combineSearchSuggestions(directorySuggestions, library.items, value),
+    [directorySuggestions, library.items, value],
   );
   const count = suggestions.length + history.length;
-  const showSuggestions = open && (count > 0 || shiurim.status !== 'idle');
+  const showSuggestions = open && (count > 0 || library.status !== 'idle');
   const optionKey = (index: number) => {
     const suggestion = suggestions[index];
     return suggestion
@@ -162,7 +161,7 @@ export function SearchBox({
               setSelectedKey(optionKey(next));
             }
           }}
-          placeholder="Shiur, topic, teacher, or series"
+          placeholder="Shiur, topic, teacher, series, or collection"
           aria-label="Search YUTorah"
           aria-autocomplete="list"
           aria-expanded={showSuggestions}
@@ -226,7 +225,7 @@ export function SearchBox({
               const Icon =
                 s.kind === 'teacher'
                   ? Users
-                  : s.kind === 'series'
+                  : s.kind === 'series' || s.kind === 'collection'
                     ? Library
                     : BookOpen;
               return (
@@ -255,15 +254,7 @@ export function SearchBox({
                     <Icon size={18} />
                   </span>
                   <span className="suggestion-name">
-                    <strong dir="auto">
-                      {highlightParts(s.name, value).map((part, index) =>
-                        part.match ? (
-                          <mark key={index}>{part.text}</mark>
-                        ) : (
-                          part.text
-                        ),
-                      )}
-                    </strong>
+                    <strong dir="auto">{s.name}</strong>
                     <small>
                       {s.kind === 'shiur'
                         ? 'Open shiur'
@@ -316,14 +307,14 @@ export function SearchBox({
             ))}
           </div>
           <div className="suggestion-status" role="status">
-            {shiurim.status === 'loading'
-              ? 'Searching shiurim…'
-              : shiurim.status === 'error'
-                ? 'Shiur suggestions are unavailable. Press Enter to search.'
-                : shiurim.status === 'ready' && !count
+            {library.status === 'loading'
+              ? 'Searching the library…'
+              : library.status === 'error' || library.status === 'partial'
+                ? 'Some suggestions are unavailable. Press Enter to search.'
+                : library.status === 'ready' && !count
                   ? 'No matching titles. Press Enter to search the library.'
-                  : shiurim.items.length
-                    ? `${shiurim.items.length} matching shiurim`
+                  : count
+                    ? `${count} matching results`
                     : ''}
           </div>
           {value.trim() && (
@@ -344,8 +335,8 @@ export function SearchBox({
       )}
       </div>
       <p id="search-matching-hint" className="search-matching-hint">
-        Ask in your own words, or search a topic, teacher, or series. Typos and
-        partial words work too.
+        Ask in your own words, or search a shiur, topic, teacher, series, or
+        collection. Typos and partial words work too.
       </p>
     </search>
   );

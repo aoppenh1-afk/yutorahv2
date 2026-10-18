@@ -26,7 +26,7 @@
     "sources:prepare": "tsx scripts/prepare-sources.ts",
     "sources:evaluate": "tsx scripts/evaluate-sources.ts",
     "test:live": "node --test tests/live-api.test.mjs",
-    "test:search": "node tests/search.test.mjs && node --test tests/complete-search.test.mjs tests/d1-http.test.mjs tests/title-index.test.mjs tests/autocomplete.test.mjs && tsx --test tests/search-expansion.test.ts",
+    "test:search": "node tests/search.test.mjs && node --test tests/complete-search.test.mjs tests/d1-http.test.mjs tests/title-index.test.mjs tests/autocomplete.test.mjs && tsx --test tests/search-expansion.test.ts tests/search-results.test.ts",
     "trending:warm": "tsx scripts/warm-trending.ts",
     "catalog:warm": "node scripts/warm-catalog.mjs",
     "search:index": "tsx scripts/index-search-titles.ts",

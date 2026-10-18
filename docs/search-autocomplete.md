@@ -1,23 +1,49 @@
-# Shiur autocomplete
+# Library autocomplete
 
 Typing at least three characters starts a title lookup after a 200 ms pause.
 Teacher, topic, and series suggestions continue to appear locally from two
-characters. Their existing matcher requires the full query, so `Sukkas` puts the
-matching category first, while `coffee in shabbos` shows titles containing both
-subjects. Connecting words are optional. With title matches available, the
-dropdown reserves five rows for shiurim and shows up to three directory matches
-above them. Without title matches, it retains up to eight directory matches.
+characters. The server also searches series and collections from the shared
+catalog snapshots, including collections beyond the first browse page. Matching
+requires the requested subjects, with connecting words optional. Literal names
+remain searchable when they include words such as `English` or `Shiurim` that
+conversational cleanup would otherwise remove.
 
-Selecting a title opens the existing shiur details view. Its metadata is fetched
+The dropdown ranks up to eight results with the same title scorer. Complete
+subject coverage, literal words, phrases, spelling confidence and word proximity
+determine relevance. Content type and shiur count add no ranking preference,
+and there are no reserved slots. Equal scores use title length, alphabetical
+order and ID as deterministic tie breakers. Duplicate entities from local and
+server suggestions appear once.
+
+Submitted searches also include clickable teacher, topic, series, collection and
+venue pages in the result list and grid. Best matches uses the same title scorer
+for pages and individual shiurim, with no type preference. Page rows show the
+page type, title and shiur count, and open the corresponding library page.
+Catalog-only matches remain visible when no individual shiur matches.
+
+`GET /api/catalog?action=search&q=…&offset=0` searches the shared directory,
+collection and venue snapshots. It returns up to 60 matching pages per request,
+with a total and continuation offset. The browser loads these independently of
+the shiur scan, merges them before local pagination, and keeps page totals
+separate from shiur totals. Recording-specific filters and sorts, and saved or
+learned refinements, narrow results to shiurim. Finding text within loaded
+results also filters the loaded pages by title.
+
+Selecting a shiur opens the existing shiur details view. Its metadata is fetched
 only after selection. Arrow keys select suggestions, Enter opens the selected
 item, Escape dismisses the dropdown, and Enter with no selection runs the existing
-full search. A separate button also opens all results. Query highlighting uses
-the existing shared matcher, including aliases and partial words.
+full search. Selecting a collection opens its collection page; selecting a series
+opens its shiur results. A separate button also opens all results. Titles display
+as plain text in suggestions, lists and grids. Matching still supports aliases
+and partial words without highlighting title text.
 
 ## Retrieval and performance
 
 `GET /api/suggestions?q=…` searches the persistent `search_title_catalog`, which
-production already uses for learned spelling candidates. It never starts a
+production already uses for learned spelling candidates, and the shared directory
+and collection browse snapshots. Cold snapshots use the existing catalog APIs.
+Each catalog source has a 1.5-second budget; slower reads finish warming through
+the request lifecycle while ready sources remain available. It never starts a
 complete search pass, requests transcripts, or downloads the archive into the
 browser. Suggestions cover the titles indexed so far. New installations need to
 populate that catalog with `npm run search:index`, or their usual archive import.
@@ -36,7 +62,8 @@ The database returns its highest-ranked 50 title candidates. The existing
 relevance function reranks those candidates by complete subject coverage,
 literal phrasing, confidence, and distance between matching words. Literal
 subject spellings get an additional preference over aliases. The endpoint returns
-five compact objects containing ID, title, kind, and context. This is a bounded
+up to eight compact objects containing ID, name, kind, and context, plus the
+shiur count for catalog entries. This is a bounded
 ranking pass over indexed titles, not a claim that every archive record is
 available or that the JavaScript ranking function scores every title.
 
@@ -45,8 +72,9 @@ cancelled on edits, blur, dismissal, and unmount, and have a three-second client
 deadline. Query tags prevent late responses from showing titles for old input.
 The server caches at most 64 queries per database for a minute, shares identical
 in-flight lookups, and caps distinct pending queries at 32. Successful responses
-also allow a minute of HTTP caching. Failures are not cached and leave directory
-suggestions and full search usable.
+also allow a minute of HTTP caching. Partial responses retain successful sources,
+are marked partial, and are not cached by the endpoint or browser. Failures leave
+local directory suggestions and full search usable.
 
 ## Research
 
@@ -91,7 +119,7 @@ key.
 ## Validation
 
 `npm run test:search` includes autocomplete checks for complete title ranking,
-aliases, typos, prefixes, Hebrew, exact numbers, directory priority, input bounds,
+aliases, typos, prefixes, Hebrew, exact numbers, mixed title ranking, input bounds,
 safe query compilation, cache isolation/expiry/eviction, retries, endpoint error
 handling, and index backfill/edit/delete behavior. A 100,000-title SQLite fixture
 also checks the query plan uses FTS5 and measures the bounded lookup. Local runs

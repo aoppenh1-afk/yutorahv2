@@ -1,15 +1,15 @@
 'use client';
 import { useEffect, useState } from 'react';
-import type { ShiurSuggestion } from '@/lib/search-discovery';
+import type { LibrarySuggestion } from '@/lib/search-discovery';
 
-const cache = new Map<string, { until: number; items: ShiurSuggestion[] }>();
+const cache = new Map<string, { until: number; items: LibrarySuggestion[] }>();
 type Result = {
   query: string;
-  items: ShiurSuggestion[];
-  status: 'loading' | 'ready' | 'error';
+  items: LibrarySuggestion[];
+  status: 'loading' | 'ready' | 'partial' | 'error';
 };
 
-export function useShiurSuggestions(value: string, open: boolean) {
+export function useSearchSuggestions(value: string, open: boolean) {
   const query = value.trim().toLowerCase();
   const [result, setResult] = useState<Result | null>(null);
   const enabled = open && query.length >= 3;
@@ -36,14 +36,19 @@ export function useShiurSuggestions(value: string, open: boolean) {
           },
         );
         if (!response.ok) throw new Error('Suggestions are unavailable.');
-        const body = (await response.json()) as { items: ShiurSuggestion[] };
+        const body = (await response.json()) as {
+          items: LibrarySuggestion[];
+          partial?: boolean;
+        };
         if (!Array.isArray(body.items)) throw new Error('Invalid suggestions.');
         if (controller.signal.aborted) return;
-        const items = body.items.slice(0, 5);
-        if (cache.size >= 25 && !cache.has(query))
-          cache.delete(cache.keys().next().value!);
-        cache.set(query, { until: Date.now() + 60000, items });
-        setResult({ query, items, status: 'ready' });
+        const items = body.items.slice(0, 8);
+        if (!body.partial) {
+          if (cache.size >= 25 && !cache.has(query))
+            cache.delete(cache.keys().next().value!);
+          cache.set(query, { until: Date.now() + 60000, items });
+        }
+        setResult({ query, items, status: body.partial ? 'partial' : 'ready' });
       } catch {
         if (!controller.signal.aborted)
           setResult({ query, items: [], status: 'error' });

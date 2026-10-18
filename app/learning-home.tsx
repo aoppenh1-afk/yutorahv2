@@ -160,10 +160,15 @@ export function LearningHome(props: Props) {
       : tab;
 
   const [minutes, setMinutes] = useState('all');
+  const [followingKind, setFollowingKind] = useState<Follow['kind'] | 'all'>(
+    'all',
+  );
   const recommendationView =
     currentTab === 'for-you' || currentTab === 'recommended';
   const filterMinutes =
-    recommendationView || minutes === 'all' ? 0 : Number(minutes);
+    recommendationView || currentTab === 'following' || minutes === 'all'
+      ? 0
+      : Number(minutes);
   const [limit, setLimit] = useState(8);
   const [preferences, setPreferences] = useState(false);
   const [feedItems, setFeedItems] = useState<Shiur[]>([]);
@@ -241,9 +246,11 @@ export function LearningHome(props: Props) {
 
   const sources = useMemo(() => {
     return currentTab === 'following'
-      ? library.following
+      ? library.following.filter(
+          (follow) => followingKind === 'all' || follow.kind === followingKind,
+        )
       : recommendationSources(library);
-  }, [currentTab, library]);
+  }, [currentTab, library, followingKind]);
   const sourceQuery = JSON.stringify(
     sources.map(({ kind, id }) => ({ kind, id })),
   );
@@ -400,14 +407,16 @@ export function LearningHome(props: Props) {
           home?.featured.length
           ? home.featured
           : allItems,
-        library,
+        currentTab === 'following'
+          ? { ...library, following: sources }
+          : library,
         {
           followingOnly: currentTab === 'following',
           minutes: filterMinutes || undefined,
           now: home?.fetchedAt ? Date.parse(home.fetchedAt) : 0,
         },
       ),
-    [allItems, home, library, currentTab, filterMinutes],
+    [allItems, home, library, currentTab, filterMinutes, sources],
   );
   const followingItems = useMemo(
     () =>
@@ -1181,8 +1190,35 @@ export function LearningHome(props: Props) {
                   recommendationView,
                 )}
               {currentTab === 'following' && library.following.length > 0 && (
+                <div className="discovery-toolbar">
+                  <fieldset className="time-chips" aria-label="Follow type">
+                    {[
+                      { value: 'all', label: 'All follows' },
+                      { value: 'teacher', label: 'Teachers' },
+                      { value: 'series', label: 'Series' },
+                      { value: 'collection', label: 'Collections' },
+                      { value: 'topic', label: 'Topics' },
+                      { value: 'venue', label: 'Venues' },
+                    ].map(({ value, label }) => (
+                      <button
+                        key={value}
+                        aria-pressed={followingKind === value}
+                        onClick={() => {
+                          setFollowingKind(value as typeof followingKind);
+                          setLimit(8);
+                          setSourceLimit(8);
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </fieldset>
+                  {refreshRecommendations}
+                </div>
+              )}
+              {currentTab === 'following' && sources.length > 0 && (
                 <div className="following-chips">
-                  {library.following.map((f) => (
+                  {sources.map((f) => (
                     <div key={f.kind + f.id}>
                       <button
                         onClick={() =>
@@ -1201,27 +1237,26 @@ export function LearningHome(props: Props) {
                   ))}
                 </div>
               )}
-              {!recommendationView &&
-                (!followingPage || library.following.length > 0) && (
-                  <div className="discovery-toolbar">
-                    <div className="time-chips" aria-label="Time available">
-                      <Timer size={15} />
-                      {['all', '10', '20', '30'].map((v) => (
-                        <button
-                          key={v}
-                          aria-pressed={minutes === v}
-                          onClick={() => {
-                            setMinutes(v);
-                            setLimit(8);
-                          }}
-                        >
-                          {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
-                        </button>
-                      ))}
-                    </div>
-                    {refreshRecommendations}
+              {!recommendationView && currentTab !== 'following' && (
+                <div className="discovery-toolbar">
+                  <div className="time-chips" aria-label="Time available">
+                    <Timer size={15} />
+                    {['all', '10', '20', '30'].map((v) => (
+                      <button
+                        key={v}
+                        aria-pressed={minutes === v}
+                        onClick={() => {
+                          setMinutes(v);
+                          setLimit(8);
+                        }}
+                      >
+                        {v === 'all' ? 'Any length' : 'Under ' + v + ' min'}
+                      </button>
+                    ))}
                   </div>
-                )}
+                  {refreshRecommendations}
+                </div>
+              )}
               {feedLoading && (
                 <output className="feed-loading">
                   <Loader2 size={14} className="spin" />
@@ -1256,6 +1291,22 @@ export function LearningHome(props: Props) {
                     <ArrowRight size={16} />
                   </button>
                 </StatePanel>
+              ) : currentTab === 'following' && !sources.length ? (
+                <StatePanel
+                  title="No follows of this type yet."
+                  description="Follow a page in Browse to see its latest shiurim here, or choose All follows."
+                >
+                  <button
+                    className="outline-button"
+                    onClick={() => {
+                      setFollowingKind('all');
+                      setLimit(8);
+                      setSourceLimit(8);
+                    }}
+                  >
+                    All follows
+                  </button>
+                </StatePanel>
               ) : items.length ? (
                 <>
                   {cards(
@@ -1274,6 +1325,13 @@ export function LearningHome(props: Props) {
                     </button>
                   )}
                 </>
+              ) : currentTab === 'following' ? (
+                !feedLoading && (
+                  <StatePanel
+                    title="No new shiurim from these follows."
+                    description="Try another follow type or check back for new uploads."
+                  />
+                )
               ) : (
                 !feedLoading && (
                   <StatePanel

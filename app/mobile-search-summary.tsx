@@ -5,17 +5,26 @@ import type { SearchResult } from '@/lib/yutorah';
 
 export function MobileSearchSummary({
   result,
+  pageCount = 0,
   searching,
   onToggle,
 }: {
   result: SearchResult;
+  pageCount?: number;
   searching: boolean;
   onToggle: () => void;
 }) {
   const partial = result.complete === false;
   const count =
-    result.filtered && !partial ? result.items.length : result.total;
-  const label = partial ? 'matches' : result.filtered ? 'loaded' : 'shiurim';
+    (result.filtered && !partial ? result.items.length : result.total) +
+    pageCount;
+  const label = pageCount
+    ? 'results'
+    : partial
+      ? 'matches'
+      : result.filtered
+        ? 'loaded'
+        : 'shiurim';
   if (result.complete === undefined && !result.filtered) {
     return (
       <h2 className="mobile-result-count">
@@ -54,6 +63,13 @@ export function MobileSearchSummary({
         </summary>
         <div className="mobile-result-status-body">
           <p>
+            {pageCount > 0 && (
+              <>
+                {result.total.toLocaleString()} shiurim and{' '}
+                {pageCount.toLocaleString()} library{' '}
+                {pageCount === 1 ? 'page' : 'pages'}.{' '}
+              </>
+            )}
             {result.complete === undefined
               ? `Filtered from ${result.total.toLocaleString()} library matches. ${result.nextPage ? 'Load more to continue.' : 'All matches checked.'}`
               : result.complete

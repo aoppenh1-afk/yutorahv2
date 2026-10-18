@@ -11,11 +11,12 @@ import {
   searchVocabulary,
 } from './search-matching';
 import { naturalSearch } from './natural-search';
+import { createTitleScorer } from '../packages/yutorah-core/src/search-ranking.js';
 export { searchText } from './search-matching';
 
 export type SearchSuggestion = {
   id: number;
-  kind: 'teacher' | 'topic' | 'series';
+  kind: 'teacher' | 'topic' | 'series' | 'collection' | 'venue';
   name: string;
   count: number;
   context: string;
@@ -28,15 +29,57 @@ export type ShiurSuggestion = {
   context: string;
 };
 
+export type LibrarySuggestion = SearchSuggestion | ShiurSuggestion;
+
+function createSuggestionScorer(
+  query: string,
+  spacing: ReturnType<typeof prepareSpacingVocabulary>,
+) {
+  query = interpretSpacing(query, spacing).term;
+  const score = createTitleScorer(query);
+  const teacherScore = createTitleScorer(
+    query.replace(/^(rabbi|rabi|rabby|rav|r)\s+/i, ''),
+  );
+  return (suggestion: LibrarySuggestion) =>
+    suggestion.kind === 'teacher'
+      ? teacherScore(suggestion.name.replace(/^(rabbi|rav|r)\s+/i, ''))
+      : score(suggestion.name);
+}
+
 export function combineSearchSuggestions(
-  directory: SearchSuggestion[],
-  shiurim: ShiurSuggestion[],
-): (SearchSuggestion | ShiurSuggestion)[] {
-  // Directory matches require the whole query. Reserve space for five titles.
+  directory: LibrarySuggestion[],
+  remote: LibrarySuggestion[],
+  query: string,
+  limit = 8,
+): LibrarySuggestion[] {
+  const score = createSuggestionScorer(
+    query,
+    prepareSpacingVocabulary(
+      [...directory, ...remote].map((s) =>
+        s.kind === 'teacher'
+          ? s.name.replace(/^(rabbi|rav|r)\s+/i, '')
+          : s.name,
+      ),
+    ),
+  );
   return [
-    ...directory.slice(0, shiurim.length ? 3 : 8),
-    ...shiurim.slice(0, 5),
-  ];
+    ...new Map(
+      [...directory, ...remote].map((s) => [`${s.kind}-${s.id}`, s]),
+    ).values(),
+  ]
+    .map((suggestion) => ({
+      suggestion,
+      score: score(suggestion),
+    }))
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.suggestion.name.length - b.suggestion.name.length ||
+        a.suggestion.name.localeCompare(b.suggestion.name) ||
+        b.suggestion.id - a.suggestion.id,
+    )
+    .slice(0, limit)
+    .map(({ suggestion }) => suggestion);
 }
 
 const teacherTitle = /^(?:rabbi|rabi|rabby|rav|r)$/;
@@ -127,11 +170,17 @@ const suggestionIndexes = new WeakMap<
   Directory,
   ReturnType<typeof buildSuggestionIndex>
 >();
-function buildSuggestionIndex(directory: Directory) {
+type SuggestionDirectory = Directory & {
+  collections?: { id: number; name: string; count: number }[];
+  venues?: { id: number; name: string; count: number }[];
+};
+function buildSuggestionIndex(directory: SuggestionDirectory) {
   const names = [
     ...directory.teachers.map((t) => `${t.firstName} ${t.lastName}`),
     ...directory.topics.map((t) => t.name),
     ...directory.series.map((t) => t.name),
+    ...(directory.collections || []).map((t) => t.name),
+    ...(directory.venues || []).map((t) => t.name),
   ];
   const entries: SearchSuggestion[] = [
     ...directory.teachers.map((t) => ({
@@ -155,10 +204,28 @@ function buildSuggestionIndex(directory: Directory) {
       count: s.count,
       context: 'Series',
     })),
+    ...(directory.collections || []).map((s) => ({
+      id: s.id,
+      kind: 'collection' as const,
+      name: s.name,
+      count: s.count,
+      context: 'Collection',
+    })),
+    ...(directory.venues || []).map((s) => ({
+      id: s.id,
+      kind: 'venue' as const,
+      name: s.name,
+      count: s.count,
+      context: 'Venue',
+    })),
   ];
   return {
     entries: entries.map((entry) => {
-      const name = searchText(entry.name).replace(/^(rabbi|rav|r)\s+/, '');
+      const normalized = searchText(entry.name);
+      const name =
+        entry.kind === 'teacher'
+          ? normalized.replace(/^(rabbi|rav|r)\s+/, '')
+          : normalized;
       return {
         entry,
         name,
@@ -181,7 +248,7 @@ function buildSuggestionIndex(directory: Directory) {
 }
 
 /** One immutable directory index is shared by parsing, suggestions and scans. */
-export function directorySearchIndex(directory: Directory) {
+export function directorySearchIndex(directory: SuggestionDirectory) {
   let index = suggestionIndexes.get(directory);
   if (!index) {
     index = buildSuggestionIndex(directory);
@@ -192,35 +259,43 @@ export function directorySearchIndex(directory: Directory) {
 
 export function suggestSearch(
   query: string,
-  directory: Directory | null,
+  directory: SuggestionDirectory | null,
+  limit = 8,
 ): SearchSuggestion[] {
   if (!directory) return [];
   const index = directorySearchIndex(directory);
-  const spacing = interpretSpacing(naturalSearch(query).term, index.spacing);
-  const term = searchText(spacing.term).replace(
-    /^(rabbi|rabi|rabby|rav|r)\s+/,
-    '',
-  );
-  if (term.length < 2) return [];
-  const tokens = searchTerms(term);
+  // Keep literal names even when they contain request words such as "English"
+  // or "Shiurim". Conversational cleanup is an additional retrieval path.
+  const terms = [
+    ...new Set(
+      [query, naturalSearch(query, undefined, index.vocabulary).term].map(
+        (value) => searchText(interpretSpacing(value, index.spacing).term),
+      ),
+    ),
+  ]
+    .filter((term) => term.length >= 2)
+    .map((term) => ({
+      term,
+      tokens: searchTerms(term),
+      teacherTerm: term.replace(/^(rabbi|rabi|rabby|rav|r)\s+/, ''),
+    }));
+  if (!terms.length) return [];
+  const score = createSuggestionScorer(query, index.spacing);
   return index.entries
     .map(({ entry, name, words, prepared }) => {
-      let score =
-        name === term
-          ? 100
-          : name.startsWith(term)
-            ? 80
-            : name.includes(term)
-              ? 65
-              : 0;
-      if (!score) {
-        let total = 0;
+      const matches = terms.some(({ term, tokens, teacherTerm }) => {
+        if (entry.kind === 'teacher') {
+          term = teacherTerm;
+          tokens = searchTerms(term);
+        }
+        if (name.includes(term)) return true;
+        if (!tokens.length) return false;
         const initial =
           entry.kind === 'teacher' &&
           tokens.length === words.length &&
           tokens[0].length === 1 &&
           tokens.slice(1).every((word, i) => word === words[i + 1]);
-        for (const [index, token] of tokens.entries()) {
+        return tokens.every((token, index) => {
           const match =
             initial && index === 0 && words[0].startsWith(token)
               ? 0.9
@@ -231,20 +306,43 @@ export function suggestSearch(
                     0,
                   )
                 : textMatchScore(prepared, token, 2);
-          if (!match) {
-            total = 0;
-            break;
-          }
-          total += match;
-        }
-        if (total) score = (50 * total) / tokens.length;
-      }
-      return { entry, score };
+          return match > 0;
+        });
+      });
+      return { entry, score: matches ? score(entry) : 0 };
     })
     .filter((hit) => hit.score > 0)
-    .sort((a, b) => b.score - a.score || b.entry.count - a.entry.count)
-    .slice(0, 8)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.entry.name.length - b.entry.name.length ||
+        a.entry.name.localeCompare(b.entry.name) ||
+        b.entry.id - a.entry.id,
+    )
+    .slice(0, limit)
     .map((hit) => hit.entry);
+}
+
+const collectionDirectories = new WeakMap<
+  NonNullable<SuggestionDirectory['collections']>,
+  SuggestionDirectory
+>();
+export function suggestCollections(
+  query: string,
+  collections: NonNullable<SuggestionDirectory['collections']>,
+) {
+  let directory = collectionDirectories.get(collections);
+  if (!directory) {
+    directory = {
+      teachers: [],
+      topics: [],
+      series: [],
+      groups: [],
+      collections,
+    };
+    collectionDirectories.set(collections, directory);
+  }
+  return suggestSearch(query, directory);
 }
 
 export function highlightParts(

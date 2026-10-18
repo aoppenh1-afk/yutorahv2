@@ -108,6 +108,7 @@ export function loadCatalogResource<T>(
         data &&
         typeof data === 'object' &&
         !('unavailable' in data) &&
+        !('partial' in data && data.partial) &&
         generations.get(key) === currentGeneration
       ) {
         const ttl = key.startsWith('/api/catalog-artwork')

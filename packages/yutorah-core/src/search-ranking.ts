@@ -35,6 +35,20 @@ export function createRelevanceScorer(query: string) {
   return (document: SearchDocument) =>
     scoreDocument(document, matchers, phrases);
 }
+
+/** Autocomplete compares titles alone, without content type or popularity. */
+export function createTitleScorer(query: string) {
+  const term = interpretSpacing(query).term;
+  const terms = [...new Set(searchTerms(term))];
+  const score = createRelevanceScorer(term);
+  return (title: string) => {
+    const normalized = ` ${searchText(title)} `;
+    return (
+      2000 * terms.filter((word) => normalized.includes(` ${word} `)).length +
+      score({ title, topics: [], series: '', teacher: '', description: '' })
+    );
+  };
+}
 function scoreDocument(
   document: SearchDocument,
   matchers: ReturnType<typeof createTextMatcher>[],

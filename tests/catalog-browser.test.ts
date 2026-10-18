@@ -6,9 +6,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type BrowserContext } from 'playwright';
 import { pageCollection, collectionNeighbors } from '../lib/catalog-pages';
-import { normalize } from '../lib/yutorah';
+import { normalize, parseSearch } from '../lib/yutorah';
 import { restoreLibrary } from '../lib/library';
-import type { CollectionData } from '../lib/catalog';
+import { emptyFacets, type CollectionData } from '../lib/catalog';
+import type { CatalogSearchMatch } from '../lib/search-results';
 
 const origin = process.env.TEST_ORIGIN || 'http://127.0.0.1:3018';
 const state = process.env.TEST_ORIGIN
@@ -75,6 +76,28 @@ async function fixtures(context: BrowserContext) {
     const url = new URL(route.request().url());
     requests.push(url);
     if (url.pathname === '/api/catalog') {
+      if (url.searchParams.get('action') === 'search')
+        return route.fulfill({
+          json: { items: [], total: 0, next: null, partial: false },
+        });
+      if (
+        url.searchParams.get('action') === 'entity' &&
+        url.searchParams.get('kind') !== 'collection'
+      )
+        return route.fulfill({
+          json: {
+            kind: url.searchParams.get('kind'),
+            id: Number(url.searchParams.get('id')),
+            name: 'Library page fixture',
+            count: 10,
+            description: '',
+            image: '',
+            recent: [],
+            popular: [],
+            featured: [],
+            facets: emptyFacets(),
+          },
+        });
       if (url.searchParams.get('action') === 'entity')
         return route.fulfill({
           json: pageCollection(collection, version, {
@@ -129,6 +152,319 @@ async function fixtures(context: BrowserContext) {
     });
   });
   return requests;
+}
+
+for (const width of [1280, 390]) {
+  void test(
+    `actual search mixes clickable library pages with recordings at ${width}px`,
+    { timeout: 30_000 },
+    async () => {
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+      });
+      await fixtures(context);
+      const pages: CatalogSearchMatch[] = [
+        { id: 42, kind: 'collection', name: 'Hilchos Shabbos', count: 121 },
+        {
+          id: 17,
+          kind: 'series',
+          name: 'Hilchos Shabbos: A Practical Guide',
+          count: 10,
+        },
+        { id: 18, kind: 'teacher', name: 'Rabbi Hilchos Shabbos', count: 5 },
+        { id: 19, kind: 'venue', name: 'Hilchos Shabbos Kollel', count: 20 },
+        {
+          id: 20,
+          kind: 'topic',
+          name: 'Hilchos Shabbos and Yom Tov',
+          count: 40,
+        },
+      ];
+      const recordings = [
+        normalize({
+          shiurID: 99,
+          shiurTitle: 'Hilchos Shabbos: Preparing for Friday Night',
+          shiurTeachers: [
+            { teacherID: 8, teacherName: 'Rabbi Example', teacherPhotoURL: '' },
+          ],
+        }),
+      ];
+      await context.route('**/api/search?*', (route) =>
+        route.fulfill({
+          json: {
+            items: recordings,
+            total: 1,
+            complete: true,
+            scanned: 1,
+            sourceTotal: 1,
+            nextPage: null,
+            plan: parseSearch('Hilchos Shabbos'),
+            facets: emptyFacets(),
+          },
+        }),
+      );
+      await context.route('**/api/catalog?*', (route) =>
+        new URL(route.request().url()).searchParams.get('action') === 'search'
+          ? route.fulfill({
+              json: {
+                items: pages,
+                total: pages.length,
+                next: null,
+                partial: false,
+              },
+            })
+          : route.fallback(),
+      );
+      const page = await context.newPage();
+      page.setDefaultTimeout(6000);
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      try {
+        await page.goto(origin + '/?view=search&q=Hilchos+Shabbos');
+        await page
+          .getByRole('link', {
+            name: 'Open collection: Hilchos Shabbos',
+            exact: true,
+          })
+          .waitFor();
+        assert.equal(
+          await page.locator('.mixed-search-results .page-result').count(),
+          5,
+        );
+        assert.equal(
+          await page.locator('.mixed-search-results .shiur-row').count(),
+          1,
+        );
+        assert.match(
+          await page
+            .locator('.mixed-search-results .page-result')
+            .first()
+            .innerText(),
+          /Hilchos Shabbos/,
+        );
+        assert.ok(
+          await page
+            .locator('.mixed-search-results .page-result')
+            .first()
+            .evaluate((element) =>
+              Boolean(
+                element.compareDocumentPosition(
+                  document.querySelector('.mixed-search-results .shiur-row')!,
+                ) & Node.DOCUMENT_POSITION_FOLLOWING,
+              ),
+            ),
+        );
+        assert.equal(
+          await page.evaluate(() => document.documentElement.scrollWidth),
+          width,
+        );
+        for (const target of pages) {
+          if (target !== pages[0])
+            await page.goto(origin + '/?view=search&q=Hilchos+Shabbos');
+          const label = `Open ${target.kind}: ${target.name}`;
+          const link = page.getByRole('link', { name: label, exact: true });
+          await link.focus();
+          await link.press('Enter');
+          await page.waitForURL(
+            `**/*view=${target.kind === 'collection' ? 'collection' : 'entity'}&kind=${target.kind}&id=${target.id}`,
+          );
+          await page
+            .getByRole('heading', {
+              name:
+                target.kind === 'collection'
+                  ? collection.name
+                  : 'Library page fixture',
+              exact: true,
+            })
+            .waitFor();
+        }
+        assert.deepEqual(errors, []);
+      } finally {
+        await context.close();
+      }
+    },
+  );
+}
+
+void test(
+  'a catalog-only search remains visible and grid view keeps page navigation',
+  { timeout: 20_000 },
+  async () => {
+    const context = await browser.newContext();
+    await fixtures(context);
+    await context.route('**/api/search?*', (route) =>
+      route.fulfill({
+        json: {
+          items: [],
+          total: 0,
+          complete: true,
+          sourceTotal: 0,
+          scanned: 0,
+          nextPage: null,
+          facets: emptyFacets(),
+          plan: parseSearch('Unique Collection'),
+        },
+      }),
+    );
+    await context.route('**/api/catalog?*', (route) =>
+      new URL(route.request().url()).searchParams.get('action') === 'search'
+        ? route.fulfill({
+            json: {
+              items: [
+                {
+                  id: 42,
+                  kind: 'collection',
+                  name: 'Unique Collection',
+                  count: 121,
+                },
+              ],
+              total: 1,
+              next: null,
+              partial: false,
+            },
+          })
+        : route.fallback(),
+    );
+    const page = await context.newPage();
+    page.setDefaultTimeout(6000);
+    try {
+      await page.goto(origin + '/?view=search&q=Unique+Collection');
+      await page
+        .getByRole('link', {
+          name: 'Open collection: Unique Collection',
+          exact: true,
+        })
+        .waitFor();
+      assert.equal(
+        await page.getByText('No matching results.', { exact: true }).count(),
+        0,
+      );
+      await page
+        .getByRole('button', { name: 'Grid view', exact: true })
+        .click();
+      await page.locator('.page-result-card').waitFor();
+      await page
+        .getByRole('link', {
+          name: 'Open collection: Unique Collection',
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole('heading', { name: collection.name, exact: true })
+        .waitFor();
+    } finally {
+      await context.close();
+    }
+  },
+);
+void test(
+  'matching library pages remain usable if the shiur search is unavailable',
+  { timeout: 20_000 },
+  async () => {
+    const context = await browser.newContext();
+    await fixtures(context);
+    await context.route('**/api/search?*', (route) =>
+      route.fulfill({
+        status: 503,
+        json: { error: 'Shiur index unavailable' },
+      }),
+    );
+    await context.route('**/api/catalog?*', (route) =>
+      new URL(route.request().url()).searchParams.get('action') === 'search'
+        ? route.fulfill({
+            json: {
+              items: [
+                {
+                  id: 42,
+                  kind: 'collection',
+                  name: 'Unique Collection',
+                  count: 121,
+                },
+              ],
+              total: 1,
+              next: null,
+              partial: false,
+            },
+          })
+        : route.fallback(),
+    );
+    const page = await context.newPage();
+    page.setDefaultTimeout(6000);
+    try {
+      await page.goto(origin + '/?view=search&q=Unique+Collection');
+      await page
+        .getByRole('link', {
+          name: 'Open collection: Unique Collection',
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole('heading', { name: collection.name, exact: true })
+        .waitFor();
+    } finally {
+      await context.close();
+    }
+  },
+);
+for (const width of [1280, 390]) {
+  void test(
+    `main search ranks and opens a collection with the keyboard at ${width}px`,
+    { timeout: 20_000 },
+    async () => {
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+      });
+      await fixtures(context);
+      await context.route('**/api/suggestions?*', (route) =>
+        route.fulfill({
+          json: {
+            items: [
+              {
+                id: 5,
+                kind: 'shiur',
+                name: 'Collection fixture: A Practical Guide',
+                context: 'Shiur',
+              },
+              {
+                id: 42,
+                kind: 'collection',
+                name: collection.name,
+                count: collection.count,
+                context: 'Collection',
+              },
+            ],
+          },
+        }),
+      );
+      const page = await context.newPage();
+      page.setDefaultTimeout(6000);
+      try {
+        await page.goto(origin);
+        const input = page.getByRole('combobox', {
+          name: 'Search YUTorah',
+          exact: true,
+        });
+        await input.fill(collection.name);
+        await page
+          .getByRole('option')
+          .filter({ hasText: 'A Practical Guide' })
+          .waitFor();
+        const options = page.getByRole('option');
+        assert.match(
+          await options.first().innerText(),
+          /Collection fixture\s+Collection/,
+        );
+        await input.press('ArrowDown');
+        await input.press('Enter');
+        await page.waitForURL('**/*view=collection&kind=collection&id=42');
+        await page
+          .getByRole('heading', { name: collection.name, exact: true })
+          .waitFor();
+      } finally {
+        await context.close();
+      }
+    },
+  );
 }
 void test(
   'collection pages keep global filtering and ordering, and Add all loads every lesson',

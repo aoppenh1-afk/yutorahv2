@@ -30,7 +30,13 @@ export async function GET(request: Request) {
   try {
     const catalogService = await getCatalogService();
     let data: unknown;
-    if (action === 'facets') {
+    if (action === 'search') {
+      data = await catalogService.search(
+        p.get('q') || '',
+        Number(p.get('offset') || 0),
+        options,
+      );
+    } else if (action === 'facets') {
       const dictionary = await catalogDictionary();
       data = { ...dictionary, publications: [], volumes: [] };
     } else if (action === 'daf') {
@@ -118,7 +124,11 @@ export async function GET(request: Request) {
       headers: {
         'Cache-Control':
           options.fresh ||
-          (data && typeof data === 'object' && 'unavailable' in data)
+          (data && typeof data === 'object' && 'unavailable' in data) ||
+          (data &&
+            typeof data === 'object' &&
+            'partial' in data &&
+            data.partial)
             ? 'no-store'
             : version
               ? 'public, max-age=300, s-maxage=300'
