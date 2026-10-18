@@ -1851,11 +1851,21 @@ void test('unexpired generation from a previous coordinator consumes admission c
 void test('a catalog timeout cannot starve transcript fetchers with discovered work', async (t) => {
   const f = await fixture(t);
   f.queue.enqueue([{ id: '1' }]);
+  const pipeline = new NotesPipeline({
+    ...f.pipeline.config,
+    generate: async (...args) => {
+      // Processing may take longer than the old 700ms CI cutoff.
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      return f.pipeline.config.generate(...args);
+    },
+  });
+  let catalogAttempts = 0;
   const result = await runCoordinator({
     root: f.root,
     queue: f.queue,
-    pipeline: f.pipeline,
-    signal: AbortSignal.timeout(700),
+    pipeline,
+    // The bounded batch exits on completion; this only guards against starvation.
+    signal: AbortSignal.timeout(10_000),
     limit: 1,
     follow: true,
     inventoryDuringBoundedRun: true,
@@ -1868,11 +1878,13 @@ void test('a catalog timeout cannot starve transcript fetchers with discovered w
     memory: async () => 10000,
     disk: async () => 10 * 1024 ** 3,
     inventory: async () => {
+      catalogAttempts++;
       throw Object.assign(new Error('catalog timeout'), {
         name: 'TimeoutError',
       });
     },
   });
+  assert.equal(catalogAttempts, 1);
   assert.equal(result.jobs[0]?.status, 'completed');
   assert.equal(f.queue.available('yutorah'), true);
 });
