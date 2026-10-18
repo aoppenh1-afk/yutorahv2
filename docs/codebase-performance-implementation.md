@@ -74,11 +74,46 @@ CSS coverage aggregates rule ranges used across the player/Sources fixture state
 
 ## Diagnostics and remaining measurements
 
-Frontend collection samples one percent of page loads, segmented by mobile/desktop and cold/warm navigation. For controlled checks, set sessionStorage `yutorah-performance-sample` to `1` before loading. The numeric API accepts at most 2,048 body bytes and a fixed metric whitelist; oversized streams are canceled. Reports are sent when the page is hidden or leaves, with duplicate payload suppression.
+Frontend collection samples one percent of page loads, segmented by mobile/desktop. For controlled checks, set sessionStorage `yutorah-performance-sample` to `1` before loading. The API accepts at most 2,048 body bytes and a fixed metric whitelist; oversized streams are canceled. Version 2 reports contain up to eight separate operation observations with an area, first/complete phase, duration in milliseconds, and a fixed cache-source label. Search first results and completion have separate observations. Timings end in the data view's layout effect after its DOM commits, including the mobile Home Suspense subtree. They measure committed data, not paint completion or React self time.
+
+Operation sources distinguish browser memory, stale memory fallback, an observed HTTP/edge cache, server process memory, durable snapshots, and a refreshed snapshot. `refresh` means the snapshot reader ran; its upstream helper may itself cache data. `network` means an API request without a more specific cache signal, not proof of an upstream miss. Server snapshot readers expose `X-Yutorah-Cache` without changing response bodies. Multi-pass searches combine different observed sources as `mixed`. The document navigation transfer size no longer labels data operations.
+
+Reports flush when their operation buffer fills, when the page hides, or on pagehide. Successful beacon enqueueing consumes the reported counters and samples; rejected enqueueing retains them. Additional samples while the buffer is full increment `operationSamplesDropped`. All durations are bounded to ten minutes, and reports contain no query, URL, recording ID, or user data. Cached older clients remain accepted as version 1, with their old navigation label recorded as `navigationCache`; their summed visible-time fields must not be treated as operation latency samples.
+
+The reporter and Web Vitals load together only on sampled visits. Eager measurement state buffers observations before the reporter arrives. Unsampled catalog reads keep the shared request promise without an extra diagnostic observer. The byte-budget check requires the reporter to remain outside Home's static import graph.
 
 Server phase samples default to one percent; PERFORMANCE_SAMPLE_RATE accepts a rate between zero and one. Search/Home responses include Server-Timing. Always-on publication/preparation/retention events report queue lag and backlog. Audio preparation samples report download, inspection, preparation, bytes, and range counts to inform B09. Existing upstream/request caches remain bounded.
 
 Production p75 LCP at most 2.5 seconds, INP at most 200 ms, and CLS at most 0.1 remain targets to assess after rollout. Compare cold/warm searches separately, then choose API and queue SLOs from traffic. CSS consolidation, retained audio caching, a permanent metadata index, and a smaller worker runtime require their own measured case; this release supplies instrumentation without changing those contracts speculatively.
+
+## October 18 snapshot and loading follow-up
+
+This follow-up compares against `35b657c`, which already includes the preceding catalog, navigation, and notes changes. Snapshot publication now claims a separate publication token at the database clock before cleanup or eviction. Every mutation requires that token, within the existing D1 batch or PostgreSQL transaction. A lost or expired owner cannot prune any snapshot, including expired rows; an admitted transaction can finish if the lease expires during its batch. No schema change is required. SQLite and disposable PostgreSQL regressions fill the 256-entry cache, reject lost/expired writers, compare every stored row, then verify normal eviction still works. PostgreSQL also retains the 16 MiB compressed-storage bound.
+
+The download controls use a small shared client interface that starts loading the transfer manager when subscribed, alongside Home. Portrait and saved-audio reads remain directly available through `offline-media`; opening details or starting playback does not wait for transfer code. Existing cache names and stored download formats remain unchanged. The transfer manager and diagnostic reporter must stay outside Home's static import graph. Shared learning/search helpers that Home already uses are grouped together to avoid fragmenting those dependencies. Dialogs and playback controls retain their eager loading paths.
+
+| Gzip bytes | Cloudflare baseline | Cloudflare current | Vercel baseline | Vercel current |
+| --- | ---: | ---: | ---: | ---: |
+| Initial Home JavaScript | 299,166 | 296,153 | 299,158 | 296,170 |
+| Headroom below the unchanged 300,000-byte cap | 834 | 3,847 | 842 | 3,830 |
+| Total application JavaScript | 419,087 | 421,983 | 419,089 | 421,999 |
+
+Total application JavaScript grows with the new diagnostics and module interfaces; the initial Home graph becomes smaller. Other existing byte caps, including the 425,000-byte total, pass on both targets. The benefit is a modest recovery of headroom.
+
+The opt-in navigation benchmark uses three new Chromium contexts per entry and width, a 4x CPU slowdown, 80 ms network latency, and 180,000 bytes/second download throughput. Sampling is disabled and service workers are blocked to isolate application loading from offline installation. These are data-view and interaction timings with fixture API responses; they do not measure production LCP or upstream latency. Run with `HOME_LOADING_BENCHMARK=1 TEST_ORIGIN=http://127.0.0.1:PORT npx tsx --test --test-name-pattern='controlled Home' tests/discovery-navigation.test.ts` against each production build, with no concurrent builds or tests.
+
+| Median milliseconds, baseline → current | Desktop (1280 px) | Phone (390 px) |
+| --- | ---: | ---: |
+| Cold Home data view | 3,292 → 3,310 | 3,647 → 3,669 |
+| First About dialog | 140 → 138 | 134 → 138 |
+| First details from Home | 207 → 125 | 106 → 92 |
+| First audio playback | 437 → 458 | 389 → 396 |
+| First download queue feedback | 82 → 86 | 68 → 73 |
+| Cold shared-link details | 3,773 → 3,777 | 3,664 → 3,722 |
+
+Initial application script requests increase from 28 to 31 on desktop and 29 to 32 on phone, including the background transfer code. The benchmark asserts zero additional application script requests when first opening About, starting playback, or queuing a download, including a download immediately after shared-link details appear. The three-repeat sample cannot establish small differences as latency gains or regressions. Earlier splits that repeatedly delayed Home or shared links by several hundred milliseconds were discarded.
+
+Final validation passes types, lint, both production builds and all byte/graph budgets, 21 upstream tests, 30 API/catalog tests, three telemetry tests, and four disposable PostgreSQL tests. Browser checks pass 52 playback tests, 12 download tests, eight navigation tests, eight catalog tests, and four mobile-sheet tests. Download tests also pass 14 unit and five service-worker checks, including saved audio and portraits after reload/offline, content refresh, cancellation, and the completed-download badge. The navigation suite normally skips the manual timing benchmark; its explicit run passes separately. The progressive-search fixture verifies separate first-result and completion commits across two searches. The large playback fixture retains all 5,000 transcript segments and records three application commits and three library writes for 60 clock updates.
 
 ## Release order
 

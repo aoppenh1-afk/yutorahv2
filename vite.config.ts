@@ -35,6 +35,12 @@ const environments = {
                 name: 'icons',
                 test: /[/\\]node_modules[/\\]lucide-react[/\\]/,
               },
+              {
+                // These helpers are already required on Home. Keep their shared
+                // data together without pulling lazy screens into this chunk.
+                name: 'learning-data',
+                test: /[/\\]lib[/\\](?:library|learning|yutorah|search-matching|search-discovery|natural-search)\.[tj]sx?$/,
+              },
             ],
           },
         },

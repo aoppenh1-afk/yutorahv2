@@ -268,6 +268,276 @@ async function openDetails(page: Page, mobile: boolean) {
   return trigger;
 }
 
+void test(
+  'sampled search timings report separate committed operations without query data',
+  { timeout: 30_000 },
+  async () => {
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 900 },
+    });
+    const reports: {
+      metrics: Record<string, number>;
+      operations: { area: string; phase: string; ms: number; source: string }[];
+    }[] = [];
+    try {
+      await context.addInitScript(() =>
+        sessionStorage.setItem('yutorah-performance-sample', '1'),
+      );
+      await fixtures(context);
+      await context.route('**/api/performance', async (route) => {
+        reports.push(route.request().postDataJSON());
+        await route.fulfill({ status: 204 });
+      });
+      await context.route('**/api/search?*', async (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        const query = params.get('q') || '';
+        const second = query === 'private_query_two';
+        const partial = !second && !params.has('run');
+        await route.fulfill({
+          json: {
+            items: [
+              {
+                ...recordings[0],
+                id: second ? 900202 : 900201,
+                title: second
+                  ? 'Second timing result'
+                  : partial
+                    ? 'First timing result'
+                    : 'First complete timing result',
+              },
+            ],
+            total: 1,
+            sourceTotal: 1,
+            scanned: 1,
+            complete: !partial,
+            run: partial ? 'timing-pass' : undefined,
+            retryAfterMs: 150,
+            filtered: false,
+            nextPage: null,
+            facets: emptyFacets(),
+            plan: parseSearch(query, {}, directory),
+          },
+        });
+      });
+      const page = await context.newPage();
+      await page.goto(origin + '/?view=search&q=private_query_one');
+      await page
+        .getByText('First timing result', { exact: true })
+        .first()
+        .waitFor();
+      await page
+        .getByText('First complete timing result', { exact: true })
+        .first()
+        .waitFor();
+      await page.locator('#main-search').fill('private_query_two');
+      await page.locator('#main-search').press('Enter');
+      await page
+        .getByText('Second timing result', { exact: true })
+        .first()
+        .waitFor();
+      await page.waitForFunction(() =>
+        performance
+          .getEntriesByType('resource')
+          .some((entry) => /performance-reporter-/.test(entry.name)),
+      );
+      const request = page.waitForResponse('**/api/performance');
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+      await request;
+      const operations = reports
+        .flatMap((report) => report.operations)
+        .filter((operation) => operation.area === 'search');
+      assert.equal(
+        operations.filter((operation) => operation.phase === 'first').length,
+        2,
+      );
+      assert.equal(
+        operations.filter((operation) => operation.phase === 'complete').length,
+        2,
+      );
+      assert.ok(
+        operations[0].ms < operations[1].ms,
+        'progressive first results commit before search completion',
+      );
+      assert.ok(
+        operations.every(
+          (operation) => operation.ms >= 0 && operation.source === 'network',
+        ),
+      );
+      assert.ok(
+        reports.every((report) => !('searchVisibleMs' in report.metrics)),
+      );
+      assert.ok(!JSON.stringify(reports).includes('private_query'));
+    } finally {
+      await context.close();
+    }
+  },
+);
+
+void test(
+  'controlled Home and first-interaction loading measurements',
+  {
+    skip: !process.env.HOME_LOADING_BENCHMARK,
+    timeout: 180_000,
+  },
+  async () => {
+    for (const entry of ['home', 'shared']) {
+      for (const width of [1280, 390]) {
+        for (let run = 0; run < 3; run++) {
+          const context = await browser.newContext({
+            viewport: { width, height: 900 },
+            serviceWorkers: 'block',
+          });
+          try {
+            await context.addInitScript(() => {
+              Math.random = () => 0.5;
+            });
+            await fixtures(context);
+            const page = await context.newPage();
+            page.setDefaultTimeout(30_000);
+            const session = await context.newCDPSession(page);
+            await session.send('Network.enable');
+            await session.send('Network.emulateNetworkConditions', {
+              offline: false,
+              latency: 80,
+              downloadThroughput: 180_000,
+              uploadThroughput: 90_000,
+            });
+            await session.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+            await session.send('Performance.enable');
+            const scripts: string[] = [];
+            page.on('request', (request) => {
+              if (
+                request.resourceType() === 'script' &&
+                new URL(request.url()).pathname.startsWith('/_next/')
+              )
+                scripts.push(request.url());
+            });
+            const queueDownload = async () => {
+              const before = scripts.length;
+              const started = performance.now();
+              await page
+                .getByRole('button', {
+                  name: 'Download for offline',
+                  exact: true,
+                })
+                .click();
+              await page
+                .getByRole('button', {
+                  name: /^(Cancel download|Retry download)$/,
+                })
+                .waitFor();
+              assert.equal(
+                scripts.length - before,
+                0,
+                'the first download command must reuse the warmed manager: ' +
+                  JSON.stringify(scripts.slice(before)),
+              );
+              return Math.round(performance.now() - started);
+            };
+            const started = performance.now();
+            await page.goto(
+              origin +
+                (entry === 'shared' ? '/?shiur=' + recordings[0].id : '/'),
+              { waitUntil: 'domcontentloaded' },
+            );
+            if (entry === 'shared') {
+              await page
+                .getByRole('dialog')
+                .getByRole('heading', {
+                  name: recordings[0].title,
+                  exact: true,
+                })
+                .waitFor();
+              const detailMs = Math.round(performance.now() - started);
+              const downloadQueueMs = await queueDownload();
+              console.log(
+                JSON.stringify({
+                  benchmark: 'shared-first-detail',
+                  origin,
+                  width,
+                  run,
+                  detailMs,
+                  downloadQueueMs,
+                }),
+              );
+              continue;
+            }
+            await (
+              width < 768
+                ? page.locator('.m-hero-portrait')
+                : page.getByRole('button', {
+                    name: 'Shiur details',
+                    exact: true,
+                  })
+            ).waitFor();
+            const homeMs = performance.now() - started;
+            const homeScripts = scripts.length;
+            const beforeAbout = scripts.length;
+            const aboutStarted = performance.now();
+            await page
+              .getByRole('button', { name: 'About the library', exact: true })
+              .click();
+            await page
+              .getByRole('dialog', { name: 'About the library' })
+              .waitFor();
+            const aboutMs = performance.now() - aboutStarted;
+            const aboutScripts = scripts.length - beforeAbout;
+            assert.equal(
+              aboutScripts,
+              0,
+              'opening an eager dialog must not wait for another JS download',
+            );
+            await page.keyboard.press('Escape');
+            await page.getByRole('dialog').waitFor({ state: 'hidden' });
+            const detailStarted = performance.now();
+            await openDetails(page, width < 768);
+            const detailMs = performance.now() - detailStarted;
+            const beforePlay = scripts.length;
+            const playStarted = performance.now();
+            await page
+              .getByRole('button', { name: 'Listen', exact: true })
+              .click();
+            await page.waitForFunction(() => {
+              const audio = document.querySelector('audio');
+              return audio && !audio.paused && audio.currentTime > 0;
+            });
+            const playMs = performance.now() - playStarted;
+            assert.equal(
+              scripts.length - beforePlay,
+              0,
+              'first playback must not wait for another JS download',
+            );
+            const downloadQueueMs = await queueDownload();
+            const metrics = (await session.send('Performance.getMetrics'))
+              .metrics;
+            console.log(
+              JSON.stringify({
+                benchmark: 'home-first-interaction',
+                origin,
+                width,
+                run,
+                homeMs: Math.round(homeMs),
+                aboutMs: Math.round(aboutMs),
+                detailMs: Math.round(detailMs),
+                playMs: Math.round(playMs),
+                downloadQueueMs,
+                homeScripts,
+                aboutScripts,
+                scriptDurationMs: Math.round(
+                  (metrics.find((m) => m.name === 'ScriptDuration')?.value ??
+                    0) * 1000,
+                ),
+              }),
+            );
+          } finally {
+            await context.close();
+          }
+        }
+      }
+    }
+  },
+);
+
 for (const width of [1280, 390]) {
   void test(
     `details use one history entry, restore with Forward, and preserve playback at ${width}px`,

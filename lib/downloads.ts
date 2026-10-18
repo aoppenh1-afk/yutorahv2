@@ -438,12 +438,12 @@ async function updateDownloadContent(id: number) {
     contentControllers.delete(id);
   }
 }
-export async function localRecording(id: number) {
-  try {
-    return await (await caches.open(AUDIO_CACHE)).match(offlineAudioPath(id));
-  } catch {
-    return undefined;
-  }
+export { localRecording } from './offline-media';
+
+export function watchDownloads(listener: (value: Snapshot) => void) {
+  const cleanup = subscribe(() => listener(snapshot));
+  listener(snapshot);
+  return cleanup;
 }
 
 export function useDownloadCount() {

@@ -5,7 +5,20 @@ import {
   clientMetrics,
   performanceEnabled,
   performanceCount,
+  type DataCommitTiming,
 } from '@/lib/client-performance';
+
+export function DataCommitMarker({
+  timings,
+}: {
+  timings: DataCommitTiming | DataCommitTiming[];
+}) {
+  useLayoutEffect(() => {
+    if (Array.isArray(timings)) timings.forEach((record) => record?.());
+    else timings?.();
+  }, [timings]);
+  return null;
+}
 
 /** Sample the application render through its committed DOM, including large views. */
 export function useViewPerformance() {
@@ -35,59 +48,21 @@ export function PerformanceMonitor() {
     // One percent of page loads; force with the query-free sessionStorage flag
     // in controlled fixtures. No search, recording or library data is collected.
     if (!performanceEnabled()) return;
-    const metrics = clientMetrics;
     let stopped = false;
-    let previous = '';
-    const report = () => {
-      if (!Object.keys(metrics).length) return;
-      const payload = JSON.stringify({
-        device: mobileRef.current ? 'mobile' : 'desktop',
-        cache: performance
-          .getEntriesByType('navigation')
-          .some(
-            (entry) =>
-              (entry as PerformanceNavigationTiming).transferSize === 0,
-          )
-          ? 'warm'
-          : 'cold',
-        metrics,
+    let cleanup: (() => void) | undefined;
+    void import('@/lib/performance-reporter')
+      .then(({ observeClientPerformance }) => {
+        if (!stopped)
+          cleanup = observeClientPerformance(() =>
+            mobileRef.current ? 'mobile' : 'desktop',
+          );
+      })
+      .catch(() => {
+        /* Diagnostics must not interrupt the application. */
       });
-      if (payload === previous) return;
-      if (
-        navigator.sendBeacon(
-          '/api/performance',
-          new Blob([payload], { type: 'application/json' }),
-        )
-      )
-        previous = payload;
-    };
-    void import('web-vitals').then(({ onLCP, onINP, onCLS }) => {
-      if (stopped) return;
-      const save = (metric: { name: string; value: number }) => {
-        metrics[metric.name] = metric.value;
-      };
-      onLCP(save);
-      onINP(save);
-      onCLS(save);
-    });
-    const observer = new PerformanceObserver((list) => {
-      metrics.longTasks = (metrics.longTasks ?? 0) + list.getEntries().length;
-      metrics.longTaskMs =
-        (metrics.longTaskMs ?? 0) +
-        list.getEntries().reduce((total, entry) => total + entry.duration, 0);
-    });
-    if (PerformanceObserver.supportedEntryTypes.includes('longtask'))
-      observer.observe({ type: 'longtask', buffered: true });
-    const hidden = () => {
-      if (document.hidden) report();
-    };
-    document.addEventListener('visibilitychange', hidden);
-    window.addEventListener('pagehide', report);
     return () => {
       stopped = true;
-      observer.disconnect();
-      document.removeEventListener('visibilitychange', hidden);
-      window.removeEventListener('pagehide', report);
+      cleanup?.();
     };
   }, []);
   return null;

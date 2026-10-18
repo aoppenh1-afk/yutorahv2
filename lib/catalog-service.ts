@@ -2,6 +2,7 @@ import type { SearchDatabase } from './search-storage';
 import {
   createPublicSnapshots,
   type DeferPublicWork,
+  type SnapshotObservation,
 } from './public-snapshots';
 import {
   catalogCollection,
@@ -16,7 +17,7 @@ import {
 import { getHome, getDirectory } from './yutorah';
 import { pageCollection, collectionNeighbors } from './catalog-pages';
 
-type ReadOptions = {
+type ReadOptions = SnapshotObservation & {
   fresh?: boolean;
   version?: string;
   defer?: DeferPublicWork;

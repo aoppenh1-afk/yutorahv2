@@ -119,7 +119,7 @@ for (const [name, budget] of Object.entries(budgets))
   );
 for (const [path] of files)
   if (
-    /\/(transcript-reader|react-markdown|sources-panel|advanced-search|transcript-search|downloads-page|secondary-screens)-/.test(
+    /\/(transcript-reader|react-markdown|sources-panel|advanced-search|transcript-search|downloads|downloads-page|secondary-screens|performance-reporter)-/.test(
       path,
     )
   )

@@ -22,6 +22,8 @@ type Stored = {
 export class SnapshotExpiredError extends Error {}
 export class SnapshotBusyError extends Error {}
 export type DeferPublicWork = (task: () => Promise<unknown>) => void;
+export type SnapshotSource = 'server-memory' | 'snapshot' | 'refresh';
+export type SnapshotObservation = { onRead?: (source: SnapshotSource) => void };
 
 /** Public data only. Immutable versions keep pagination stable across refreshes. */
 export function createPublicSnapshots({
@@ -49,7 +51,8 @@ export function createPublicSnapshots({
   async function stored(resource: string, version = '') {
     const key = resource + ':' + (version || 'latest');
     const hit = memory.get(key);
-    if (hit && hit.expires > now()) return hit;
+    if (hit && hit.expires > now())
+      return { row: hit, source: 'server-memory' as const };
     const db = connection();
     const row = db
       ? await db
@@ -67,7 +70,7 @@ export function createPublicSnapshots({
           })
       : null;
     if (row) memory.set(key, row, Math.min(60_000, row.expires - now()));
-    return row ?? undefined;
+    return row ? { row, source: 'snapshot' as const } : undefined;
   }
   async function refresh<T>(resource: string, read: () => Promise<T>) {
     const existing = pending.get(resource);
@@ -77,6 +80,7 @@ export function createPublicSnapshots({
     const request = (async () => {
       let db = connection();
       const owner = crypto.randomUUID();
+      const publisher = owner + ':publish';
       if (db) {
         const claim = await db
           .prepare(`INSERT INTO catalog_refresh_leases(resource,owner,expires) VALUES(?,?,?)
@@ -116,7 +120,7 @@ export function createPublicSnapshots({
               .bind(resource)
               .first<{ updated: number | null }>()
               .catch(() => null)
-          : await stored(resource);
+          : (await stored(resource))?.row;
         const row: Stored = {
           version,
           payload,
@@ -124,22 +128,35 @@ export function createPublicSnapshots({
           expires: now() + retentionMs,
         };
         if (db) {
-          // Commit only while still owning the lease. Pruning and admission are
-          // serialized by the PostgreSQL adapter, or the D1 batch transaction.
+          // Claim publication at the database clock before mutating snapshots.
+          // The lease row stays locked for this transaction, so expiry cannot
+          // split pruning from publication. Every mutation requires this token.
           const committed = await db
             .batch([
               db
-                .prepare('DELETE FROM catalog_snapshots WHERE expires<=?')
-                .bind(now()),
+                .prepare(`UPDATE catalog_refresh_leases SET owner=? WHERE resource=? AND owner=?
+              AND expires>CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)`)
+                .bind(publisher, resource, owner),
+              db
+                .prepare(`DELETE FROM catalog_snapshots WHERE expires<=?
+              AND EXISTS(SELECT 1 FROM catalog_refresh_leases WHERE resource=? AND owner=?)`)
+                .bind(now(), resource, publisher),
               db
                 .prepare(`DELETE FROM catalog_snapshots WHERE (resource,version) IN (
               SELECT resource,version FROM (SELECT resource,version,SUM(bytes) OVER(ORDER BY updated DESC,resource,version) AS reserved,
               ROW_NUMBER() OVER(ORDER BY updated DESC,resource,version) AS ordinal FROM catalog_snapshots
-              WHERE NOT(resource=? AND version=?)) ranked WHERE reserved>? OR ordinal>255)`)
-                .bind(resource, version, storageBudget - bytes),
+              WHERE NOT(resource=? AND version=?)) ranked WHERE reserved>? OR ordinal>255)
+              AND EXISTS(SELECT 1 FROM catalog_refresh_leases WHERE resource=? AND owner=?)`)
+                .bind(
+                  resource,
+                  version,
+                  storageBudget - bytes,
+                  resource,
+                  publisher,
+                ),
               db
                 .prepare(`INSERT INTO catalog_snapshots(resource,version,payload,bytes,updated,expires)
-              SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM catalog_refresh_leases WHERE resource=? AND owner=? AND expires>CAST((julianday('now')-2440587.5)*86400000 AS INTEGER))
+              SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM catalog_refresh_leases WHERE resource=? AND owner=?)
               ON CONFLICT(resource,version) DO UPDATE SET payload=excluded.payload,bytes=excluded.bytes,updated=excluded.updated,expires=excluded.expires`)
                 .bind(
                   resource,
@@ -149,7 +166,7 @@ export function createPublicSnapshots({
                   row.updated,
                   row.expires,
                   resource,
-                  owner,
+                  publisher,
                 ),
             ])
             .catch(() => {
@@ -178,9 +195,9 @@ export function createPublicSnapshots({
         if (db)
           await db
             .prepare(
-              'DELETE FROM catalog_refresh_leases WHERE resource=? AND owner=?',
+              'DELETE FROM catalog_refresh_leases WHERE resource=? AND owner IN (?,?)',
             )
-            .bind(resource, owner)
+            .bind(resource, owner, publisher)
             .run()
             .catch(() => undefined);
       }
@@ -196,8 +213,8 @@ export function createPublicSnapshots({
   }
   return {
     async peek<T>(resource: string, ttl = 300_000) {
-      const row = await stored(resource);
-      return row ? unpack<T>(row, ttl) : undefined;
+      const hit = await stored(resource);
+      return hit ? unpack<T>(hit.row, ttl) : undefined;
     },
     async save<T>(resource: string, value: T) {
       return unpack<T>(
@@ -213,34 +230,41 @@ export function createPublicSnapshots({
         version = '',
         fresh = false,
         defer,
+        onRead,
       }: {
         ttl?: number;
         version?: string;
         fresh?: boolean;
         defer?: DeferPublicWork;
-      } = {},
+      } & SnapshotObservation = {},
     ): Promise<PublicSnapshot<T>> {
       const hit = await stored(resource, version);
+      const result = (row: Stored, source: SnapshotSource) => {
+        onRead?.(source);
+        return unpack<T>(row, ttl);
+      };
       if (version) {
         if (!hit)
           throw new SnapshotExpiredError(
             'This library page has updated. Reload to continue.',
           );
-        return unpack<T>(hit, ttl);
+        return result(hit.row, hit.source);
       }
       if (hit && !fresh) {
-        const result = unpack<T>(hit, ttl);
-        if (!result.stale || (retryAt.get(resource) || 0) > now())
-          return result;
+        if (
+          hit.row.updated + ttl > now() ||
+          (retryAt.get(resource) || 0) > now()
+        )
+          return result(hit.row, hit.source);
         if (defer) {
           defer(() => refresh(resource, read).catch(() => undefined));
-          return result;
+          return result(hit.row, hit.source);
         }
       }
       try {
-        return unpack<T>(await refresh(resource, read), ttl);
+        return result(await refresh(resource, read), 'refresh');
       } catch (error) {
-        if (hit && !fresh) return unpack<T>(hit, ttl);
+        if (hit && !fresh) return result(hit.row, hit.source);
         throw error;
       }
     },

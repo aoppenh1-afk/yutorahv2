@@ -65,6 +65,20 @@ function collection(): CollectionData {
     ),
   };
 }
+void test('snapshot observations distinguish fresh reads, process memory and durable storage', async () => {
+  const db = database();
+  const first = createPublicSnapshots({ database: () => db });
+  const sources: string[] = [];
+  const options = { onRead: (source: string) => sources.push(source) };
+  await first.read('observed', async () => ({ items: [1] }), options);
+  await first.read('observed', async () => ({ items: [2] }), options);
+  await createPublicSnapshots({ database: () => db }).read(
+    'observed',
+    async () => ({ items: [3] }),
+    options,
+  );
+  assert.deepEqual(sources, ['refresh', 'server-memory', 'snapshot']);
+});
 void test('a fresh process serves small collection pages and global filters from a durable snapshot without upstream reads', async (t) => {
   const db = database();
   const first = createCatalogService({ database: () => db });
@@ -202,6 +216,93 @@ void test('a refresh that loses its lease cannot publish a generation', async ()
   assert.equal(
     await db
       .prepare("SELECT version FROM catalog_snapshots WHERE resource='lost'")
+      .first(),
+    null,
+  );
+});
+for (const failure of ['lost', 'expired']) {
+  void test(`a ${failure} lease cannot prune existing snapshots at capacity`, async () => {
+    const db = database();
+    const store = createPublicSnapshots({ database: () => db });
+    for (let index = 0; index < 256; index++)
+      await store.save('retained:' + index, { index });
+    await db
+      .prepare(
+        "INSERT INTO catalog_snapshots(resource,version,payload,bytes,updated,expires) VALUES('expired','old','old',3,0,1)",
+      )
+      .run();
+    const before = await db
+      .prepare('SELECT * FROM catalog_snapshots ORDER BY resource,version')
+      .all();
+    await assert.rejects(
+      store.read('rejected', async () => {
+        await db
+          .prepare(
+            failure === 'lost'
+              ? "UPDATE catalog_refresh_leases SET owner='successor' WHERE resource='rejected'"
+              : "UPDATE catalog_refresh_leases SET expires=1 WHERE resource='rejected'",
+          )
+          .run();
+        return { rejected: true };
+      }),
+      SnapshotBusyError,
+    );
+    assert.deepEqual(
+      await db
+        .prepare('SELECT * FROM catalog_snapshots ORDER BY resource,version')
+        .all(),
+      before,
+      'rejected publication must leave pruning and existing generations untouched',
+    );
+    if (failure === 'lost')
+      assert.equal(
+        (
+          await db
+            .prepare(
+              "SELECT owner FROM catalog_refresh_leases WHERE resource='rejected'",
+            )
+            .first<{ owner: string }>()
+        )?.owner,
+        'successor',
+      );
+    await store.save('accepted', { accepted: true });
+    assert.equal(
+      (
+        await db
+          .prepare('SELECT COUNT(*) AS count FROM catalog_snapshots')
+          .first<{ count: number }>()
+      )?.count,
+      256,
+      'an accepted publication still prunes expired and excess entries',
+    );
+  });
+}
+void test('an admitted publication completes atomically even if its lease expires during the transaction', async () => {
+  const db = database();
+  const store = createPublicSnapshots({
+    database: () => ({
+      ...db,
+      batch: (statements) =>
+        db.batch([
+          statements[0],
+          db.prepare(
+            "UPDATE catalog_refresh_leases SET expires=1 WHERE resource='committing'",
+          ),
+          ...statements.slice(1),
+        ]),
+    }),
+  });
+  const saved = await store.save('committing', { committed: true });
+  assert.equal(
+    (await createPublicSnapshots({ database: () => db }).peek('committing'))
+      ?.version,
+    saved.version,
+  );
+  assert.equal(
+    await db
+      .prepare(
+        "SELECT owner FROM catalog_refresh_leases WHERE resource='committing'",
+      )
       .first(),
     null,
   );

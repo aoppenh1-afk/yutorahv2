@@ -16,7 +16,13 @@ import {
   invalidateCatalogResource,
 } from '@/lib/catalog-client';
 import { mergeShiurDetails } from '@/lib/shiur-detail-client';
-import { recordDataVisible } from '@/lib/client-performance';
+import {
+  dataCommitTiming,
+  performanceEnabled,
+  responseDataSource,
+  type DataCommitTiming,
+  type DataSource,
+} from '@/lib/client-performance';
 import type { CompactDirectory } from '@/lib/directory-payload';
 import Link from 'next/link';
 import {
@@ -43,9 +49,9 @@ import {
   usePlaybackState,
 } from './playback';
 import { PagedItems } from './paged-items';
-import { useDownloadCount } from '@/lib/downloads';
+import { useDownloadCount } from '@/lib/download-client';
 import { useOnline } from '@/lib/connectivity';
-import { useViewPerformance } from './performance-monitor';
+import { DataCommitMarker, useViewPerformance } from './performance-monitor';
 import { FollowButton } from './follow-button';
 import { useAccount } from '@/lib/use-account';
 import { relatedShiurim, type Follow } from '@/lib/learning';
@@ -201,12 +207,20 @@ const labels: Record<View, string> = {
   history: 'Learning history',
   playlists: 'My playlists',
 };
-async function requestJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  if (isPublicCatalogResource(url)) return loadCatalogResource<T>(url, signal);
+async function requestJson<T>(
+  url: string,
+  signal?: AbortSignal,
+  onSource?: (source: DataSource) => void,
+): Promise<T> {
+  if (isPublicCatalogResource(url))
+    return loadCatalogResource<T>(url, signal, onSource);
+  const observe = performanceEnabled() ? onSource : undefined;
+  const started = observe ? performance.now() : 0;
   const r = await fetch(url, { signal });
   const j = (await r.json()) as T & { error?: string };
   if (!r.ok)
     throw new Error(j.error || 'Something went wrong. Please try again.');
+  if (observe) observe(responseDataSource(r, started));
   return j;
 }
 function SearchOptions({
@@ -307,6 +321,11 @@ export default function TorahApp(props: { initialHome: HomeData | null }) {
 }
 function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   useViewPerformance();
+  const dataTimings = useRef<{
+    home?: DataCommitTiming;
+    search?: DataCommitTiming[];
+    shiur?: DataCommitTiming;
+  }>({});
   const isMobile = useIsMobile();
   const [home, setHome] = useState(initialHome);
   const homeDaf = useRef(home?.daf || '');
@@ -541,10 +560,14 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     const controller = new AbortController();
     setHomeLoading(true);
     const started = performance.now();
-    requestJson<HomeData>('/api/home', controller.signal)
+    let source: DataSource = 'unknown';
+    requestJson<HomeData>('/api/home', controller.signal, (value) => {
+      source = value;
+    })
       .then((data) => {
+        if (controller.signal.aborted) return;
+        dataTimings.current.home = dataCommitTiming('home', started, source);
         setHome(data);
-        recordDataVisible('home', started);
       })
       .catch(() => {
         if (!controller.signal.aborted)
@@ -557,6 +580,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       });
     return () => controller.abort();
   }, [hasHome, view, online]);
+  useEffect(() => {
+    if (!['discover', 'following', 'trending'].includes(view))
+      dataTimings.current.home = undefined;
+  }, [view]);
   const changeURL = useCallback(
     (nextView: View, query = '', nextFilters: Filters = noFilters) => {
       const url = new URL(window.location.href);
@@ -579,6 +606,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     ) => {
       const started = performance.now();
       let firstVisible = false;
+      dataTimings.current.search = undefined;
+      let source: DataSource | undefined;
+      const cacheSource = (value: DataSource) => {
+        source = source === undefined || source === value ? value : 'mixed';
+      };
       clearDetail();
       searchAbort.current?.abort();
       const controller = new AbortController();
@@ -606,12 +638,24 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         let result = await requestJson<SearchResult>(
           '/api/search?' + p,
           controller.signal,
+          cacheSource,
         );
         if (controller.signal.aborted) return;
         const recordFirst = () => {
-          if (!firstVisible && (result.items.length > 0 || result.complete)) {
+          if (
+            !controller.signal.aborted &&
+            !firstVisible &&
+            (result.items.length > 0 || result.complete)
+          ) {
             firstVisible = true;
-            recordDataVisible('search', started);
+            const timing = dataCommitTiming(
+              'search',
+              started,
+              source ?? 'unknown',
+              'first',
+              controller.signal,
+            );
+            if (timing) dataTimings.current.search = [timing];
           }
         };
         recordFirst();
@@ -623,10 +667,23 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           result = await requestJson<SearchResult>(
             '/api/search?' + p,
             controller.signal,
+            cacheSource,
           );
           recordFirst();
         }
         if (!controller.signal.aborted) {
+          const timing = dataCommitTiming(
+            'search',
+            started,
+            source ?? 'unknown',
+            'complete',
+            controller.signal,
+          );
+          if (timing)
+            dataTimings.current.search = [
+              ...(dataTimings.current.search ?? []),
+              timing,
+            ];
           setResults((old) =>
             page > 1 && old
               ? {
@@ -729,8 +786,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       loaded = false,
       pending?: AbortController,
       seconds?: number,
+      timing?: DataCommitTiming,
     ) => {
       const started = performance.now();
+      dataTimings.current.shiur = timing;
       if (!pending || detailAbort.current !== pending)
         detailAbort.current?.abort();
       const controller = pending ?? new AbortController();
@@ -749,11 +808,26 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       setDetailLoading(!loaded && !offline);
       if (loaded || offline) return;
       try {
+        let source: DataSource = 'unknown';
         const fresh = await requestJson<
           Shiur & { text?: string; video?: string }
-        >('/api/shiur?id=' + s.id + '&part=core', controller.signal);
-        if (!controller.signal.aborted) setDetail(mergeShiurDetails(s, fresh));
-        if (!controller.signal.aborted) recordDataVisible('shiur', started);
+        >(
+          '/api/shiur?id=' + s.id + '&part=core',
+          controller.signal,
+          (value) => {
+            source = value;
+          },
+        );
+        if (!controller.signal.aborted) {
+          dataTimings.current.shiur = dataCommitTiming(
+            'shiur',
+            started,
+            source,
+            'first',
+            controller.signal,
+          );
+          setDetail(mergeShiurDetails(s, fresh));
+        }
       } catch (e) {
         if (!controller.signal.aborted)
           setDetailError(
@@ -772,6 +846,8 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       autoplay = false,
       restoring = false,
     ) => {
+      const started = performance.now();
+      let source: DataSource = 'memory';
       detailAbort.current?.abort();
       const controller = new AbortController();
       detailAbort.current = controller;
@@ -792,9 +868,24 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             : await requestJson<Shiur>(
                 '/api/shiur?id=' + id + '&part=core',
                 controller.signal,
+                (value) => {
+                  source = value;
+                },
               );
         if (controller.signal.aborted) return;
-        await showDetail(s, true, controller);
+        await showDetail(
+          s,
+          true,
+          controller,
+          undefined,
+          dataCommitTiming(
+            'shiur',
+            started,
+            source,
+            'first',
+            controller.signal,
+          ),
+        );
         if (autoplay) startPlayback(s, seconds);
         if (seconds !== undefined)
           notify(
@@ -1856,6 +1947,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             <ScreenBoundary>
               <LearningHome
                 key={view}
+                dataTiming={dataTimings.current.home}
                 home={home}
                 directory={directory}
                 library={library}
@@ -1889,6 +1981,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
             <section
               className={'search-view ' + (results ? 'has-results' : '')}
             >
+              {dataTimings.current.search && (
+                <DataCommitMarker timings={dataTimings.current.search} />
+              )}
               <div className="view-heading">
                 <div className="eyebrow">The YUTorah library</div>
                 <h1>What would you like to learn?</h1>
@@ -2746,6 +2841,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 onToggleLearned={toggleLearned}
                 onReport={(s) => setFeedback({ shiur: s })}
               />
+              {dataTimings.current.shiur && (
+                <DataCommitMarker timings={dataTimings.current.shiur} />
+              )}
             </ScreenBoundary>
           )}
         </SheetContent>

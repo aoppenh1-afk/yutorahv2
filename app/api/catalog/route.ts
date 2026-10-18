@@ -11,6 +11,7 @@ export async function GET(request: Request) {
   const started = performance.now();
   const p = new URL(request.url).searchParams;
   const version = p.get('version') || '';
+  let source = 'unknown';
   if (version && !/^[a-f0-9]{64}$/.test(version))
     return Response.json(
       { error: 'Choose a valid collection version.' },
@@ -20,6 +21,9 @@ export async function GET(request: Request) {
     version,
     fresh: p.get('fresh') === '1',
     defer: deferCatalogWork,
+    onRead: (value: string) => {
+      source = value;
+    },
   };
   const action = p.get('action') || 'directory',
     kind = p.get('kind') as CatalogKind;
@@ -120,6 +124,7 @@ export async function GET(request: Request) {
               ? 'public, max-age=300, s-maxage=300'
               : 'public, max-age=60, s-maxage=300, stale-while-revalidate=300',
         'Server-Timing': `catalog;dur=${(performance.now() - started).toFixed(1)}`,
+        'X-Yutorah-Cache': source,
       },
     });
   } catch (error) {

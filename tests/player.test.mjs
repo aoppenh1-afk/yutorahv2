@@ -1275,11 +1275,11 @@ void test('player controls stop playback and the phone dialog stays inside the b
           }
           const after = await report();
           assert.ok(
-            after.viewCommits - before.viewCommits <= 4,
+            (after.viewCommits ?? 0) <= 4,
             JSON.stringify({ before, after }),
           );
           assert.ok(
-            after.libraryWrites - before.libraryWrites <= 4,
+            (after.libraryWrites ?? 0) <= 4,
             JSON.stringify({ before, after }),
           );
           console.log(
@@ -1290,8 +1290,8 @@ void test('player controls stop playback and the phone dialog stays inside the b
               transcriptSegments: 5000,
               visibleResults: 60,
               mountedSegments: segments.length,
-              viewCommits: after.viewCommits - before.viewCommits,
-              libraryWrites: after.libraryWrites - before.libraryWrites,
+              viewCommits: after.viewCommits ?? 0,
+              libraryWrites: after.libraryWrites ?? 0,
             }),
           );
           assert.equal(

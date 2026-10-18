@@ -2,9 +2,10 @@
 import type { Shiur } from './yutorah';
 import { AUDIO_CACHE, offlineAudioPath } from './download-contract';
 import { portraitSources } from './portrait';
+import { cachedPortrait, PORTRAIT_CACHE } from './offline-media';
+export { cachedPortrait, PORTRAIT_CACHE } from './offline-media';
 
 export const STUDY_CACHE = 'yutorah-study-v1';
-export const PORTRAIT_CACHE = 'yutorah-portraits-v1';
 const endpoints = ['transcript', 'study-notes', 'official-study'] as const;
 type Endpoint = (typeof endpoints)[number];
 export type OfflineContentStatus = {
@@ -161,19 +162,6 @@ export async function fetchStudy(url: string, options: RequestInit = {}) {
     if (cached) return cached;
     throw error;
   }
-}
-
-export async function cachedPortrait(src: string) {
-  try {
-    const cache = await caches.open(PORTRAIT_CACHE);
-    for (const url of portraitSources(src)) {
-      const hit = await cache.match(url);
-      if (hit) return hit;
-    }
-  } catch {
-    /* Browsing still works without Cache Storage. */
-  }
-  return undefined;
 }
 
 async function savePortrait(src: string, signal: AbortSignal) {

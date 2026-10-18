@@ -13,6 +13,8 @@ import {
   type ReactNode,
 } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { DataCommitMarker } from './performance-monitor';
+import type { DataCommitTiming } from '@/lib/client-performance';
 import { BoundedCache } from '@/lib/bounded-cache';
 import { loadDiscovery, loadSavedDiscovery } from '@/lib/discovery-client';
 import {
@@ -89,6 +91,7 @@ const feedBatches = new BoundedCache<{ items: Shiur[]; partial: boolean }>(
 );
 
 type Props = {
+  dataTiming?: DataCommitTiming;
   home: HomeData | null;
   directory: Directory | null;
   library: LibraryState;
@@ -682,10 +685,12 @@ export function LearningHome(props: Props) {
             onPreferences={() => setPreferences(true)}
             onRefresh={refreshAll}
           />
+          {props.dataTiming && <DataCommitMarker timings={props.dataTiming} />}
         </Suspense>
       )}
       {(!isHome || !isMobile) && (
         <>
+          {props.dataTiming && <DataCommitMarker timings={props.dataTiming} />}
           <header className="discover-heading">
             <div>
               <span className="eyebrow">

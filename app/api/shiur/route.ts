@@ -18,6 +18,7 @@ export async function GET(request: Request) {
       { status: 400 },
     );
   try {
+    let source = 'unknown';
     const service = await getCatalogService();
     const result = await service.snapshots.read(
       `shiur:${part}:${id}`,
@@ -28,13 +29,20 @@ export async function GET(request: Request) {
         if (!data) throw new RangeError('This shiur could not be found.');
         return data;
       },
-      { ttl: part === 'core' ? 600_000 : 300_000, defer: deferCatalogWork },
+      {
+        ttl: part === 'core' ? 600_000 : 300_000,
+        defer: deferCatalogWork,
+        onRead: (value) => {
+          source = value;
+        },
+      },
     );
     return Response.json(result.value, {
       headers: {
         'Cache-Control':
           'public,max-age=300,s-maxage=300,stale-while-revalidate=300',
         'Server-Timing': `shiur;dur=${(performance.now() - started).toFixed(1)}`,
+        'X-Yutorah-Cache': source,
       },
     });
   } catch (error) {

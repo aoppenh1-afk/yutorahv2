@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import type { Shiur } from './yutorah';
-import { localRecording } from './downloads';
+import { localRecording } from './offline-media';
 import { offlineAudioPath } from './download-contract';
 
 /** Keep original media URLs in library sync. Local sources belong to this browser only. */

@@ -3,7 +3,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { portraitSources } from '@/lib/portrait';
-import { cachedPortrait } from '@/lib/offline-content';
+import { cachedPortrait } from '@/lib/offline-media';
 import { useOnline } from '@/lib/connectivity';
 import { Popover } from '@base-ui/react/popover';
 import {

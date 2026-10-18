@@ -1,18 +1,13 @@
-const allowed = new Set([
-  'LCP',
-  'INP',
-  'CLS',
-  'longTasks',
-  'longTaskMs',
-  'viewCommits',
-  'viewCommitMs',
-  'maxVisibleRows',
-  'libraryWrites',
-  'libraryWriteMs',
-  'dataCacheHits',
-  'dataCacheCoalesced',
-  'dataApiCalls',
-  'dataApiMs',
+import {
+  performanceMetrics,
+  dataAreas,
+  dataSources,
+  maxPerformanceBytes,
+} from '@/lib/performance-report-schema';
+import { maxOperationSamples, maxOperationMs } from '@/lib/performance-payload';
+
+const allowed = new Set<string>(performanceMetrics);
+const legacyTimings = new Set([
   'homeVisibleMs',
   'searchVisibleMs',
   'collectionVisibleMs',
@@ -20,7 +15,7 @@ const allowed = new Set([
   'catalogVisibleMs',
 ]);
 export async function POST(request: Request) {
-  if (Number(request.headers.get('Content-Length') || 0) > 2048)
+  if (Number(request.headers.get('Content-Length') || 0) > maxPerformanceBytes)
     return new Response(null, { status: 413 });
   const reader = request.body?.getReader();
   const chunks: Uint8Array[] = [];
@@ -30,7 +25,7 @@ export async function POST(request: Request) {
       const { value, done } = await reader.read();
       if (done) break;
       length += value.byteLength;
-      if (length > 2048) {
+      if (length > maxPerformanceBytes) {
         await reader.cancel();
         return new Response(null, { status: 413 });
       }
@@ -46,31 +41,54 @@ export async function POST(request: Request) {
     offset += chunk.byteLength;
   }
   const text = new TextDecoder().decode(bytes);
-  let body: {
-    device?: string;
-    cache?: string;
-    metrics?: Record<string, unknown>;
-  };
+  let body: unknown;
   try {
     body = JSON.parse(text);
   } catch {
     return new Response(null, { status: 400 });
   }
+  const object = (value: unknown): value is Record<string, unknown> =>
+    !!value && typeof value === 'object' && !Array.isArray(value);
   if (
-    !body ||
-    !['mobile', 'desktop'].includes(body.device ?? '') ||
-    !['warm', 'cold'].includes(body.cache ?? '') ||
-    !body.metrics ||
-    typeof body.metrics !== 'object'
+    !object(body) ||
+    !['mobile', 'desktop'].includes(body.device as string) ||
+    !object(body.metrics)
+  )
+    return new Response(null, { status: 400 });
+  // Keep cached older clients readable, with their navigation proxy and summed
+  // timings explicitly marked as version 1. Version 2 records operations.
+  const legacy =
+    body.operations === undefined &&
+    ['warm', 'cold'].includes(body.cache as string);
+  if (body.cache !== undefined && !legacy)
+    return new Response(null, { status: 400 });
+  const operations = body.operations === undefined ? [] : body.operations;
+  if (
+    !Array.isArray(operations) ||
+    operations.length > maxOperationSamples ||
+    operations.some(
+      (operation) =>
+        !object(operation) ||
+        Object.keys(operation).length !== 4 ||
+        !dataAreas.includes(operation.area as (typeof dataAreas)[number]) ||
+        !['first', 'complete'].includes(operation.phase as string) ||
+        !dataSources.includes(
+          operation.source as (typeof dataSources)[number],
+        ) ||
+        typeof operation.ms !== 'number' ||
+        !Number.isFinite(operation.ms) ||
+        operation.ms < 0 ||
+        operation.ms > maxOperationMs,
+    )
   )
     return new Response(null, { status: 400 });
   const entries = Object.entries(body.metrics);
   if (
-    !entries.length ||
-    entries.length > allowed.size ||
+    (!entries.length && !operations.length) ||
+    entries.length > allowed.size + (legacy ? legacyTimings.size : 0) ||
     entries.some(
       ([name, value]) =>
-        !allowed.has(name) ||
+        (!allowed.has(name) && !(legacy && legacyTimings.has(name))) ||
         typeof value !== 'number' ||
         !Number.isFinite(value) ||
         value < 0 ||
@@ -81,8 +99,9 @@ export async function POST(request: Request) {
   console.log(
     JSON.stringify({
       event: 'frontend_performance',
+      version: legacy ? 1 : 2,
       device: body.device,
-      cache: body.cache,
+      ...(legacy ? { navigationCache: body.cache } : { operations }),
       metrics: Object.fromEntries(entries),
     }),
   );

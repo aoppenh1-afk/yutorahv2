@@ -332,6 +332,18 @@ try {
           await page
             .getByRole('button', { name: 'Downloaded', exact: true })
             .waitFor({ timeout: 60000 });
+          await page.setViewportSize({ width: 1280, height: 844 });
+          const badge = page
+            .locator('.nav-button')
+            .filter({ hasText: 'Downloads' })
+            .locator('.nav-count');
+          await badge.waitFor({ state: 'attached' });
+          assert.equal(
+            await badge.textContent(),
+            '1',
+            'the background status subscriber reflects completed downloads',
+          );
+          await page.setViewportSize({ width: 390, height: 844 });
           await page.waitForFunction(() =>
             Boolean(navigator.serviceWorker.controller),
           );

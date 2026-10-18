@@ -2,7 +2,11 @@
 import type { CSSProperties } from 'react';
 import { Check, Download, Loader2, X } from 'lucide-react';
 import type { Shiur } from '@/lib/yutorah';
-import { useDownloads, downloadShiur, cancelDownload } from '@/lib/downloads';
+import {
+  useDownloads,
+  downloadShiur,
+  cancelDownload,
+} from '@/lib/download-client';
 import { useConnectivity } from '@/lib/connectivity';
 
 /** Renders the icon control plus any status lines as siblings, so the parent row can place status below. */
@@ -37,9 +41,7 @@ export function DownloadButton({
           (busy ? ' is-downloading' : '') +
           (saved ? ' is-downloaded' : '')
         }
-        style={
-          busy ? ({ '--progress': percent } as CSSProperties) : undefined
-        }
+        style={busy ? ({ '--progress': percent } as CSSProperties) : undefined}
         aria-label={label}
         title={label}
         disabled={saved || (!online && !busy)}

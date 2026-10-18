@@ -1,12 +1,17 @@
 import { BoundedCache } from './bounded-cache';
-import { performanceCount } from './client-performance';
+import {
+  performanceCount,
+  performanceEnabled,
+  responseDataSource,
+  type DataSource,
+} from './client-performance';
 
 /** Public catalog data only. Account data must never use this loader. */
 type Entry = { data: unknown; freshUntil: number };
 const cache = new BoundedCache<Entry>(64, 4 * 1024 * 1024);
 const pending = new Map<
   string,
-  { promise: Promise<unknown>; generation: object }
+  { promise: Promise<unknown>; generation: object; source: () => DataSource }
 >();
 const generations = new Map<string, object>();
 const paths = [
@@ -39,12 +44,15 @@ export function invalidateCatalogResource(url: string) {
 export function loadCatalogResource<T>(
   url: string,
   signal?: AbortSignal,
+  onSource?: (source: DataSource) => void,
 ): Promise<T> {
   signal?.throwIfAborted();
+  const observe = performanceEnabled() ? onSource : undefined;
   const key = resourceKey(url);
   const hit = cache.get(key);
   if (hit && hit.freshUntil > Date.now()) {
     performanceCount('dataCacheHits', 1);
+    observe?.('memory');
     return Promise.resolve(hit.data as T);
   }
   let generation = generations.get(key);
@@ -59,6 +67,7 @@ export function loadCatalogResource<T>(
       return Promise.reject(new Error('The library is busy. Please retry.'));
     const currentGeneration = generation;
     const started = performance.now();
+    let source: DataSource = 'unknown';
     const promise = (async () => {
       const deadline = AbortSignal.timeout(32_000);
       let response!: Response;
@@ -87,8 +96,12 @@ export function loadCatalogResource<T>(
           else deadline.addEventListener('abort', abort, { once: true });
         });
       }
-      if (response.status === 204) return null;
+      if (response.status === 204) {
+        source = responseDataSource(response, started);
+        return null;
+      }
       const data = await response.json();
+      source = responseDataSource(response, started);
       if (!response.ok)
         throw new Error(data.error || 'This page could not load.');
       if (
@@ -110,12 +123,17 @@ export function loadCatalogResource<T>(
           ttl + 60 * 60_000,
         );
       }
-      return hit && data && typeof data === 'object' && 'unavailable' in data
-        ? hit.data
-        : data;
+      if (hit && data && typeof data === 'object' && 'unavailable' in data) {
+        source = 'memory-stale';
+        return hit.data;
+      }
+      return data;
     })()
       .catch((error: unknown) => {
-        if (hit) return hit.data;
+        if (hit) {
+          source = 'memory-stale';
+          return hit.data;
+        }
         throw error;
       })
       .finally(() => {
@@ -126,7 +144,7 @@ export function loadCatalogResource<T>(
         if (!cache.get(key) && generations.get(key) === currentGeneration)
           generations.delete(key);
       });
-    request = { promise, generation: currentGeneration };
+    request = { promise, generation: currentGeneration, source: () => source };
     pending.set(key, request);
     // Generations are retained only for bounded cache entries or active work.
     if (generations.size > 128)
@@ -134,7 +152,13 @@ export function loadCatalogResource<T>(
         if (!pending.has(entry) && !cache.get(entry)) generations.delete(entry);
       }
   } else performanceCount('dataCacheCoalesced', 1);
-  const shared = request.promise as Promise<T>;
+  const current = request;
+  const shared = observe
+    ? current.promise.then((data) => {
+        if (!signal?.aborted) observe(current.source());
+        return data as T;
+      })
+    : (current.promise as Promise<T>);
   if (!signal) return shared;
   return new Promise<T>((resolve, reject) => {
     const abort = () =>

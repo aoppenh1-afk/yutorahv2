@@ -59,6 +59,66 @@ void test(
           .first(),
         null,
       );
+      for (let index = 0; index < 254; index++)
+        await first.save('retained:' + index, { index });
+      await db
+        .prepare(
+          "INSERT INTO catalog_snapshots(resource,version,payload,bytes,updated,expires) VALUES('already-expired','old','old',3,0,1)",
+        )
+        .run();
+      const before = await db
+        .prepare('SELECT * FROM catalog_snapshots ORDER BY resource,version')
+        .all();
+      for (const failure of ['lost', 'expired']) {
+        const resource = failure + '-at-capacity';
+        await assert.rejects(
+          first.read(resource, async () => {
+            await db
+              .prepare(
+                failure === 'lost'
+                  ? "UPDATE catalog_refresh_leases SET owner='successor' WHERE resource=?"
+                  : 'UPDATE catalog_refresh_leases SET expires=1 WHERE resource=?',
+              )
+              .bind(resource)
+              .run();
+            return { rejected: true };
+          }),
+          SnapshotBusyError,
+        );
+        assert.deepEqual(
+          await db
+            .prepare(
+              'SELECT * FROM catalog_snapshots ORDER BY resource,version',
+            )
+            .all(),
+          before,
+          'rejected publication must leave every existing snapshot unchanged',
+        );
+      }
+      const committing = createPublicSnapshots({
+        database: () => ({
+          ...db,
+          batch: (statements) =>
+            db.batch([
+              statements[0],
+              db.prepare(
+                "UPDATE catalog_refresh_leases SET expires=1 WHERE resource='committing'",
+              ),
+              ...statements.slice(1),
+            ]),
+        }),
+      });
+      await committing.save('committing', { committed: true });
+      assert.equal(
+        Number(
+          (
+            await db
+              .prepare('SELECT COUNT(*) AS count FROM catalog_snapshots')
+              .first<{ count: number }>()
+          )?.count,
+        ),
+        256,
+      );
       const blob = randomBytes(430_000).toString('base64');
       for (let index = 0; index < 32; index++)
         await first.save('budget:' + index, { blob, index });

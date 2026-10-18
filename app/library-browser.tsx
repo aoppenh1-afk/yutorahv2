@@ -1,6 +1,6 @@
 /* oxlint-disable next/no-img-element -- Public YUTorah collection covers and daf scans. */
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -27,7 +27,11 @@ import {
   loadCollectionItems,
   loadCollectionNeighbors,
 } from '@/lib/collection-client';
-import { recordDataVisible } from '@/lib/client-performance';
+import {
+  dataCommitTiming,
+  type DataCommitTiming,
+  type DataSource,
+} from '@/lib/client-performance';
 import { noFilters, type Filters } from '@/lib/search-filters';
 import { dafTractates, type DafSelection } from '@/lib/daf';
 import { ActionMenu, Avatar, FilterSelect, StatePanel, tone } from './ui';
@@ -61,6 +65,7 @@ const collectionSorts = [
   { value: 'title', label: 'Title A–Z' },
 ];
 function useCatalog<T>(params: Record<string, string>) {
+  const timing = useRef<DataCommitTiming>(undefined);
   const url = '/api/catalog?' + new URLSearchParams(params).toString();
   const cached = cachedCatalogResource<T>(url);
   const [state, setState] = useState<{
@@ -79,21 +84,28 @@ function useCatalog<T>(params: Record<string, string>) {
     state.url === url
       ? state
       : { url, data: cached ?? null, error: '', loading: cached === undefined };
+  useLayoutEffect(() => {
+    timing.current?.();
+  });
   useEffect(() => {
     let active = true;
     const started = performance.now();
+    let source: DataSource = 'unknown';
     const hit = cachedCatalogResource<T>(url);
     setState({ url, data: hit ?? null, error: '', loading: hit === undefined });
-    loadCatalogResource<T>(url)
+    loadCatalogResource<T>(url, undefined, (value) => {
+      source = value;
+    })
       .then((d) => {
         if (active) {
-          setState({ url, data: d, error: '', loading: false });
-          recordDataVisible(
+          timing.current = dataCommitTiming(
             params.kind === 'collection' && params.action === 'entity'
               ? 'collection'
               : 'catalog',
             started,
+            source,
           );
+          setState({ url, data: d, error: '', loading: false });
         }
       })
       .catch((e) => {
