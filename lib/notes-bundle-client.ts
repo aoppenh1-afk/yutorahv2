@@ -20,17 +20,47 @@ async function readPage(
   id: number,
   page: number,
   signal: AbortSignal,
+  version = '',
 ): Promise<NotesBundlePage> {
-  const response = await fetch(
-    `/api/notes-bundle?kind=${kind}&id=${id}&page=${page}`,
-    { signal },
-  );
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Notes could not load.');
-  return data;
+  const query = new URLSearchParams({
+    kind,
+    id: String(id),
+    page: String(page),
+    ...(version ? { version } : {}),
+  });
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    const response = await fetch('/api/notes-bundle?' + query, { signal });
+    const data: NotesBundlePage & { error?: string } = await response.json();
+    const wait = Number(response.headers.get('Retry-After') || 0) * 1000;
+    if (
+      response.status === 503 &&
+      wait > 0 &&
+      wait <= 5000 &&
+      Date.now() + wait < deadline
+    ) {
+      await new Promise<void>((resolve, reject) => {
+        signal.throwIfAborted();
+        const abort = () => {
+          clearTimeout(timer);
+          reject(signal.reason);
+        };
+        const timer = setTimeout(() => {
+          signal.removeEventListener('abort', abort);
+          resolve();
+        }, wait);
+        signal.addEventListener('abort', abort, { once: true });
+      });
+      continue;
+    }
+    if (!response.ok) throw new Error(data.error || 'Notes could not load.');
+    if (data.page !== page || (version && data.version !== version))
+      throw new Error('The collection changed. Restart the notes download.');
+    return data;
+  }
 }
 
-async function gather(
+export async function gatherNotesBundle(
   kind: NotesBundleKind,
   id: number,
   signal: AbortSignal,
@@ -38,6 +68,8 @@ async function gather(
 ) {
   const found = new Map<number, NotesBundleItem>();
   const first = await readPage(kind, id, 1, signal);
+  if (kind === 'collection' && !/^[a-f0-9]{64}$/.test(first.version || ''))
+    throw new Error('The collection could not be verified. Please retry.');
   const total = first.total;
   let next = 2,
     last = first.done ? 1 : first.pages,
@@ -58,7 +90,8 @@ async function gather(
   take(first);
   const runner = async () => {
     try {
-      while (next <= last) take(await readPage(kind, id, next++, signal));
+      while (next <= last)
+        take(await readPage(kind, id, next++, signal, first.version));
     } catch (error) {
       last = 0;
       throw error;
@@ -120,7 +153,7 @@ export async function downloadNotesBundle({
   signal: AbortSignal;
   onProgress: (p: NotesBundleProgress) => void;
 }) {
-  const items = await gather(kind, id, signal, onProgress);
+  const items = await gatherNotesBundle(kind, id, signal, onProgress);
   if (!items.length) throw new NotesBundleEmpty();
   onProgress({ phase: 'building', found: items.length });
   const teachers = [...new Set(items.map((i) => i.teacher).filter(Boolean))];

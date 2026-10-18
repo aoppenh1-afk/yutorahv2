@@ -5,6 +5,7 @@ import {
 } from '@/lib/complete-search';
 import { searchDatabase } from '@/lib/search-db';
 import { isStorageCapacityError } from '@/lib/database-errors';
+import { getCatalogService, deferCatalogWork } from '@/lib/catalog-server';
 export async function GET(request: Request) {
   const started = performance.now();
   const p = new URL(request.url).searchParams;
@@ -112,6 +113,7 @@ export async function GET(request: Request) {
       },
       Math.max(1, Math.floor(number('page', 20000))),
       (p.get('run') || '').slice(0, 64),
+      true,
     );
     const lifetime = Math.max(
       0,
@@ -119,6 +121,34 @@ export async function GET(request: Request) {
         ((result.expiresAt || Date.now() + 60000) - Date.now()) / 1000,
       ),
     );
+    if (
+      result.complete &&
+      !q &&
+      entity('teacher') &&
+      p.get('sort') === 'popular' &&
+      entityIds.teacher?.length === 1 &&
+      Object.keys(entityIds).length === 1 &&
+      (!p.get('page') || p.get('page') === '1') &&
+      ![
+        'min',
+        'max',
+        'after',
+        'before',
+        'uploadedAfter',
+        'uploadedBefore',
+        'phrase',
+        'exclude',
+        'language',
+        'format',
+        'scope',
+        'group',
+      ].some((key) => p.get(key))
+    )
+      deferCatalogWork(async () => {
+        await (
+          await getCatalogService()
+        ).snapshots.save('teacher-popular:' + entity('teacher'), result);
+      });
     const ttl = Math.min(60, lifetime);
     const stale = Math.min(120, Math.max(0, lifetime - ttl));
     return Response.json(result, {
@@ -127,7 +157,13 @@ export async function GET(request: Request) {
         'Cache-Control': result.complete
           ? `public, max-age=${Math.min(30, ttl)}, s-maxage=${ttl}, stale-while-revalidate=${stale}`
           : 'no-store',
-        ...(result.complete ? {} : { 'Retry-After': '2' }),
+        ...(!result.complete && (result.retryAfterMs ?? 1500) >= 1000
+          ? {
+              'Retry-After': String(
+                Math.ceil((result.retryAfterMs ?? 1500) / 1000),
+              ),
+            }
+          : {}),
       },
     });
   } catch (e) {

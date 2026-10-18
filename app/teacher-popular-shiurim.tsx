@@ -43,7 +43,17 @@ export function TeacherPopularShiurim({
       ) : (
         <div className="catalog-popularity-status">
           {result.complete ? (
-            <p>Ranked by total views across this teacher&apos;s shiurim.</p>
+            <p>
+              Ranked by total views across this teacher&apos;s shiurim.
+              {result.preparedAt && (
+                <>
+                  {' '}
+                  Updated{' '}
+                  {new Date(result.preparedAt).toLocaleDateString('en-US')}.
+                </>
+              )}
+              {result.stale && <> Refreshing rankings in the background.</>}
+            </p>
           ) : result.sourceTotal ? (
             <>
               <output>

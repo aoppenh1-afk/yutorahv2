@@ -71,11 +71,21 @@ After rebuilding, restart the production preview process. Wrangler can retain ol
 - Play recordings while navigating; seek, change speed and volume, manage the queue, set a sleep timer, and resume listening.
 - Save shiurim and create and edit playlists, with account sync when signed in and device storage when signed out. Removal actions support undo.
 - Open available videos and original source materials. Copy links to a shiur or a playback timestamp.
+- Mobile Home uses the shared teacher, topic, series, and shiur autocomplete. Teacher and series cards open their library pages; today's Daf opens the study workspace.
+- Shiur details keep the underlying page in their URL. Back closes the sheet, Forward restores it, and moving between collection lessons keeps one sheet history entry. Closing a copied timestamp link stays on the current site.
 - Keyboard controls: Command/Ctrl+K for search, slash to search, and space for playback outside editable controls.
 
 ## Integration boundaries
 
 `lib/yutorah.ts` adapts `https://yutorah.org/api/`. Routes under `app/api` cache public responses, bound query sizes, normalize upstream fields, and return friendly failures. No YUTorah credentials or private API keys are needed.
+
+Public Home, directory, profile, collection, Daf, and recording responses share compressed snapshots in the search database. Collection responses contain 60 lessons by default. Filtering and ordering cover the whole snapshot, and subsequent pages pin its immutable version. Continue learning uses compact lesson IDs and a three-lesson neighbor lookup. Add all to queue and complete notes downloads gather every page before completing. Prepared cover URLs travel with collection directory entries, including confirmed missing covers, so revisits avoid fetching whole collections for artwork.
+
+The browser retains bounded successful public data while refreshing it, coalesces overlapping reads, and keeps subscriber cancellation independent. Recording details request playable core data first and load optional metadata separately. Home preloads its public API response without blocking the shell. The initial search directory uses a compact format; full descriptions load when browsing requires them. Interactive search publishes its first source page before scanning larger batches and continues after 50 ms when progress succeeds. Busy work retains backoff, and complete counts and rankings still require a verified full scan.
+
+Apply `db/search-postgres/006_catalog_cache.sql` through `npm run search:schema:migrate` before activating this release on Vercel. Local and Cloudflare deployments use `drizzle/0008_catalog_cache.sql`. The read-only schema check includes the new tables. Snapshot data has a 16 MiB compressed budget, at most 256 versions, and 24-hour retention. Evicted or expired pagination versions return a restartable error; failed refreshes keep the last successful data. These caches contain public catalog data and never account state.
+
+The `Refresh public catalog snapshots` workflow runs every six hours with the existing `TRENDING_SITE_URL` repository variable and `TRENDING_REFRESH_TOKEN` secret. It warms 12 collection snapshots and four teacher rankings within a six-minute budget; unfinished teacher scans resume in later runs. Run it manually with `npm run catalog:warm -- --url https://YOUR_DEPLOYMENT --collections 12 --teachers 4 --max-minutes 6` after making that server-only token available in the environment. Prepared rankings disclose their preparation date and remain usable during refresh. New or unwarmed content can still require a full upstream read on its first visit. Local measurements, validation, and release requirements are recorded in [the API loading report](docs/api-loading-audit-20261017.html).
 
 Search now checks every upstream candidate page automatically and stores a bounded pass at a time in managed PostgreSQL on Vercel, or D1 on Cloudflare. The first pass for a broad query can take a minute or more; the entire unfiltered archive can take much longer. The UI labels interim counts and order as provisional, supports pause/resume, and reports an exact filtered count only after the pass completes. Changed upstream totals, duplicate/missing candidates, and failed pages never silently become a completed search.
 
@@ -126,6 +136,8 @@ npm run performance:budgets
 npx playwright install chromium
 npm run test:player
 npm run test:mobile-sheet
+npm run test:navigation
+npm run test:catalog-browser
 # Offline playback also exercises WebKit:
 npx playwright install webkit
 npm run test:downloads

@@ -715,8 +715,6 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--ink-2);
   white-space: nowrap;
 }
-.header-library-button,
-.header-about-button,
 .mobile-header-search {
   display: grid;
   place-items: center;
@@ -732,11 +730,6 @@ input[type='search']::-webkit-search-cancel-button {
   transition:
     color 0.2s,
     transform 0.2s var(--ease);
-}
-.header-library-button:hover,
-.header-about-button:hover {
-  color: var(--ink);
-  transform: translateY(-1px);
 }
 .main-content {
   width: 100%;
@@ -1070,9 +1063,7 @@ input[type='search']::-webkit-search-cancel-button {
   .breadcrumb > b,
   .desktop-home-label,
   .header-search,
-  .header-right .hebrew,
-  .header-library-button,
-  .header-about-button {
+  .header-right .hebrew {
     display: none !important;
   }
   .mobile-home-label {

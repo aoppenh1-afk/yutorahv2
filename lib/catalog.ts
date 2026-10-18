@@ -28,6 +28,7 @@ export type CatalogEntry = {
   description?: string;
   group?: string;
   path?: string[];
+  artworkKnown?: boolean;
 };
 export type CatalogFacets = Record<
   | 'teachers'
@@ -229,6 +230,7 @@ export async function catalogDirectory(
   kind: CatalogKind,
   query = '',
   offset = 0,
+  all = false,
 ) {
   let entries: CatalogEntry[];
   if (['teacher', 'series', 'topic'].includes(kind)) {
@@ -263,7 +265,7 @@ export async function catalogDirectory(
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   return {
     kind,
-    entries: filtered.slice(offset, offset + 36),
+    entries: all ? filtered : filtered.slice(offset, offset + 36),
     total: filtered.length,
     next: offset + 36 < filtered.length ? offset + 36 : null,
   };
@@ -284,7 +286,26 @@ export async function catalogLanding(
   id: number,
 ): Promise<CatalogLanding> {
   return memo(`landing:${kind}:${id}`, async () => {
-    const directory = await getDirectory();
+    const type = kind === 'topic' ? 'category' : kind;
+    const [directory, venues, dictionary, raw, detail] = await Promise.all([
+      getDirectory(),
+      kind === 'venue' ? catalogVenues() : Promise.resolve([]),
+      kind === 'publication'
+        ? catalogDictionary()
+        : Promise.resolve(emptyFacets()),
+      kind === 'publication'
+        ? Promise.resolve({} as Record<string, unknown>)
+        : upstream<Record<string, unknown>>(
+            `landingpage/landing?type=${type}&value=${id}`,
+            600,
+          ),
+      kind === 'publication'
+        ? Promise.resolve({} as Record<string, unknown>)
+        : upstream<Record<string, unknown>>(
+            `landingpage/landingpagedetails?type=${type}&value=${id}`,
+            600,
+          ),
+    ]);
     const list: CatalogEntry[] =
       kind === 'teacher'
         ? directory.teachers
@@ -293,8 +314,8 @@ export async function catalogLanding(
           : kind === 'topic'
             ? directory.topics
             : kind === 'venue'
-              ? await catalogVenues()
-              : (await catalogDictionary()).publications;
+              ? venues
+              : dictionary.publications;
     const entry = list.find((x) => x.id === id);
     if (kind === 'publication') {
       const data = await readArchiveSearch(
@@ -315,7 +336,7 @@ export async function catalogLanding(
         '',
         1,
       ).catch(() => null);
-      const fallback = await catalogDictionary();
+      const fallback = dictionary;
       const publicationFacets = data
         ? catalogFacets(data.facet_counts?.facet_fields)
         : emptyFacets();
@@ -345,17 +366,6 @@ export async function catalogLanding(
           : {}),
       };
     }
-    const type = kind === 'topic' ? 'category' : kind;
-    const [raw, detail] = await Promise.all([
-      upstream<Record<string, unknown>>(
-        `landingpage/landing?type=${type}&value=${id}`,
-        600,
-      ),
-      upstream<Record<string, unknown>>(
-        `landingpage/landingpagedetails?type=${type}&value=${id}`,
-        600,
-      ),
-    ]);
     if (!raw || (!plain(raw.name) && !entry))
       throw new Error('This library page could not be found.');
     const facets = emptyFacets();
@@ -462,23 +472,43 @@ export async function catalogCollectionArtwork(id: number): Promise<string> {
       );
       if (Number(raw.collectionID) !== id)
         throw new Error('Collection not found.');
-      return collectionImage(raw.collectionImageURL, await getDirectory());
+      return typeof raw.collectionImageURL === 'string' &&
+        raw.collectionImageURL.startsWith('///')
+        ? collectionImage(raw.collectionImageURL, await getDirectory())
+        : safeUrl(raw.collectionImageURL);
     },
     3_600_000,
   );
 }
-export async function catalogCollection(id: number): Promise<CollectionData> {
-  return memo(`collection:${id}`, async () => {
-    const raw = await upstream<Record<string, unknown>>(
-      'collections/get?collectionID=' + id,
-      600,
-    );
+export async function catalogRelatedCollections(
+  id: number,
+  teacherId: number,
+): Promise<CatalogEntry[]> {
+  const detail = await upstream<Record<string, unknown>>(
+    `landingpage/landingpagedetails?type=teacher&value=${teacherId}`,
+    600,
+  );
+  return rawLandingEntries(detail?.collections)
+    .filter((x) => x.id !== id)
+    .slice(0, 12);
+}
+export async function catalogCollection(
+  id: number,
+  includeRelated = true,
+): Promise<CollectionData> {
+  return memo(`collection:${id}:${includeRelated}`, async () => {
+    const [raw, directory] = await Promise.all([
+      upstream<Record<string, unknown>>(
+        'collections/get?collectionID=' + id,
+        600,
+      ),
+      getDirectory(),
+    ]);
     if (
       Number(raw.collectionID) !== id ||
       !Array.isArray(raw.collectionShiurim)
     )
       throw new Error('This collection could not be found.');
-    const directory = await getDirectory();
     const items = records(raw.collectionShiurim)
       .map((s) => {
         const item = enrichShiur(normalize(s as RawShiur), directory);
@@ -492,14 +522,8 @@ export async function catalogCollection(id: number): Promise<CollectionData> {
       .sort((a, b) => Date.parse(a.date) - Date.parse(b.date) || a.id - b.id);
     const teacherId = items[0]?.teacherId;
     let related: CatalogEntry[] = [];
-    if (teacherId) {
-      const landing = await catalogLanding('teacher', teacherId).catch(
-        () => null,
-      );
-      related = (landing?.facets.collections || [])
-        .filter((x) => x.id !== id)
-        .slice(0, 12);
-    }
+    if (teacherId && includeRelated)
+      related = await catalogRelatedCollections(id, teacherId).catch(() => []);
     return {
       id,
       name: plain(raw.collectionTitle),
@@ -616,17 +640,16 @@ export async function catalogDaf(
   side: 'a' | 'b',
 ): Promise<DafData> {
   return memo(`daf:${tractate}:${page}:${side}`, async () => {
-    const raw = await upstream<Record<string, unknown>>(
-      'browse/daf?' +
-        new URLSearchParams({
-          masechta: tractate,
-          daf: String(page),
-          amud: side,
-        }),
-      600,
-    );
-    const tractates = dafTractates;
-    const [directory, other] = await Promise.all([
+    const [raw, directory, other] = await Promise.all([
+      upstream<Record<string, unknown>>(
+        'browse/daf?' +
+          new URLSearchParams({
+            masechta: tractate,
+            daf: String(page),
+            amud: side,
+          }),
+        600,
+      ),
       getDirectory(),
       upstream<Record<string, unknown>>(
         'browse/daf?' +
@@ -638,6 +661,7 @@ export async function catalogDaf(
         600,
       ).catch(() => null),
     ]);
+    const tractates = dafTractates;
     const count = (data: Record<string, unknown>) =>
       new Set(
         [...records(data.dafYomiShiurim), ...records(data.relatedShiurim)].map(

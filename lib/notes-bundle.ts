@@ -1,5 +1,5 @@
 import type { SearchResponse } from './api-types';
-import { catalogCollection } from './catalog';
+import { getCatalogService, deferCatalogWork } from './catalog-server';
 import { notesCredential } from './tidb-notes';
 import { TiDBNotesStore, unpackNote } from './tidb-notes-store';
 import { normalize, upstream, type Shiur } from './yutorah';
@@ -13,6 +13,8 @@ export type NotesBundleItem = {
   markdown: string;
 };
 export type NotesBundlePage = {
+  /** Immutable collection membership shared by every page of a download. */
+  version?: string;
   page: number;
   pages: number;
   /** Shiurim in the whole collection or series, and on this page. */
@@ -50,10 +52,14 @@ async function seriesPage(id: number, page: number) {
   };
 }
 
-async function collectionPage(id: number, page: number) {
-  const collection = await catalogCollection(id);
+async function collectionPage(id: number, page: number, version = '') {
+  const snapshot = await (
+    await getCatalogService()
+  ).collection(id, { version, defer: deferCatalogWork });
+  const collection = snapshot.value;
   const start = (page - 1) * collectionPageSize;
   return {
+    version: snapshot.version,
     shiurim: collection.items.slice(start, start + collectionPageSize),
     pages: Math.max(1, Math.ceil(collection.items.length / collectionPageSize)),
     total: collection.items.length,
@@ -69,14 +75,18 @@ export async function notesBundlePage(
   kind: NotesBundleKind,
   id: number,
   page: number,
+  version = '',
 ): Promise<NotesBundlePage | null> {
   const credential = notesCredential();
   if (!credential) return null;
   const store = new TiDBNotesStore(credential);
-  const [{ shiurim, pages, total }, floor] = await Promise.all([
-    kind === 'series' ? seriesPage(id, page) : collectionPage(id, page),
+  const [source, floor] = await Promise.all([
+    kind === 'series'
+      ? seriesPage(id, page)
+      : collectionPage(id, page, version),
     oldestNotedShiur(store),
   ]);
+  const { shiurim, pages, total } = source;
   const candidates = shiurim.filter((s: Shiur) => s.id >= floor);
   const notes = await store.getMany(candidates.map((s) => String(s.id)));
   const byId = new Map(notes.map((n) => [Number(n.shiurId), n]));
@@ -97,6 +107,9 @@ export async function notesBundlePage(
     shiurim.length > 0 &&
     Math.min(...shiurim.map((s) => s.id)) < floor;
   return {
+    ...('version' in source && typeof source.version === 'string'
+      ? { version: source.version }
+      : {}),
     page,
     pages,
     total,

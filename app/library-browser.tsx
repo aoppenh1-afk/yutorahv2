@@ -1,6 +1,6 @@
 /* oxlint-disable next/no-img-element -- Public YUTorah collection covers and daf scans. */
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -17,13 +17,17 @@ import type {
   BrowseKind as CatalogKind,
   CatalogEntry,
   CatalogLanding,
-  CollectionData,
   DafData,
 } from '@/lib/catalog';
 import type { Shiur, Directory } from '@/lib/yutorah';
 import type { LibraryState } from '@/lib/library';
 import type { Follow } from '@/lib/learning';
-import { isLearned } from '@/lib/learning';
+import type { CollectionPageData, CollectionOrder } from '@/lib/catalog-pages';
+import {
+  loadCollectionItems,
+  loadCollectionNeighbors,
+} from '@/lib/collection-client';
+import { recordDataVisible } from '@/lib/client-performance';
 import { noFilters, type Filters } from '@/lib/search-filters';
 import { dafTractates, type DafSelection } from '@/lib/daf';
 import { ActionMenu, Avatar, FilterSelect, StatePanel, tone } from './ui';
@@ -77,11 +81,20 @@ function useCatalog<T>(params: Record<string, string>) {
       : { url, data: cached ?? null, error: '', loading: cached === undefined };
   useEffect(() => {
     let active = true;
+    const started = performance.now();
     const hit = cachedCatalogResource<T>(url);
     setState({ url, data: hit ?? null, error: '', loading: hit === undefined });
     loadCatalogResource<T>(url)
       .then((d) => {
-        if (active) setState({ url, data: d, error: '', loading: false });
+        if (active) {
+          setState({ url, data: d, error: '', loading: false });
+          recordDataVisible(
+            params.kind === 'collection' && params.action === 'entity'
+              ? 'collection'
+              : 'catalog',
+            started,
+          );
+        }
       })
       .catch((e) => {
         if (active)
@@ -90,7 +103,7 @@ function useCatalog<T>(params: Record<string, string>) {
     return () => {
       active = false;
     };
-  }, [url, retry]);
+  }, [url, retry, params.kind, params.action]);
   return {
     ...current,
     retry: () => {
@@ -106,7 +119,7 @@ type Shared = {
   onSearch: (q: string, filters: Filters) => void;
   rows: (items: Shiur[]) => React.ReactNode;
   onPlay: (s: Shiur) => void;
-  onQueue: (items: Shiur[]) => void;
+  onQueue: (items: Shiur[]) => boolean | void;
 };
 function Loading({ label = 'Loading library…' }: { label?: string }) {
   return (
@@ -177,7 +190,12 @@ function Entries({
             className="catalog-card-main"
             onClick={() => onOpen(kind, e.id)}
           >
-            <CatalogCover kind={kind} id={e.id} image={e.image} />
+            <CatalogCover
+              kind={kind}
+              id={e.id}
+              image={e.image}
+              resolved={e.artworkKnown}
+            />
             <div>
               {e.path && (
                 <span className="catalog-path">
@@ -642,46 +660,185 @@ export function EntityPage({
   );
 }
 export function CollectionPage({ id, ...props }: Shared & { id: number }) {
-  const result = useCatalog<CollectionData>({
-      action: 'entity',
-      kind: 'collection',
-      id: String(id),
-    }),
-    [sort, setSort] = useState('old'),
-    [query, setQuery] = useState(''),
-    bundle = useNotesBundle('collection', id, result.data?.name || '');
+  const initial = {
+    id,
+    offset: 0,
+    sort: 'old' as CollectionOrder,
+    query: '',
+    version: '',
+    fresh: false,
+  };
+  const [selection, setSelection] = useState(initial);
+  const page = selection.id === id ? selection : initial;
+  const [query, setQuery] = useState('');
+  const result = useCatalog<CollectionPageData>({
+    action: 'entity',
+    kind: 'collection',
+    id: String(id),
+    offset: String(page.offset),
+    sort: page.sort,
+    q: page.query,
+    ...(page.version ? { version: page.version } : {}),
+    ...(page.fresh ? { fresh: '1' } : {}),
+  });
+  // Keep the controls mounted while this collection's filtered page loads.
+  const previous = useRef<{ id: number; data: CollectionPageData } | null>(
+    null,
+  );
+  if (result.data) previous.current = { id, data: result.data };
+  const data =
+    result.data ?? (previous.current?.id === id ? previous.current.data : null);
+  const bundle = useNotesBundle('collection', id, data?.name || '');
+  const membership = useRef<{ id: number; version: string; ids: number[] }>({
+    id: 0,
+    version: '',
+    ids: [],
+  });
+  if (data?.lessonIds)
+    membership.current = {
+      id,
+      version: data.version,
+      ids: data.lessonIds,
+    };
+  const ids =
+    membership.current.id === id && membership.current.version === data?.version
+      ? membership.current.ids
+      : [];
+  const learned = useMemo(
+    () =>
+      new Set([
+        ...props.library.completed,
+        ...props.library.history
+          .filter((h) => h.duration > 0 && h.seconds / h.duration >= 0.95)
+          .map((h) => h.shiur.id),
+      ]),
+    [props.library.completed, props.library.history],
+  );
+  const hasLearned = ids.some((lesson) => learned.has(lesson));
+  const nextId = ids.find((lesson) => !learned.has(lesson));
+  const inPage = data?.items.find((lesson) => lesson.id === nextId);
+  const [continuation, setContinuation] = useState<{
+    version: string;
+    item: Shiur;
+  } | null>(null);
+  const [continueError, setContinueError] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
+  const [continueRetry, setContinueRetry] = useState(0);
+  const next =
+    inPage ||
+    (continuation &&
+    continuation.version === data?.version &&
+    continuation.item.id === nextId
+      ? continuation.item
+      : undefined);
+  const [queueStatus, setQueueStatus] = useState('');
+  const [queueBusy, setQueueBusy] = useState(false);
+  const queueAbort = useRef<AbortController | null>(null);
   useEffect(() => {
-    setSort('old');
+    setSelection({
+      id,
+      offset: 0,
+      sort: 'old',
+      query: '',
+      version: '',
+      fresh: false,
+    });
     setQuery('');
+    setContinuation(null);
+    setContinueError(null);
+    setQueueStatus('');
+    setQueueBusy(false);
+    return () => queueAbort.current?.abort();
   }, [id]);
-  const items = useMemo(() => {
-    const list = (result.data?.items || []).filter((s) =>
-      [s.title, s.teacher, s.description]
-        .join(' ')
-        .toLowerCase()
-        .includes(query.toLowerCase()),
+  useEffect(() => {
+    if (query === page.query) return;
+    const timer = setTimeout(
+      () =>
+        setSelection({
+          ...page,
+          offset: 0,
+          query,
+          fresh: false,
+          version: data?.version || page.version,
+        }),
+      250,
     );
-    return [...list].sort((a, b) =>
-      sort === 'title'
-        ? a.title.localeCompare(b.title)
-        : sort === 'new'
-          ? Date.parse(b.date) - Date.parse(a.date) || b.id - a.id
-          : Date.parse(a.date) - Date.parse(b.date) || a.id - b.id,
-    );
-  }, [result.data, sort, query]);
-  if (result.loading) return <Loading label="Loading collection…" />;
-  if (result.error || !result.data)
+    return () => clearTimeout(timer);
+  }, [query, page, data?.version]);
+  useEffect(() => {
+    if (!nextId || inPage || !data?.version) return;
+    const abort = new AbortController();
+    const version = data.version;
+    void loadCollectionNeighbors(id, nextId, version, abort.signal)
+      .then((data) => {
+        if (!data.current)
+          throw new Error('Your next lesson could not load. Please retry.');
+        if (!abort.signal.aborted) {
+          setContinuation({ version, item: data.current });
+          setContinueError(null);
+        }
+      })
+      .catch(() => {
+        if (!abort.signal.aborted)
+          setContinueError({
+            key: `${version}:${nextId}`,
+            message: 'Your next lesson could not load.',
+          });
+      });
+    return () => abort.abort();
+  }, [id, nextId, inPage, data?.version, continueRetry]);
+  const queueAll = async () => {
+    if (!data || queueBusy) return;
+    queueAbort.current?.abort();
+    const controller = new AbortController();
+    queueAbort.current = controller;
+    setQueueBusy(true);
+    setQueueStatus('Loading collection lessons…');
+    try {
+      const all = await loadCollectionItems(
+        id,
+        data.version,
+        controller.signal,
+        (count, total) =>
+          setQueueStatus(
+            `Loading ${count.toLocaleString()} of ${total.toLocaleString()} lessons…`,
+          ),
+      );
+      controller.signal.throwIfAborted();
+      if (props.onQueue(all) === false)
+        throw new Error(
+          'The collection could not be added. Check the available space in your queue.',
+        );
+      setQueueStatus('Collection added to queue.');
+    } catch (error) {
+      if (!controller.signal.aborted)
+        setQueueStatus(
+          error instanceof Error
+            ? error.message
+            : 'The collection could not load. Please retry.',
+        );
+    } finally {
+      if (!controller.signal.aborted) setQueueBusy(false);
+    }
+  };
+  const retry = () => {
+    setSelection({ ...initial, query, sort: page.sort, fresh: true });
+    result.retry();
+  };
+  if (result.loading && !data) return <Loading label="Loading collection…" />;
+  if (!data)
     return (
       <StatePanel
         title="This collection could not load"
         description={result.error}
         action="Try again"
-        onAction={result.retry}
+        onAction={retry}
       />
     );
-  const d = result.data,
-    hasLearned = d.items.some((s) => isLearned(s, props.library)),
-    next = d.items.find((s) => !isLearned(s, props.library));
+  const d = data;
+  const updating = result.loading || query !== page.query;
   return (
     <section className="catalog-view">
       <button
@@ -691,7 +848,13 @@ export function CollectionPage({ id, ...props }: Shared & { id: number }) {
         <ArrowLeft size={16} /> Collections
       </button>
       <header className="catalog-profile">
-        <CatalogCover kind="collection" id={id} image={d.image} large />
+        <CatalogCover
+          kind="collection"
+          id={id}
+          image={d.image}
+          large
+          resolved
+        />
         <div>
           <div className="eyebrow">YUTorah collection</div>
           <h1 dir="auto">{d.name}</h1>
@@ -710,6 +873,12 @@ export function CollectionPage({ id, ...props }: Shared & { id: number }) {
           {d.description && (
             <p className="catalog-bio" dir="auto">
               {d.description}
+            </p>
+          )}
+          {d.stale && d.preparedAt && (
+            <p className="muted">
+              Showing the saved collection from{' '}
+              {new Date(d.preparedAt).toLocaleString()}.
             </p>
           )}
           <div className="catalog-actions">
@@ -740,12 +909,28 @@ export function CollectionPage({ id, ...props }: Shared & { id: number }) {
                 {
                   icon: <ListPlus size={17} />,
                   text: 'Add all to queue',
-                  action: () => props.onQueue(d.items),
+                  action: () => void queueAll(),
+                  disabled: queueBusy,
                 },
               ]}
             />
           </div>
           <NotesBundleStatus bundle={bundle} />
+          {!next && continueError?.key === `${d.version}:${nextId}` && (
+            <output>
+              {continueError.message}{' '}
+              <button
+                className="text-button"
+                onClick={() => {
+                  setContinueError(null);
+                  setContinueRetry((value) => value + 1);
+                }}
+              >
+                Retry continue learning
+              </button>
+            </output>
+          )}
+          {queueStatus && <output>{queueStatus}</output>}
         </div>
       </header>
       <div className="catalog-toolbar catalog-toolbar-inline">
@@ -761,21 +946,102 @@ export function CollectionPage({ id, ...props }: Shared & { id: number }) {
         </label>
         <FilterSelect
           label="Collection order"
-          value={sort}
-          onChange={setSort}
+          value={page.sort}
+          onChange={(sort) =>
+            setSelection({
+              ...page,
+              sort: sort as CollectionOrder,
+              offset: 0,
+              fresh: false,
+              version: d.version,
+            })
+          }
           options={collectionSorts}
         />
       </div>
-      {props.rows(items)}
-      {!items.length && (
+      {updating && <output className="muted">Updating lessons…</output>}
+      {d.total !== d.count && (
+        <p>{d.total.toLocaleString()} matching lessons</p>
+      )}
+      <div
+        aria-busy={updating}
+        key={[id, d.version, d.offset, d.order, d.query].join(':')}
+      >
+        {result.error ? (
+          <StatePanel
+            title="This collection could not load"
+            description={result.error}
+            action="Try again"
+            onAction={retry}
+          />
+        ) : (
+          props.rows(d.items)
+        )}
+      </div>
+      {!result.error && !d.items.length && (
         <p className="catalog-empty">No lessons match your search.</p>
       )}
-      {d.related.length > 0 && (
-        <section className="catalog-related">
-          <h2>Related collections</h2>
-          <Entries entries={d.related} kind="collection" {...props} />
-        </section>
+      {(d.offset > 0 || d.next !== null) && (
+        <nav className="catalog-toolbar" aria-label="Collection pages">
+          <button
+            className="text-button"
+            disabled={updating || !!result.error || d.offset === 0}
+            onClick={() =>
+              setSelection({
+                ...page,
+                offset: Math.max(0, d.offset - 60),
+                fresh: false,
+                version: d.version,
+              })
+            }
+          >
+            <ChevronLeft size={16} /> Previous
+          </button>
+          <span>
+            {d.offset + 1}–{Math.min(d.offset + d.items.length, d.total)} of{' '}
+            {d.total.toLocaleString()}
+          </span>
+          <button
+            className="text-button"
+            disabled={updating || !!result.error || d.next === null}
+            onClick={() =>
+              setSelection({
+                ...page,
+                offset: d.next!,
+                fresh: false,
+                version: d.version,
+              })
+            }
+          >
+            Next <ChevronRight size={16} />
+          </button>
+        </nav>
       )}
+      <CollectionRelated
+        key={id + ':' + d.version}
+        id={id}
+        version={d.version}
+        {...props}
+      />
+    </section>
+  );
+}
+function CollectionRelated({
+  id,
+  version,
+  ...props
+}: Shared & { id: number; version: string }) {
+  const result = useCatalog<{ entries: CatalogEntry[] }>({
+    action: 'related',
+    kind: 'collection',
+    id: String(id),
+    version,
+  });
+  if (!result.data?.entries.length) return null;
+  return (
+    <section className="catalog-related">
+      <h2>Related collections</h2>
+      <Entries entries={result.data.entries} kind="collection" {...props} />
     </section>
   );
 }
@@ -950,18 +1216,27 @@ export function DafWorkspace({
                   ]}
                 />
               </div>
-              {props.rows(items)}
-              {!items.length && (
-                <p className="catalog-empty">
-                  No recordings for this selection.
-                </p>
-              )}
-              {d.related.length > 0 && (
-                <>
-                  <h2 className="catalog-related-title">Related learning</h2>
-                  {props.rows(d.related)}
-                </>
-              )}
+              {/* oxlint-disable jsx-a11y/no-noninteractive-tabindex -- Allow keyboard users to scroll the recordings panel. */}
+              <section
+                key={`${selection.tractate}:${selection.page}:${selection.side}:${speaker}`}
+                className="daf-recordings-list"
+                aria-label="Daf recordings"
+                tabIndex={0}
+              >
+                {props.rows(items)}
+                {!items.length && (
+                  <p className="catalog-empty">
+                    No recordings for this selection.
+                  </p>
+                )}
+                {d.related.length > 0 && (
+                  <>
+                    <h2 className="catalog-related-title">Related learning</h2>
+                    {props.rows(d.related)}
+                  </>
+                )}
+              </section>
+              {/* oxlint-enable jsx-a11y/no-noninteractive-tabindex */}
             </div>
           </div>
         )

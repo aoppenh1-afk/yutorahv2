@@ -3,7 +3,7 @@ import type { SearchDatabase, SearchStatement } from './search-storage';
 const notesTables =
   /\bsearch_notes?_(?:snapshots|documents|members|state|guards|fulltext)\b/i;
 const libraryTables =
-  /\b(?:sources_runs|search_(?:runs|hits|documents|creation_leases|cache_usage|pass_guards|title_[a-z_]+))\b/i;
+  /\b(?:catalog_(?:snapshots|refresh_leases|artwork)|sources_runs|search_(?:runs|hits|documents|creation_leases|cache_usage|pass_guards|title_[a-z_]+))\b/i;
 
 /** Notes snapshots have their own transactions and can live in another project.
  * Keep each batch on one connection so a failed batch never partially commits. */

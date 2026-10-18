@@ -135,7 +135,7 @@ async function openPlayer(viewport, stalled = false, options = {}) {
       },
     }),
   );
-  await context.route('**/api/directory', (route) =>
+  await context.route('**/api/directory*', (route) =>
     route.fulfill({ json: { teachers: [], series: [], topics: [] } }),
   );
   await context.route('**/api/related?*', (route) =>
@@ -147,7 +147,7 @@ async function openPlayer(viewport, stalled = false, options = {}) {
   await context.route('**/api/autocomplete?*', (route) =>
     route.fulfill({ json: { suggestions: [] } }),
   );
-  await context.route('**/api/shiur?id=900001', (route) =>
+  await context.route('**/api/shiur?id=900001*', (route) =>
     route.fulfill({ json: recording }),
   );
   await context.route(
@@ -1064,7 +1064,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
       },
     );
     await t.test(
-      '1,000 loaded results and 5,000 transcript segments stay bounded during 60 seconds of clock updates',
+      '1,000 paged results and a complete 5,000-segment transcript keep clock updates and writes bounded',
       async () => {
         const items = Array.from({ length: 1000 }, (_, i) => ({
           ...shiur,
@@ -1195,35 +1195,35 @@ void test('player controls stop playback and the phone dialog stays inside the b
             .click();
           await page.getByText('61–120 of 1,000', { exact: true }).waitFor();
           assert.equal(await page.locator('.shiur-row').count(), 60);
-          await page
-            .getByRole('button', { name: 'Open shiur info' })
-            .click();
+          await page.getByRole('button', { name: 'Open shiur info' }).click();
           await page
             .getByRole('region', { name: 'Transcript, notes, and sources' })
             .getByRole('button', { name: 'Transcript', exact: true })
             .click();
           await page.locator('.study-segment').first().waitFor();
-          assert.equal(await page.locator('.study-segment').count(), 100);
+          // The complete transcript intentionally remains available for reading
+          // and browser Find. Playback must still avoid parent renders/writes.
+          assert.equal(
+            await page.locator('.study-segment').count(),
+            segments.length,
+          );
           assert.equal(
             await page
               .getByRole('link', { name: 'Open complete text' })
               .count(),
             1,
           );
-          await page
-            .getByRole('navigation', { name: 'Transcript pages' })
-            .getByRole('button', { name: 'Next', exact: true })
-            .click();
           assert.equal(
-            await page.evaluate(() => document.activeElement.className),
-            'study-transcript',
+            await page
+              .getByRole('navigation', { name: 'Transcript pages' })
+              .count(),
+            0,
           );
+          const target = page.locator('.study-segment').nth(120);
           const first = Number(
-            (
-              await page.locator('.study-segment p').first().textContent()
-            ).match(/\d+/)[0],
+            (await target.locator('p').textContent()).match(/\d+/)[0],
           );
-          await page.locator('.study-time').first().click();
+          await target.locator('.study-time').click();
           await page.waitForFunction(
             (seconds) =>
               Math.abs(document.querySelector('audio').currentTime - seconds) <
@@ -1289,7 +1289,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
               loadedResults: 1000,
               transcriptSegments: 5000,
               visibleResults: 60,
-              visibleSegments: 100,
+              mountedSegments: segments.length,
               viewCommits: after.viewCommits - before.viewCommits,
               libraryWrites: after.libraryWrites - before.libraryWrites,
             }),
@@ -1298,7 +1298,10 @@ void test('player controls stop playback and the phone dialog stays inside the b
             await page.locator('audio').evaluate((audio) => audio.paused),
             false,
           );
-          assert.equal(await page.locator('.study-segment').count(), 100);
+          assert.equal(
+            await page.locator('.study-segment').count(),
+            segments.length,
+          );
           await page
             .locator('.detail-sheet')
             .getByRole('button', { name: 'Close', exact: true })
@@ -1362,7 +1365,8 @@ void test('player controls stop playback and the phone dialog stays inside the b
             { recording: shiur, remote },
           );
           await page
-            .getByRole('button', { name: 'Open saved shiurim' })
+            .locator('.nav-button')
+            .filter({ hasText: 'Saved shiurim' })
             .click();
           await page
             .locator('.shiur-row')
@@ -1418,16 +1422,21 @@ void test('player controls stop playback and the phone dialog stays inside the b
       },
     );
     await t.test(
-      'a shared shiur link opens with one detail request',
+      'a shared shiur link fetches its playable core and enrichment once each',
       async () => {
         const { context, page } = await openPlayer({
           width: 1280,
           height: 800,
         });
-        let details = 0;
+        let core = 0,
+          enriched = 0;
         try {
-          await context.route('**/api/shiur?id=900001', (route) => {
-            details++;
+          await context.route('**/api/shiur?id=900001*', (route) => {
+            if (
+              new URL(route.request().url()).searchParams.get('part') === 'core'
+            )
+              core++;
+            else enriched++;
             return route.fulfill({ json: shiur });
           });
           await page.goto(origin + '/?shiur=900001&t=42', {
@@ -1441,7 +1450,8 @@ void test('player controls stop playback and the phone dialog stays inside the b
               name: 'Transcript, notes, and sources',
             })
             .waitFor();
-          assert.equal(details, 1);
+          assert.equal(core, 1);
+          assert.equal(enriched, 1);
         } finally {
           await context.close();
         }
@@ -1827,9 +1837,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
           await page
             .getByRole('button', { name: 'Expand player controls' })
             .click();
-          await page
-            .getByRole('button', { name: 'Open shiur info' })
-            .click();
+          await page.getByRole('button', { name: 'Open shiur info' }).click();
           const region = page.getByRole('region', {
             name: 'Transcript, notes, and sources',
             exact: true,
@@ -1938,9 +1946,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
           await page
             .getByRole('button', { name: 'Expand player controls' })
             .click();
-          await page
-            .getByRole('button', { name: 'Open shiur info' })
-            .click();
+          await page.getByRole('button', { name: 'Open shiur info' }).click();
           const region = page.getByRole('region', {
             name: 'Transcript, notes, and sources',
             exact: true,
@@ -2035,9 +2041,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
           await page
             .getByRole('button', { name: 'Expand player controls' })
             .click();
-          await page
-            .getByRole('button', { name: 'Open shiur info' })
-            .click();
+          await page.getByRole('button', { name: 'Open shiur info' }).click();
           await page.getByText('Transcript read 1', { exact: true }).waitFor();
           await page.evaluate(() => {
             window.transcriptHidden = true;
@@ -2163,7 +2167,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             'A longer shiur description for scrolling. '.repeat(40);
           const { context, page } = await openPlayer(viewport, false, {
             onPage: async (_page, context) => {
-              await context.route('**/api/shiur?id=900001', (route) =>
+              await context.route('**/api/shiur?id=900001*', (route) =>
                 route.fulfill({ json: { ...shiur, description } }),
               );
             },
@@ -2172,9 +2176,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
             await page
               .getByRole('button', { name: 'Expand player controls' })
               .click();
-            await page
-              .getByRole('button', { name: 'Open shiur info' })
-              .click();
+            await page.getByRole('button', { name: 'Open shiur info' }).click();
             const sheet = page.getByRole('dialog', {
               name: 'Shiur details',
               exact: true,
@@ -2412,9 +2414,7 @@ void test('player controls stop playback and the phone dialog stays inside the b
               await page
                 .getByRole('button', { name: 'Expand player controls' })
                 .click();
-            await page
-              .getByRole('button', { name: 'Open shiur info' })
-              .click();
+            await page.getByRole('button', { name: 'Open shiur info' }).click();
             await page
               .getByRole('button', { name: 'Sources', exact: true })
               .click();

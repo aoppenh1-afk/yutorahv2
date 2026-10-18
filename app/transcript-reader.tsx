@@ -699,106 +699,55 @@ function TranscriptSegments({
       ),
     [sources.result, sources.features.links, content.transcriptId],
   );
-  const [selected, setSelected] = useState(0);
-  const [follow, setFollow] = useState(true);
-  const anchor = useRef<HTMLDivElement>(null);
-  const go = (next: number) => {
-    setFollow(false);
-    setSelected(next);
-    anchor.current?.focus({ preventScroll: true });
-    anchor.current?.scrollIntoView({ block: 'start' });
-  };
   const active = useActiveSegment(shiurId, content.segments);
-  const page =
-    follow && active >= 0
-      ? Math.floor(active / 100)
-      : Math.min(selected, Math.floor((content.segments.length - 1) / 100));
   return (
-    <div className="study-transcript" ref={anchor} tabIndex={-1}>
-      {content.segments
-        .slice(page * 100, (page + 1) * 100)
-        .map((segment, offset) => {
-          const index = page * 100 + offset;
-          const spans = (highlights.get(index) ?? []).filter(
-            (span) =>
-              !span.text ||
-              segment.text.slice(span.startChar, span.endChar) === span.text,
-          );
-          let position = 0;
-          const text = spans.flatMap((span) => {
-            const before = segment.text.slice(position, span.startChar);
-            position = span.endChar;
-            return [
-              before,
-              <a
-                className="transcript-source-link"
-                key={`${span.startChar}-${span.ref}`}
-                href={span.url}
-                title={span.ref}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {segment.text.slice(span.startChar, span.endChar)}
-              </a>,
-            ];
-          });
-          text.push(segment.text.slice(position));
-          return (
-            <div
-              className="study-segment"
-              aria-current={index === active ? 'true' : undefined}
-              key={`${segment.startMs}-${index}`}
+    <div className="study-transcript">
+      {content.segments.map((segment, index) => {
+        const spans = (highlights.get(index) ?? []).filter(
+          (span) =>
+            !span.text ||
+            segment.text.slice(span.startChar, span.endChar) === span.text,
+        );
+        let position = 0;
+        const text = spans.flatMap((span) => {
+          const before = segment.text.slice(position, span.startChar);
+          position = span.endChar;
+          return [
+            before,
+            <a
+              className="transcript-source-link"
+              key={`${span.startChar}-${span.ref}`}
+              href={span.url}
+              title={span.ref}
+              target="_blank"
+              rel="noreferrer"
             >
-              <button
-                className="study-time"
-                type="button"
-                aria-label={`Play from ${timeLabel(segment.startMs / 1000)}`}
-                onClick={() => onSeek(segment.startMs / 1000)}
-              >
-                {timeLabel(segment.startMs / 1000)}
-              </button>
-              <p dir="auto">
-                {segment.speaker && <strong>{segment.speaker}: </strong>}
-                {text}
-              </p>
-            </div>
-          );
-        })}
-      {content.segments.length > 100 && (
-        <nav className="list-pagination" aria-label="Transcript pages">
-          <button
-            type="button"
-            className="outline-button"
-            disabled={page === 0}
-            onClick={() => go(page - 1)}
+              {segment.text.slice(span.startChar, span.endChar)}
+            </a>,
+          ];
+        });
+        text.push(segment.text.slice(position));
+        return (
+          <div
+            className="study-segment"
+            aria-current={index === active ? 'true' : undefined}
+            key={`${segment.startMs}-${index}`}
           >
-            Previous
-          </button>
-          <output>
-            Segments {page * 100 + 1}–
-            {Math.min(content.segments.length, (page + 1) * 100)} of{' '}
-            {content.segments.length.toLocaleString()}
-          </output>
-          <button
-            type="button"
-            className="outline-button"
-            disabled={(page + 1) * 100 >= content.segments.length}
-            onClick={() => go(page + 1)}
-          >
-            Next
-          </button>
-          {active >= 0 && (
             <button
+              className="study-time"
               type="button"
-              className="text-button"
-              aria-pressed={follow}
-              onClick={() => setFollow(true)}
+              aria-label={`Play from ${timeLabel(segment.startMs / 1000)}`}
+              onClick={() => onSeek(segment.startMs / 1000)}
             >
-              Follow playback
+              {timeLabel(segment.startMs / 1000)}
             </button>
-          )}
-        </nav>
-      )}
+            <p dir="auto">
+              {segment.speaker && <strong>{segment.speaker}: </strong>}
+              {text}
+            </p>
+          </div>
+        );
+      })}
     </div>
   );
 }

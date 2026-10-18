@@ -102,9 +102,12 @@ async function searchPass(
   options: Partial<SearchPlan>,
   page = 1,
   runId = '',
+  fastFirstPage = false,
 ): Promise<SearchResult> {
-  const directory = await getDirectory();
-  const venues = await catalogVenues().catch(() => []);
+  const [directory, venues] = await Promise.all([
+    getDirectory(),
+    catalogVenues().catch(() => []),
+  ]);
   const venueNames = new Map(venues.map((v) => [v.id, v.name]));
   const venueIds = new Map(venues.map((v) => [searchText(v.name), v.id]));
   const { seriesById, topicsById } = directorySearchIndex(directory);
@@ -348,6 +351,7 @@ async function searchPass(
       'Broadened search: no full match; showing related shiurim while keeping recognized subjects.',
     );
   const pages = Math.ceil(run.total / pageSize);
+  let progressed = false;
   if (run.next <= pages) {
     const owner = crypto.randomUUID();
     const lease = Date.now() + 60000;
@@ -360,7 +364,10 @@ async function searchPass(
     if (acquired.meta.changes) {
       try {
         const started = performance.now();
-        const end = Math.min(pages + 1, run.next + 4);
+        const end = Math.min(
+          pages + 1,
+          run.next + (fastFirstPage && firstPage ? 1 : 4),
+        );
         const settled = await Promise.allSettled(
           Array.from({ length: end - run.next }, (_, i) =>
             firstPage && run!.next + i === 1
@@ -405,6 +412,7 @@ async function searchPass(
               (result as PromiseFulfilledResult<SearchResponse>).value,
           );
         const next = run.next + prefix;
+        progressed = prefix > 0;
         const stalls = prefix ? 0 : (storedPlan.stalls || 0) + 1;
         const updatedPlan = JSON.stringify({ ...JSON.parse(run.plan), stalls });
         const learnedTitles: { id: number; title: string }[] = [];
@@ -785,7 +793,7 @@ async function searchPass(
     sourceTotal: run.total,
     scanned: counts!.scanned,
     complete,
-    retryAfterMs: 1500,
+    retryAfterMs: complete ? 0 : progressed ? 50 : 1500,
     expiresAt: run.created + 60 * 60_000,
     related,
     suggestion: expansion.suggestion,
@@ -815,6 +823,7 @@ export async function completeSearch(
   options: Partial<SearchPlan>,
   page = 1,
   runId = '',
+  fastFirstPage = false,
 ): Promise<SearchResult> {
   let state = local.get(db);
   if (!state) {
@@ -829,6 +838,7 @@ export async function completeSearch(
     Object.entries(options).sort(([a], [b]) => a.localeCompare(b)),
     page,
     runId,
+    fastFirstPage,
   ]);
   const cached = state.cache.get(key);
   if (cached) {
@@ -841,12 +851,12 @@ export async function completeSearch(
     throw new SearchBusyError('Search is busy. Please retry shortly.');
   if (!promise) {
     const current = state;
-    promise = searchPass(db, query, options, page, runId)
+    promise = searchPass(db, query, options, page, runId, fastFirstPage)
       .then((result) => {
         current.cache.set(
           key,
           result,
-          result.complete && runId
+          result.complete
             ? Math.max(
                 0,
                 Math.min(

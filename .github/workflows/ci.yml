@@ -63,6 +63,8 @@ jobs:
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:player
       - run: npm run test:mobile-sheet
+      - run: npm run test:catalog-browser
+      - run: npm run test:navigation
       - run: npm run test:downloads
       - run: npm run build:vercel
       - run: npm run performance:budgets -- .vercel/output/static

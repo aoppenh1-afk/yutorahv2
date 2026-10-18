@@ -636,11 +636,16 @@ export async function runCoordinator(input: {
       if (active.size === 0 && !input.follow) break;
       await delay(100, undefined, { signal }).catch(() => {});
     }
-    if (signal.aborted) for (const job of active.values()) job.abort.abort();
-    await Promise.allSettled([...active.values()].map((v) => v.promise));
-    await inventory;
-    await maintenance;
   } finally {
+    // The caller closes shared resources after this returns, including on failure.
+    // Keep them usable until cancellation, in-flight publication and background work settle.
+    const workers = [...active.values()];
+    for (const worker of workers) worker.abort.abort();
+    await Promise.allSettled([
+      ...workers.map((worker) => worker.promise),
+      inventory,
+      maintenance,
+    ]);
     eventLoop.disable();
   }
   return {

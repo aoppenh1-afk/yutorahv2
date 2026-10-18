@@ -1,4 +1,4 @@
-import { catalogCollectionArtwork } from '@/lib/catalog';
+import { getCatalogService } from '@/lib/catalog-server';
 
 // Images load only when their cards approach the viewport. Do not fan out
 // collection-detail requests to enrich an entire directory page eagerly.
@@ -14,11 +14,16 @@ export async function GET(request: Request) {
   )
     return new Response(null, { status: 400 });
   try {
-    const image = await catalogCollectionArtwork(id);
+    const image = await (await getCatalogService()).artwork(id);
     if (format === 'json')
       return Response.json(
         { image },
-        { headers: { 'Cache-Control': 'public, max-age=3600, s-maxage=3600' } },
+        {
+          headers: {
+            'Cache-Control':
+              'public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400',
+          },
+        },
       );
     if (image)
       return new Response(null, {

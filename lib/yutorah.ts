@@ -934,6 +934,8 @@ export function mediaKind(s: Shiur) {
   return 'audio';
 }
 export type SearchResult = {
+  preparedAt?: number;
+  stale?: boolean;
   items: Shiur[];
   total: number;
   nextPage: number | null;

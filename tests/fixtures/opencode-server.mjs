@@ -31,7 +31,7 @@ if (process.argv[2] === '--version') {
   console.log(process.env.OPENCODE_FIXTURE_BAD_VERSION ? 'invalid' : '1.18.33');
   process.exit(0);
 }
-const model = 'muse-spark-1.3-contributor-free';
+const model = 'deepseek-v4.1-flash-free';
 const paths = Object.fromEntries(
   [
     ['/session', 'post'],

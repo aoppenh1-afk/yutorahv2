@@ -25,6 +25,19 @@ void test('a following rollout waits through memory admission without empty supe
   await mkdir(state);
   await mkdir(pkg);
   await execFile(process.execPath, ['scripts/package-notes-pipeline.mjs', pkg]);
+  const manifest = JSON.parse(
+    await readFile(join(pkg, 'manifest.json'), 'utf8'),
+  );
+  assert.equal(manifest.model, 'opencode/deepseek-v4.1-flash-free');
+  assert.equal(manifest.effort, 'high');
+  const help = await execFile(process.execPath, [
+    join(pkg, 'notes-pipeline.mjs'),
+    'help',
+  ]);
+  assert.match(
+    help.stdout,
+    /opencode\/deepseek-v4\.1-flash-free, plan, high only/,
+  );
   const env = {
     ...process.env,
     NOTES_NODE: process.execPath,
@@ -38,7 +51,7 @@ void test('a following rollout waits through memory admission without empty supe
   const profile = createHash('sha256')
     .update(
       JSON.stringify({
-        model: 'opencode/muse-spark-1.3-contributor-free',
+        model: 'opencode/deepseek-v4.1-flash-free',
         language: 'hebrewEnglish',
         runtime: 'opencode:1.18.33:server:plan:high:v1',
         notesSkill,

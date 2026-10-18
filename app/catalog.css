@@ -329,9 +329,12 @@
 .daf-columns {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  height: clamp(420px, calc(100dvh - 300px), 900px);
   gap: 30px;
 }
 .daf-scan {
+  min-height: 0;
   overflow: auto;
   border: 1px solid var(--line);
   padding: 12px;
@@ -371,6 +374,22 @@
   font-size: 13px;
   margin-left: 6px;
   font-weight: 400;
+}
+.daf-recordings {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.daf-recordings > .catalog-subheading {
+  flex-shrink: 0;
+}
+.daf-recordings-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  padding-right: 8px;
 }
 .daf-recordings .shiur-row {
   padding: 16px 0;
@@ -718,9 +737,16 @@
   }
   .daf-columns {
     grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    height: auto;
   }
   .daf-scan {
     max-height: 70vh;
+  }
+  .daf-recordings-list {
+    overflow: visible;
+    scrollbar-gutter: auto;
+    padding-right: 0;
   }
   .daf-controls {
     display: grid;

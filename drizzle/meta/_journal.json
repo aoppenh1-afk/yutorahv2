@@ -57,6 +57,13 @@
       "when": 1791226800000,
       "tag": "0007_search_fencing",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792270000000,
+      "tag": "0008_catalog_cache",
+      "breakpoints": true
     }
   ]
 }

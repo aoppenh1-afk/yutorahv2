@@ -9,6 +9,15 @@ const allowed = new Set([
   'maxVisibleRows',
   'libraryWrites',
   'libraryWriteMs',
+  'dataCacheHits',
+  'dataCacheCoalesced',
+  'dataApiCalls',
+  'dataApiMs',
+  'homeVisibleMs',
+  'searchVisibleMs',
+  'collectionVisibleMs',
+  'shiurVisibleMs',
+  'catalogVisibleMs',
 ]);
 export async function POST(request: Request) {
   if (Number(request.headers.get('Content-Length') || 0) > 2048)

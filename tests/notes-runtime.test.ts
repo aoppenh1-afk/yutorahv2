@@ -107,6 +107,26 @@ void test('zero-price guard rejects absent, changed, or priced input/output/cach
     assert.throws(() => assertFreeCatalog(copy), /paid_route/);
   }
   assert.throws(() => assertFreeCatalog({ providers: [] }), /configuration/);
+  const oldModel = structuredClone(catalog);
+  oldModel.providers[0].models[MODEL_ID].id = 'muse-spark-1.3-contributor-free';
+  assert.throws(() => assertFreeCatalog(oldModel), /configuration/);
+  assert.throws(
+    () =>
+      assertFreeCatalog({
+        providers: [
+          {
+            id: 'opencode',
+            models: {
+              [MODEL_ID]: {
+                ...catalog.providers[0].models[MODEL_ID],
+                variants: {},
+              },
+            },
+          },
+        ],
+      }),
+    /configuration/,
+  );
 });
 void test('response identity, high effort, tool use, token metadata, and cost are verified independently', () => {
   const messages = [user('ses1'), assistant('ses1')];
@@ -126,6 +146,23 @@ void test('response identity, high effort, tool use, token metadata, and cost ar
     info: { ...assistant('ses1').info, modelID: 'priced-helper' },
   });
   assert.throws(() => messageEvidence(helper, 'ses1'), /unconfirmed_identity/);
+  for (const modelID of [
+    'muse-spark-1.3-contributor-free',
+    'deepseek-v4.1-flash',
+  ]) {
+    const wrongUser = structuredClone(messages);
+    wrongUser[0].info.model!.modelID = modelID;
+    assert.throws(
+      () => messageEvidence(wrongUser, 'ses1'),
+      /unconfirmed_identity/,
+    );
+    const wrongAssistant = structuredClone(messages);
+    wrongAssistant[1].info.modelID = modelID;
+    assert.throws(
+      () => messageEvidence(wrongAssistant, 'ses1'),
+      /unconfirmed_identity/,
+    );
+  }
 });
 void test('schema drift cannot silently remove explicit high effort or cancellation support', () => {
   assert.throws(() => verifySchema({ paths: {} }), /configuration/);

@@ -101,6 +101,8 @@ The transcription database refused the owner connection with PostgreSQL error 53
 
 ## Validation
 
+The October 17 API loading implementation adds durable compressed public snapshots, immutable collection pagination and neighbor reads, a cover manifest, prepared teacher rankings, and bounded scheduled refreshes. Recording core data loads before optional enrichment; browser public data survives refresh failures. Home starts its API request through preload, and initial directory metadata uses a compact response. Interactive metadata searches publish one source page first, then continue bounded scans with a 50 ms yield after progress. Exact completion checks remain in place. See [the API loading implementation report](api-loading-audit-20261017.html) for current measurements, tests, limits, and the required `006_catalog_cache.sql` / `0008_catalog_cache.sql` release migrations. This addition does not reverse concurrent transcript or header changes in the workspace.
+
 Validation uses Node 24, Chromium, Linux FFmpeg/process tooling, and disposable PostgreSQL schemas/databases with pg_trgm. CI runs the same supported checks; passing fixtures do not establish a production performance SLO.
 
 | Check | Result |

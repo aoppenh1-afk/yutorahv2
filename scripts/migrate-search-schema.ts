@@ -144,6 +144,17 @@ if (
     await migrateTitleSchema(db);
     await migrateEfficiencySchema(db);
     await migrateFencingSchema(db);
+    for (const sql of readFileSync(
+      resolve('drizzle/0008_catalog_cache.sql'),
+      'utf8',
+    ).split('--> statement-breakpoint'))
+      await db
+        .prepare(
+          sql
+            .trim()
+            .replace(/^CREATE (TABLE|INDEX) /, 'CREATE $1 IF NOT EXISTS '),
+        )
+        .run();
     const { checkSearchSchema } = await import('./check-search-schema');
     await checkSearchSchema(db);
   }

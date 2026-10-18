@@ -295,6 +295,60 @@ void test('cold concurrent callers share one durable scan across database wrappe
   assert.equal(pages, 7);
 });
 
+void test('completed searches without a run parameter reuse results until their run expires', async (t) => {
+  const raw = database();
+  let reads = 0;
+  const db = {
+    ...raw,
+    prepare(sql) {
+      reads++;
+      return raw.prepare(sql);
+    },
+  };
+  let result = await completeSearch(db, 'cache-ordinary-submit', {});
+  while (!result.complete)
+    result = await completeSearch(
+      db,
+      'cache-ordinary-submit',
+      {},
+      1,
+      result.run,
+    );
+  const warmed = await completeSearch(db, 'cache-ordinary-submit', {});
+  const before = reads;
+  warmed.items[0].title = 'A local mutation';
+  const cached = await completeSearch(db, 'cache-ordinary-submit', {});
+  assert.equal(
+    reads,
+    before,
+    'Repeating a completed submission should not run SQL',
+  );
+  assert.notEqual(cached.items[0].title, 'A local mutation');
+  t.mock.method(Date, 'now', () => cached.expiresAt + 1);
+  const fresh = await completeSearch(db, 'cache-ordinary-submit', {});
+  assert.notEqual(
+    fresh.run,
+    cached.run,
+    'The cache must not outlive its search run',
+  );
+});
+
+void test('interactive searches publish one source page first and continue quickly without changing final ranking', async () => {
+  const db = database();
+  let result = await completeSearch(db, 'teshuva', {}, 1, '', true);
+  assert.equal(result.scanned, 30);
+  assert.equal(result.complete, false);
+  assert.equal(result.retryAfterMs, 50);
+  const run = result.run;
+  result = await completeSearch(db, 'teshuva', {}, 1, run, true);
+  assert.equal(result.scanned, 150);
+  while (!result.complete)
+    result = await completeSearch(db, 'teshuva', {}, 1, run, true);
+  assert.equal(result.total, 181);
+  assert.equal(result.items[0].id, 181);
+  assert.equal(result.run, run);
+});
+
 void test('overlapping scans share immutable documents and warmed completed pages need no SQL', async () => {
   const raw = database();
   let reads = 0;

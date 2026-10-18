@@ -1,18 +1,30 @@
-import {
-  catalogCollection,
-  catalogDaf,
-  catalogDictionary,
-  catalogDirectory,
-  catalogLanding,
-  type CatalogKind,
-} from '@/lib/catalog';
+import { catalogDictionary, type CatalogKind } from '@/lib/catalog';
 import { dafTractates } from '@/lib/daf';
+import { getCatalogService, deferCatalogWork } from '@/lib/catalog-server';
+import {
+  SnapshotBusyError,
+  SnapshotExpiredError,
+} from '@/lib/public-snapshots';
+import type { CollectionOrder } from '@/lib/catalog-pages';
 const kinds = ['teacher', 'series', 'topic', 'venue', 'collection'];
 export async function GET(request: Request) {
+  const started = performance.now();
   const p = new URL(request.url).searchParams;
+  const version = p.get('version') || '';
+  if (version && !/^[a-f0-9]{64}$/.test(version))
+    return Response.json(
+      { error: 'Choose a valid collection version.' },
+      { status: 400 },
+    );
+  const options = {
+    version,
+    fresh: p.get('fresh') === '1',
+    defer: deferCatalogWork,
+  };
   const action = p.get('action') || 'directory',
     kind = p.get('kind') as CatalogKind;
   try {
+    const catalogService = await getCatalogService();
     let data: unknown;
     if (action === 'facets') {
       const dictionary = await catalogDictionary();
@@ -34,24 +46,50 @@ export async function GET(request: Request) {
           { error: 'Choose a valid tractate and page.' },
           { status: 400 },
         );
-      data = await catalogDaf(tractate, page, side as 'a' | 'b');
+      data = (
+        await catalogService.daf(tractate, page, side as 'a' | 'b', options)
+      ).value;
     } else {
       if (!kinds.includes(kind))
         return Response.json(
           { error: 'Choose a library section.' },
           { status: 400 },
         );
-      if (action === 'entity') {
+      if (['entity', 'neighbors', 'related'].includes(action)) {
         const id = Number(p.get('id'));
         if (!Number.isSafeInteger(id) || id <= 0 || id > 1_000_000)
           return Response.json(
             { error: 'Choose a valid library page.' },
             { status: 400 },
           );
-        data =
-          kind === 'collection'
-            ? await catalogCollection(id)
-            : await catalogLanding(kind, id);
+        if (action === 'neighbors') {
+          const shiur = Number(p.get('shiur'));
+          if (
+            kind !== 'collection' ||
+            !Number.isSafeInteger(shiur) ||
+            shiur <= 0 ||
+            shiur > 999_999_999
+          )
+            throw new RangeError('Choose a valid collection lesson.');
+          data = await catalogService.neighbors(id, shiur, options);
+        } else if (action === 'related') {
+          if (kind !== 'collection')
+            throw new RangeError('Choose a collection.');
+          data = await catalogService.related(id, options);
+        } else
+          data =
+            kind === 'collection'
+              ? await catalogService.collectionPage(
+                  id,
+                  {
+                    offset: Number(p.get('offset') || 0),
+                    limit: Number(p.get('limit') || 60),
+                    query: p.get('q') || '',
+                    order: (p.get('sort') || 'old') as CollectionOrder,
+                  },
+                  options,
+                )
+              : (await catalogService.landing(kind, id, options)).value;
       } else if (action === 'directory') {
         const q = p.get('q') || '',
           offset = Number(p.get('offset') || 0);
@@ -65,7 +103,7 @@ export async function GET(request: Request) {
             { error: 'Choose a valid directory search.' },
             { status: 400 },
           );
-        data = await catalogDirectory(kind, q, offset);
+        data = await catalogService.browse(kind, q, offset, options);
       } else
         return Response.json(
           { error: 'Unknown library request.' },
@@ -75,9 +113,13 @@ export async function GET(request: Request) {
     return Response.json(data, {
       headers: {
         'Cache-Control':
-          data && typeof data === 'object' && 'unavailable' in data
+          options.fresh ||
+          (data && typeof data === 'object' && 'unavailable' in data)
             ? 'no-store'
-            : 'public, max-age=60, s-maxage=300',
+            : version
+              ? 'public, max-age=300, s-maxage=300'
+              : 'public, max-age=60, s-maxage=300, stale-while-revalidate=300',
+        'Server-Timing': `catalog;dur=${(performance.now() - started).toFixed(1)}`,
       },
     });
   } catch (error) {
@@ -88,7 +130,20 @@ export async function GET(request: Request) {
             ? error.message
             : 'The library could not load. Please retry.',
       },
-      { status: 502, headers: { 'Cache-Control': 'no-store' } },
+      {
+        status:
+          error instanceof RangeError
+            ? 400
+            : error instanceof SnapshotExpiredError
+              ? 409
+              : error instanceof SnapshotBusyError
+                ? 503
+                : 502,
+        headers: {
+          'Cache-Control': 'no-store',
+          ...(error instanceof SnapshotBusyError ? { 'Retry-After': '1' } : {}),
+        },
+      },
     );
   }
 }

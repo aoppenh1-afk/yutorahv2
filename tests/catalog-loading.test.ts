@@ -7,6 +7,18 @@ import {
   prefetchCatalogDirectories,
 } from '../lib/catalog-client';
 
+void test('query-free public requests preserve the exact preload URL and share its cache key', async (t) => {
+  invalidateCatalogResource('/api/home');
+  const urls: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string) => {
+    urls.push(url);
+    return Response.json({ featured: [] });
+  });
+  await loadCatalogResource('/api/home');
+  await loadCatalogResource('/api/home?');
+  assert.deepEqual(urls, ['/api/home']);
+});
+
 void test('revisiting a catalog page and its covers does not repeat the loading waterfall', async (t) => {
   const requests: string[] = [];
   t.mock.method(globalThis, 'fetch', async (url: string) => {
@@ -67,7 +79,11 @@ void test('expired pages refresh while cover URLs remain cached, and explicit re
   await loadCatalogResource(page);
   await loadCatalogResource(cover);
   now += 60_001;
-  assert.equal(cachedCatalogResource(page), undefined);
+  assert.notEqual(
+    cachedCatalogResource(page),
+    undefined,
+    'The last successful page remains visible during refresh',
+  );
   assert.notEqual(cachedCatalogResource(cover), undefined);
   await loadCatalogResource(page);
   invalidateCatalogResource(cover);
@@ -121,4 +137,60 @@ void test('public response retention stays bounded as a user visits more pages',
   for (let n = 0; n < 65; n++) await loadCatalogResource(url(n));
   assert.equal(cachedCatalogResource(url(0)), undefined);
   assert.notEqual(cachedCatalogResource(url(64)), undefined);
+});
+
+void test('aborting one catalog subscriber leaves another reader and its shared cache request intact', async (t) => {
+  const controller = new AbortController();
+  let finish!: (response: Response) => void;
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', () => {
+    calls++;
+    return new Promise<Response>((r) => {
+      finish = r;
+    });
+  });
+  const url = '/api/catalog?kind=collection&q=cancel-shared&offset=0';
+  const canceled = loadCatalogResource(url, controller.signal);
+  const other = loadCatalogResource<{ entries: number[] }>(url);
+  controller.abort();
+  await assert.rejects(canceled, { name: 'AbortError' });
+  finish(Response.json({ entries: [1, 2] }));
+  assert.deepEqual(await other, { entries: [1, 2] });
+  assert.equal(calls, 1);
+  assert.deepEqual(cachedCatalogResource(url), { entries: [1, 2] });
+});
+
+void test('explicit retry cannot be overwritten by an older in-flight response', async (t) => {
+  const finish: ((response: Response) => void)[] = [];
+  t.mock.method(
+    globalThis,
+    'fetch',
+    () => new Promise<Response>((r) => finish.push(r)),
+  );
+  const url = '/api/catalog?kind=collection&q=invalidation-order&offset=0';
+  const old = loadCatalogResource(url);
+  invalidateCatalogResource(url);
+  const fresh = loadCatalogResource(url);
+  finish[1](Response.json({ entries: ['fresh'] }));
+  await fresh;
+  finish[0](Response.json({ entries: ['old'] }));
+  await old;
+  assert.deepEqual(cachedCatalogResource(url), { entries: ['fresh'] });
+});
+
+void test('a failed background refresh keeps the last successful page available', async (t) => {
+  let now = Date.now(),
+    calls = 0;
+  t.mock.method(Date, 'now', () => now);
+  t.mock.method(globalThis, 'fetch', async () =>
+    ++calls === 1
+      ? Response.json({ entries: [42] })
+      : Response.json({ error: 'Unavailable' }, { status: 502 }),
+  );
+  const url = '/api/catalog?kind=collection&q=stale-outage&offset=0';
+  await loadCatalogResource(url);
+  now += 61_000;
+  assert.deepEqual(cachedCatalogResource(url), { entries: [42] });
+  assert.deepEqual(await loadCatalogResource(url), { entries: [42] });
+  assert.equal(calls, 2);
 });

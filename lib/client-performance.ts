@@ -17,3 +17,12 @@ export function performanceCount(name: string, value: number) {
   if (performanceEnabled())
     clientMetrics[name] = (clientMetrics[name] ?? 0) + value;
 }
+export function recordDataVisible(
+  area: 'home' | 'search' | 'collection' | 'shiur' | 'catalog',
+  started: number,
+) {
+  if (!performanceEnabled()) return;
+  requestAnimationFrame(() =>
+    performanceCount(area + 'VisibleMs', performance.now() - started),
+  );
+}

@@ -1,8 +1,19 @@
-import { getDirectory } from '@/lib/yutorah';
-export async function GET() {
+import { getCatalogService, deferCatalogWork } from '@/lib/catalog-server';
+import { compactDirectory } from '@/lib/directory-payload';
+export async function GET(request: Request) {
+  const started = performance.now();
   try {
-    return Response.json(await getDirectory(), {
-      headers: { 'Cache-Control': 'public,max-age=1800' },
+    const { value: directory } = await (
+      await getCatalogService()
+    ).directory({ defer: deferCatalogWork });
+    const compact = new URL(request.url).searchParams.get('compact') === '1';
+    const data = compact ? compactDirectory(directory) : directory;
+    return Response.json(data, {
+      headers: {
+        'Cache-Control':
+          'public,max-age=1800,s-maxage=1800,stale-while-revalidate=1800',
+        'Server-Timing': `directory;dur=${(performance.now() - started).toFixed(1)}`,
+      },
     });
   } catch {
     return Response.json(

@@ -4,7 +4,20 @@
 import type { BrowseKind as CatalogKind } from '@/lib/catalog';
 import { parseDaf, type DafSelection } from '@/lib/daf';
 import { entityLink } from '@/lib/legacy-links';
+import {
+  readShiurNavigation,
+  openShiurNavigation,
+  closeShiurNavigation,
+} from '@/lib/shiur-navigation';
 import { pollDelay } from '@/lib/poll-delay';
+import {
+  isPublicCatalogResource,
+  loadCatalogResource,
+  invalidateCatalogResource,
+} from '@/lib/catalog-client';
+import { mergeShiurDetails } from '@/lib/shiur-detail-client';
+import { recordDataVisible } from '@/lib/client-performance';
+import type { CompactDirectory } from '@/lib/directory-payload';
 import Link from 'next/link';
 import {
   type Filters,
@@ -35,7 +48,6 @@ import { useOnline } from '@/lib/connectivity';
 import { useViewPerformance } from './performance-monitor';
 import { FollowButton } from './follow-button';
 import { useAccount } from '@/lib/use-account';
-import { AccountPanel } from './account-panel';
 import { relatedShiurim, type Follow } from '@/lib/learning';
 import { createRelevanceScorer } from '@/lib/search-discovery';
 import { prepareSearchText, createQueryMatcher } from '@/lib/search-matching';
@@ -78,7 +90,6 @@ import {
   LayoutGrid,
   List,
   Flame,
-  Info,
   UserRound,
   Bell,
   Settings2,
@@ -116,7 +127,7 @@ import { PLAYBACK_SPEEDS } from '@/lib/playback-speed';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useSwipeDismiss } from '@/hooks/use-swipe-dismiss';
 import type { HomeData, Shiur, Directory, SearchResult } from '@/lib/yutorah';
-import { mediaKind, normalize } from '@/lib/yutorah';
+import { mediaKind } from '@/lib/yutorah';
 const AdvancedSearch = lazy(() =>
   import('./advanced-search').then((m) => ({ default: m.AdvancedSearch })),
 );
@@ -140,6 +151,9 @@ const LearningHome = lazy(() =>
 
 const FeedbackDialog = lazy(() =>
   import('./feedback-dialog').then((m) => ({ default: m.FeedbackDialog })),
+);
+const AccountPanel = lazy(() =>
+  import('./account-panel').then((m) => ({ default: m.AccountPanel })),
 );
 const LibraryBrowser = lazy(() =>
   import('./library-browser').then((m) => ({ default: m.LibraryBrowser })),
@@ -188,6 +202,7 @@ const labels: Record<View, string> = {
   playlists: 'My playlists',
 };
 async function requestJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  if (isPublicCatalogResource(url)) return loadCatalogResource<T>(url, signal);
   const r = await fetch(url, { signal });
   const j = (await r.json()) as T & { error?: string };
   if (!r.ok)
@@ -347,6 +362,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   >(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
+  const [detailRetry, setDetailRetry] = useState(0);
+  const lastDetail = useRef(detail);
+  useEffect(() => {
+    if (detail) lastDetail.current = detail;
+  }, [detail]);
   const [relatedCandidates, setRelatedCandidates] = useState<Shiur[]>([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [relatedError, setRelatedError] = useState(false);
@@ -363,12 +383,24 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   const [feedback, setFeedback] = useState<{ shiur?: Shiur } | null>(null);
 
   const [accountOpen, setAccountOpen] = useState(false);
+  const [accountRequested, setAccountRequested] = useState(false);
+  useEffect(() => {
+    if (accountOpen) setAccountRequested(true);
+  }, [accountOpen]);
 
   const searchAbort = useRef<AbortController | null>(null);
   const detailAbort = useRef<AbortController | null>(null);
+  const detailRoute = useRef<string | null>(null);
+  const clearDetail = useCallback(() => {
+    detailAbort.current?.abort();
+    detailRoute.current = null;
+    setDetail(null);
+    setDetailLoading(false);
+  }, []);
   const closeDetail = useCallback(() => {
     detailAbort.current?.abort();
-    setDetail(null);
+    if (!closeShiurNavigation(window.history, window.location.href))
+      setDetail(null);
   }, []);
   const detailSwipeRef = useSwipeDismiss(isMobile, closeDetail);
   const initialized = useRef(false);
@@ -398,6 +430,29 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   } = player;
   const detailId = detail?.id;
   useEffect(() => {
+    if (!detailId || !online || detailLoading) return;
+    const controller = new AbortController();
+    const url = '/api/shiur?id=' + detailId;
+    if (detailRetry) invalidateCatalogResource(url);
+    void requestJson<Shiur & { text?: string; video?: string }>(
+      url,
+      controller.signal,
+    )
+      .then((enriched) => {
+        if (!controller.signal.aborted)
+          setDetail((previous) =>
+            previous?.id === detailId
+              ? mergeShiurDetails(previous, enriched)
+              : previous,
+          );
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setDetailError('Some details could not load. You can still listen.');
+      });
+    return () => controller.abort();
+  }, [detailId, detailRetry, detailLoading, online]);
+  useEffect(() => {
     setRelatedCandidates([]);
     setRelatedError(false);
     if (!detailId || !online) return;
@@ -425,15 +480,37 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     () => new Set(library.saved.map((s) => s.id)),
     [library.saved],
   );
-  const loadDirectory = useCallback(() => {
+  const fullDirectoryLoaded = useRef(false);
+  const fullDirectoryWanted = useRef(false);
+  const loadDirectory = useCallback((wantFull = false) => {
+    if (wantFull === true) fullDirectoryWanted.current = true;
+    const full = fullDirectoryWanted.current;
     setDirectoryError('');
-    requestJson<Directory>('/api/directory')
-      .then(setDirectory)
+    Promise.all([
+      requestJson<Directory | CompactDirectory>(
+        '/api/directory' + (full ? '' : '?compact=1'),
+      ),
+      import('@/lib/directory-payload'),
+    ])
+      .then(([data, { expandDirectory }]) => {
+        if (full) fullDirectoryLoaded.current = true;
+        if (full || !fullDirectoryLoaded.current)
+          setDirectory(expandDirectory(data));
+      })
       .catch((e) => setDirectoryError(e.message));
   }, []);
   useEffect(() => {
     if (online) loadDirectory();
   }, [loadDirectory, online]);
+  useEffect(() => {
+    if (
+      online &&
+      !fullDirectoryLoaded.current &&
+      (['teachers', 'series', 'topics'].includes(view) ||
+        (view === 'browse' && catalogKind === 'topic'))
+    )
+      loadDirectory(true);
+  }, [online, view, catalogKind, loadDirectory]);
   useEffect(() => {
     const warm = () => void loadShiurDetail().catch(() => {});
     if (typeof requestIdleCallback === 'function') {
@@ -444,6 +521,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     return () => clearTimeout(timer);
   }, []);
   const refreshHome = () => {
+    invalidateCatalogResource('/api/home');
     setHomeLoading(true);
     requestJson<HomeData>('/api/home')
       .then(setHome)
@@ -462,8 +540,12 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       return;
     const controller = new AbortController();
     setHomeLoading(true);
+    const started = performance.now();
     requestJson<HomeData>('/api/home', controller.signal)
-      .then(setHome)
+      .then((data) => {
+        setHome(data);
+        recordDataVisible('home', started);
+      })
       .catch(() => {
         if (!controller.signal.aborted)
           homeNotify.current(
@@ -495,6 +577,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       page = 1,
       push = true,
     ) => {
+      const started = performance.now();
+      let firstVisible = false;
+      clearDetail();
       searchAbort.current?.abort();
       const controller = new AbortController();
       searchAbort.current = controller;
@@ -523,15 +608,23 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
           controller.signal,
         );
         if (controller.signal.aborted) return;
+        const recordFirst = () => {
+          if (!firstVisible && (result.items.length > 0 || result.complete)) {
+            firstVisible = true;
+            recordDataVisible('search', started);
+          }
+        };
+        recordFirst();
         setResultOrder(result.plan.sort || 'relevance');
         while (result.complete === false && !controller.signal.aborted) {
           setResults(result);
           p.set('run', result.run!);
-          await pollDelay(result.retryAfterMs || 1500, controller.signal);
+          await pollDelay(result.retryAfterMs ?? 1500, controller.signal);
           result = await requestJson<SearchResult>(
             '/api/search?' + p,
             controller.signal,
           );
+          recordFirst();
         }
         if (!controller.signal.aborted) {
           setResults((old) =>
@@ -562,10 +655,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         if (!controller.signal.aborted) setSearchLoading(false);
       }
     },
-    [changeURL],
+    [changeURL, clearDetail],
   );
   const navigate = useCallback(
     (next: View) => {
+      clearDetail();
       searchAbort.current?.abort();
       setSearchLoading(false);
       setView(next);
@@ -592,42 +686,63 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       }
       window.scrollTo({ top: 0, behavior: 'instant' });
     },
-    [changeURL],
+    [changeURL, clearDetail],
   );
-  const openCatalog = useCallback((kind: CatalogKind, id?: number) => {
-    searchAbort.current?.abort();
-    setSearchLoading(false);
-    setDetail(null);
-    setCatalogKind(kind);
-    setEntityId(id || 0);
-    setCatalogQuery('');
-    setView(id ? (kind === 'collection' ? 'collection' : 'entity') : 'browse');
-    window.history.pushState(
-      {},
-      '',
-      id ? entityLink(kind, id) : '/?view=browse&kind=' + kind,
-    );
-    window.scrollTo({ top: 0, behavior: 'instant' });
-  }, []);
-  const openDaf = useCallback((selection: DafSelection) => {
-    setDafSelection(selection);
-    setView('daf');
-    setDetail(null);
-    const p = new URLSearchParams({
-      view: 'daf',
-      tractate: selection.tractate,
-      page: String(selection.page),
-      side: selection.side,
-    });
-    window.history.pushState({}, '', '/?' + p);
-  }, []);
+  const openCatalog = useCallback(
+    (kind: CatalogKind, id?: number) => {
+      searchAbort.current?.abort();
+      setSearchLoading(false);
+      clearDetail();
+      setCatalogKind(kind);
+      setEntityId(id || 0);
+      setCatalogQuery('');
+      setView(
+        id ? (kind === 'collection' ? 'collection' : 'entity') : 'browse',
+      );
+      window.history.pushState(
+        {},
+        '',
+        id ? entityLink(kind, id) : '/?view=browse&kind=' + kind,
+      );
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    },
+    [clearDetail],
+  );
+  const openDaf = useCallback(
+    (selection: DafSelection) => {
+      setDafSelection(selection);
+      setView('daf');
+      clearDetail();
+      const p = new URLSearchParams({
+        view: 'daf',
+        tractate: selection.tractate,
+        page: String(selection.page),
+        side: selection.side,
+      });
+      window.history.pushState({}, '', '/?' + p);
+    },
+    [clearDetail],
+  );
   const showDetail = useCallback(
-    async (s: Shiur, loaded = false, pending?: AbortController) => {
+    async (
+      s: Shiur,
+      loaded = false,
+      pending?: AbortController,
+      seconds?: number,
+    ) => {
+      const started = performance.now();
       if (!pending || detailAbort.current !== pending)
         detailAbort.current?.abort();
       const controller = pending ?? new AbortController();
       if (controller.signal.aborted) return;
       detailAbort.current = controller;
+      if (!pending)
+        detailRoute.current = openShiurNavigation(
+          window.history,
+          window.location.href,
+          s.id,
+          seconds,
+        );
       setDetail(s);
       setDetailError('');
       const offline = !navigator.onLine || window.__YUTORAH_OFFLINE__;
@@ -636,24 +751,9 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       try {
         const fresh = await requestJson<
           Shiur & { text?: string; video?: string }
-        >('/api/shiur?id=' + s.id, controller.signal);
-        if (!controller.signal.aborted)
-          setDetail({
-            ...fresh,
-            views: fresh.views ?? s.views,
-            topics: fresh.topics.length ? fresh.topics : s.topics,
-            category: fresh.category || s.category,
-            series: fresh.series || s.series,
-            seriesId: fresh.seriesId || s.seriesId,
-            uploadedAt: fresh.uploadedAt || s.uploadedAt,
-            collections: fresh.collections?.length
-              ? fresh.collections
-              : s.collections,
-            publicationId: fresh.publicationId || s.publicationId,
-            publication: fresh.publication || s.publication,
-            volumeId: fresh.volumeId || s.volumeId,
-            volume: fresh.volume || s.volume,
-          });
+        >('/api/shiur?id=' + s.id + '&part=core', controller.signal);
+        if (!controller.signal.aborted) setDetail(mergeShiurDetails(s, fresh));
+        if (!controller.signal.aborted) recordDataVisible('shiur', started);
       } catch (e) {
         if (!controller.signal.aborted)
           setDetailError(
@@ -666,15 +766,33 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     [],
   );
   const openById = useCallback(
-    async (id: string, seconds?: number, autoplay = false) => {
+    async (
+      id: string,
+      seconds?: number,
+      autoplay = false,
+      restoring = false,
+    ) => {
       detailAbort.current?.abort();
       const controller = new AbortController();
       detailAbort.current = controller;
       try {
-        const s = await requestJson<Shiur>(
-          '/api/shiur?id=' + id,
-          controller.signal,
-        );
+        detailRoute.current = restoring
+          ? readShiurNavigation(window.location.href).base
+          : openShiurNavigation(
+              window.history,
+              window.location.href,
+              Number(id),
+              seconds,
+            );
+        const retained = lastDetail.current;
+        const offline = !navigator.onLine || window.__YUTORAH_OFFLINE__;
+        const s =
+          restoring && offline && retained?.id === Number(id)
+            ? retained
+            : await requestJson<Shiur>(
+                '/api/shiur?id=' + id + '&part=core',
+                controller.signal,
+              );
         if (controller.signal.aborted) return;
         await showDetail(s, true, controller);
         if (autoplay) startPlayback(s, seconds);
@@ -692,6 +810,18 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   useEffect(() => {
     const restore = () => {
       const params = new URLSearchParams(window.location.search);
+      const navigation = readShiurNavigation(window.location.href);
+      if (detailRoute.current === navigation.base) {
+        if (navigation.id)
+          void openById(navigation.id, navigation.seconds, false, true);
+        else {
+          detailAbort.current?.abort();
+          setDetail(null);
+          setDetailLoading(false);
+        }
+        return;
+      }
+      clearDetail();
       if (!navigator.onLine || window.__YUTORAH_OFFLINE__) {
         setView('downloads');
         return;
@@ -742,11 +872,8 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         void runSearch(query, fs, 1, false);
       else if (v && v in labels) setView(v);
       else setView('discover');
-      if (params.get('shiur'))
-        void openById(
-          params.get('shiur')!,
-          params.has('t') ? Number(params.get('t')) : undefined,
-        );
+      if (navigation.id)
+        void openById(navigation.id, navigation.seconds, false, true);
     };
     if (!initialized.current) {
       initialized.current = true;
@@ -754,7 +881,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
     }
     window.addEventListener('popstate', restore);
     return () => window.removeEventListener('popstate', restore);
-  }, [runSearch, openById]);
+  }, [runSearch, openById, clearDetail]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -763,8 +890,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       );
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setView('search');
-        setTimeout(() => document.getElementById('main-search')?.focus(), 0);
+        navigate('search');
       } else if (!editing && !e.metaKey && !e.ctrlKey && e.key === '/') {
         e.preventDefault();
         navigate('search');
@@ -895,16 +1021,25 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
   };
   const enqueueMany = (items: Shiur[]) => {
     const audio = items.filter((s) => mediaKind(s) === 'audio');
-    const added = audio.filter(
-      (s) => !library.queue.some((q) => q.id === s.id),
-    ).length;
-    update((old) => ({
-      ...old,
-      queue: [
+    let added = 0,
+      accepted = false;
+    update((old) => {
+      const queue = [
         ...new Map([...old.queue, ...audio].map((s) => [s.id, s])).values(),
-      ],
-    }));
+      ];
+      if (queue.length > 1000 && queue.length > old.queue.length) return old;
+      added = queue.length - old.queue.length;
+      accepted = true;
+      return { ...old, queue };
+    });
+    if (!accepted) {
+      notify(
+        'Your queue can hold 1,000 recordings. Remove some recordings before adding this collection.',
+      );
+      return false;
+    }
     notify(`Added ${added} audio shiurim to your queue.`);
+    return true;
   };
   const play = (s: Shiur) => {
     if (mediaKind(s) !== 'audio') {
@@ -970,15 +1105,11 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       notify('Link copied.');
     } catch {
       notify('Copy the link from the address bar.');
-      window.history.replaceState({}, '', url);
+      void showDetail(s, false, undefined, seconds);
     }
   };
   const openTranscriptHit = (hit: TranscriptHit) => {
     const seconds = Math.max(0, hit.startMs / 1000);
-    const url = new URL(window.location.href);
-    url.searchParams.set('shiur', hit.shiurId);
-    url.searchParams.set('t', String(Math.floor(seconds)));
-    window.history.pushState({}, '', url);
     if (hit.mediaUrl) {
       const shiur: Shiur = {
         id: Number(hit.shiurId),
@@ -1000,7 +1131,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
         materials: [],
       };
       player.start(shiur, seconds);
-      void showDetail(shiur);
+      void showDetail(shiur, false, undefined, seconds);
     } else {
       void openById(hit.shiurId, seconds, true);
     }
@@ -1131,11 +1262,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               [suggestion.kind]: String(suggestion.id),
             })
       }
-      onSelectShiur={(suggestion) =>
-        void showDetail(
-          normalize({ shiurID: suggestion.id, shiurTitle: suggestion.name }),
-        )
-      }
+      onSelectShiur={(suggestion) => void openById(String(suggestion.id))}
     />
   );
   const deferredWithin = useDeferredValue(withinResults);
@@ -1366,31 +1493,35 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
       <a href="#main-content" className="skip-link">
         Skip to content
       </a>
-      <AccountPanel
-        account={account}
-        open={accountOpen}
-        onOpenChange={setAccountOpen}
-        teachers={library.following.filter((f) => f.kind === 'teacher')}
-        directory={directory}
-        defaultSpeed={library.defaultSpeed}
-        onSpeedChange={(speed) =>
-          update((old) => ({ ...old, defaultSpeed: speed, speed }))
-        }
-        onTeacherNotificationsChange={(teacher, enabled) => {
-          const follow = { ...teacher, notificationsEnabled: enabled };
-          update((old) => ({
-            ...old,
-            following: old.following.map((f) =>
-              f.kind === 'teacher' && f.id === teacher.id ? follow : f,
-            ),
-          }));
-          account.changedFollow(follow, true);
-        }}
-        onBrowseTeachers={() => {
-          setAccountOpen(false);
-          navigate('teachers');
-        }}
-      />
+      {(accountOpen || accountRequested) && (
+        <ScreenBoundary>
+          <AccountPanel
+            account={account}
+            open={accountOpen}
+            onOpenChange={setAccountOpen}
+            teachers={library.following.filter((f) => f.kind === 'teacher')}
+            directory={directory}
+            defaultSpeed={library.defaultSpeed}
+            onSpeedChange={(speed) =>
+              update((old) => ({ ...old, defaultSpeed: speed, speed }))
+            }
+            onTeacherNotificationsChange={(teacher, enabled) => {
+              const follow = { ...teacher, notificationsEnabled: enabled };
+              update((old) => ({
+                ...old,
+                following: old.following.map((f) =>
+                  f.kind === 'teacher' && f.id === teacher.id ? follow : f,
+                ),
+              }));
+              account.changedFollow(follow, true);
+            }}
+            onBrowseTeachers={() => {
+              setAccountOpen(false);
+              navigate('teachers');
+            }}
+          />
+        </ScreenBoundary>
+      )}
       <Sidebar className="torah-sidebar">
         <nav aria-label="Primary" className="flex min-h-0 flex-1 flex-col">
           <SidebarHeader>
@@ -1647,20 +1778,6 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
               {home?.hebrewDate}
             </span>
             <button
-              className="header-library-button"
-              aria-label="Open saved shiurim"
-              onClick={() => navigate('saved')}
-            >
-              <Bookmark size={19} />
-            </button>
-            <button
-              className="header-about-button"
-              aria-label="About your learning library"
-              onClick={() => setHelp(true)}
-            >
-              <Info size={19} />
-            </button>
-            <button
               className="header-account-button"
               aria-label="Profile settings"
               onClick={() => setAccountOpen(true)}
@@ -1751,6 +1868,7 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 onQueue={enqueue}
                 onFollow={follow}
                 onSearch={(query, fs) => void runSearch(query, fs)}
+                homeSearch={searchBar}
                 onNavigate={navigate}
                 onEntity={openCatalog}
                 onDaf={(value) => {
@@ -2613,7 +2731,10 @@ function TorahAppBody({ initialHome }: { initialHome: HomeData | null }) {
                 relatedLoading={relatedLoading}
                 relatedError={relatedError}
                 notify={notify}
-                onRetry={() => void showDetail(detail)}
+                onRetry={() => {
+                  setDetailRetry((n) => n + 1);
+                  void showDetail(detail);
+                }}
                 onRelatedRetry={() => setRelatedRetry((n) => n + 1)}
                 onOpen={openCatalog}
                 onDetails={(s) => void showDetail(s)}

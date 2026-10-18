@@ -1,5 +1,6 @@
 import type { SearchResult } from './yutorah';
 import { pollDelay } from './poll-delay';
+import { loadCatalogResource } from './catalog-client';
 
 /** Rank the full teacher archive, continuing the existing search index. */
 export async function loadTeacherPopularity(
@@ -7,6 +8,20 @@ export async function loadTeacherPopularity(
   signal: AbortSignal,
   onResult: (result: SearchResult) => void,
 ): Promise<void> {
+  if (signal.aborted) return;
+  try {
+    const prepared = await loadCatalogResource<SearchResult | null>(
+      '/api/teacher-popular?id=' + teacherId,
+      signal,
+    );
+    if (signal.aborted) return;
+    if (prepared?.complete && prepared.preparedAt) {
+      onResult(prepared);
+      return;
+    }
+  } catch {
+    if (signal.aborted) return;
+  }
   const params = new URLSearchParams({
     q: '',
     teacher: String(teacherId),
@@ -25,6 +40,6 @@ export async function loadTeacherPopularity(
     if (result.complete) return;
     // A concurrent request may still be creating the shared run.
     if (result.run) params.set('run', result.run);
-    await pollDelay(result.retryAfterMs || 1500, signal);
+    await pollDelay(result.retryAfterMs ?? 1500, signal);
   }
 }

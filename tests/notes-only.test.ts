@@ -38,6 +38,7 @@ import {
 } from '../packages/notes-only/src/notes.js';
 import {
   InferenceLimiter,
+  PipelineFailure,
   retryAfter,
 } from '../packages/notes-only/src/control.js';
 import { beginRegeneration } from '../packages/notes-only/src/regeneration.js';
@@ -142,6 +143,203 @@ void test('a completed bounded batch exits despite continuously refilling invent
     Date.now() - start < 700,
     'finished batch waited for its runtime deadline',
   );
+});
+
+void test('fatal coordinator errors abort workers and drain background work before returning the original failure', async (t) => {
+  const f = await fixture(t);
+  await ready(f, '1');
+  await ready(f, '2');
+  const controller = new AbortController();
+  const workerCleanup = Promise.withResolvers<void>();
+  const inventoryCleanup = Promise.withResolvers<void>();
+  const maintenanceCleanup = Promise.withResolvers<void>();
+  const workerDone = Promise.withResolvers<void>();
+  const inventoryDone = Promise.withResolvers<void>();
+  const maintenanceDone = Promise.withResolvers<void>();
+  const fatal = new Error('Memory observation failed.');
+  let workerStarted = false,
+    workerAborted = false,
+    returned = false;
+  const run = runCoordinator({
+    root: f.root,
+    queue: f.queue,
+    pipeline: {
+      recoverExpired: () => f.pipeline.recoverExpired(),
+      fetching: (job, jobSignal) => f.pipeline.fetching(job, jobSignal),
+      publishing: (job, jobSignal) => f.pipeline.publishing(job, jobSignal),
+      generating: async (job, jobSignal) => {
+        workerStarted = true;
+        try {
+          await new Promise<void>((resolve) => {
+            jobSignal.addEventListener(
+              'abort',
+              () => {
+                workerAborted = true;
+                resolve();
+              },
+              { once: true },
+            );
+          });
+          await workerCleanup.promise;
+          f.queue.event('test', 'worker_cleanup', job.id);
+          // Failed remote cleanup must retain the existing route pause policy.
+          throw new PipelineFailure('session_uncertain', 'muse', 0, true);
+        } finally {
+          workerDone.resolve();
+        }
+      },
+    },
+    settings: { ...defaults, generators: 2 },
+    signal: controller.signal,
+    follow: true,
+    memory: async () => {
+      if (workerStarted) throw fatal;
+      return 100000;
+    },
+    disk: async () => 100 * 1024 ** 3,
+    inventory: async () => {
+      await inventoryCleanup.promise;
+      f.queue.event('test', 'inventory_cleanup', null);
+      inventoryDone.resolve();
+    },
+    maintenance: async () => {
+      await maintenanceCleanup.promise;
+      f.queue.event('test', 'maintenance_cleanup', null);
+      maintenanceDone.resolve();
+    },
+  });
+  const outcome = run.then(
+    () => {
+      returned = true;
+      return null;
+    },
+    (error: unknown) => {
+      returned = true;
+      return error;
+    },
+  );
+  try {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(workerStarted, true);
+    assert.equal(workerAborted, true, 'fatal exit left the worker running');
+    assert.equal(returned, false, 'returned before worker cleanup');
+    workerCleanup.resolve();
+    await workerDone.promise;
+    assert.equal(returned, false, 'returned before background cleanup');
+    inventoryCleanup.resolve();
+    await inventoryDone.promise;
+    assert.equal(returned, false, 'returned before maintenance cleanup');
+    maintenanceCleanup.resolve();
+    assert.equal(await outcome, fatal);
+    assert.equal(f.queue.available('muse'), false);
+    assert.equal(
+      f.queue.db.prepare("SELECT error FROM jobs WHERE id='1'").get()?.error,
+      'session_uncertain',
+    );
+    assert.equal(
+      f.queue.db
+        .prepare("SELECT COUNT(*) n FROM events WHERE stage='test'")
+        .get()?.n,
+      3,
+    );
+  } finally {
+    controller.abort();
+    workerCleanup.resolve();
+    inventoryCleanup.resolve();
+    maintenanceCleanup.resolve();
+    await Promise.allSettled([
+      run,
+      workerDone.promise,
+      inventoryDone.promise,
+      maintenanceDone.promise,
+    ]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+});
+
+void test('fatal coordinator shutdown lets an in-flight publication finish without repeating inference', async (t) => {
+  const f = await fixture(t);
+  await ready(f, '1');
+  await f.pipeline.generating(f.queue.claim('generating')!, signal);
+  await ready(f, '2');
+  const publishStarted = Promise.withResolvers<void>();
+  const publishCleanup = Promise.withResolvers<void>();
+  const publicationDone = Promise.withResolvers<void>();
+  const failed = Promise.withResolvers<void>();
+  const fatal = new Error('Memory observation failed during publication.');
+  let publishing = false,
+    returned = false,
+    publications = 0;
+  const pipeline = new NotesPipeline({
+    ...f.pipeline.config,
+    store: {
+      get: f.pipeline.config.store.get,
+      publish: async (note) => {
+        publishing = true;
+        publishStarted.resolve();
+        await publishCleanup.promise;
+        publications++;
+        f.notes.set(note.shiurId, note);
+        return note;
+      },
+    },
+  });
+  const run = runCoordinator({
+    root: f.root,
+    queue: f.queue,
+    pipeline: {
+      recoverExpired: () => pipeline.recoverExpired(),
+      fetching: (job, jobSignal) => pipeline.fetching(job, jobSignal),
+      generating: (job, jobSignal) => pipeline.generating(job, jobSignal),
+      publishing: async (job, jobSignal) => {
+        try {
+          return await pipeline.publishing(job, jobSignal);
+        } finally {
+          publicationDone.resolve();
+        }
+      },
+    },
+    settings: { ...defaults, generators: 1 },
+    signal,
+    follow: true,
+    memory: async () => {
+      if (publishing) {
+        failed.resolve();
+        throw fatal;
+      }
+      return 0;
+    },
+    disk: async () => 100 * 1024 ** 3,
+  });
+  const outcome = run.then(
+    () => {
+      returned = true;
+      return null;
+    },
+    (error: unknown) => {
+      returned = true;
+      return error;
+    },
+  );
+  try {
+    await publishStarted.promise;
+    await failed.promise;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(returned, false, 'returned during the publication write');
+    publishCleanup.resolve();
+    assert.equal(await outcome, fatal);
+    assert.equal(
+      f.queue.db.prepare("SELECT status FROM jobs WHERE id='1'").get()?.status,
+      'completed',
+    );
+    assert.equal(await unpackNote(f.notes.get('1')!), markdown);
+    assert.equal(publications, 1);
+    assert.equal(f.calls, 1);
+  } finally {
+    publishCleanup.resolve();
+    await Promise.all([outcome, publicationDone.promise]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
 });
 const hebrewDraft =
   '# הגדרת הדין\n\n## ביאור\n\n' +
@@ -1385,6 +1583,7 @@ void test('bounded concurrent pilots never exceed their ID limit and refill stag
     settings: { ...defaults, minFreeMemoryMiB: 0 },
     signal,
     limit: 3,
+    memory: async () => 100000,
     disk: async () => 100 * 1024 ** 3,
   });
   assert.equal(result.selected, 3);
@@ -1641,6 +1840,7 @@ void test('unexpired generation from a previous coordinator consumes admission c
     settings: { ...defaults, generators: 1, minFreeMemoryMiB: 0 },
     signal,
     limit: 1,
+    memory: async () => 100000,
     disk: async () => 100 * 1024 ** 3,
   });
   assert.equal(result.selected, 0);

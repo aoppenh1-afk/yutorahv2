@@ -15,6 +15,8 @@ void test('teacher popularity requests a full scoped view ranking and resumes un
   const calls: URL[] = [];
   t.mock.method(globalThis, 'fetch', async (input: string) => {
     const url = new URL(input, 'https://example.test');
+    if (url.pathname === '/api/teacher-popular')
+      return new Response(null, { status: 204 });
     calls.push(url);
     return Response.json({
       items: [{ id: calls.length < 3 ? 1 : 181, views: 1000000 }],
@@ -77,4 +79,25 @@ void test('ranking failures reach the retry UI instead of falling back to the sh
     }),
     /Upstream unavailable/,
   );
+});
+
+void test('prepared teacher rankings appear without scanning the archive and are shared on repeat visits', async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async (input: string) => {
+    assert.match(input, /^\/api\/teacher-popular\?/);
+    calls++;
+    return Response.json({
+      complete: true,
+      preparedAt: Date.now(),
+      items: [{ id: 100, views: 1000 }],
+    });
+  });
+  const results: SearchResult[] = [];
+  for (let visit = 0; visit < 2; visit++)
+    await loadTeacherPopularity(99877, new AbortController().signal, (result) =>
+      results.push(result),
+    );
+  assert.equal(calls, 1);
+  assert.equal(results.length, 2);
+  assert.equal(results[0].items[0].id, 100);
 });

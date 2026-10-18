@@ -43,7 +43,7 @@ if (process.argv[2] === 'session' && process.argv[3] === 'delete') {
     );
   process.exit(0);
 }
-const model = 'opencode/muse-spark-1.3-contributor-free';
+const model = 'opencode/deepseek-v4.1-flash-free';
 let selectedModel = 'opencode/exo-free';
 let mode = 'build';
 let effort = 'minimal';

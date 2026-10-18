@@ -42,16 +42,20 @@ function client(behavior = 'normal') {
     20,
   );
 }
-void test('OpenCode selects and confirms Muse Free with high thinking', async () => {
+void test('OpenCode selects and confirms DeepSeek Free with high thinking', async () => {
   const c = client();
   try {
     await c.initialize();
     await c.authenticate();
     assert.deepEqual(await c.session(tmpdir()), [FREE_NOTES_MODEL]);
     assert.match(await c.textPrompt('Supplied notes skill and source'), /רש״י/);
-    await assert.rejects(c.session(tmpdir(), 'opencode/muse-spark-1.3'), {
-      code: 'configuration',
-    });
+    for (const model of [
+      'opencode/muse-spark-1.3-contributor-free',
+      'opencode/deepseek-v4.1-flash',
+    ])
+      await assert.rejects(c.session(tmpdir(), model), {
+        code: 'configuration',
+      });
   } finally {
     await c.close();
   }

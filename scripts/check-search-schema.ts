@@ -35,6 +35,9 @@ export async function checkSearchSchema(
   postgresSchema = 'yutorah_search',
 ) {
   for (const sql of [
+    'SELECT resource,version,payload,bytes,updated,expires FROM catalog_snapshots LIMIT 0',
+    'SELECT resource,owner,expires FROM catalog_refresh_leases LIMIT 0',
+    'SELECT id,image,updated FROM catalog_artwork LIMIT 0',
     'SELECT id,next,scanned,owner FROM search_runs LIMIT 0',
     'SELECT run,owner,valid FROM search_pass_guards LIMIT 0',
     'SELECT key,payload FROM search_documents LIMIT 0',

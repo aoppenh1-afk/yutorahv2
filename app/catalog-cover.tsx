@@ -14,11 +14,13 @@ export function CatalogCover({
   id,
   image,
   large = false,
+  resolved = false,
 }: {
   kind: BrowseKind;
   id: number;
   image?: string;
   large?: boolean;
+  resolved?: boolean;
 }) {
   const [artwork, setArtwork] = useState<{ id: number; image: string } | null>(
     null,
@@ -34,7 +36,7 @@ export function CatalogCover({
   const [visible, setVisible] = useState(false);
   useEffect(() => {
     const target = element.current;
-    if (!target || kind !== 'collection' || image) return;
+    if (!target || kind !== 'collection' || image || resolved) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -46,9 +48,9 @@ export function CatalogCover({
     );
     observer.observe(target);
     return () => observer.disconnect();
-  }, [kind, image, id]);
+  }, [kind, image, id, resolved]);
   useEffect(() => {
-    if (kind !== 'collection' || image || !visible) return;
+    if (kind !== 'collection' || image || !visible || resolved) return;
     let active = true;
     loadCatalogResource<{ image: string }>(url)
       .then((data) => {
@@ -62,7 +64,7 @@ export function CatalogCover({
     return () => {
       active = false;
     };
-  }, [kind, id, image, visible, url]);
+  }, [kind, id, image, visible, url, resolved]);
   return (
     <span
       className={'catalog-cover' + (large ? ' catalog-cover-large' : '')}

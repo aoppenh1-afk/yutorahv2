@@ -1,4 +1,5 @@
 type Event =
+  | 'catalog_snapshot'
   | 'upstream_cache'
   | 'upstream_read'
   | 'search_cache'

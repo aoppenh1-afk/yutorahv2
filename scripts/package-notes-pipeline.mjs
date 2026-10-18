@@ -78,7 +78,7 @@ const manifest = {
   bundleSha256: hash(await readFile(directory + '/notes-pipeline.mjs')),
   contractSha256: hash(await readFile(target + '/SKILL.md')),
   runtime: 'opencode:1.18.33',
-  model: 'opencode/muse-spark-1.3-contributor-free',
+  model: 'opencode/deepseek-v4.1-flash-free',
   effort: 'high',
   defaultRoute: 'acp-high',
   defaultPools: { fetchers: 3, generators: 4, publishers: 1 },

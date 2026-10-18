@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react';
 import { BookOpen, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Shiur } from '@/lib/yutorah';
-import type { CollectionData } from '@/lib/catalog';
+import type { CollectionNeighbors } from '@/lib/catalog-pages';
+import { loadCollectionNeighbors } from '@/lib/collection-client';
 export function CollectionContext({
   shiur,
   onOpen,
@@ -13,7 +14,7 @@ export function CollectionContext({
   onDetails: (s: Shiur) => void;
 }) {
   const [selected, setSelected] = useState(shiur.collections?.[0]?.id || 0),
-    [data, setData] = useState<CollectionData | null>(null),
+    [data, setData] = useState<CollectionNeighbors | null>(null),
     [error, setError] = useState(''),
     [retry, setRetry] = useState(0);
   const memberships = shiur.collections || [];
@@ -27,14 +28,7 @@ export function CollectionContext({
     setError('');
     if (!selected) return;
     const abort = new AbortController();
-    fetch('/api/catalog?action=entity&kind=collection&id=' + selected, {
-      signal: abort.signal,
-    })
-      .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error);
-        return d as CollectionData;
-      })
+    loadCollectionNeighbors(selected, shiur.id, '', abort.signal, retry > 0)
       .then((d) => {
         if (!abort.signal.aborted) setData(d);
       })
@@ -42,9 +36,9 @@ export function CollectionContext({
         if (!abort.signal.aborted) setError(e.message);
       });
     return () => abort.abort();
-  }, [selected, retry]);
+  }, [selected, retry, shiur.id]);
   if (!memberships.length) return null;
-  const index = data?.items.findIndex((s) => s.id === shiur.id) ?? -1;
+  const index = data?.index ?? -1;
   const others = memberships.filter((c) => c.id !== selected);
   const go = (s: Shiur) =>
     onDetails({
@@ -70,7 +64,7 @@ export function CollectionContext({
             </strong>
             <small>
               {index >= 0 && data
-                ? `Lesson ${index + 1} of ${data.items.length}`
+                ? `Lesson ${index + 1} of ${data.count}`
                 : 'Collection'}
             </small>
           </span>
@@ -81,8 +75,8 @@ export function CollectionContext({
               className="detail-collection-step"
               aria-label="Previous lesson"
               title="Previous lesson"
-              disabled={index === 0}
-              onClick={() => go(data.items[index - 1])}
+              disabled={!data.previous}
+              onClick={() => data.previous && go(data.previous)}
             >
               <ChevronLeft size={18} />
             </button>
@@ -90,8 +84,8 @@ export function CollectionContext({
               className="detail-collection-step"
               aria-label="Next lesson"
               title="Next lesson"
-              disabled={index === data.items.length - 1}
-              onClick={() => go(data.items[index + 1])}
+              disabled={!data.next}
+              onClick={() => data.next && go(data.next)}
             >
               <ChevronRight size={18} />
             </button>

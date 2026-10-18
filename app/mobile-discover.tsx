@@ -1,7 +1,8 @@
 /* oxlint-disable next/no-img-element -- Subject art is pre-sized, lazy-loaded local WebP. */
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import type { BrowseKind } from '@/lib/catalog';
 import { usePlayerDialog } from '@/hooks/use-player-dialog';
 import { TeacherLink } from './teacher-link';
 import {
@@ -11,7 +12,6 @@ import {
   Pause,
   Play,
   RefreshCw,
-  Search,
   Settings2,
   type LucideIcon,
 } from 'lucide-react';
@@ -61,6 +61,9 @@ type Props = {
   onDetails: (shiur: Shiur) => void;
   onSave: (shiur: Shiur) => void;
   onSearch: (query: string, filters?: Filters) => void;
+  homeSearch: ReactNode;
+  onEntity?: (kind: BrowseKind, id?: number) => void;
+  onDaf?: (value: string) => void;
   onNavigate: (
     view:
       | 'search'
@@ -94,12 +97,14 @@ export function MobileDiscover({
   onDetails,
   onSave,
   onSearch,
+  homeSearch,
+  onEntity,
+  onDaf,
   onNavigate,
   onPreferences,
   onRefresh,
 }: Props) {
   const { setExpanded } = usePlayerDialog();
-  const [query, setQuery] = useState('');
   const [feed, setFeed] = useState('recommended');
   const [shown, setShown] = useState(5);
   const shelfSeries = useSeriesWithArt(
@@ -144,7 +149,9 @@ export function MobileDiscover({
           onPlay={onPlay}
           onDetails={onDetails}
           onTeacher={(s) =>
-            onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+            onEntity
+              ? onEntity('teacher', s.teacherId)
+              : onSearch('', { ...noFilters, teacher: String(s.teacherId) })
           }
           onSave={onSave}
           saved={library.saved.some((v) => v.id === s.id)}
@@ -172,29 +179,7 @@ export function MobileDiscover({
           </span>
         )}
         <h1>The Torah library.</h1>
-        <search aria-label="Torah library">
-          <form
-            className="m-search"
-            onSubmit={(e) => {
-              e.preventDefault();
-              e.currentTarget.querySelector('input')?.blur();
-              onSearch(query.trim());
-            }}
-          >
-            <Search size={19} aria-hidden="true" />
-            <input
-              type="search"
-              enterKeyHint="search"
-              aria-label="Search the Torah library"
-              placeholder="Shiurim, teachers, topics…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <button type="submit" aria-label="Submit library search">
-              <ArrowRight size={19} />
-            </button>
-          </form>
-        </search>
+        {homeSearch}
       </section>
 
       {pick && (
@@ -220,7 +205,12 @@ export function MobileDiscover({
               <TeacherLink
                 shiur={pick}
                 onTeacher={(s) =>
-                  onSearch('', { ...noFilters, teacher: String(s.teacherId) })
+                  onEntity
+                    ? onEntity('teacher', s.teacherId)
+                    : onSearch('', {
+                        ...noFilters,
+                        teacher: String(s.teacherId),
+                      })
                 }
               />
             </div>
@@ -402,7 +392,12 @@ export function MobileDiscover({
           </div>
           <div className="m-today-grid">
             {daily.map(([label, value]) => (
-              <button key={label} onClick={() => onSearch(value)}>
+              <button
+                key={label}
+                onClick={() =>
+                  label === 'Daf Yomi' && onDaf ? onDaf(value) : onSearch(value)
+                }
+              >
                 <small>{label}</small>
                 <strong dir="auto">{value}</strong>
               </button>
@@ -448,7 +443,9 @@ export function MobileDiscover({
               <button
                 key={t.id}
                 onClick={() =>
-                  onSearch('', { ...noFilters, teacher: String(t.id) })
+                  onEntity
+                    ? onEntity('teacher', t.id)
+                    : onSearch('', { ...noFilters, teacher: String(t.id) })
                 }
               >
                 <span className={'m-teacher-portrait ' + tone(t.id)}>
@@ -470,7 +467,9 @@ export function MobileDiscover({
               <button
                 key={s.id}
                 onClick={() =>
-                  onSearch('', { ...noFilters, series: String(s.id) })
+                  onEntity
+                    ? onEntity('series', s.id)
+                    : onSearch('', { ...noFilters, series: String(s.id) })
                 }
               >
                 <SeriesCover name={s.name} id={s.id} image={s.image} />

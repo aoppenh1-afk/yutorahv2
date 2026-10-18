@@ -3,7 +3,15 @@
 import type { BrowseKind as CatalogKind } from '@/lib/catalog';
 import { ShiurViews } from './shiur-views';
 import { TeacherLink } from './teacher-link';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BoundedCache } from '@/lib/bounded-cache';
 import { loadDiscovery, loadSavedDiscovery } from '@/lib/discovery-client';
@@ -93,6 +101,7 @@ type Props = {
   onEntity?: (kind: CatalogKind, id?: number) => void;
   onDaf?: (value: string) => void;
   onSearch: (query: string, filters?: Filters) => void;
+  homeSearch: ReactNode;
   onNavigate: (
     view:
       | 'teachers'
@@ -125,6 +134,7 @@ export function LearningHome(props: Props) {
     onQueue,
     onFollow,
     onSearch,
+    homeSearch,
     onEntity,
     onDaf,
     onNavigate,
@@ -665,6 +675,9 @@ export function LearningHome(props: Props) {
             onDetails={onDetails}
             onSave={onSave}
             onSearch={onSearch}
+            homeSearch={homeSearch}
+            onEntity={onEntity}
+            onDaf={onDaf}
             onNavigate={onNavigate}
             onPreferences={() => setPreferences(true)}
             onRefresh={refreshAll}

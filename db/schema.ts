@@ -8,6 +8,33 @@ import {
   check,
 } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
+export const catalogSnapshots = sqliteTable(
+  'catalog_snapshots',
+  {
+    resource: text('resource').notNull(),
+    version: text('version').notNull(),
+    payload: text('payload').notNull(),
+    bytes: integer('bytes').notNull(),
+    updated: integer('updated').notNull(),
+    expires: integer('expires').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.resource, t.version] }),
+    index('catalog_snapshots_latest').on(t.resource, t.updated),
+    index('catalog_snapshots_expires').on(t.expires),
+    check('catalog_snapshots_bytes', sql`${t.bytes}>=0`),
+  ],
+);
+export const catalogRefreshLeases = sqliteTable('catalog_refresh_leases', {
+  resource: text('resource').primaryKey(),
+  owner: text('owner').notNull(),
+  expires: integer('expires').notNull(),
+});
+export const catalogArtwork = sqliteTable('catalog_artwork', {
+  id: integer('id').primaryKey(),
+  image: text('image').notNull(),
+  updated: integer('updated').notNull(),
+});
 export const searchRuns = sqliteTable(
   'search_runs',
   {

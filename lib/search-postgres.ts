@@ -4,6 +4,9 @@ import { performanceSample } from './performance-metrics';
 import { routeSearchStorage } from './search-storage-routing';
 
 const identifiers = new Set([
+  'catalog_snapshots',
+  'catalog_refresh_leases',
+  'catalog_artwork',
   'sources_runs',
   'search_note_snapshots',
   'search_note_documents',
@@ -178,6 +181,15 @@ export function postgresSearchDatabase(
     const poolMs = performance.now() - started;
     try {
       await client.query('BEGIN');
+      if (
+        (statements as Statement[]).some((s) =>
+          /\bcatalog_(?:snapshots|refresh_leases|artwork)\b/.test(s.sql),
+        )
+      )
+        await client.query(
+          'SELECT pg_advisory_xact_lock(1790900497,hashtext($1))',
+          [schema],
+        );
       // Title frequencies share rows across otherwise independent queries.
       // Serialize these small writes to avoid lock-order deadlocks.
       if (
