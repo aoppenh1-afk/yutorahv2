@@ -35,6 +35,10 @@ export function createPublicSnapshots({
 } = {}) {
   const memory = new BoundedCache<Stored>(128, 4 * 1024 * 1024);
   const pending = new Map<string, Promise<Stored>>();
+  const reads = new Map<
+    string,
+    Promise<{ row: Stored; source: 'snapshot' } | undefined>
+  >();
   const retryAt = new Map<string, number>();
   let storageRetryAt = 0;
   const connection = () => (now() < storageRetryAt ? undefined : database?.());
@@ -53,6 +57,17 @@ export function createPublicSnapshots({
     const hit = memory.get(key);
     if (hit && hit.expires > now())
       return { row: hit, source: 'server-memory' as const };
+    const existing = reads.get(key);
+    if (existing) return existing;
+    if (reads.size >= 128)
+      throw new SnapshotBusyError('The library is busy. Please retry shortly.');
+    const request = loadStored(resource, version, key).finally(() =>
+      reads.delete(key),
+    );
+    reads.set(key, request);
+    return request;
+  }
+  async function loadStored(resource: string, version: string, key: string) {
     const db = connection();
     const row = db
       ? await db
@@ -238,7 +253,8 @@ export function createPublicSnapshots({
         defer?: DeferPublicWork;
       } & SnapshotObservation = {},
     ): Promise<PublicSnapshot<T>> {
-      const hit = await stored(resource, version);
+      const hit =
+        fresh && !version ? undefined : await stored(resource, version);
       const result = (row: Stored, source: SnapshotSource) => {
         onRead?.(source);
         return unpack<T>(row, ttl);

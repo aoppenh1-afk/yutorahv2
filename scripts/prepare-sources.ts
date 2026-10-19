@@ -5,6 +5,7 @@ import {
   postgresSearchPool,
 } from '../lib/search-postgres';
 import { runSourcePreparation } from '../lib/source-preparation';
+import { transferPool, transferReporter } from '../lib/database-transfer';
 
 const { values } = parseArgs({
   options: {
@@ -42,6 +43,10 @@ No local AI model, TiDB writer, transcript writer, or Sefaria key is needed.`);
       'Set the SOURCES_DATABASE_URL secret to the website search database connection.',
     );
   const pool = postgresSearchPool(connection);
+  const counterPool =
+    process.env.DATABASE_TRANSFER_METRICS === '1'
+      ? transferPool(connection)
+      : undefined;
   const databaseBudget = Number(process.env.SOURCES_MAX_DATABASE_BYTES || 0);
   if (!Number.isSafeInteger(databaseBudget) || databaseBudget < 0)
     throw new Error('Use a nonnegative SOURCES_MAX_DATABASE_BYTES.');
@@ -51,7 +56,11 @@ No local AI model, TiDB writer, transcript writer, or Sefaria key is needed.`);
   process.once('SIGINT', stop);
   let summary = '';
   try {
-    const db = postgresSearchDatabase(pool);
+    const db = postgresSearchDatabase(
+      pool,
+      'yutorah_search',
+      counterPool ? transferReporter(counterPool, 'library') : undefined,
+    );
     await db
       .prepare('SELECT id,payload,lease,expires FROM sources_runs LIMIT 0')
       .all();
@@ -70,11 +79,9 @@ No local AI model, TiDB writer, transcript writer, or Sefaria key is needed.`);
         fetcher: async (url, init) => {
           if (databaseBudget) {
             const size = Number(
-              (
-                await pool.query(
-                  'SELECT pg_database_size(current_database()) AS bytes',
-                )
-              ).rows[0].bytes,
+              (await db
+                .prepare('SELECT pg_database_size(current_database()) AS bytes')
+                .first<{ bytes: number | string }>())!.bytes,
             );
             if (size >= databaseBudget) {
               abort.abort(
@@ -111,5 +118,6 @@ No local AI model, TiDB writer, transcript writer, or Sefaria key is needed.`);
     process.removeListener('SIGTERM', stop);
     process.removeListener('SIGINT', stop);
     await pool.end();
+    await counterPool?.end();
   }
 }

@@ -49,6 +49,11 @@ export async function checkSearchSchema(
   ])
     await db.prepare(sql).all();
   if (db.dialect === 'postgres') {
+    await db
+      .prepare(
+        'SELECT day,database,feature,queries,rows,column_bytes,errors FROM database_transfer_daily LIMIT 0',
+      )
+      .all();
     const generator = await db
       .prepare('SELECT to_regprocedure(?) AS implementation')
       .bind(`${postgresSchema}.title_terms(text)`)

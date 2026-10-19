@@ -65,6 +65,75 @@ function collection(): CollectionData {
     ),
   };
 }
+void test('concurrent cold readers share one durable snapshot download', async () => {
+  const db = database();
+  await createPublicSnapshots({ database: () => db }).save('burst', {
+    items: [1, 2],
+  });
+  let reads = 0;
+  const measured: SearchDatabase = {
+    ...db,
+    prepare(sql) {
+      const wrap = (statement: SearchStatement): SearchStatement => ({
+        ...statement,
+        bind: (...values) => wrap(statement.bind(...values)),
+        async first<T>() {
+          if (sql.startsWith('SELECT version,payload')) reads++;
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          return statement.first<T>();
+        },
+      });
+      return wrap(db.prepare(sql));
+    },
+  };
+  const snapshots = createPublicSnapshots({ database: () => measured });
+  const results = await Promise.all(
+    Array.from({ length: 8 }, () =>
+      snapshots.read('burst', async () => {
+        throw new Error('Unexpected upstream read');
+      }),
+    ),
+  );
+  assert.equal(
+    reads,
+    1,
+    'A simultaneous burst must download the compressed snapshot once',
+  );
+  for (const result of results)
+    assert.deepEqual(result.value, { items: [1, 2] });
+});
+void test('a forced background refresh skips downloading the old snapshot payload', async () => {
+  const db = database();
+  await createPublicSnapshots({ database: () => db }).save('forced', {
+    items: [1],
+  });
+  let payloadReads = 0;
+  const measured: SearchDatabase = {
+    ...db,
+    prepare(sql) {
+      const wrap = (statement: SearchStatement): SearchStatement => ({
+        ...statement,
+        bind: (...values) => wrap(statement.bind(...values)),
+        async first<T>() {
+          if (sql.startsWith('SELECT version,payload')) payloadReads++;
+          return statement.first<T>();
+        },
+      });
+      return wrap(db.prepare(sql));
+    },
+  };
+  const result = await createPublicSnapshots({ database: () => measured }).read(
+    'forced',
+    async () => ({ items: [2] }),
+    { fresh: true },
+  );
+  assert.deepEqual(result.value, { items: [2] });
+  assert.equal(
+    payloadReads,
+    0,
+    'A forced refresh cannot use the previous payload',
+  );
+});
 void test('snapshot observations distinguish fresh reads, process memory and durable storage', async () => {
   const db = database();
   const first = createPublicSnapshots({ database: () => db });
