@@ -43,6 +43,8 @@ uses raw column bytes, so its totals should not be mixed with those figures.
 Eight simultaneous cold catalog readers previously downloaded the same snapshot
 eight times. They now share one pending read. Snapshots keep their existing
 version keys, expiry, storage limits and refresh behavior.
+Forced catalog warmups also skip downloading the old snapshot: these requests
+cannot fall back to that value, and publication already reads only its timestamp.
 
 Cold suggestions still need a shared directory and collection lookup. A measured
 names-only projection saved only about 6% of their compressed size, so an extra
@@ -57,7 +59,11 @@ check requires that table; it remains read-only. Runtime roles receive the same
 table privileges they already have on search runs.
 
 The shared PostgreSQL adapter counts every managed query, including transaction
-control and background work using the website endpoints. Query-local type
+control and background work using the website endpoints. The scheduled
+source-sheet worker uses the same adapter and enables the meter explicitly;
+its direct database secret was moved to the replacement restricted library
+connection. Catalog refresh runs every six hours; source preparation is enabled
+and runs twice an hour. Query-local type
 parsers count returned column bytes before JSON, bigint or date decoding while
 preserving the connection's existing parsers. Categories are charts, catalog,
 artwork, vocabulary, search results, search state, source processing, notes

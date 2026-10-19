@@ -253,7 +253,8 @@ export function createPublicSnapshots({
         defer?: DeferPublicWork;
       } & SnapshotObservation = {},
     ): Promise<PublicSnapshot<T>> {
-      const hit = await stored(resource, version);
+      const hit =
+        fresh && !version ? undefined : await stored(resource, version);
       const result = (row: Stored, source: SnapshotSource) => {
         onRead?.(source);
         return unpack<T>(row, ttl);

@@ -5,6 +5,7 @@ import { routeSearchStorage } from './search-storage-routing';
 import {
   transferQuery,
   transferReporter,
+  transferPool,
   type TransferReporter,
   type TransferFeature,
   type TransferCount,
@@ -272,20 +273,8 @@ export function managedSearchDatabase() {
     // Accounting cannot queue behind application transactions or hold a page
     // for the application's longer read timeout. It gets one bounded writer.
     const counterPool = metered
-      ? new Pool({
-          connectionString: process.env.SEARCH_DATABASE_URL,
-          max: 1,
-          connectionTimeoutMillis: 1000,
-          query_timeout: 1000,
-          idleTimeoutMillis: 10000,
-          allowExitOnIdle: true,
-        })
+      ? transferPool(process.env.SEARCH_DATABASE_URL)
       : undefined;
-    counterPool?.on('error', () =>
-      console.warn(
-        JSON.stringify({ event: 'database_transfer_connection_lost' }),
-      ),
-    );
     const library = postgresSearchDatabase(
       pool,
       'yutorah_search',

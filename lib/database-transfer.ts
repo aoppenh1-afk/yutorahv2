@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import type { Pool, PoolClient, QueryResult } from 'pg';
+import { Pool, type PoolClient, type QueryResult } from 'pg';
 
 export type TransferDatabase = 'library' | 'notes';
 export type TransferFeature =
@@ -21,6 +21,23 @@ export type TransferCount = {
   errors: number;
 };
 export type TransferReporter = (counts: TransferCount[]) => Promise<void>;
+
+export function transferPool(connectionString: string) {
+  const pool = new Pool({
+    connectionString,
+    max: 1,
+    connectionTimeoutMillis: 1000,
+    query_timeout: 1000,
+    idleTimeoutMillis: 10000,
+    allowExitOnIdle: true,
+  });
+  pool.on('error', () =>
+    console.warn(
+      JSON.stringify({ event: 'database_transfer_connection_lost' }),
+    ),
+  );
+  return pool;
+}
 
 /** Fixed labels only. Neither SQL, parameters, IDs nor returned values leave this module. */
 export function transferFeature(
