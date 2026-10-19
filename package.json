@@ -16,7 +16,7 @@
     "test:learning": "node --test tests/learning.test.mjs tests/library.test.mjs tests/discovery.test.mjs tests/trending.test.mjs",
     "performance:fixtures": "node scripts/performance-fixtures.mjs",
     "test:performance": "tsx --test tests/performance.test.ts tests/client-performance.test.ts",
-    "test:api": "node --test tests/upstream.test.mjs && tsx --test tests/shiur-views.test.tsx tests/api-loading.test.ts tests/catalog-snapshots.test.ts tests/collection-client.test.ts tests/directory-payload.test.ts tests/shiur-core.test.ts tests/notes-bundle-client.test.ts",
+    "test:api": "node --test tests/upstream.test.mjs && tsx --test tests/shiur-views.test.tsx tests/api-loading.test.ts tests/catalog-snapshots.test.ts tests/trending-route.test.ts tests/collection-client.test.ts tests/directory-payload.test.ts tests/shiur-core.test.ts tests/notes-bundle-client.test.ts",
     "test:player": "node --test tests/player.test.mjs",
     "test:mobile-sheet": "node --test tests/mobile-sheet.test.mjs",
     "test:catalog-browser": "tsx --test tests/catalog-browser.test.ts",

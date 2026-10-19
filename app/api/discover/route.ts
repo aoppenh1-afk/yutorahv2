@@ -12,12 +12,11 @@ export async function GET(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
     const options = parseTrendingOptions(params);
-    const data = await (
-      params.get('cached') !== '1' &&
-        (options.period === 'day' || options.period === 'week')
-        ? discover
-        : savedCharts
-    )(options);
+    const savedOnly =
+      params.get('cached') === '1' ||
+      (options.period !== 'day' && options.period !== 'week');
+    const data = await (savedOnly ? savedCharts : discover)(options);
+    const refreshing = data.stale || data.refreshing;
     const {
       seen: _coverage,
       index: _index,
@@ -27,10 +26,15 @@ export async function GET(request: Request) {
     } = data;
     return Response.json(publicData, {
       headers: {
+        // Saved complete charts already remain visible during a scan. Share
+        // them briefly, keeping their labels and timestamp. Live requests must
+        // continue advancing scans, and partial results stay uncached.
         'Cache-Control':
-          data.stale || data.partial || data.refreshing
+          data.partial || (refreshing && !savedOnly)
             ? 'no-store'
-            : 'public, max-age=60, s-maxage=300, stale-while-revalidate=300',
+            : refreshing
+              ? 'public, max-age=0, s-maxage=30'
+              : 'public, max-age=60, s-maxage=300, stale-while-revalidate=300',
         'X-Trending-Fetched-At': data.fetchedAt,
       },
     });
