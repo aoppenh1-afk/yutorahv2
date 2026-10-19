@@ -65,6 +65,263 @@ function collection(): CollectionData {
     ),
   };
 }
+function snapshotMeter(db: SearchDatabase) {
+  const reads: { payloadBytes: number; bytes: number }[] = [];
+  const measured: SearchDatabase = {
+    ...db,
+    prepare(sql) {
+      const wrap = (statement: SearchStatement): SearchStatement => ({
+        ...statement,
+        bind: (...values) => wrap(statement.bind(...values)),
+        async first<T>() {
+          const row = await statement.first<T>();
+          if (
+            sql.includes('FROM catalog_snapshots') &&
+            sql.startsWith('SELECT version,')
+          ) {
+            const values = row as Record<string, unknown> | null;
+            reads.push({
+              payloadBytes:
+                typeof values?.payload === 'string'
+                  ? Buffer.byteLength(values.payload)
+                  : 0,
+              bytes: Object.values(values || {}).reduce<number>(
+                (sum, value) =>
+                  sum +
+                  (value == null
+                    ? 0
+                    : Buffer.byteLength(
+                        typeof value === 'string'
+                          ? value
+                          : (JSON.stringify(value) ?? ''),
+                      )),
+                0,
+              ),
+            });
+          }
+          return row;
+        },
+      });
+      return wrap(db.prepare(sql));
+    },
+  };
+  return { measured, reads };
+}
+void test('unchanged snapshots revalidate every minute without downloading payloads, including concurrent readers', async (t) => {
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const db = database();
+  const value = {
+    items: Array.from({ length: 1000 }, () => crypto.randomUUID()),
+  };
+  const writer = createPublicSnapshots({ database: () => db });
+  await writer.save('directory', value);
+  const { measured, reads } = snapshotMeter(db);
+  const reader = createPublicSnapshots({ database: () => measured });
+  const upstream = async () => {
+    throw new Error('Unexpected upstream request');
+  };
+  const first = await reader.read('directory', upstream, { ttl: 30 * 60_000 });
+  for (let minute = 1; minute <= 3; minute++) {
+    now += 60_001;
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        reader.read('directory', upstream, { ttl: 30 * 60_000 }),
+      ),
+    );
+    for (const result of results) assert.deepEqual(result, first);
+  }
+  assert.equal(reads.length, 4, 'Every burst shares one validation query');
+  assert.ok(reads[0].payloadBytes > 20_000);
+  assert.deepEqual(
+    reads.slice(1).map((read) => read.payloadBytes),
+    [0, 0, 0],
+    'Unchanged content must stay in process memory',
+  );
+  assert.ok(reads.slice(1).every((read) => read.bytes < 128));
+});
+void test('latest snapshot checks discover replacement generations within the existing sixty-second window', async (t) => {
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const db = database();
+  const writer = createPublicSnapshots({ database: () => db });
+  const old = await writer.save('collection:42', { items: [1] });
+  const { measured, reads } = snapshotMeter(db);
+  const reader = createPublicSnapshots({ database: () => measured });
+  const upstream = async () => {
+    throw new Error('Unexpected upstream request');
+  };
+  await reader.read('collection:42', upstream);
+  now += 1;
+  const updated = await writer.save('collection:42', { items: [2] });
+  assert.deepEqual((await reader.read('collection:42', upstream)).value, {
+    items: [1],
+  });
+  now += 60_000;
+  assert.equal(
+    (await reader.read('collection:42', upstream)).version,
+    updated.version,
+  );
+  assert.equal(
+    reads.length,
+    2,
+    'A changed generation arrives in the validation query itself',
+  );
+  assert.ok(reads[1].payloadBytes > 0);
+  assert.deepEqual(
+    (await reader.read('collection:42', upstream, { version: old.version }))
+      .value,
+    { items: [1] },
+  );
+});
+void test('republishing identical content updates its freshness without downloading it again', async (t) => {
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const db = database();
+  const writer = createPublicSnapshots({ database: () => db });
+  const value = { items: [1] };
+  await writer.save('directory', value);
+  const { measured, reads } = snapshotMeter(db);
+  const reader = createPublicSnapshots({ database: () => measured });
+  const upstream = async () => {
+    throw new Error('Unexpected upstream request');
+  };
+  await reader.read('directory', upstream);
+  now += 60_001;
+  const updated = await writer.save('directory', value);
+  const result = await reader.read('directory', upstream);
+  assert.equal(result.updated, updated.updated);
+  assert.equal(result.stale, false);
+  assert.equal(reads[1].payloadBytes, 0);
+});
+void test('snapshot revalidation respects removals, hard expiry and forced refreshes', async (t) => {
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const db = database();
+  const store = createPublicSnapshots({ database: () => db });
+  const first = await store.save('removed', { items: [1] });
+  now += 60_001;
+  await db
+    .prepare('DELETE FROM catalog_snapshots WHERE resource=?')
+    .bind('removed')
+    .run();
+  const replacement = await store.read('removed', async () => ({ items: [2] }));
+  assert.notEqual(replacement.version, first.version);
+  const forced = await store.read('removed', async () => ({ items: [3] }), {
+    fresh: true,
+  });
+  assert.deepEqual(forced.value, { items: [3] });
+  now += 24 * 60 * 60_000 + 1;
+  await assert.rejects(
+    store.read('removed', async () => ({ items: [4] }), {
+      version: forced.version,
+    }),
+    SnapshotExpiredError,
+  );
+});
+void test('failed snapshot validation retains unexpired content with a short retry and then discovers a replacement', async (t) => {
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const db = database();
+  const writer = createPublicSnapshots({ database: () => db });
+  const original = await writer.save('outage', { items: [1] });
+  let unavailable = false;
+  let attempts = 0;
+  const reader = createPublicSnapshots({
+    database: () => ({
+      ...db,
+      prepare(sql) {
+        const wrap = (statement: SearchStatement): SearchStatement => ({
+          ...statement,
+          bind: (...values) => wrap(statement.bind(...values)),
+          async first<T>() {
+            attempts++;
+            if (unavailable) throw new Error('Temporary storage outage');
+            return statement.first<T>();
+          },
+        });
+        return wrap(db.prepare(sql));
+      },
+    }),
+  });
+  const options = { ttl: 1000, defer: () => {} };
+  const upstream = async () => {
+    throw new Error('Unexpected upstream request');
+  };
+  await reader.read('outage', upstream, options);
+  now += 60_001;
+  unavailable = true;
+  const stale = await reader.read('outage', upstream, options);
+  assert.equal(stale.version, original.version);
+  assert.equal(stale.updated, original.updated);
+  assert.equal(stale.stale, true);
+  await reader.read('outage', upstream, options);
+  assert.equal(attempts, 2, 'A failed validation must not hammer storage');
+  unavailable = false;
+  const updated = await writer.save('outage', { items: [2] });
+  now += 30_001;
+  assert.equal(
+    (await reader.read('outage', upstream, options)).version,
+    updated.version,
+  );
+});
+void test('an in-flight validation cannot overwrite a newer same-process publication', async (t) => {
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const db = database();
+  await createPublicSnapshots({ database: () => db }).save('racing', {
+    items: [1],
+  });
+  let hold = false;
+  let release!: () => void;
+  let queried!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    queried = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const store = createPublicSnapshots({
+    database: () => ({
+      ...db,
+      prepare(sql) {
+        const wrap = (statement: SearchStatement): SearchStatement => ({
+          ...statement,
+          bind: (...values) => wrap(statement.bind(...values)),
+          async first<T>() {
+            const result = await statement.first<T>();
+            if (hold && sql.startsWith('SELECT version,')) {
+              queried();
+              await gate;
+            }
+            return result;
+          },
+        });
+        return wrap(db.prepare(sql));
+      },
+    }),
+  });
+  const upstream = async () => {
+    throw new Error('Unexpected upstream request');
+  };
+  await store.read('racing', upstream);
+  now += 60_001;
+  hold = true;
+  const earlier = store.read('racing', upstream);
+  await waiting;
+  try {
+    const published = await store.read('racing', async () => ({ items: [2] }), {
+      fresh: true,
+    });
+    release();
+    assert.equal((await earlier).version, published.version);
+    assert.deepEqual((await store.read('racing', upstream)).value, {
+      items: [2],
+    });
+  } finally {
+    release();
+  }
+});
 void test('concurrent cold readers share one durable snapshot download', async () => {
   const db = database();
   await createPublicSnapshots({ database: () => db }).save('burst', {

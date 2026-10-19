@@ -8,6 +8,47 @@ import {
   createPublicSnapshots,
   SnapshotBusyError,
 } from '../lib/public-snapshots';
+import type { TransferCount } from '../lib/database-transfer';
+
+void test(
+  'PostgreSQL snapshot validation transfers metadata for the same hash and a payload for its replacement',
+  { skip: !process.env.TEST_DATABASE_URL },
+  async (t) => {
+    let now = Date.now();
+    t.mock.method(Date, 'now', () => now);
+    const schema = 'validation_' + randomUUID().replaceAll('-', '');
+    const pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
+    try {
+      await migratePostgresSearch(process.env.TEST_DATABASE_URL!, schema);
+      const db = postgresSearchDatabase(pool, schema);
+      const writer = createPublicSnapshots({ database: () => db });
+      const value = { data: randomBytes(40_000).toString('base64') };
+      const first = await writer.save('directory', value);
+      const counts: TransferCount[] = [];
+      const measured = postgresSearchDatabase(pool, schema, async (batch) => {
+        counts.push(...batch);
+      });
+      const reader = createPublicSnapshots({ database: () => measured });
+      assert.deepEqual((await reader.peek('directory'))?.value, value);
+      assert.ok(counts[0].columnBytes > 40_000);
+      now += 60_001;
+      assert.equal((await reader.peek('directory'))?.version, first.version);
+      assert.ok(
+        counts[1].columnBytes < 128,
+        'The SQL CASE must omit the unchanged payload before transfer',
+      );
+      const second = await writer.save('directory', { data: 'Changed' });
+      now += 60_001;
+      const changed = await reader.peek('directory');
+      assert.equal(changed?.version, second.version);
+      assert.deepEqual(changed?.value, { data: 'Changed' });
+      assert.equal(counts.length, 3, 'Changed data must arrive in one query');
+    } finally {
+      await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await pool.end();
+    }
+  },
+);
 
 void test(
   'PostgreSQL catalog snapshots share immutable generations, fence expired writers and enforce their byte budget',

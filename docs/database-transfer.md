@@ -51,6 +51,43 @@ names-only projection saved only about 6% of their compressed size, so an extra
 persisted lookup was not introduced. The 400 KB cold read is a measured cost;
 the warm replay used no SQL. The production counters will show its actual share.
 
+## Reusing unchanged public snapshots
+
+Latest catalog reads still check for another publisher every sixty seconds.
+The validation query compares the retained content hash in SQL and returns the
+payload only when that hash changed. It updates timestamps and expiry even when
+identical content was republished. A replacement arrives in that same query,
+without another database round trip. Explicit versions remain immutable and
+expire at their existing deadline; forced refreshes still bypass old content.
+
+The compressed payloads stay in the existing 128-entry, 4 MiB bounded cache.
+Eviction and cold processes still require full downloads. Failed validation can
+reuse unexpired content during the thirty-second storage cooldown, preserving
+its original timestamp and stale flag. Confirmed removal and hard expiry do not
+reuse a cached latest value. An earlier validation cannot overwrite a newer
+publication made in the same process.
+
+A read-only capture of the production directory and collection snapshots,
+replayed through PostgreSQL in a disposable local schema, returned 399,816 raw
+column bytes on each old minute check. The new checks returned 180 bytes with
+identical response values and the same two queries. Both cold reads still
+returned 399,816 bytes. This is a reduction for unchanged reads in a warm process,
+not a forecast of total monthly transfer. Private evidence is saved under
+`work/cache-transfer-20261019/private/` and its durable backup.
+
+Complete saved charts that are stale or refreshing now permit thirty seconds of
+CDN caching, with browser `max-age=0` and no stale-while-revalidate extension.
+Their original freshness labels and fetched timestamp remain in the response.
+A newly published chart may take up to thirty additional seconds to appear from
+the CDN. Partial charts, live scan requests that are stale or refreshing, and
+refresh failures remain uncached. Fresh complete charts retain their existing
+cache policy. Background scan and refresh schedules are unchanged.
+
+These changes need no schema migration or new storage service. Moving snapshots
+to another store and automatically pausing refresh jobs remain separate choices:
+they add publication operations or reduce update frequency. Normal production
+counter data should establish their benefit before taking those tradeoffs.
+
 ## Production counters
 
 Set `DATABASE_TRANSFER_METRICS=1` on a release after applying

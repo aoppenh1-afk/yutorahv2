@@ -19,6 +19,7 @@ type Stored = {
   updated: number;
   expires: number;
 };
+type Cached = { row: Stored; validateAfter: number };
 export class SnapshotExpiredError extends Error {}
 export class SnapshotBusyError extends Error {}
 export type DeferPublicWork = (task: () => Promise<unknown>) => void;
@@ -33,15 +34,17 @@ export function createPublicSnapshots({
   database?: () => SearchDatabase;
   now?: () => number;
 } = {}) {
-  const memory = new BoundedCache<Stored>(128, 4 * 1024 * 1024);
+  const memory = new BoundedCache<Cached>(128, 4 * 1024 * 1024);
   const pending = new Map<string, Promise<Stored>>();
   const reads = new Map<
     string,
-    Promise<{ row: Stored; source: 'snapshot' } | undefined>
+    Promise<{ row: Stored; source: 'snapshot' | 'server-memory' } | undefined>
   >();
   const retryAt = new Map<string, number>();
   let storageRetryAt = 0;
   const connection = () => (now() < storageRetryAt ? undefined : database?.());
+  const remember = (key: string, row: Stored, validateAfter = now() + 60_000) =>
+    memory.set(key, { row, validateAfter }, row.expires - now());
   const unpack = <T>(row: Stored, ttl: number): PublicSnapshot<T> => ({
     value: JSON.parse(
       gunzipSync(Buffer.from(row.payload, 'base64'), {
@@ -54,38 +57,80 @@ export function createPublicSnapshots({
   });
   async function stored(resource: string, version = '') {
     const key = resource + ':' + (version || 'latest');
-    const hit = memory.get(key);
-    if (hit && hit.expires > now())
-      return { row: hit, source: 'server-memory' as const };
+    const cached = memory.get(key);
+    const hit = cached && cached.row.expires > now() ? cached : undefined;
+    // Explicit versions are immutable. Latest reads keep the same sixty-second
+    // publication check, retaining payloads within the existing memory budget.
+    if (hit && (version || hit.validateAfter > now()))
+      return { row: hit.row, source: 'server-memory' as const };
     const existing = reads.get(key);
     if (existing) return existing;
     if (reads.size >= 128)
       throw new SnapshotBusyError('The library is busy. Please retry shortly.');
-    const request = loadStored(resource, version, key).finally(() =>
+    const request = loadStored(resource, version, key, hit?.row).finally(() =>
       reads.delete(key),
     );
     reads.set(key, request);
     return request;
   }
-  async function loadStored(resource: string, version: string, key: string) {
+  async function loadStored(
+    resource: string,
+    version: string,
+    key: string,
+    cached?: Stored,
+  ) {
     const db = connection();
+    let unavailable = !db;
     const row = db
       ? await db
           .prepare(
-            'SELECT version,payload,updated,expires FROM catalog_snapshots WHERE resource=? AND expires>?' +
+            // One query returns only metadata for an unchanged content hash,
+            // or includes the replacement payload when another host published.
+            'SELECT version,' +
+              (cached
+                ? 'CASE WHEN version=? THEN NULL ELSE payload END AS payload'
+                : 'payload') +
+              ',updated,expires FROM catalog_snapshots WHERE resource=? AND expires>?' +
               (version
                 ? ' AND version=?'
                 : ' ORDER BY updated DESC,version DESC LIMIT 1'),
           )
-          .bind(resource, now(), ...(version ? [version] : []))
-          .first<Stored>()
+          .bind(
+            ...(cached ? [cached.version] : []),
+            resource,
+            now(),
+            ...(version ? [version] : []),
+          )
+          .first<Omit<Stored, 'payload'> & { payload: string | null }>()
           .catch(() => {
             storageRetryAt = now() + 30_000;
+            unavailable = true;
             return null;
           })
       : null;
-    if (row) memory.set(key, row, Math.min(60_000, row.expires - now()));
-    return row ? { row, source: 'snapshot' as const } : undefined;
+    // A local refresh may publish while this validation query is in flight.
+    // Do not replace its newer generation with the earlier query result.
+    const latest = memory.get(key);
+    if (
+      latest &&
+      latest.row.expires > now() &&
+      latest.row.updated > (row?.updated ?? cached?.updated ?? 0)
+    )
+      return { row: latest.row, source: 'server-memory' as const };
+    if (unavailable && cached) {
+      remember(key, cached, now() + 30_000);
+      return { row: cached, source: 'server-memory' as const };
+    }
+    const payload =
+      row?.payload ??
+      (row?.version === cached?.version ? cached?.payload : undefined);
+    if (row && typeof payload === 'string') {
+      const loaded = { ...row, payload };
+      remember(key, loaded);
+      return { row: loaded, source: 'snapshot' as const };
+    }
+    memory.delete(key);
+    return undefined;
   }
   async function refresh<T>(resource: string, read: () => Promise<T>) {
     const existing = pending.get(resource);
@@ -197,8 +242,8 @@ export function createPublicSnapshots({
               'The library refresh expired. Please retry.',
             );
         }
-        memory.set(resource + ':' + version, row, retentionMs);
-        memory.set(resource + ':latest', row, 60_000);
+        remember(resource + ':' + version, row);
+        remember(resource + ':latest', row);
         retryAt.delete(resource);
         performanceSample('catalog_snapshot', {
           bytes,
