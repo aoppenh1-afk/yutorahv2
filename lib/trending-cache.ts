@@ -45,8 +45,24 @@ export function serializeTrendingPlan(plan: StoredTrendingPlan) {
   const raw = Buffer.from(text);
   if (raw.length < 32_000 || raw.length > maxPlanBytes) return text;
   const compressedPlan = packedPrefix + gzipSync(raw).toString('base64');
+  const display = (data?: DiscoveryData) =>
+    data && {
+      ...data,
+      seen: undefined,
+      index: data.index && { ...data.index, audit: undefined },
+    };
+  const publicText = JSON.stringify({
+    ...plan,
+    snapshot: display(plan.snapshot),
+    lastComplete: display(plan.lastComplete),
+  });
+  const packedPublic = packedPrefix + gzipSync(publicText).toString('base64');
+  const compressedPublicPlan =
+    packedPublic.length < Buffer.byteLength(publicText)
+      ? packedPublic
+      : undefined;
   return compressedPlan.length < raw.length
-    ? JSON.stringify({ ...plan, compressedPlan })
+    ? JSON.stringify({ ...plan, compressedPlan, compressedPublicPlan })
     : text;
 }
 
@@ -71,6 +87,7 @@ const storedPlanField = (db: SearchDatabase) =>
 export function trendingPlanSql(db: SearchDatabase, publicOnly: boolean) {
   const paths = [
     ['compressedPlan'],
+    ['compressedPublicPlan'],
     ['snapshot', 'seen'],
     ['snapshot', 'index', 'audit'],
     ['lastComplete', 'seen'],
@@ -79,8 +96,8 @@ export function trendingPlanSql(db: SearchDatabase, publicOnly: boolean) {
   const plan = !publicOnly
     ? storedPlanField(db)
     : db.dialect === 'postgres'
-      ? `CASE WHEN plan IS JSON OBJECT THEN (plan::jsonb ${paths.map((path) => `#- '{${path.join(',')}}'`).join(' ')})::text ELSE plan END`
-      : `CASE WHEN json_valid(plan) THEN json_remove(plan,${paths.map((path) => `'$.${path.join('.')}'`).join(',')}) ELSE plan END`;
+      ? `CASE WHEN plan IS JSON OBJECT THEN COALESCE(plan::jsonb->>'compressedPublicPlan',(plan::jsonb ${paths.map((path) => `#- '{${path.join(',')}}'`).join(' ')})::text) ELSE plan END`
+      : `CASE WHEN json_valid(plan) THEN COALESCE(json_extract(plan,'$.compressedPublicPlan'),json_remove(plan,${paths.map((path) => `'$.${path.join('.')}'`).join(',')})) ELSE plan END`;
   return `SELECT ${plan} AS plan FROM search_runs WHERE id = ? AND fingerprint = ?`;
 }
 

@@ -88,6 +88,51 @@ test.after(() => {
   globalThis.fetch = realFetch;
 });
 
+void test('completed search pagination reuses unchanged facets without another full facet read', async () => {
+  const raw = database();
+  let facetReads = 0;
+  const db = {
+    ...raw,
+    prepare(sql) {
+      const wrap = (statement) => ({
+        ...statement,
+        bind: (...values) => wrap(statement.bind(...values)),
+        async all() {
+          if (sql.includes('WITH eligible AS')) facetReads++;
+          return statement.all();
+        },
+      });
+      return wrap(raw.prepare(sql));
+    },
+  };
+  let first = await completeSearch(db, 'general', {}, 1);
+  while (!first.complete)
+    first = await completeSearch(db, 'general', {}, 1, first.run);
+  facetReads = 0;
+  const second = await completeSearch(db, 'general', {}, 2, first.run);
+  assert.equal(second.complete, true);
+  assert.equal(second.items.length, 30);
+  assert.deepEqual(second.facets, first.facets);
+  assert.equal(
+    facetReads,
+    0,
+    'Paging the same completed run must not download its facets again',
+  );
+  const filtered = await completeSearch(
+    db,
+    'general',
+    { language: 'HE' },
+    1,
+    first.run,
+  );
+  assert.equal(
+    facetReads,
+    1,
+    'Different filters must compute their own facet counts',
+  );
+  assert.notEqual(filtered.total, first.total);
+});
+
 void test('an abandoned partial search cannot block a new mobile search', async () => {
   const db = database();
   await db

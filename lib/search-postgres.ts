@@ -2,8 +2,16 @@ import { Pool, types, type QueryResult } from 'pg';
 import type { SearchDatabase, SearchStatement } from './search-storage';
 import { performanceSample } from './performance-metrics';
 import { routeSearchStorage } from './search-storage-routing';
+import {
+  transferQuery,
+  transferReporter,
+  type TransferReporter,
+  type TransferFeature,
+  type TransferCount,
+} from './database-transfer';
 
 const identifiers = new Set([
+  'database_transfer_daily',
   'catalog_snapshots',
   'catalog_refresh_leases',
   'catalog_artwork',
@@ -131,7 +139,19 @@ export function postgresSearchPool(connectionString: string) {
 export function postgresSearchDatabase(
   pool: Pool,
   schema = 'yutorah_search',
+  report?: TransferReporter,
 ): SearchDatabase {
+  async function standalone(sql: string, params: unknown[]) {
+    if (!report) return pool.query(sql, params);
+    const counts = new Map<TransferFeature, TransferCount>();
+    const client = await pool.connect();
+    try {
+      return await transferQuery(client, sql, params, counts);
+    } finally {
+      client.release();
+      await report([...counts.values()]);
+    }
+  }
   const result = (query: QueryResult) => ({
     results: query.rows,
     meta: { changes: query.rowCount ?? 0 },
@@ -161,7 +181,7 @@ export function postgresSearchDatabase(
         const [query] = await batch([this]);
         return { ...query, results: query.results as T[] };
       }
-      const query = await pool.query(this.sql, this.params);
+      const query = await standalone(this.sql, this.params);
       return { ...result(query), results: query.rows as T[] };
     }
     async first<T = Record<string, unknown>>(): Promise<T | null> {
@@ -169,7 +189,7 @@ export function postgresSearchDatabase(
     }
     async run() {
       if (cacheWrite(this.sql)) return (await batch([this]))[0];
-      return result(await pool.query(this.sql, this.params));
+      return result(await standalone(this.sql, this.params));
     }
   }
   async function batch(statements: SearchStatement[]) {
@@ -179,17 +199,21 @@ export function postgresSearchDatabase(
     const started = performance.now();
     const client = await pool.connect();
     const poolMs = performance.now() - started;
+    const counts = new Map<TransferFeature, TransferCount>();
+    const query = (sql: string, params: unknown[] = []) =>
+      report
+        ? transferQuery(client, sql, params, counts)
+        : client.query(sql, params);
     try {
-      await client.query('BEGIN');
+      await query('BEGIN');
       if (
         (statements as Statement[]).some((s) =>
           /\bcatalog_(?:snapshots|refresh_leases|artwork)\b/.test(s.sql),
         )
       )
-        await client.query(
-          'SELECT pg_advisory_xact_lock(1790900497,hashtext($1))',
-          [schema],
-        );
+        await query('SELECT pg_advisory_xact_lock(1790900497,hashtext($1))', [
+          schema,
+        ]);
       // Title frequencies share rows across otherwise independent queries.
       // Serialize these small writes to avoid lock-order deadlocks.
       if (
@@ -200,24 +224,20 @@ export function postgresSearchDatabase(
             s.sql.includes(`${schema}.insert_spelling_keys`),
         )
       )
-        await client.query(
-          'SELECT pg_advisory_xact_lock(1790900494,hashtext($1))',
-          [schema],
-        );
+        await query('SELECT pg_advisory_xact_lock(1790900494,hashtext($1))', [
+          schema,
+        ]);
       if ((statements as Statement[]).some((s) => cacheWrite(s.sql)))
         // Use the same lock for admission, hit commits and orphan cleanup.
         // A cleanup snapshot must be taken after any attaching writer commits.
-        await client.query(
-          'SELECT pg_advisory_xact_lock(1790900495,hashtext($1))',
-          [schema],
-        );
+        await query('SELECT pg_advisory_xact_lock(1790900495,hashtext($1))', [
+          schema,
+        ]);
       const results = [];
       const lockMs = performance.now() - started - poolMs;
       for (const statement of statements as Statement[])
-        results.push(
-          result(await client.query(statement.sql, statement.params)),
-        );
-      await client.query('COMMIT');
+        results.push(result(await query(statement.sql, statement.params)));
+      await query('COMMIT');
       performanceSample('search_transaction', {
         poolMs,
         lockMs,
@@ -226,10 +246,11 @@ export function postgresSearchDatabase(
       });
       return results;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await query('ROLLBACK');
       throw error;
     } finally {
       client.release();
+      await report?.([...counts.values()]);
     }
   }
   return {
@@ -246,14 +267,37 @@ export function managedSearchDatabase() {
   if (!database) {
     if (!process.env.SEARCH_DATABASE_URL)
       throw new Error('Search storage is not configured.');
+    const pool = postgresSearchPool(process.env.SEARCH_DATABASE_URL);
+    const metered = process.env.DATABASE_TRANSFER_METRICS === '1';
+    // Accounting cannot queue behind application transactions or hold a page
+    // for the application's longer read timeout. It gets one bounded writer.
+    const counterPool = metered
+      ? new Pool({
+          connectionString: process.env.SEARCH_DATABASE_URL,
+          max: 1,
+          connectionTimeoutMillis: 1000,
+          query_timeout: 1000,
+          idleTimeoutMillis: 10000,
+          allowExitOnIdle: true,
+        })
+      : undefined;
+    counterPool?.on('error', () =>
+      console.warn(
+        JSON.stringify({ event: 'database_transfer_connection_lost' }),
+      ),
+    );
     const library = postgresSearchDatabase(
-      postgresSearchPool(process.env.SEARCH_DATABASE_URL),
+      pool,
+      'yutorah_search',
+      counterPool ? transferReporter(counterPool, 'library') : undefined,
     );
     database = process.env.NOTES_SEARCH_DATABASE_URL
       ? routeSearchStorage(
           library,
           postgresSearchDatabase(
             postgresSearchPool(process.env.NOTES_SEARCH_DATABASE_URL),
+            'yutorah_search',
+            counterPool ? transferReporter(counterPool, 'notes') : undefined,
           ),
         )
       : library;

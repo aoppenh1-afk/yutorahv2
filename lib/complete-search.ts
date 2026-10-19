@@ -59,6 +59,10 @@ const sorts: Record<string, string> = {
 };
 export class SearchChangedError extends Error {}
 export class SearchBusyError extends Error {}
+const completedFacets = new WeakMap<
+  SearchDatabase,
+  BoundedCache<CatalogFacets>
+>();
 
 function sourceParams(plan: SearchPlan, query: string, page: number) {
   const p = new URLSearchParams({
@@ -776,34 +780,52 @@ async function searchPass(
           .prepare(`SELECT COUNT(*) AS matches FROM search_hits WHERE ${where}`)
           .bind(...args)
           .first<{ matches: number }>())!.matches;
-  const facets: CatalogFacets = emptyFacets();
-  const facetRows = await db
-    .prepare(`WITH eligible AS (SELECT id, ${payload} AS payload FROM search_hits WHERE ${where})
+  let facetCache = completedFacets.get(db);
+  if (!facetCache)
+    completedFacets.set(
+      db,
+      (facetCache = new BoundedCache(32, 2 * 1024 * 1024)),
+    );
+  // A completed run's documents are immutable. Paging and ordering cannot change
+  // its facets; filter predicates and checkpoint identity remain part of the key.
+  const facetKey = JSON.stringify([run.id, run.next, run.scanned, where, args]);
+  let facets = complete ? facetCache.get(facetKey) : undefined;
+  if (!facets) {
+    facets = emptyFacets();
+    const facetRows = await db
+      .prepare(`WITH eligible AS (SELECT id, ${payload} AS payload FROM search_hits WHERE ${where})
     SELECT json_extract(f.value,'$.kind') AS kind, CAST(json_extract(f.value,'$.id') AS INTEGER) AS id,
       MAX(json_extract(f.value,'$.name')) AS name, COUNT(DISTINCT eligible.id) AS count
     FROM eligible, json_each(json_extract(eligible.payload,'$.facets')) AS f
     GROUP BY json_extract(f.value,'$.kind'), CAST(json_extract(f.value,'$.id') AS INTEGER)
     ORDER BY count DESC, id ASC`)
-    .bind(...args)
-    .all<{
-      kind: keyof CatalogFacets;
-      id: number;
-      name: string;
-      count: number;
-    }>();
-  for (const row of facetRows.results) {
-    if (!(row.kind in facets) || row.id <= 0) continue;
-    let name = row.name;
-    if (!name && row.kind === 'teachers')
-      name = directory.teachers.find((x) => x.id === row.id)?.name || '';
-    if (!name && row.kind === 'series')
-      name = directory.series.find((x) => x.id === row.id)?.name || '';
-    if (!name && row.kind === 'venues') name = venueNames.get(row.id) || '';
-    facets[row.kind].push({
-      id: row.id,
-      name: name || `Selected ${row.kind.replace(/s$/, '')} ${row.id}`,
-      count: row.count,
-    });
+      .bind(...args)
+      .all<{
+        kind: keyof CatalogFacets;
+        id: number;
+        name: string;
+        count: number;
+      }>();
+    for (const row of facetRows.results) {
+      if (!(row.kind in facets) || row.id <= 0) continue;
+      let name = row.name;
+      if (!name && row.kind === 'teachers')
+        name = directory.teachers.find((x) => x.id === row.id)?.name || '';
+      if (!name && row.kind === 'series')
+        name = directory.series.find((x) => x.id === row.id)?.name || '';
+      if (!name && row.kind === 'venues') name = venueNames.get(row.id) || '';
+      facets[row.kind].push({
+        id: row.id,
+        name: name || `Selected ${row.kind.replace(/s$/, '')} ${row.id}`,
+        count: row.count,
+      });
+    }
+    if (complete)
+      facetCache.set(
+        facetKey,
+        facets,
+        Math.min(60000, run.created + 60 * 60_000 - Date.now()),
+      );
   }
   return {
     items: data.results.map((r) => JSON.parse(r.payload) as Shiur),

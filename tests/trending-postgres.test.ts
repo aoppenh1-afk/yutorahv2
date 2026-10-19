@@ -94,7 +94,15 @@ void test(
         .prepare(trendingPlanSql(db, true))
         .bind(key, key)
         .first<{ plan: string }>();
-      assert.deepEqual(JSON.parse(display!.plan), publicState);
+      assert.match(
+        display!.plan,
+        /^gzip:v1:/,
+        'Public metadata must also cross the wire compressed',
+      );
+      const publicText = gunzipSync(
+        Buffer.from(display!.plan.slice('gzip:v1:'.length), 'base64'),
+      ).toString('utf8');
+      assert.deepEqual(JSON.parse(publicText), publicState);
       await pool.query(`UPDATE ${schema}.search_runs SET plan=$1`, [
         'corrupt state',
       ]);
