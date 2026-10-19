@@ -18,6 +18,7 @@ import { DataCommitMarker } from './performance-monitor';
 import type { DataCommitTiming } from '@/lib/client-performance';
 import { BoundedCache } from '@/lib/bounded-cache';
 import { loadDiscovery, loadSavedDiscovery } from '@/lib/discovery-client';
+import { pollDelay } from '@/lib/poll-delay';
 import {
   readLocalDiscoveryCharts,
   preferDiscoveryChart,
@@ -212,11 +213,11 @@ export function LearningHome(props: Props) {
       discovery.coverage?.status !== 'paused' &&
       !discoveryError;
     if (!indexing && !discoveryRetry) return;
-    const timer = window.setTimeout(
-      () => setDiscoveryPass((n) => n + 1),
-      discoveryRetry ? discoveryRetry * 1000 : 3500,
-    );
-    return () => window.clearTimeout(timer);
+    const abort = new AbortController();
+    void pollDelay(discoveryRetry ? discoveryRetry * 1000 : 3500, abort.signal)
+      .then(() => setDiscoveryPass((n) => n + 1))
+      .catch(() => {});
+    return () => abort.abort();
   }, [
     currentTab,
     discovery,

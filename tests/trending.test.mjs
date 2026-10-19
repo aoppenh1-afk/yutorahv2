@@ -1569,6 +1569,275 @@ void test('a restarted chart scan reads compressed checkpoints and resumes every
   }
 });
 
+void test('warm scan passes validate the saved version without downloading an unchanged checkpoint', async (t) => {
+  const { db, sqlite } = database();
+  let now = initial,
+    bytes = 0;
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    const page = Number(new URL(input).searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: 2400,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(3_999_999 - (page - 1) * 30 - i),
+        ),
+      },
+    });
+  });
+  const measured = {
+    prepare(sql) {
+      const statement = (values = []) => ({
+        bind: (...args) => statement(args),
+        async first() {
+          const row = await db
+            .prepare(sql)
+            .bind(...values)
+            .first();
+          bytes += Buffer.byteLength(JSON.stringify(row));
+          return row;
+        },
+        run: () =>
+          db
+            .prepare(sql)
+            .bind(...values)
+            .run(),
+      });
+      return statement();
+    },
+  };
+  try {
+    const service = createTrendingService({
+      database: () => measured,
+      now: () => now,
+      requireStorage: true,
+      reportProgress: true,
+    });
+    const selected = { period: 'all', minutes: 0 };
+    assert.equal((await service(selected)).sampled, 360);
+    bytes = 0;
+    now += 3500;
+    const advanced = await service(selected);
+    assert.ok(
+      advanced.sampled > 360,
+      'A cheap read must still advance coverage',
+    );
+    assert.ok(bytes < 1000, `An unchanged checkpoint returned ${bytes} bytes`);
+    t.diagnostic(`Warm scan pass returned ${bytes} database bytes`);
+
+    const saved = createTrendingService({
+      database: () => measured,
+      now: () => now,
+      cachedOnly: true,
+    });
+    await saved(selected);
+    bytes = 0;
+    for (let check = 0; check < 2; check++) {
+      now += 31_000;
+      assert.equal((await saved(selected)).sampled, advanced.sampled);
+    }
+    assert.ok(
+      bytes < 1000,
+      'Repeated saved-chart validation must retain its version cache',
+    );
+
+    // Another process writes a different checkpoint. Resume that state, even
+    // when its fetchedAt equals the cached timestamp.
+    const key = 'trending:v1:shared:2';
+    const changed = JSON.parse(
+      sqlite.prepare('SELECT plan FROM search_runs').get().plan,
+    );
+    const expectedCursor = changed.snapshot.nextPage;
+    changed.snapshot.index.items[0].title =
+      'A different writer updated this title';
+    changed.snapshot.index.audit.items.find(
+      (item) => item.id === changed.snapshot.index.items[0].id,
+    ).title = 'A different writer updated this title';
+    changed.checkpointVersion = crypto.randomUUID();
+    delete changed.compressedPlan;
+    delete changed.compressedPublicPlan;
+    sqlite
+      .prepare('UPDATE search_runs SET plan=? WHERE id=?')
+      .run(JSON.stringify(changed), key);
+    bytes = 0;
+    now += 3500;
+    const reloaded = await service(selected);
+    assert.ok(bytes > 1000, 'A changed version must reload durable progress');
+    assert.ok(reloaded.coverage.cursor > expectedCursor);
+    const persisted = JSON.parse(
+      sqlite.prepare('SELECT plan FROM search_runs').get().plan,
+    );
+    assert.ok(
+      persisted.snapshot.index.items.some(
+        (item) => item.title === 'A different writer updated this title',
+      ),
+    );
+  } finally {
+    sqlite.close();
+  }
+});
+
+void test('a cold concurrent request reads only public charts while another process owns the scan lease', async (t) => {
+  const { db, sqlite } = database();
+  let now = initial;
+  const upstream = t.mock.method(globalThis, 'fetch', async (input) => {
+    const page = Number(new URL(input).searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: 2400,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(3_999_999 - (page - 1) * 30 - i),
+        ),
+      },
+    });
+  });
+  try {
+    const selected = { period: 'all', minutes: 0 };
+    const config = {
+      database: () => db,
+      now: () => now,
+      requireStorage: true,
+      reportProgress: true,
+    };
+    const original = await createTrendingService(config)(selected);
+    now += 3500;
+    sqlite.prepare('UPDATE search_runs SET lease=?').run(now + 75_000);
+    const before = sqlite.prepare('SELECT plan,lease FROM search_runs').get();
+    let downloadedPrivate = false;
+    const measured = {
+      prepare(sql) {
+        const statement = (values = []) => ({
+          bind: (...args) => statement(args),
+          async first() {
+            const row = await db
+              .prepare(sql)
+              .bind(...values)
+              .first();
+            if (row?.plan) {
+              const plan = row.plan.startsWith('gzip:v1:')
+                ? JSON.parse(
+                    (await import('node:zlib'))
+                      .gunzipSync(Buffer.from(row.plan.slice(8), 'base64'))
+                      .toString(),
+                  )
+                : JSON.parse(row.plan);
+              downloadedPrivate ||=
+                !!plan.snapshot?.seen || !!plan.snapshot?.index?.audit;
+            }
+            return row;
+          },
+          run: () =>
+            db
+              .prepare(sql)
+              .bind(...values)
+              .run(),
+        });
+        return statement();
+      },
+    };
+    const calls = upstream.mock.callCount();
+    const service = createTrendingService({
+      ...config,
+      database: () => measured,
+    });
+    const busy = await service(selected);
+    assert.equal(busy.stale, true);
+    assert.equal(busy.sampled, original.sampled);
+    assert.equal(
+      downloadedPrivate,
+      false,
+      'A non-owner must not download resumable state',
+    );
+    assert.equal(upstream.mock.callCount(), calls);
+    assert.deepEqual(
+      sqlite.prepare('SELECT plan,lease FROM search_runs').get(),
+      before,
+    );
+    assert.equal((await service(selected)).sampled, original.sampled);
+    now += 76_000;
+    const resumed = await service(selected);
+    assert.ok(
+      resumed.sampled > original.sampled,
+      'Lease expiry must allow a full checkpoint reload',
+    );
+    assert.equal(resumed.stale, false);
+  } finally {
+    sqlite.close();
+  }
+});
+
+void test('a peer publication between version validation and lease acquisition cannot be overwritten', async () => {
+  const { db, sqlite } = database();
+  let now = initial,
+    calls = 0,
+    replace = false,
+    peer;
+  const measured = {
+    prepare(sql) {
+      const statement = (values = []) => ({
+        bind: (...args) => statement(args),
+        first: () =>
+          db
+            .prepare(sql)
+            .bind(...values)
+            .first(),
+        run: async () => {
+          if (replace && sql.startsWith('UPDATE search_runs SET lease = ?')) {
+            replace = false;
+            const plan = JSON.parse(
+              sqlite.prepare('SELECT plan FROM search_runs').get().plan,
+            );
+            plan.checkpointVersion = crypto.randomUUID();
+            plan.snapshot.sampled = 60;
+            plan.snapshot.nextId = 60;
+            peer = JSON.stringify(plan);
+            sqlite.prepare('UPDATE search_runs SET plan=?').run(peer);
+          }
+          return db
+            .prepare(sql)
+            .bind(...values)
+            .run();
+        },
+      });
+      return statement();
+    },
+  };
+  try {
+    const service = createTrendingService({
+      database: () => measured,
+      now: () => now,
+      requireStorage: true,
+      read: async (selected, at, previous) => {
+        calls++;
+        if (calls > 1) assert.equal(previous.nextId, 60);
+        return {
+          ...snapshot(selected, at),
+          total: 90,
+          sampled: calls === 1 ? 30 : 90,
+          partial: calls === 1,
+          nextId: 30,
+        };
+      },
+    });
+    await service(options);
+    now += 3500;
+    replace = true;
+    assert.equal((await service(options)).stale, true);
+    assert.equal(
+      calls,
+      1,
+      'A replaced checkpoint must be reloaded before upstream work',
+    );
+    assert.equal(
+      sqlite.prepare('SELECT plan FROM search_runs').get().plan,
+      peer,
+    );
+    now += 31_000;
+    assert.equal((await service(options)).sampled, 90);
+  } finally {
+    sqlite.close();
+  }
+});
+
 void test('the warmer stops after one database quota rejection without retrying', async (t) => {
   const { runTrendingWarm } = await load('scripts/trending-runner.ts');
   const calls = t.mock.method(globalThis, 'fetch', async () =>
