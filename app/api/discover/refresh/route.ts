@@ -3,6 +3,7 @@ import { transferAuthorized } from '@/lib/title-transfer';
 import { parseTrendingOptions, TrendingChangedError } from '@/lib/trending';
 import { createTrendingService, TrendingBusyError } from '@/lib/trending-cache';
 import { searchDatabase } from '@/lib/search-db';
+import { isDatabaseQuotaError } from '@/lib/database-errors';
 
 const refresh = createTrendingService({
   database: searchDatabase,
@@ -41,6 +42,15 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    if (isDatabaseQuotaError(error))
+      return Response.json(
+        {
+          error:
+            'Trending refresh is paused because its database quota has been reached.',
+          code: 'DATABASE_QUOTA_EXCEEDED',
+        },
+        { status: 503, headers },
+      );
     if (error instanceof RangeError)
       return Response.json({ error: error.message }, { status: 400, headers });
     if (

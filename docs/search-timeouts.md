@@ -1,5 +1,104 @@
 # Search read timeouts
 
+## October 19 database quota failure
+
+The production request below consistently returned the application's HTTP 502
+response in under half a second, including when repeated with the unrelated
+literal query `shabbat`:
+
+```sh
+curl --fail-with-body --max-time 25 \
+  'https://yutorah.vercel.app/api/search?q=rav+adler&page=1'
+```
+
+The public upstream API returned HTTP 200 with 167 results for `rav adler`.
+A connection using the local search migration environment was rejected before
+any SQL ran, with SQLSTATE `53000` and the message "Your account or project has
+exceeded the quota." Production logs recorded only `search_failed`. These
+observations point to database quota exhaustion, rather than an upstream read
+timeout.
+
+A subsequent authenticated Neon Console check confirmed the affected production
+project is `yutorah-titles` (`young-field-89494360`), with endpoint
+`ep-steep-dew-b8vig9u0`. Its monthly network transfer is 5,511,452,085 bytes against
+a 5,000,000,000-byte allowance. Compute is 21.44 CU-hours of 100, and logical
+storage is 484,466,688 bytes. The console explicitly reports exhausted network
+transfer and an inactive endpoint. The current period ends November 1 at
+00:00 UTC. Removing cached rows cannot replenish consumed network transfer.
+
+The separate notes-search project has transferred only 20,620 bytes and stores
+175,882,240 bytes. The older transcription project remains transfer-blocked at
+5,567,511,167 bytes. These allowances are per project, so unused notes-search
+capacity does not keep title search available. The October 15 split addressed
+storage pressure; this incident concerns outgoing database traffic. Aggregate
+usage does not identify which caller or feature consumed each byte.
+
+Search now distinguishes that quota rejection from other resource errors,
+returns an uncached HTTP 503 with a database-quota message, and records the safe
+event `search_database_quota_exceeded`. It does not log connection details or
+return the provider's upgrade message. `tests/search-route.test.ts` exercises
+the real search route and search database-read path with the connection failure.
+This response correction does not restore database access. The database quota
+must be resolved separately, and the production request rerun after recovery.
+
+## Reducing chart transfer volume
+
+Saved chart requests previously fetched the complete shared scan state for every
+chart choice, including coverage bitmaps and an independent census. Public SQL
+reads now omit those private checkpoints before returning data. A process shares
+the resulting snapshot for sixty seconds, rechecking rebuilding charts after
+three seconds and stale completed charts after thirty seconds. Display validation
+checks ranking metadata and coverage summaries; scan resumptions retain full
+checkpoint validation.
+
+Background passes also downloaded the raw checkpoint on every server restart or
+new instance. New writes retain the original JSON for compatibility and add a
+versioned gzip representation. Scan readers select only the compressed value in
+SQL and decompress with a 16 MiB output limit. Existing uncompressed rows remain
+readable. Public projections omit the compressed copy as well. The protected
+runner stops immediately on an explicit database-quota rejection instead of
+repeating the unavailable request. Aggregate performance samples record snapshot
+read bytes and cache hits without logging IDs, queries, credentials, or content.
+
+The regression with a large partial scan previously returned 7,167,030 serialized
+database-result bytes across five chart choices. It now returns 76,428 bytes in
+one SQL read. A restarted scan reads 5,459 bytes and still reconciles all 600
+fixture records. These are fixture measurements, not a claim about production's
+whole-month transfer savings. SQLite and real PostgreSQL regressions verify SQL
+projection, compressed reads, legacy JSON preservation, and unchanged checkpoints.
+
+## Recovery into the new account
+
+On October 19, three Free projects were provisioned in the standalone YU Torah
+organization, with 0.25 CU compute limits and AWS US East 1 placement:
+
+- `bold-waterfall-76246199`: title search, vocabulary, and application caches.
+- `square-cell-01006015`: notes-search index.
+- `fancy-mode-13668947`: reserved for the legacy transcription copy.
+
+The notes database was exported live and all five table counts and ordered
+content digests matched after restore. The title recovery uses the verified
+October 15 backup. All six retained title/source table counts and digests matched
+that backup before ingesting recent public metadata. Expired query-cache rows and
+the relocated notes-index data were excluded from the title restore; cache-byte
+accounting was initialized from the actual document table. The latest schema
+migration and runtime-role compatibility checks passed on the replacements.
+The newest 1,500 public metadata records refreshed the recovered vocabulary.
+
+The old title and transcription projects reject even owner connections with
+SQLSTATE `53000`. The transcription destination is empty until a current source
+export becomes possible; do not point the production transcript reader at it.
+The original projects and backups remain intact. Account ownership transfer is
+not a quota reset: [Neon's transfer documentation](https://neon.com/docs/manage/orgs-project-transfer)
+states that usage follows the project and excludes Vercel-managed organizations
+from direct transfers. This recovery copies data into separate new projects.
+
+Private dumps, connection settings, ordered-copy audits, recent-title evidence,
+and production-function smoke results are under
+`work/neon-migration-20261019/private/`. They must remain outside Git.
+
+## Upstream read interruptions
+
 Production compound and misspelled searches returned HTTP 502 after roughly
 18 seconds on October 2, 2026. The failing command was:
 

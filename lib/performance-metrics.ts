@@ -5,6 +5,7 @@ type Event =
   | 'search_cache'
   | 'search_pass'
   | 'search_transaction'
+  | 'trending_snapshot'
   | 'transcript_read_cache'
   | 'audio_preparation';
 /** Aggregate-only samples: never accept query text, SQL, IDs or request payloads. */

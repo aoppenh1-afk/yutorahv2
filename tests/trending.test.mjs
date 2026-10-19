@@ -1352,6 +1352,107 @@ void test('a cold saved-chart request returns promptly without starting or mutat
   sqlite.close();
 });
 
+void test('saved chart reads exclude scan bitmaps and reuse one bounded read across chart choices', async (t) => {
+  const { readTrendingIndex, validTrendingIndex } = await load(
+    'lib/trending-index.ts',
+  );
+  const { db, sqlite } = database();
+  let now = initial;
+  let total = 600;
+  const upstream = t.mock.method(globalThis, 'fetch', async (input) => {
+    const page = Number(new URL(input).searchParams.get('start'));
+    return Response.json({
+      response: {
+        numFound: total,
+        docs: Array.from({ length: 30 }, (_, i) =>
+          raw(3_999_999 - (page - 1) * 30 - i),
+        ),
+      },
+    });
+  });
+  try {
+    const data = await readTrendingIndex(options, initial);
+    assert.equal(validTrendingIndex(data), true);
+    assert.equal(data.partial, true);
+    total = 30;
+    const complete = await readTrendingIndex(options, initial);
+    assert.equal(complete.partial, false);
+    const key = 'trending:v1:shared:2';
+    const plan = JSON.stringify({ snapshot: data, lastComplete: complete });
+    assert.ok(Buffer.byteLength(plan) > 600_000);
+    sqlite
+      .prepare(
+        'INSERT INTO search_runs(id,fingerprint,plan,total,next,created,lease) VALUES(?,?,?,30,2,?,0)',
+      )
+      .run(key, key, plan, now);
+    let reads = 0,
+      bytes = 0;
+    const measured = {
+      prepare(sql) {
+        const prepare = (values = []) => ({
+          bind: (...args) => prepare(args),
+          async first() {
+            reads++;
+            const row = await db
+              .prepare(sql)
+              .bind(...values)
+              .first();
+            bytes += Buffer.byteLength(JSON.stringify(row));
+            return row;
+          },
+        });
+        return prepare();
+      },
+    };
+    const service = createTrendingService({
+      database: () => measured,
+      now: () => now,
+      cachedOnly: true,
+    });
+    const calls = upstream.mock.callCount();
+    for (const period of ['day', 'week', 'month', 'year', 'all']) {
+      const result = await service({ period, minutes: 0 });
+      assert.equal(result.total, 30);
+      assert.equal(result.trending.length, 30);
+    }
+    t.diagnostic(
+      `Five saved chart choices: ${reads} SQL reads, ${bytes} returned bytes; stored checkpoint ${Buffer.byteLength(plan)} bytes`,
+    );
+    assert.equal(
+      reads,
+      1,
+      'Changing the chart must share a recently loaded snapshot',
+    );
+    assert.ok(
+      bytes < 100_000,
+      `Public reads transferred ${bytes} bytes of private checkpoint state`,
+    );
+    assert.equal(upstream.mock.callCount(), calls);
+    assert.equal(
+      sqlite.prepare('SELECT plan FROM search_runs').get().plan,
+      plan,
+    );
+    now += 61_000;
+    const changed = structuredClone(complete);
+    changed.index.items[0].title = 'Updated chart title';
+    changed.fetchedAt = new Date(now).toISOString();
+    sqlite
+      .prepare('UPDATE search_runs SET plan=?')
+      .run(JSON.stringify({ snapshot: changed }));
+    const updated = await service({ period: 'all', minutes: 0 });
+    assert.equal(
+      reads,
+      2,
+      'The memory cache must recheck durable snapshots after its TTL',
+    );
+    assert.ok(
+      updated.trending.some((item) => item.title === 'Updated chart title'),
+    );
+  } finally {
+    sqlite.close();
+  }
+});
+
 void test('background refresh requires durable storage and retries cache write failures instead of reporting completion', async () => {
   let calls = 0;
   const read = async () => {
@@ -1388,6 +1489,104 @@ void test('background refresh requires durable storage and retries cache write f
     undefined,
   );
   sqlite.close();
+});
+
+void test('a restarted chart scan reads compressed checkpoints and resumes every record with legacy JSON intact', async (t) => {
+  const { db, sqlite } = database();
+  let now = initial;
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    const page = Number(new URL(input).searchParams.get('start'));
+    const size = Math.min(30, Math.max(0, 600 - (page - 1) * 30));
+    return Response.json({
+      response: {
+        numFound: 600,
+        docs: Array.from({ length: size }, (_, i) =>
+          raw(3_999_999 - (page - 1) * 30 - i),
+        ),
+      },
+    });
+  });
+  try {
+    const config = {
+      database: () => db,
+      now: () => now,
+      requireStorage: true,
+      reportProgress: true,
+    };
+    const first = await createTrendingService(config)({
+      period: 'all',
+      minutes: 0,
+    });
+    assert.equal(first.partial, true);
+    assert.equal(first.sampled, 360);
+    const stored = JSON.parse(
+      sqlite.prepare('SELECT plan FROM search_runs').get().plan,
+    );
+    assert.ok(
+      stored.snapshot.seen.length > 600_000,
+      'Older deployments must retain their complete readable checkpoint',
+    );
+    let bytes = 0;
+    const measured = {
+      prepare(sql) {
+        const statement = (values = []) => ({
+          bind: (...args) => statement(args),
+          async first() {
+            const row = await db
+              .prepare(sql)
+              .bind(...values)
+              .first();
+            bytes += Buffer.byteLength(JSON.stringify(row));
+            return row;
+          },
+          run: () =>
+            db
+              .prepare(sql)
+              .bind(...values)
+              .run(),
+        });
+        return statement();
+      },
+    };
+    now += 4000;
+    const resumed = await createTrendingService({
+      ...config,
+      database: () => measured,
+    })({ period: 'all', minutes: 0 });
+    assert.equal(resumed.partial, false);
+    assert.equal(resumed.sampled, 600);
+    assert.equal(resumed.coverage.status, 'reconciled');
+    t.diagnostic(
+      `Restarted scan checkpoint read: ${bytes} bytes; raw bitmap ${stored.snapshot.seen.length} bytes plus census state`,
+    );
+    assert.ok(
+      bytes < 100_000,
+      'A background scan must not download the raw checkpoint on every pass',
+    );
+    assert.match(stored.compressedPlan, /^gzip:v1:/);
+  } finally {
+    sqlite.close();
+  }
+});
+
+void test('the warmer stops after one database quota rejection without retrying', async (t) => {
+  const { runTrendingWarm } = await load('scripts/trending-runner.ts');
+  const calls = t.mock.method(globalThis, 'fetch', async () =>
+    Response.json({ code: 'DATABASE_QUOTA_EXCEEDED' }, { status: 503 }),
+  );
+  const result = await runTrendingWarm({
+    base: new URL('https://example.test'),
+    refresh: true,
+    token: 'fixture-token',
+    minutes: 0,
+    periods: ['all'],
+    maxPasses: 100,
+    sleep: async () =>
+      assert.fail('Exhausted monthly quotas must not be retried'),
+    log: () => {},
+  });
+  assert.equal(result, 'deferred');
+  assert.equal(calls.mock.callCount(), 1);
 });
 
 void test('the protected refresher resumes an existing browser scan and saved requests see its completed charts', async () => {
