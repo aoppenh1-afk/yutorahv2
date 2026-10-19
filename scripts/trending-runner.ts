@@ -60,6 +60,15 @@ export async function runTrendingWarm({
           signal: AbortSignal.timeout(Math.min(60000, remaining)),
         });
         if (response.status === 503) {
+          const failure = (await response.json().catch(() => null)) as {
+            code?: string;
+          } | null;
+          if (failure?.code === 'DATABASE_QUOTA_EXCEEDED') {
+            log(
+              'Database quota exhausted. Deferring refresh until database access is restored.',
+            );
+            return 'deferred';
+          }
           if (!refresh && !['day', 'week'].includes(period))
             throw new Error(
               `${period}: saved chart is not ready; use --refresh with TRENDING_REFRESH_TOKEN to resume the shared scan.`,

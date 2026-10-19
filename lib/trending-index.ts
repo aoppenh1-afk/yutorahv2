@@ -404,7 +404,10 @@ export function selectTrendingChart(
 }
 
 /** Reject old or corrupt shared snapshots before the cache can serve them. */
-export function validTrendingIndex(data: DiscoveryData): boolean {
+export function validTrendingIndex(
+  data: DiscoveryData,
+  checkpoints = true,
+): boolean {
   const index = data.index;
   if (
     !index ||
@@ -426,7 +429,7 @@ export function validTrendingIndex(data: DiscoveryData): boolean {
   )
     return false;
   const audit = index.audit;
-  if (audit) {
+  if (checkpoints && audit) {
     if (
       !Number.isSafeInteger(audit.sampled) ||
       audit.sampled < 0 ||
@@ -507,11 +510,13 @@ export function validTrendingIndex(data: DiscoveryData): boolean {
   )
     return false;
   if (
+    checkpoints &&
     data.partial &&
     (typeof data.seen !== 'string' || data.seen.length > 700000)
   )
     return false;
-  const bitmap = data.partial ? Buffer.from(data.seen!, 'base64') : undefined;
+  const bitmap =
+    checkpoints && data.partial ? Buffer.from(data.seen!, 'base64') : undefined;
   const ids = new Set(index.items.map((item) => item?.id));
   if (
     ids.size !== index.items.length ||

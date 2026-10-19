@@ -1,3 +1,5 @@
+import { gzipSync, gunzipSync } from 'node:zlib';
+import { Buffer } from 'node:buffer';
 import {
   readTrendingIndex,
   selectTrendingChart,
@@ -9,6 +11,7 @@ import {
   type TrendingOptions,
 } from './trending';
 import type { SearchDatabase } from './search-storage';
+import { performanceSample } from './performance-metrics';
 
 const freshFor = (options: TrendingOptions) =>
   (options.period === 'all'
@@ -24,6 +27,62 @@ const staleFor = 24 * 60 * 60 * 1000;
 const leaseFor = 75 * 1000;
 const retryFor = 30 * 1000;
 const progressFor = 3 * 1000;
+const savedReadFor = 60 * 1000;
+const packedPrefix = 'gzip:v1:';
+const maxPlanBytes = 16 * 1024 * 1024;
+
+type StoredTrendingPlan = {
+  kind?: string;
+  options?: TrendingOptions;
+  snapshot?: DiscoveryData;
+  lastComplete?: DiscoveryData;
+};
+
+/** Keep the original JSON for older deployments and add a compressed read
+ * representation. SQL selects only that representation for scan resumptions. */
+export function serializeTrendingPlan(plan: StoredTrendingPlan) {
+  const text = JSON.stringify(plan);
+  const raw = Buffer.from(text);
+  if (raw.length < 32_000 || raw.length > maxPlanBytes) return text;
+  const compressedPlan = packedPrefix + gzipSync(raw).toString('base64');
+  return compressedPlan.length < raw.length
+    ? JSON.stringify({ ...plan, compressedPlan })
+    : text;
+}
+
+function parseTrendingPlan(plan: string): StoredTrendingPlan {
+  if (!plan.startsWith(packedPrefix)) return JSON.parse(plan);
+  const encoded = plan.slice(packedPrefix.length);
+  const bytes = Buffer.from(encoded, 'base64');
+  if (bytes.toString('base64') !== encoded)
+    throw new Error('Invalid compressed trending state.');
+  return JSON.parse(
+    gunzipSync(bytes, { maxOutputLength: maxPlanBytes }).toString('utf8'),
+  );
+}
+
+const storedPlanField = (db: SearchDatabase) =>
+  db.dialect === 'postgres'
+    ? "CASE WHEN plan IS JSON OBJECT THEN COALESCE(plan::jsonb->>'compressedPlan',plan) ELSE plan END"
+    : "CASE WHEN json_valid(plan) THEN COALESCE(json_extract(plan,'$.compressedPlan'),plan) ELSE plan END";
+
+/** Public readers need rankings and coverage summaries, never scan bitmaps or
+ * the independent census. Remove those inside SQL before they leave storage. */
+export function trendingPlanSql(db: SearchDatabase, publicOnly: boolean) {
+  const paths = [
+    ['compressedPlan'],
+    ['snapshot', 'seen'],
+    ['snapshot', 'index', 'audit'],
+    ['lastComplete', 'seen'],
+    ['lastComplete', 'index', 'audit'],
+  ];
+  const plan = !publicOnly
+    ? storedPlanField(db)
+    : db.dialect === 'postgres'
+      ? `CASE WHEN plan IS JSON OBJECT THEN (plan::jsonb ${paths.map((path) => `#- '{${path.join(',')}}'`).join(' ')})::text ELSE plan END`
+      : `CASE WHEN json_valid(plan) THEN json_remove(plan,${paths.map((path) => `'$.${path.join('.')}'`).join(',')}) ELSE plan END`;
+  return `SELECT ${plan} AS plan FROM search_runs WHERE id = ? AND fingerprint = ?`;
+}
 
 export { TrendingChangedError } from './trending';
 
@@ -68,7 +127,9 @@ export function createTrendingService({
       now,
       read: readTrendingIndex,
       cacheKey: 'trending:v1:shared:2',
-      validate: validTrendingIndex,
+      // A display snapshot has no checkpoint bytes. Resuming a scan always
+      // retains the full validator and original persisted state.
+      validate: (data) => validTrendingIndex(data, !cachedOnly),
       preferCompleted: !reportProgress,
       cachedOnly,
       requireStorage,
@@ -85,6 +146,10 @@ export function createTrendingService({
   const completed = new Map<string, DiscoveryData>();
   const pending = new Map<string, Promise<DiscoveryData>>();
   const cooldowns = new Map<string, { until: number; error: unknown }>();
+  const savedReads = new Map<
+    string,
+    { data: DiscoveryData; expires: number }
+  >();
   const age = (data: DiscoveryData) => now() - Date.parse(data.fetchedAt);
   // Old completed unions can still be shown, but cannot suppress the first
   // independent census after deployment. Keep the same persisted cache row.
@@ -125,18 +190,18 @@ export function createTrendingService({
         throw new Error('Trending refresh requires persistent storage.');
       if (db) {
         const row = await db
-          .prepare(
-            'SELECT plan FROM search_runs WHERE id = ? AND fingerprint = ?',
-          )
+          .prepare(trendingPlanSql(db, cachedOnly))
           .bind(key, key)
           .first<{ plan: string }>();
         if (row) {
+          performanceSample('trending_snapshot', {
+            public: cachedOnly ? 1 : 0,
+            bytes: new TextEncoder().encode(row.plan).length,
+            hit: 0,
+          });
           let valid = false;
           try {
-            const parsed = JSON.parse(row.plan) as {
-              snapshot?: DiscoveryData;
-              lastComplete?: DiscoveryData;
-            };
+            const parsed = parseTrendingPlan(row.plan);
             const last = parsed.lastComplete;
             if (
               last &&
@@ -175,8 +240,9 @@ export function createTrendingService({
                 (snapshot.source === 'mobile'
                   ? Number.isSafeInteger(snapshot.nextPage) &&
                     snapshot.nextPage! > 0 &&
-                    typeof snapshot.seen === 'string' &&
-                    snapshot.seen.length <= 1400000 &&
+                    (cachedOnly ||
+                      (typeof snapshot.seen === 'string' &&
+                        snapshot.seen.length <= 1400000)) &&
                     Number.isSafeInteger(snapshot.libraryTotal)
                   : Number.isSafeInteger(snapshot.nextId) &&
                     snapshot.nextId! > 0)) &&
@@ -195,7 +261,7 @@ export function createTrendingService({
           if (!cachedOnly && !valid && !usable(previous, staleFor))
             await db
               .prepare(
-                'UPDATE search_runs SET created = 0 WHERE id = ? AND plan = ? AND lease <= ?',
+                `UPDATE search_runs SET created = 0 WHERE id = ? AND ${storedPlanField(db)} = ? AND lease <= ?`,
               )
               .bind(key, row.plan, now())
               .run();
@@ -290,7 +356,7 @@ export function createTrendingService({
               'UPDATE search_runs SET plan = ?, total = ?, next = ?, created = ?, lease = 0 WHERE id = ? AND lease = ?',
             )
             .bind(
-              JSON.stringify({
+              serializeTrendingPlan({
                 kind: 'trending',
                 options,
                 snapshot: data,
@@ -326,7 +392,7 @@ export function createTrendingService({
                 'UPDATE search_runs SET plan = ?, created = 0, lease = 0 WHERE id = ? AND lease = ?',
               )
               .bind(
-                JSON.stringify({ lastComplete: completed.get(key) }),
+                serializeTrendingPlan({ lastComplete: completed.get(key) }),
                 key,
                 lease,
               )
@@ -362,6 +428,18 @@ export function createTrendingService({
 
   return async (options: TrendingOptions) => {
     const key = cacheKey ?? `trending:v1:${options.period}:${options.minutes}`;
+    const saved = cachedOnly && savedReads.get(key);
+    if (saved && saved.expires > now()) {
+      performanceSample('trending_snapshot', { public: 1, hit: 1, bytes: 0 });
+      return {
+        ...saved.data,
+        stale:
+          saved.data.stale ||
+          saved.data.partial ||
+          !usable(saved.data, freshFor(options)),
+      };
+    }
+    savedReads.delete(key);
     const hit = memory.get(key);
     if (
       !cachedOnly &&
@@ -381,6 +459,17 @@ export function createTrendingService({
     pending.set(key, request);
     try {
       const data = await request;
+      if (cachedOnly)
+        savedReads.set(key, {
+          data,
+          expires:
+            now() +
+            (data.partial || data.refreshing
+              ? progressFor
+              : data.stale
+                ? retryFor
+                : savedReadFor),
+        });
       if (data.stale) {
         cooldowns.set(key, {
           until: now() + retryFor,

@@ -26,7 +26,7 @@
     "sources:prepare": "tsx scripts/prepare-sources.ts",
     "sources:evaluate": "tsx scripts/evaluate-sources.ts",
     "test:live": "node --test tests/live-api.test.mjs",
-    "test:search": "node tests/search.test.mjs && node --test tests/complete-search.test.mjs tests/d1-http.test.mjs tests/title-index.test.mjs tests/autocomplete.test.mjs && tsx --test tests/search-expansion.test.ts tests/search-results.test.ts",
+    "test:search": "node tests/search.test.mjs && node --test tests/complete-search.test.mjs tests/d1-http.test.mjs tests/title-index.test.mjs tests/autocomplete.test.mjs && tsx --test tests/search-expansion.test.ts tests/search-results.test.ts tests/search-route.test.ts",
     "trending:warm": "tsx scripts/warm-trending.ts",
     "catalog:warm": "node scripts/warm-catalog.mjs",
     "search:index": "tsx scripts/index-search-titles.ts",
@@ -53,7 +53,7 @@
     "account-library:deploy": "node scripts/deploy-account-library.mjs",
     "test:parity": "tsx --test tests/feature-parity.test.ts tests/catalog-artwork.test.ts tests/catalog-loading.test.ts tests/catalog-loading-view.test.tsx tests/topic-groups.test.ts tests/teacher-profile.test.tsx tests/teacher-popularity-client.test.ts",
     "test:downloads": "tsx --test tests/audio-download.test.ts tests/offline-client.test.ts tests/offline-content.test.ts && node --test tests/offline-worker.test.mjs && node --test tests/downloads-browser.test.mjs",
-    "test:content": "tsx --test tests/transcript-archive.test.ts tests/transcript-database.test.ts tests/transcript-gateway.test.ts tests/official-transcript.test.ts tests/read-cache.test.ts tests/publication-budget.test.ts tests/publication.test.ts tests/search-server.test.ts tests/content-tunnel.test.ts tests/search-postgres.test.ts tests/search-schema.test.ts tests/search-storage-routing.test.ts tests/search-compaction.test.ts tests/catalog-postgres.test.ts",
+    "test:content": "tsx --test tests/transcript-archive.test.ts tests/transcript-database.test.ts tests/transcript-gateway.test.ts tests/official-transcript.test.ts tests/read-cache.test.ts tests/publication-budget.test.ts tests/publication.test.ts tests/search-server.test.ts tests/content-tunnel.test.ts tests/search-postgres.test.ts tests/search-schema.test.ts tests/search-storage-routing.test.ts tests/search-compaction.test.ts tests/catalog-postgres.test.ts tests/trending-postgres.test.ts",
     "content:serve": "tsx apps/notes-only/src/content-cli.ts",
     "pretest:content": "node scripts/setup-test-database.mjs"
   },

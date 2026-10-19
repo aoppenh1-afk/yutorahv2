@@ -4,7 +4,10 @@ import {
   SearchBusyError,
 } from '@/lib/complete-search';
 import { searchDatabase } from '@/lib/search-db';
-import { isStorageCapacityError } from '@/lib/database-errors';
+import {
+  isDatabaseQuotaError,
+  isStorageCapacityError,
+} from '@/lib/database-errors';
 import { getCatalogService, deferCatalogWork } from '@/lib/catalog-server';
 export async function GET(request: Request) {
   const started = performance.now();
@@ -167,6 +170,18 @@ export async function GET(request: Request) {
       },
     });
   } catch (e) {
+    if (isDatabaseQuotaError(e)) {
+      console.error(
+        JSON.stringify({ event: 'search_database_quota_exceeded' }),
+      );
+      return Response.json(
+        {
+          error:
+            'Search is unavailable because its database quota has been reached. Please try again later.',
+        },
+        { status: 503, headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
     if (isStorageCapacityError(e))
       return Response.json(
         { error: 'Search storage is full. Retry after storage is expanded.' },
