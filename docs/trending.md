@@ -47,6 +47,14 @@ Invalid pages include missing documents, duplicate IDs within a page, incorrect 
 
 A paused checkpoint returns without upstream work or a database write until its retry time. Successful persistence releases the lease in the same update, avoiding an extra write. Protected refresh responses report the active checkpoint even when public requests show the previous chart. They include a `Retry-After` header when paused. Leases and in-process promises still coordinate all periods and duration variants. Fresh reconciled results are reused for twelve hours.
 
+New checkpoints carry a random `checkpointVersion`. Each warm pass still checks storage, but SQL returns only the version and lease when the process already holds that exact checkpoint. A successful write updates the retained version; a changed or legacy row returns its payload. Version checks also apply when saved-chart readers revalidate their process cache. The lease claim compares the version that was read, so a peer publication between validation and acquisition forces a reload instead of a stale write. No timestamp comparison substitutes for the version token.
+
+While another process owns the lease, a cold request reads public chart state instead of private scan bitmaps. It keeps the saved rankings and original timestamp visible, marks the response stale, and uses the existing thirty-second retry cooldown. Display-only state is never retained as a resumable checkpoint. Expired leases and changed versions load full state before more upstream work. Old deployments can still read the JSON and write unversioned checkpoints; those rows remain readable but require a payload download.
+
+Automatic browser polling pauses when the document is hidden, using the same visibility-aware delay as source polling. It resumes after the normal delay when the tab becomes visible. Visible polling intervals, the six-hour workflow schedule, the twenty-minute job budget, scan coverage rules and twelve-hour reconciled freshness remain unchanged.
+
+An October 19 replay of the current production checkpoint through disposable PostgreSQL schemas measured 281,764 raw returned column bytes on an old warm scan pass and 37 bytes with version reuse, with seven SQL queries in each case and continued census cursor progress. Cold reads still returned approximately 282 KB. A cold request during an active lease still needs public rankings, approximately 128 KB for that checkpoint, but does not download private scan state. These measurements exclude protocol/TLS overhead and do not predict total monthly usage. Private before/after evidence is under `work/background-transfer-20261019/private/` and its durable backup.
+
 ## Running the warmer
 
 Set `TRENDING_REFRESH_TOKEN` in the deployed server environment and runner environment. The token is sent in an Authorization header; authenticated requests do not follow redirects.

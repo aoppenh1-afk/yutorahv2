@@ -1,10 +1,94 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { Pool } from 'pg';
 import { postgresSearchDatabase } from '../lib/search-postgres';
 import { serializeTrendingPlan, trendingPlanSql } from '../lib/trending-cache';
 import { gunzipSync } from 'node:zlib';
+import type { TransferCount } from '../lib/database-transfer';
+
+void test(
+  'PostgreSQL validates checkpoint versions and active leases without returning scan payloads',
+  { skip: !process.env.TEST_DATABASE_URL },
+  async (t) => {
+    const pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
+    const schema = 'trending_' + randomUUID().replaceAll('-', '');
+    const key = 'trending:v1:shared:2';
+    try {
+      await pool.query(`CREATE SCHEMA ${schema}`);
+      await pool.query(
+        `CREATE TABLE ${schema}.search_runs(id text PRIMARY KEY,fingerprint text,plan text,lease bigint)`,
+      );
+      const state = {
+        checkpointVersion: randomUUID(),
+        snapshot: { seen: randomBytes(100_000).toString('base64') },
+      };
+      const packed = () =>
+        serializeTrendingPlan(
+          state as unknown as Parameters<typeof serializeTrendingPlan>[0],
+        );
+      await pool.query(`INSERT INTO ${schema}.search_runs VALUES($1,$1,$2,0)`, [
+        key,
+        packed(),
+      ]);
+      const counts: TransferCount[] = [];
+      const db = postgresSearchDatabase(pool, schema, async (batch) => {
+        counts.push(...batch);
+      });
+      const read = (version: string, publicOnly = false) =>
+        db
+          .prepare(trendingPlanSql(db, publicOnly, { skipLeased: !publicOnly }))
+          .bind(...(!publicOnly ? [1000] : []), version, key, key)
+          .first<{ plan: string | null; version: string; lease?: string }>();
+      assert.ok((await read(''))!.plan);
+      const coldBytes = counts.at(-1)!.columnBytes;
+      assert.ok(coldBytes > 100_000);
+      assert.equal((await read(state.checkpointVersion))!.plan, null);
+      const warmBytes = counts.at(-1)!.columnBytes;
+      assert.ok(warmBytes < 128, 'Unchanged state must not leave PostgreSQL');
+      assert.equal((await read(state.checkpointVersion, true))!.plan, null);
+      const firstVersion = state.checkpointVersion;
+      state.checkpointVersion = randomUUID();
+      await pool.query(`UPDATE ${schema}.search_runs SET plan=$1`, [packed()]);
+      assert.equal(
+        (await read(firstVersion))!.version,
+        state.checkpointVersion,
+      );
+      assert.ok(
+        counts.at(-1)!.columnBytes > 100_000,
+        'Another writer must invalidate the cache',
+      );
+      await pool.query(`UPDATE ${schema}.search_runs SET lease=2000`);
+      const leased = await read('');
+      assert.equal(leased!.plan, null);
+      assert.equal(Number(leased!.lease), 2000);
+      assert.ok(counts.at(-1)!.columnBytes < 128);
+      assert.ok(
+        (await read('', true))!.plan,
+        'Public charts remain readable during the lease',
+      );
+      for (const legacy of [
+        JSON.stringify({ snapshot: state.snapshot }),
+        'invalid JSON',
+      ]) {
+        await pool.query(`UPDATE ${schema}.search_runs SET lease=0,plan=$1`, [
+          legacy,
+        ]);
+        assert.equal(
+          (await read(state.checkpointVersion))!.plan,
+          legacy,
+          'Legacy and corrupt rows must reach the existing validation/recovery path',
+        );
+      }
+      t.diagnostic(
+        `Checkpoint columns: cold ${coldBytes} bytes, unchanged ${warmBytes} bytes`,
+      );
+    } finally {
+      await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await pool.end();
+    }
+  },
+);
 
 void test(
   'PostgreSQL removes private chart checkpoints before returning public state and preserves resumable state',

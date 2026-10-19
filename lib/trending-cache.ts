@@ -32,6 +32,7 @@ const packedPrefix = 'gzip:v1:';
 const maxPlanBytes = 16 * 1024 * 1024;
 
 type StoredTrendingPlan = {
+  checkpointVersion?: string;
   kind?: string;
   options?: TrendingOptions;
   snapshot?: DiscoveryData;
@@ -82,9 +83,18 @@ const storedPlanField = (db: SearchDatabase) =>
     ? "CASE WHEN plan IS JSON OBJECT THEN COALESCE(plan::jsonb->>'compressedPlan',plan) ELSE plan END"
     : "CASE WHEN json_valid(plan) THEN COALESCE(json_extract(plan,'$.compressedPlan'),plan) ELSE plan END";
 
+const storedVersionField = (db: SearchDatabase) =>
+  db.dialect === 'postgres'
+    ? "CASE WHEN plan IS JSON OBJECT THEN plan::jsonb->>'checkpointVersion' END"
+    : "CASE WHEN json_valid(plan) THEN json_extract(plan,'$.checkpointVersion') END";
+
 /** Public readers need rankings and coverage summaries, never scan bitmaps or
  * the independent census. Remove those inside SQL before they leave storage. */
-export function trendingPlanSql(db: SearchDatabase, publicOnly: boolean) {
+export function trendingPlanSql(
+  db: SearchDatabase,
+  publicOnly: boolean,
+  revalidate?: { skipLeased: boolean },
+) {
   const paths = [
     ['compressedPlan'],
     ['compressedPublicPlan'],
@@ -98,7 +108,14 @@ export function trendingPlanSql(db: SearchDatabase, publicOnly: boolean) {
     : db.dialect === 'postgres'
       ? `CASE WHEN plan IS JSON OBJECT THEN COALESCE(plan::jsonb->>'compressedPublicPlan',(plan::jsonb ${paths.map((path) => `#- '{${path.join(',')}}'`).join(' ')})::text) ELSE plan END`
       : `CASE WHEN json_valid(plan) THEN COALESCE(json_extract(plan,'$.compressedPublicPlan'),json_remove(plan,${paths.map((path) => `'$.${path.join('.')}'`).join(',')})) ELSE plan END`;
-  return `SELECT ${plan} AS plan FROM search_runs WHERE id = ? AND fingerprint = ?`;
+  if (!revalidate)
+    return `SELECT ${plan} AS plan FROM search_runs WHERE id = ? AND fingerprint = ?`;
+  const version = storedVersionField(db);
+  // A timestamp alone is not a version: another writer can save different
+  // state with the same fetchedAt. Older writers omit the token and always
+  // return their payload. An active lease needs only public display state.
+  const lease = !publicOnly && revalidate.skipLeased;
+  return `SELECT CASE WHEN ${lease ? 'lease > ? OR ' : ''}${version} = ? THEN NULL ELSE ${plan} END AS plan, ${version} AS version${lease ? ', lease' : ''} FROM search_runs WHERE id = ? AND fingerprint = ?`;
 }
 
 export { TrendingChangedError } from './trending';
@@ -129,7 +146,7 @@ export function createTrendingService({
   now?: () => number;
   /** Internal key for the shared library index. */
   cacheKey?: string;
-  validate?: (data: DiscoveryData) => boolean;
+  validate?: (data: DiscoveryData, resumable?: boolean) => boolean;
   preferCompleted?: boolean;
   /** Read saved rankings without advancing an upstream scan. */
   cachedOnly?: boolean;
@@ -146,7 +163,8 @@ export function createTrendingService({
       cacheKey: 'trending:v1:shared:2',
       // A display snapshot has no checkpoint bytes. Resuming a scan always
       // retains the full validator and original persisted state.
-      validate: (data) => validTrendingIndex(data, !cachedOnly),
+      validate: (data, resumable = true) =>
+        validTrendingIndex(data, !cachedOnly && resumable),
       preferCompleted: !reportProgress,
       cachedOnly,
       requireStorage,
@@ -160,9 +178,16 @@ export function createTrendingService({
   // timestamp and partial coverage tell clients how current it is.
   const retainedFor = cachedOnly ? Infinity : staleFor;
   const memory = new Map<string, DiscoveryData>();
+  const checkpoints = new Map<
+    string,
+    { version: string; plan: StoredTrendingPlan }
+  >();
   const completed = new Map<string, DiscoveryData>();
   const pending = new Map<string, Promise<DiscoveryData>>();
-  const cooldowns = new Map<string, { until: number; error: unknown }>();
+  const cooldowns = new Map<
+    string,
+    { until: number; error: unknown; data?: DiscoveryData }
+  >();
   const savedReads = new Map<
     string,
     { data: DiscoveryData; expires: number }
@@ -200,29 +225,57 @@ export function createTrendingService({
     let previous = memory.get(key);
     let db: SearchDatabase | undefined;
     let lease = 0;
+    let expectedVersion: string | undefined;
     let releaseLease = true;
     try {
       db = database?.();
       if (requireStorage && !db)
         throw new Error('Trending refresh requires persistent storage.');
       if (db) {
+        const known = checkpoints.get(key);
+        const readAt = now();
         const row = await db
-          .prepare(trendingPlanSql(db, cachedOnly))
-          .bind(key, key)
-          .first<{ plan: string }>();
+          .prepare(trendingPlanSql(db, cachedOnly, { skipLeased: !cachedOnly }))
+          .bind(
+            ...(!cachedOnly ? [readAt] : []),
+            known?.version ?? null,
+            key,
+            key,
+          )
+          .first<{
+            plan: string | null;
+            version: string | null;
+            lease?: number | string;
+          }>();
         if (row) {
+          expectedVersion = row.version || undefined;
+          const busy = !cachedOnly && Number(row.lease) > readAt;
+          let text = row.plan;
+          let parsed =
+            text === null && known?.version === row.version
+              ? known?.plan
+              : undefined;
+          if (busy && !parsed) {
+            // Another process is doing the work. Avoid its private checkpoint
+            // and keep serving the saved rankings until its lease expires.
+            const display = await db
+              .prepare(trendingPlanSql(db, true))
+              .bind(key, key)
+              .first<{ plan: string }>();
+            text = display?.plan ?? null;
+          }
           performanceSample('trending_snapshot', {
-            public: cachedOnly ? 1 : 0,
-            bytes: new TextEncoder().encode(row.plan).length,
-            hit: 0,
+            public: cachedOnly || busy ? 1 : 0,
+            bytes: text === null ? 0 : new TextEncoder().encode(text).length,
+            hit: parsed ? 1 : 0,
           });
           let valid = false;
           try {
-            const parsed = parseTrendingPlan(row.plan);
+            parsed ??= parseTrendingPlan(text!);
             const last = parsed.lastComplete;
             if (
               last &&
-              validate(last) &&
+              validate(last, !busy) &&
               !last.partial &&
               last.period === options.period &&
               last.minutes === options.minutes &&
@@ -238,7 +291,7 @@ export function createTrendingService({
             const snapshot = parsed.snapshot;
             if (
               snapshot &&
-              validate(snapshot) &&
+              validate(snapshot, !busy) &&
               snapshot.period === options.period &&
               snapshot.minutes === options.minutes &&
               snapshot.dateBasis === 'upload-date' &&
@@ -258,6 +311,7 @@ export function createTrendingService({
                   ? Number.isSafeInteger(snapshot.nextPage) &&
                     snapshot.nextPage! > 0 &&
                     (cachedOnly ||
+                      busy ||
                       (typeof snapshot.seen === 'string' &&
                         snapshot.seen.length <= 1400000)) &&
                     Number.isSafeInteger(snapshot.libraryTotal)
@@ -266,23 +320,46 @@ export function createTrendingService({
               snapshot.trending.length <= 30 &&
               Number.isFinite(Date.parse(snapshot.fetchedAt)) &&
               (!previous ||
-                Date.parse(snapshot.fetchedAt) > Date.parse(previous.fetchedAt))
+                Date.parse(snapshot.fetchedAt) >
+                  Date.parse(previous.fetchedAt) ||
+                ((snapshot === previous || row.version) &&
+                  snapshot.fetchedAt === previous.fetchedAt))
             ) {
               previous = snapshot;
               if (!snapshot.partial) completed.set(key, snapshot);
               valid = true;
             }
+            if (
+              valid &&
+              !busy &&
+              typeof row.version === 'string' &&
+              row.version.length > 0 &&
+              row.version.length <= 128 &&
+              parsed.checkpointVersion === row.version
+            )
+              checkpoints.set(key, { version: row.version, plan: parsed });
+            else if (!busy) checkpoints.delete(key);
           } catch {
+            checkpoints.delete(key);
             /* Discard corrupt cache entries; rebuild from the source. */
           }
-          if (!cachedOnly && !valid && !usable(previous, staleFor))
+          if (!cachedOnly && !busy && !valid && !usable(previous, staleFor))
             await db
               .prepare(
                 `UPDATE search_runs SET created = 0 WHERE id = ? AND ${storedPlanField(db)} = ? AND lease <= ?`,
               )
-              .bind(key, row.plan, now())
+              .bind(key, text, now())
               .run();
-        }
+          if (busy) {
+            const saved = reportProgress
+              ? previous
+              : fallback(key, previous) || previous;
+            if (saved) return { ...saved, stale: true };
+            throw new TrendingBusyError(
+              'This chart is refreshing. Please try again shortly.',
+            );
+          }
+        } else checkpoints.delete(key);
         if (previous) memory.set(key, previous);
         if (cachedOnly) {
           const saved = fallback(key, previous);
@@ -320,7 +397,7 @@ export function createTrendingService({
         lease = started + leaseFor;
         const claimed = await db
           .prepare(
-            'UPDATE search_runs SET lease = ? WHERE id = ? AND lease <= ? AND created <= ?',
+            `UPDATE search_runs SET lease = ? WHERE id = ? AND lease <= ? AND created <= ?${expectedVersion ? ` AND ${storedVersionField(db)} = ?` : ''}`,
           )
           .bind(
             lease,
@@ -332,6 +409,7 @@ export function createTrendingService({
                 : unaudited(previous)
                   ? 0
                   : freshFor(options)),
+            ...(expectedVersion ? [expectedVersion] : []),
           )
           .run();
         if (!claimed.meta.changes) {
@@ -368,17 +446,19 @@ export function createTrendingService({
         completed.set(key, previous);
       if (db) {
         try {
+          const plan: StoredTrendingPlan = {
+            checkpointVersion: crypto.randomUUID(),
+            kind: 'trending',
+            options,
+            snapshot: data,
+            lastComplete: data.partial ? completed.get(key) : undefined,
+          };
           const saved = await db
             .prepare(
               'UPDATE search_runs SET plan = ?, total = ?, next = ?, created = ?, lease = 0 WHERE id = ? AND lease = ?',
             )
             .bind(
-              serializeTrendingPlan({
-                kind: 'trending',
-                options,
-                snapshot: data,
-                lastComplete: data.partial ? completed.get(key) : undefined,
-              }),
+              serializeTrendingPlan(plan),
               data.libraryTotal ?? data.total,
               Math.ceil(data.sampled / 30) + 1,
               Date.parse(data.fetchedAt),
@@ -390,6 +470,7 @@ export function createTrendingService({
             throw new TrendingBusyError(
               'The trending scan lease expired before progress was saved.',
             );
+          checkpoints.set(key, { version: plan.checkpointVersion!, plan });
           releaseLease = false;
         } catch (error) {
           if (requireStorage) throw error;
@@ -402,6 +483,7 @@ export function createTrendingService({
     } catch (error) {
       if (error instanceof TrendingChangedError) {
         memory.delete(key);
+        checkpoints.delete(key);
         if (db) {
           try {
             await db
@@ -466,7 +548,7 @@ export function createTrendingService({
       return present(key, hit!);
     const cooldown = cooldowns.get(key);
     if (cooldown && cooldown.until > now()) {
-      const cached = fallback(key, hit);
+      const cached = cooldown.data || fallback(key, hit);
       if (cached) return present(key, { ...cached, stale: true });
       throw cooldown.error;
     }
@@ -491,6 +573,7 @@ export function createTrendingService({
         cooldowns.set(key, {
           until: now() + retryFor,
           error: new TrendingBusyError('This chart is refreshing.'),
+          data,
         });
       } else cooldowns.delete(key);
       return present(key, data);
