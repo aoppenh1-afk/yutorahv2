@@ -334,6 +334,8 @@
   gap: 30px;
 }
 .daf-scan {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--line);
@@ -342,6 +344,7 @@
   background: var(--surface-2);
 }
 .daf-scan-tools {
+  flex-shrink: 0;
   position: sticky;
   left: 0;
   display: flex;
@@ -351,12 +354,17 @@
   margin-bottom: 12px;
 }
 .daf-scan img {
+  flex: 1;
+  min-height: 0;
   width: 100%;
   height: auto;
   max-width: none;
+  object-fit: contain;
+  object-position: top;
   display: block;
 }
 .daf-scan.is-zoomed img {
+  flex: none;
   width: 150%;
 }
 .catalog-subheading {

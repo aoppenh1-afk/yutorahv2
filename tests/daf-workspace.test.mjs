@@ -103,12 +103,18 @@ void test('Daf recordings scroll beside the scan and stay reachable on mobile', 
         list.scrollTop = 300;
         return {
           scanHeight: scan.getBoundingClientRect().height,
+          scanOverflows: scan.scrollHeight > scan.clientHeight + 1,
           recordingsHeight: recordings.getBoundingClientRect().height,
           listScroll: list.scrollTop,
           pageMoved: window.scrollY !== before.y,
           scanMoved: scan.getBoundingClientRect().top !== before.scanTop,
         };
       });
+      assert.equal(
+        dimensions.scanOverflows,
+        false,
+        `the full daf fits without vertical scrolling at ${width}px`,
+      );
       assert.ok(
         dimensions.recordingsHeight < 900,
         `bounded panels at ${width}px`,
@@ -180,18 +186,21 @@ void test('Daf recordings scroll beside the scan and stay reachable on mobile', 
 
     await page.setViewportSize({ width: 390, height: 844 });
     const mobile = await page.evaluate(() => {
-      const scan = document.querySelector('.daf-scan').getBoundingClientRect();
+      const scanElement = document.querySelector('.daf-scan');
+      const scan = scanElement.getBoundingClientRect();
       const recordings = document
         .querySelector('.daf-recordings')
         .getBoundingClientRect();
       const list = document.querySelector('.daf-recordings-list');
       return {
         stacked: recordings.top >= scan.bottom,
+        scanOverflows: scanElement.scrollHeight > scanElement.clientHeight + 1,
         listOverflow: getComputedStyle(list).overflowY,
         pageOverflows: document.documentElement.scrollWidth > window.innerWidth,
       };
     });
     assert.equal(mobile.stacked, true);
+    assert.equal(mobile.scanOverflows, false, 'the full daf fits on mobile');
     assert.equal(mobile.listOverflow, 'visible');
     assert.equal(mobile.pageOverflows, false);
   } finally {
