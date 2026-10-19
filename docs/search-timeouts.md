@@ -38,8 +38,8 @@ returns an uncached HTTP 503 with a database-quota message, and records the safe
 event `search_database_quota_exceeded`. It does not log connection details or
 return the provider's upgrade message. `tests/search-route.test.ts` exercises
 the real search route and search database-read path with the connection failure.
-This response correction does not restore database access. The database quota
-must be resolved separately, and the production request rerun after recovery.
+This response correction alone does not restore database access. The replacement
+projects described below restored the production request to HTTP 200.
 
 ## Reducing chart transfer volume
 
@@ -85,6 +85,20 @@ accounting was initialized from the actual document table. The latest schema
 migration and runtime-role compatibility checks passed on the replacements.
 The newest 1,500 public metadata records refreshed the recovered vocabulary.
 
+Production and Preview connection settings now use the destination's restricted
+title runtime and notes reader roles. Before switching the notes writer, all five
+source tables were locked, their digests rechecked, and the old indexer's write
+privileges revoked. The local notes-indexing environment now uses the replacement
+writer. The source rows were retained.
+
+Deployment `dpl_7hLup4PjjPToornseLhnjwR8gHw3`, built from `680d2bd`, was verified
+before promotion and activated at `https://yutorah.vercel.app`. Public checks
+returned HTTP 200 for the original `rav adler` search and page two, each returning
+30 items with 4,850 completed candidates; saved charts, notes for `1191751`, and
+the transcript for `929649` also passed. The chart refresh resumed successfully
+on the new database. These checks establish recovery, not a guarantee against
+all future upstream failures or quota exhaustion.
+
 The old title and transcription projects reject even owner connections with
 SQLSTATE `53000`. The transcription destination is empty until a current source
 export becomes possible; do not point the production transcript reader at it.
@@ -95,7 +109,18 @@ from direct transfers. This recovery copies data into separate new projects.
 
 Private dumps, connection settings, ordered-copy audits, recent-title evidence,
 and production-function smoke results are under
-`work/neon-migration-20261019/private/`. They must remain outside Git.
+`~/.local/share/yutorah-backups/neon-migration-20261019/`, with an ignored working
+copy at `work/neon-migration-20261019/private/`. They must remain outside Git.
+The fresh notes dump's SHA-256 is
+`5537e523b8f2c696b3c316fe74f0a4c98e96e4813a975bb3252758c6086e1211`.
+The title source backup remains in the October 15 storage-cleanup backup folder.
+
+Keep the new database connections when rolling back application code: an old
+deployment's environment snapshot points at the exhausted title database. Build
+a rollback release with the new connections and check its schema compatibility.
+Reverting the notes writer requires stopping destination indexing, reconciling
+any new rows back to the source, and restoring only the saved writer grants.
+Do not simply re-enable both writers.
 
 ## Upstream read interruptions
 
