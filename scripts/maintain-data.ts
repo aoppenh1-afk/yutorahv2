@@ -29,8 +29,9 @@ if (process.env.SEARCH_DATABASE_URL) {
   });
   try {
     const db = postgresSearchDatabase(pool);
-    const expired = `created<$1 AND ((next-1)*30>=total OR created<$2) AND fingerprint NOT LIKE 'trending:v1:%'`;
-    const params = [Date.now() - 3600000, Date.now() - 86400000];
+    const now = Date.now();
+    const expired = `created<$1 AND ((next-1)*30>=total OR created<$2) AND lease<$3 AND fingerprint NOT LIKE 'trending:v1:%'`;
+    const params = [now - 3600000, now - 86400000, now];
     const runs = await pool.query(
       `SELECT count(*) AS runs FROM yutorah_search.search_runs WHERE ${expired}`,
       params,
@@ -50,9 +51,9 @@ if (process.env.SEARCH_DATABASE_URL) {
       // Bound each transaction; repeated executions also clear a large old cache.
       await db
         .prepare(
-          `DELETE FROM search_runs WHERE id IN(SELECT id FROM search_runs WHERE created<? AND ((next-1)*30>=total OR created<?) AND fingerprint NOT LIKE 'trending:v1:%' LIMIT 100)`,
+          `DELETE FROM search_runs WHERE lease<? AND id IN(SELECT id FROM search_runs WHERE created<? AND ((next-1)*30>=total OR created<?) AND lease<? AND fingerprint NOT LIKE 'trending:v1:%' LIMIT 100)`,
         )
-        .bind(...params)
+        .bind(now, ...params)
         .run();
       await db
         .prepare(

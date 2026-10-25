@@ -44,6 +44,11 @@ jobs:
         run: |
           test -n "$SOURCES_DATABASE_URL" || { echo 'Add the SOURCES_DATABASE_URL repository secret using the website search database connection.'; exit 1; }
       - run: npm ci
+      - name: Remove expired search caches before preparing more sheets
+        if: inputs.check != true
+        env:
+          SEARCH_DATABASE_URL: ${{ secrets.SOURCES_DATABASE_URL }}
+        run: npm run data:maintain -- --apply
       - name: Prepare sheets directly on the GitHub runner
         run: |
           if [ "$SOURCE_CHECK" = 'true' ]; then

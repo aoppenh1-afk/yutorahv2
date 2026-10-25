@@ -5,7 +5,11 @@ import {
   type SourceCreatorResult,
 } from './source-creator';
 import { sourceCreatorResponse } from './source-creator-handler';
-import { pruneSourceCache } from './sources-cache';
+import {
+  pruneSourceCache,
+  assertSourceStorageCapacity,
+  SourceStorageCapacityError,
+} from './sources-cache';
 import { sourceRetryDelay } from './source-request';
 import type { SourceFeatures } from './source-features';
 
@@ -26,6 +30,7 @@ export type PreparationReport = {
     | 'budget'
     | 'locked'
     | 'disabled'
+    | 'storage-limit'
     | 'upstream-unavailable';
   discovered: number;
   processed: number;
@@ -47,7 +52,12 @@ type PreparationOptions = {
   fetcher?: typeof fetch;
   now?: () => number;
   wait?: (ms: number, signal: AbortSignal) => Promise<void>;
-  report?: (event: { id?: string; status: string; sources?: number }) => void;
+  report?: (event: {
+    id?: string;
+    status: string;
+    sources?: number;
+    reason?: string;
+  }) => void;
 };
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
@@ -71,12 +81,55 @@ export async function preparationFetch(
   url: URL,
   signal: AbortSignal,
   fetcher: typeof fetch = fetch,
+  options: {
+    wait?: typeof sleep;
+    now?: () => number;
+    deadline?: number;
+    report?: PreparationOptions['report'];
+  } = {},
 ) {
-  const response = await fetcher(url, {
-    signal: AbortSignal.any([signal, AbortSignal.timeout(25000)]),
-    redirect: 'error',
-    headers: { Accept: 'application/json' },
-  });
+  const now = options.now || Date.now;
+  const wait = options.wait || sleep;
+  let response: Response | undefined;
+  for (let attempt = 0; ; attempt++) {
+    signal.throwIfAborted();
+    response = undefined;
+    let retryAfter: string | null = null;
+    let reason = 'network';
+    try {
+      response = await fetcher(url, {
+        signal: AbortSignal.any([
+          signal,
+          AbortSignal.timeout(
+            Math.max(
+              1,
+              Math.min(25000, (options.deadline ?? Infinity) - now()),
+            ),
+          ),
+        ]),
+        redirect: 'error',
+        headers: { Accept: 'application/json' },
+      });
+      if (
+        ![408, 429, 500, 502, 503, 504].includes(response.status) ||
+        attempt >= 3
+      )
+        break;
+      retryAfter = response.headers.get('Retry-After');
+      reason = 'http-' + response.status;
+    } catch (error) {
+      if (signal.aborted) throw signal.reason;
+      if (attempt >= 3) throw error;
+    }
+    const delay = sourceRetryDelay(retryAfter, attempt, now());
+    if (now() + delay >= (options.deadline ?? Infinity)) {
+      if (response) break;
+      throw new Error('Published input retry reached its time budget.');
+    }
+    await response?.body?.cancel();
+    options.report?.({ status: 'input_retry', reason });
+    await wait(delay, signal);
+  }
   const reader = response.body?.getReader();
   const parts: Uint8Array[] = [];
   let bytes = 0;
@@ -111,6 +164,7 @@ export async function preparationCatalog(
   page: number,
   signal: AbortSignal,
   fetcher: typeof fetch = fetch,
+  options?: Parameters<typeof preparationFetch>[3],
 ) {
   const url = new URL('https://yutorah.org/api/search/get');
   url.search = new URLSearchParams({
@@ -118,7 +172,7 @@ export async function preparationCatalog(
     getFacets: 'false',
     start: String(page),
   }).toString();
-  const response = await preparationFetch(url, signal, fetcher);
+  const response = await preparationFetch(url, signal, fetcher, options);
   if (!response.ok) throw new Error('Catalog unavailable.');
   const raw = await response.json();
   const body = raw.response ?? raw;
@@ -184,13 +238,16 @@ export async function runSourcePreparation(
     nextPage: 1,
     discoveryFailed: false,
   };
+  const started = now();
+  const deadline = started + maxRuntimeMs;
+  const retries = { wait, now, deadline, report: options.report };
+  const inputFetch = (url: URL) =>
+    preparationFetch(url, signal, fetcher, retries);
   // Server switches apply here too, including when this runs outside the web server.
   let features = options.features;
   if (!features) {
-    const response = await preparationFetch(
+    const response = await inputFetch(
       new URL('/api/source-creator/features', options.site),
-      signal,
-      fetcher,
     );
     if (!response.ok)
       throw new Error(
@@ -206,8 +263,15 @@ export async function runSourcePreparation(
   }
   if (!features!.links && !features!.sheets)
     return { ...summary, outcome: 'disabled' };
-  const started = now();
-  const deadline = started + maxRuntimeMs;
+  signal.throwIfAborted();
+  if (now() >= deadline) return { ...summary, outcome: 'budget' };
+  try {
+    await assertSourceStorageCapacity(db);
+  } catch (error) {
+    if (!(error instanceof SourceStorageCapacityError)) throw error;
+    options.report?.({ status: 'storage_limit' });
+    return { ...summary, outcome: 'storage-limit' };
+  }
   const lease = deadline + 60000;
   await db
     .prepare(
@@ -268,7 +332,7 @@ export async function runSourcePreparation(
     // Refresh new uploads every run while an independent cursor traverses older pages.
     if (pages && active())
       try {
-        const recent = await preparationCatalog(1, signal, fetcher);
+        const recent = await preparationCatalog(1, signal, fetcher, retries);
         for (const id of recent.ids) await enqueue(id, false, -1);
         if (inventory.page === 1 || (inventory.page - 1) * 30 >= recent.total) {
           inventory = {
@@ -283,6 +347,7 @@ export async function runSourcePreparation(
             inventory.page,
             signal,
             fetcher,
+            retries,
           );
           for (const id of page.ids) await enqueue(id);
           inventory = {
@@ -326,20 +391,10 @@ export async function runSourcePreparation(
         // Input snapshots stay identical across all checkpoints in this attempt.
         const params = new URLSearchParams({ id: job.id });
         const [transcript, notes, description] = await Promise.all([
-          preparationFetch(
-            new URL('/api/transcript?' + params, options.site),
-            signal,
-            fetcher,
-          ),
-          preparationFetch(
-            new URL('/api/study-notes?' + params, options.site),
-            signal,
-            fetcher,
-          ),
-          preparationFetch(
+          inputFetch(new URL('/api/transcript?' + params, options.site)),
+          inputFetch(new URL('/api/study-notes?' + params, options.site)),
+          inputFetch(
             new URL('https://yutorah.org/api/shiur/details?shiurID=' + job.id),
-            signal,
-            fetcher,
           )
             .then(async (response) =>
               response.ok

@@ -16,6 +16,103 @@ import {
 import { runPublisher } from '../packages/transcription/src/publication';
 
 void test(
+  'scheduled search cleanup removes expired caches and orphaned documents while retaining active leases, checkpoints and trending',
+  { skip: !process.env.TEST_DATABASE_URL },
+  async () => {
+    const name = 'maintenance_search_' + randomUUID().replaceAll('-', '');
+    const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
+    await admin.query(`CREATE DATABASE ${name}`);
+    const url = new URL(process.env.TEST_DATABASE_URL!);
+    url.pathname = '/' + name;
+    const pool = new Pool({ connectionString: url.href });
+    try {
+      await pool.query(`CREATE SCHEMA yutorah_search;
+        CREATE TABLE yutorah_search.search_runs(id text PRIMARY KEY,created bigint,next int,total int,fingerprint text,lease bigint);
+        CREATE TABLE yutorah_search.search_documents(key text PRIMARY KEY,payload text);
+        CREATE TABLE yutorah_search.search_hits(run text REFERENCES yutorah_search.search_runs ON DELETE CASCADE,document_key text REFERENCES yutorah_search.search_documents);
+        CREATE TABLE yutorah_search.search_creation_leases(expires bigint);
+        CREATE TABLE yutorah_search.sources_runs(id text PRIMARY KEY,payload text,lease bigint,expires bigint);`);
+      const now = Date.now();
+      for (const [id, age, next, lease] of [
+        ['expired', 7200000, 3, 0],
+        ['active', 7200000, 3, now + 60000],
+        ['checkpoint', 7200000, 1, 0],
+        ['old-checkpoint', 90000000, 1, 0],
+        ['trending:v1:shared', 90000000, 3, 0],
+      ] as const) {
+        await pool.query(
+          'INSERT INTO yutorah_search.search_runs VALUES($1,$2,$3,30,$1,$4)',
+          [id, now - age, next, lease],
+        );
+        await pool.query(
+          'INSERT INTO yutorah_search.search_documents VALUES($1,$2)',
+          [id, '{}'],
+        );
+        await pool.query(
+          'INSERT INTO yutorah_search.search_hits VALUES($1,$1)',
+          [id],
+        );
+      }
+      await pool.query(
+        "INSERT INTO yutorah_search.sources_runs VALUES('preparation:runner-lock','{}',$1,$1),('prepared:creator-v5:42','{}',0,$1)",
+        [now + 86400000],
+      );
+      const run = (...args: string[]) =>
+        promisify(execFile)(
+          process.execPath,
+          ['--import', 'tsx', 'scripts/maintain-data.ts', ...args],
+          {
+            env: {
+              ...process.env,
+              SEARCH_DATABASE_URL: url.href,
+              TRANSCRIPTION_DATABASE_URL: '',
+            },
+          },
+        );
+      await run();
+      assert.equal(
+        (
+          await pool.query(
+            'SELECT count(*)::int AS n FROM yutorah_search.search_runs',
+          )
+        ).rows[0].n,
+        5,
+      );
+      await run('--apply');
+      const kept = ['active', 'checkpoint', 'trending:v1:shared'];
+      assert.deepEqual(
+        (
+          await pool.query(
+            'SELECT id FROM yutorah_search.search_runs ORDER BY id',
+          )
+        ).rows.map((r) => r.id),
+        kept,
+      );
+      assert.deepEqual(
+        (
+          await pool.query(
+            'SELECT key FROM yutorah_search.search_documents ORDER BY key',
+          )
+        ).rows.map((r) => r.key),
+        kept,
+      );
+      assert.equal(
+        (
+          await pool.query(
+            'SELECT count(*)::int AS n FROM yutorah_search.sources_runs',
+          )
+        ).rows[0].n,
+        2,
+      );
+    } finally {
+      await pool.end();
+      await admin.query(`DROP DATABASE ${name} WITH (FORCE)`);
+      await admin.end();
+    }
+  },
+);
+
+void test(
   'retention drains more than 100 eligible jobs across bounded passes and preserves protected data',
   { skip: !process.env.TEST_DATABASE_URL },
   async () => {

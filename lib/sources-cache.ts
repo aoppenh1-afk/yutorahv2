@@ -22,6 +22,8 @@ const snapshots = new WeakMap<
 const pruned = new WeakMap<SearchDatabase, number>();
 const textLoads = new WeakMap<SefariaFetch, Map<string, Promise<SourceText>>>();
 
+export class SourceStorageCapacityError extends SourcesLeaseError {}
+
 /** Neon limits the whole project, including template and maintenance databases.
  * Leave room for concurrent bounded requests and PostgreSQL index maintenance. */
 export async function assertSourceStorageCapacity(db: SearchDatabase) {
@@ -37,7 +39,7 @@ export async function assertSourceStorageCapacity(db: SearchDatabase) {
     Number(capacity.maximum) > 0 &&
     Number(capacity.bytes) + 16 * 1024 * 1024 >= Number(capacity.maximum)
   )
-    throw new SourcesLeaseError(
+    throw new SourceStorageCapacityError(
       'Source storage is near capacity. Retry after storage is expanded.',
     );
 }

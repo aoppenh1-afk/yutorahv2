@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
-import { setTimeout as pause } from 'node:timers/promises';
+import { runCatalogWarm } from './catalog-runner.mjs';
+import { appendFile } from 'node:fs/promises';
 
 const { values } = parseArgs({
   options: {
@@ -28,49 +29,26 @@ if (
   minutes > 30
 )
   throw new Error('Set TRENDING_REFRESH_TOKEN and choose valid cache budgets.');
-const deadline = Date.now() + minutes * 60_000;
-async function read(params) {
-  const url = new URL('/api/catalog/refresh', base);
-  url.search = new URLSearchParams(params).toString();
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + token },
-    redirect: 'error',
-    signal: AbortSignal.timeout(
-      Math.max(1, Math.min(60_000, deadline - Date.now())),
-    ),
+try {
+  const result = await runCatalogWarm({
+    base,
+    token,
+    collections,
+    teachers,
+    maxRuntimeMs: minutes * 60000,
+    report: (event) => console.log(JSON.stringify(event)),
   });
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error('Cache warm returned HTTP ' + response.status);
-  }
-  return response.json();
+  console.log(JSON.stringify(result));
+  if (process.env.GITHUB_STEP_SUMMARY)
+    await appendFile(
+      process.env.GITHUB_STEP_SUMMARY,
+      `Catalog refresh: ${JSON.stringify(result)}. Pending work resumes from saved checkpoints.\n`,
+    );
+  if (result.partial) process.exitCode = 2;
+} catch (error) {
+  const reason = /^http-\d+$|^network$/.test(error.message)
+    ? error.message
+    : 'invalid-response';
+  console.error(`Catalog refresh could not load its plan: ${reason}.`);
+  process.exitCode = 1;
 }
-const plan = await read({ kind: 'plan' });
-let warmed = 0,
-  partial = 0;
-const queue = [
-  ...plan.collections
-    .slice(0, collections)
-    .map((id) => ({ kind: 'collection', id })),
-  ...plan.teachers.slice(0, teachers).map((id) => ({ kind: 'teacher', id })),
-];
-while (queue.length && Date.now() < deadline - 1000) {
-  const { kind, id } = queue.shift();
-  try {
-    const result = await read({ kind, id: String(id) });
-    if (result.complete) warmed++;
-    else queue.push({ kind, id });
-    await pause(100);
-  } catch {
-    partial++;
-  }
-}
-console.log(
-  JSON.stringify({
-    warmed,
-    partial,
-    budgetReached: Date.now() >= deadline - 1000,
-  }),
-);
-if (partial) process.exitCode = 2;
