@@ -224,6 +224,56 @@ void test('upstream failure stays retryable and never becomes an empty completed
   );
 });
 
+void test('temporary published input failures are fetched again before running the detector', async () => {
+  const { db } = database(),
+    api = service();
+  let attempts = 0;
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = input instanceof Request ? input.url : input.toString();
+    if (url.includes('/api/transcript') && ++attempts === 1)
+      return Response.json(
+        {},
+        { status: 503, headers: { 'Retry-After': '1' } },
+      );
+    return api.fetcher(input, init);
+  };
+  const result = await runSourcePreparation({
+    ...options(db, fetcher),
+    ids: ['42'],
+    maxRuntimeMs: 10000,
+  });
+  assert.equal(result.ready, 1);
+  assert.equal(attempts, 2);
+});
+
+void test('project storage headroom is checked before queue writes and reported as a storage limit', async () => {
+  const { db, sqlite } = database(),
+    api = service();
+  const guarded: SearchDatabase = {
+    ...db,
+    dialect: 'postgres',
+    prepare: (sql) =>
+      sql.includes('pg_database_size')
+        ? {
+            ...db.prepare('SELECT 1'),
+            first: async <T>() =>
+              ({ bytes: '521592832', maximum: '536870912' }) as T,
+          }
+        : db.prepare(sql),
+  };
+  const result = await runSourcePreparation({
+    ...options(guarded, api.fetcher),
+    ids: ['42'],
+  });
+  assert.equal(result.outcome, 'storage-limit');
+  assert.equal(result.processed, 0);
+  assert.equal(
+    sqlite.prepare('SELECT count(*) AS n FROM sources_runs').get()!.n,
+    0,
+  );
+  assert.ok(!api.calls.some((url) => url.includes('/api/transcript')));
+});
+
 void test('archive discovery cannot starve scheduled checks for later notes', async () => {
   const { db } = database(),
     api = service();

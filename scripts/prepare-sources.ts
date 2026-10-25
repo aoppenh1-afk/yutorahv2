@@ -6,6 +6,7 @@ import {
 } from '../lib/search-postgres';
 import { runSourcePreparation } from '../lib/source-preparation';
 import { transferPool, transferReporter } from '../lib/database-transfer';
+import { SourceStorageCapacityError } from '../lib/sources-cache';
 
 const { values } = parseArgs({
   options: {
@@ -85,7 +86,7 @@ No local AI model, TiDB writer, transcript writer, or Sefaria key is needed.`);
             );
             if (size >= databaseBudget) {
               abort.abort(
-                new Error(
+                new SourceStorageCapacityError(
                   'Source preparation reached its database storage checkpoint.',
                 ),
               );
@@ -104,12 +105,20 @@ No local AI model, TiDB writer, transcript writer, or Sefaria key is needed.`);
       });
       summary = `Source preparation: ${JSON.stringify(result)}\nOnly canonical references and operational queue checkpoints are saved in the shared database. Source text is never saved.`;
       if (result.outcome === 'upstream-unavailable') process.exitCode = 1;
+      if (result.outcome === 'storage-limit') {
+        summary +=
+          '\nSource storage is near the project limit. Reclaim expired search caches or expand storage before retrying. The preparation queue was not advanced.';
+        process.exitCode = 1;
+      }
     }
     console.log(summary);
-  } catch {
+  } catch (error) {
     // Database/provider errors may contain credentials. Keep CI logs to a fixed message.
     summary =
-      'Source preparation could not finish. Check database access, published inputs, and upstream availability. Saved checkpoints will be reused.';
+      error instanceof SourceStorageCapacityError ||
+      abort.signal.reason instanceof SourceStorageCapacityError
+        ? 'Source preparation stopped at its database storage limit. Reclaim expired search caches or expand storage. Saved checkpoints will be reused.'
+        : 'Source preparation could not finish. Check database access, published inputs, and upstream availability. Saved checkpoints will be reused.';
     console.error(summary);
     process.exitCode = 1;
   } finally {
