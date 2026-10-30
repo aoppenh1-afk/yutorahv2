@@ -613,6 +613,81 @@ for (const width of [1280, 390]) {
 }
 
 void test(
+  'search suggestions keep a scrolled page stationary while typing and hovering',
+  { timeout: 30_000 },
+  async () => {
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+    });
+    await fixtures(context);
+    const page = await context.newPage();
+    page.setDefaultTimeout(6000);
+    try {
+      await page.goto(origin);
+      const input = page.getByRole('combobox', { name: 'Search YUTorah' });
+      await input.waitFor();
+      await page.getByText(recordings[0].title).first().waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      await page.evaluate(() => window.scrollTo(0, 450));
+      const inputBox = await input.boundingBox();
+      assert.ok(inputBox);
+      // Use pointer and keyboard input directly so locator helpers cannot scroll.
+      await page.mouse.click(inputBox.x + 20, inputBox.y + inputBox.height / 2);
+      const start = await page.evaluate(() => window.scrollY);
+      assert.equal(
+        start,
+        450,
+        'focusing the sticky search must preserve scroll',
+      );
+      const positions: number[] = [];
+      for (const letter of 'schachter') {
+        await page.keyboard.type(letter);
+        positions.push(
+          await page.evaluate(async () => {
+            await new Promise(requestAnimationFrame);
+            return window.scrollY;
+          }),
+        );
+      }
+      await page.getByRole('option').first().waitFor();
+      await page.keyboard.press('ArrowDown');
+      assert.ok(await input.getAttribute('aria-activedescendant'));
+      const optionBox = await page.getByRole('option').last().boundingBox();
+      assert.ok(optionBox);
+      await page.mouse.move(
+        optionBox.x + 20,
+        optionBox.y + optionBox.height / 2,
+      );
+      positions.push(
+        ...(await page.evaluate(async () => {
+          const samples: number[] = [];
+          for (let i = 0; i < 30; i++) {
+            await new Promise(requestAnimationFrame);
+            samples.push(window.scrollY);
+          }
+          return samples;
+        })),
+      );
+      assert.ok(
+        positions.every((position) => Math.abs(position - start) <= 1),
+        `search moved the page from ${start}px: ${positions.join(', ')}`,
+      );
+      await page.keyboard.press('Escape');
+      await input.evaluate((element: HTMLInputElement) => element.blur());
+      assert.equal(
+        await page.evaluate(
+          () => getComputedStyle(document.documentElement).scrollPaddingTop,
+        ),
+        '84px',
+        'content navigation keeps its sticky-header offset after leaving search',
+      );
+    } finally {
+      await context.close();
+    }
+  },
+);
+
+void test(
   'mobile Home offers keyboard-selectable teacher and shiur suggestions and direct study destinations',
   { timeout: 30_000 },
   async () => {
